@@ -1,0 +1,68 @@
+package com.udnahc.immichgallery.ui.screen.login
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
+import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import org.lighthousegames.logging.logging
+
+data class LoginState(
+    val serverUrl: String = "http://192.168.86.167:2283",
+    val apiKey: String = "pcikjymklYXrSTYr5FqXHY9birKVp0GzyOYuG6I",
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val isLoggedIn: Boolean = false
+)
+
+class LoginViewModel(
+    private val validateServerUseCase: ValidateServerUseCase,
+    private val saveServerConfigAction: SaveServerConfigAction
+) : ViewModel() {
+
+    private val log = logging()
+    private val _state = MutableStateFlow(LoginState())
+    val state: StateFlow<LoginState> = _state.asStateFlow()
+
+    fun updateServerUrl(url: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _state.update { it.copy(serverUrl = url, error = null) }
+        }
+    }
+
+    fun updateApiKey(key: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _state.update { it.copy(apiKey = key, error = null) }
+        }
+    }
+
+    fun login() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentState = _state.value
+            if (currentState.serverUrl.isBlank() || currentState.apiKey.isBlank()) {
+                _state.update { it.copy(error = "Server URL and API key are required") }
+                return@launch
+            }
+
+            log.d { "Login attempt to ${currentState.serverUrl}" }
+            _state.update { it.copy(isLoading = true, error = null) }
+            val result = validateServerUseCase(currentState.serverUrl.trimEnd('/'), currentState.apiKey)
+            result.fold(
+                onSuccess = {
+                    log.d { "Login successful" }
+                    saveServerConfigAction(currentState.serverUrl.trimEnd('/'), currentState.apiKey)
+                    _state.update { it.copy(isLoading = false, isLoggedIn = true) }
+                },
+                onFailure = { e ->
+                    log.e(e) { "Login failed" }
+                    _state.update { it.copy(isLoading = false, error = e.message ?: "Connection failed") }
+                }
+            )
+        }
+    }
+}

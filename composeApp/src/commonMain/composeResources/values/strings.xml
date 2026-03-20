@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App -->
+    <string name="app_title">ImmichGallery</string>
+
+    <!-- Login -->
+    <string name="login_subtitle">Connect to your Immich server</string>
+    <string name="login_server_url_label">Server URL</string>
+    <string name="login_server_url_placeholder">https://your-immich-server.com</string>
+    <string name="login_api_key_label">API Key</string>
+    <string name="login_api_key_placeholder">Your Immich API key</string>
+    <string name="login_connect">Connect</string>
+    <string name="login_required_fields">Server URL and API key are required</string>
+
+    <!-- Common -->
+    <string name="retry">Retry</string>
+    <string name="back">Back</string>
+    <string name="unknown">Unknown</string>
+    <string name="logout">Logout</string>
+    <string name="scrollbar_thumb">Scroll position indicator</string>
+    <string name="scrollbar_track">Scrollbar track</string>
+    <string name="items_count">%1$d items</string>
+
+    <!-- Timeline -->
+    <string name="timeline_failed_tap_retry">Failed to load. Tap to retry.</string>
+
+    <!-- Search -->
+    <string name="search_placeholder">Search photos…</string>
+    <string name="search_type_smart">Smart</string>
+    <string name="search_type_filename">Filename</string>
+    <string name="search_no_results">No results found</string>
+    <string name="search_hint">Search your photos using natural language or filename</string>
+
+    <!-- Detail -->
+    <string name="detail_failed_image">Failed to load image</string>
+    <string name="detail_video">Video</string>
+    <string name="detail_download">Download</string>
+    <string name="detail_share">Share</string>
+    <string name="detail_info">Info</string>
+
+    <!-- Tabs -->
+    <string name="tab_timeline">Timeline</string>
+    <string name="tab_albums">Albums</string>
+    <string name="tab_people">People</string>
+    <string name="tab_search">Search</string>
+</resources>
