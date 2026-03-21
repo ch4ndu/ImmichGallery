@@ -40,6 +40,7 @@ import chaintech.videoplayer.host.MediaPlayerHost
 import chaintech.videoplayer.model.VideoPlayerConfig
 import chaintech.videoplayer.ui.video.VideoPlayerComposable
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
+import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -168,12 +169,17 @@ private fun ImageContent(url: String, onTap: () -> Unit) {
             message = stringResource(Res.string.detail_failed_image),
             onRetry = { hasError = false }
         )
-    } else {
+    } else if (LocalAppActive.current) {
         CoilZoomAsyncImage(
             model = url,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             onTap = { onTap() }
+        )
+    } else {
+        Box(
+            Modifier.fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant)
         )
     }
 }

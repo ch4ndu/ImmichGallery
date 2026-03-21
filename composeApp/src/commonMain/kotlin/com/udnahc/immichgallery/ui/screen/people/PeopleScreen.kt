@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.people
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import coil3.compose.AsyncImage
+import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -106,14 +108,23 @@ private fun PersonItem(person: Person, onClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable(onClick = onClick)
     ) {
-        AsyncImage(
-            model = person.thumbnailUrl,
-            contentDescription = person.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(Dimens.personAvatarSize)
-                .clip(CircleShape)
-        )
+        if (LocalAppActive.current) {
+            AsyncImage(
+                model = person.thumbnailUrl,
+                contentDescription = person.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(Dimens.personAvatarSize)
+                    .clip(CircleShape)
+            )
+        } else {
+            Box(
+                Modifier
+                    .size(Dimens.personAvatarSize)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            )
+        }
         Text(
             text = person.name.ifBlank { unknownLabel },
             style = MaterialTheme.typography.bodySmall,

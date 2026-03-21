@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
+import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -36,12 +38,16 @@ fun ThumbnailCell(
             .aspectRatio(1f)
             .clickable(onClick = onClick)
     ) {
-        AsyncImage(
-            model = asset.thumbnailUrl,
-            contentDescription = asset.fileName,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.matchParentSize()
-        )
+        if (LocalAppActive.current) {
+            AsyncImage(
+                model = asset.thumbnailUrl,
+                contentDescription = asset.fileName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+        } else {
+            Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.surfaceVariant))
+        }
         if (asset.type == AssetType.VIDEO) {
             Icon(
                 painter = painterResource(Res.drawable.ic_play),

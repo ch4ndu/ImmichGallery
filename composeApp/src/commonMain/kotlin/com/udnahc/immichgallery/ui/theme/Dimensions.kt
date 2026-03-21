@@ -12,7 +12,7 @@ object Dimens {
     val personAvatarSize = 100.dp
     val searchBarHeight = 56.dp
     val topBarHeight = 56.dp
-    val bottomBarHeight = 80.dp
+    val bottomBarHeight = 56.dp
     val iconSize = 24.dp
     val smallSpacing = 4.dp
     val mediumSpacing = 8.dp
@@ -27,6 +27,6 @@ object Dimens {
     val scrollbarEndPadding = 4.dp
     val scrollbarHandleWidth = 6.dp
     val scrollbarHandleHeight = 32.dp
-    val scrollbarBubblePadding = 8.dp
-    val scrollbarBubbleHeight = 32.dp
+    val scrollbarBubblePadding = 12.dp
+    val scrollbarBubbleHeight = 40.dp
 }

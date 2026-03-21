@@ -2,16 +2,11 @@ package com.udnahc.immichgallery.ui.navigation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -27,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -122,33 +118,28 @@ fun MainScreen(
 
         // Bottom bar overlay — hide when photo overlay is active
         if (!overlayActive) {
-            Column(modifier = Modifier.align(Alignment.BottomCenter)) {
-                NavigationBar(containerColor = barColor) {
-                    bottomNavItems.forEach { item ->
-                        val label = stringResource(item.labelRes)
-                        val onClick = remember(item.route) {
-                            {
-                                tabNavController.navigate(item.route) {
-                                    popUpTo(tabNavController.graph.startDestinationId) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+            NavigationBar(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                containerColor = barColor
+            ) {
+                bottomNavItems.forEach { item ->
+                    val label = stringResource(item.labelRes)
+                    val onClick = remember(item.route) {
+                        {
+                            tabNavController.navigate(item.route) {
+                                popUpTo(tabNavController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
                             }
                         }
-                        NavigationBarItem(
-                            icon = { Icon(painterResource(item.iconRes), contentDescription = label) },
-                            label = null,
-                            selected = currentDestination?.hierarchy?.any { it.hasRoute(item.route::class) } == true,
-                            onClick = onClick
-                        )
                     }
+                    NavigationBarItem(
+                        icon = { Icon(painterResource(item.iconRes), contentDescription = label) },
+                        label = null,
+                        selected = currentDestination?.hierarchy?.any { it.hasRoute(item.route::class) } == true,
+                        onClick = onClick
+                    )
                 }
-                Spacer(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .windowInsetsBottomHeight(WindowInsets.navigationBars)
-                        .background(barColor)
-                )
             }
         }
     }

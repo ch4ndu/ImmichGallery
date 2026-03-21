@@ -75,10 +75,11 @@ fun TimelineScreen(
             state = state,
             pagingItemCount = pagingItems.itemCount,
             pagingItemProvider = { index -> pagingItems[index] },
-            onBucketVisible = viewModel::loadBucketAssets,
+            onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
             onRetryBucket = viewModel::retryBucket,
             onPhotoClick = { flatIndex -> selectedPhotoIndex = flatIndex },
-            onRetry = viewModel::loadBuckets
+            onRetry = viewModel::loadBuckets,
+            labelProvider = viewModel.labelProvider
         )
 
         selectedPhotoIndex?.let { index ->
@@ -99,10 +100,11 @@ fun TimelineContent(
     state: TimelineState,
     pagingItemCount: Int,
     pagingItemProvider: (Int) -> Asset?,
-    onBucketVisible: (String) -> Unit,
+    onVisibleBucketsChanged: (Set<String>) -> Unit,
     onRetryBucket: (String) -> Unit,
     onPhotoClick: (Int) -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    labelProvider: (Float) -> String?
 ) {
     when {
         state.isLoading && state.buckets.isEmpty() -> {
@@ -123,68 +125,39 @@ fun TimelineContent(
         else -> {
             val gridState = rememberLazyGridState()
             val buckets = state.buckets
+            val loadedBuckets = state.loadedBuckets
             val failedBuckets = state.failedBuckets
+            val cumulativeOffsets = state.cumulativeOffsets
 
-            // Compute cumulative offsets for mapping bucket index to flat paging index
-            val cumulativeOffsets = remember(buckets) {
-                var sum = 0
-                buckets.map { bucket ->
-                    val offset = sum
-                    sum += bucket.count
-                    offset
-                }
-            }
-
-            // Detect visible bucket headers and trigger loading
-            val visibleHeaderKeys by remember {
+            // Detect visible buckets from both header and asset items
+            val visibleBucketKeys by remember {
                 derivedStateOf {
-                    gridState.layoutInfo.visibleItemsInfo
-                        .mapNotNull { it.key as? String }
-                        .filter { it.startsWith(HEADER_KEY_PREFIX) }
-                        .map { it.removePrefix(HEADER_KEY_PREFIX) }
-                        .toSet()
-                }
-            }
-
-            val allTimeBuckets = remember(buckets) { buckets.map { it.timeBucket } }
-
-            LaunchedEffect(Unit) {
-                snapshotFlow { visibleHeaderKeys }
-                    .distinctUntilChanged()
-                    .collectLatest { visibleBuckets ->
-                        val indicesToLoad = mutableSetOf<Int>()
-                        for (tb in visibleBuckets) {
-                            val idx = allTimeBuckets.indexOf(tb)
-                            if (idx >= 0) {
-                                indicesToLoad.add(idx)
-                                if (idx + 1 < allTimeBuckets.size) indicesToLoad.add(idx + 1)
+                    val bucketKeys = mutableSetOf<String>()
+                    for (item in gridState.layoutInfo.visibleItemsInfo) {
+                        val key = item.key as? String ?: continue
+                        if (key.startsWith(HEADER_KEY_PREFIX)) {
+                            bucketKeys.add(key.removePrefix(HEADER_KEY_PREFIX))
+                        } else {
+                            // Asset keys: "{timeBucket}_{idx}"
+                            val timeBucket = key.substringBeforeLast("_", "")
+                            if (timeBucket.isNotEmpty()) {
+                                bucketKeys.add(timeBucket)
                             }
                         }
-                        for (idx in indicesToLoad) {
-                            onBucketVisible(allTimeBuckets[idx])
-                        }
                     }
+                    bucketKeys as Set<String>
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                snapshotFlow { visibleBucketKeys }
+                    .distinctUntilChanged()
+                    .collectLatest { onVisibleBucketsChanged(it) }
             }
 
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val navBarPadding =
                 WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-
-            // Item count for scrollbar: headers + asset cells
-            val estimatedGridItemCount = remember(buckets) {
-                buckets.sumOf { it.count } + buckets.size
-            }
-
-            val labelProvider: (Float) -> String? = remember(buckets, estimatedGridItemCount) {
-                { fraction ->
-                    val targetIndex = (fraction * estimatedGridItemCount).toInt()
-                    var accumulated = 0
-                    buckets.firstOrNull { bucket ->
-                        accumulated += 1 + bucket.count // header + assets
-                        targetIndex < accumulated
-                    }?.displayLabel
-                }
-            }
 
             Box(modifier = Modifier.fillMaxSize()) {
                 ScrollbarOverlay(
@@ -212,8 +185,8 @@ fun TimelineContent(
                                 BucketHeader(bucket)
                             }
 
-                            val flatOffset = cumulativeOffsets[bucketIndex]
                             val isFailed = failedBuckets.contains(bucket.timeBucket)
+                            val isLoaded = loadedBuckets.contains(bucket.timeBucket)
 
                             if (isFailed) {
                                 // Show a single full-span failed row
@@ -237,8 +210,17 @@ fun TimelineContent(
                                         )
                                     }
                                 }
+                            } else if (!isLoaded) {
+                                // Unloaded bucket: show placeholders without touching paging
+                                items(
+                                    count = bucket.count,
+                                    key = { idx -> "${bucket.timeBucket}_$idx" }
+                                ) {
+                                    PlaceholderCell()
+                                }
                             } else {
-                                // Individual asset cells
+                                // Loaded bucket: map to paging data
+                                val flatOffset = cumulativeOffsets[bucketIndex]
                                 items(
                                     count = bucket.count,
                                     key = { idx -> "${bucket.timeBucket}_$idx" }
@@ -269,7 +251,7 @@ fun TimelineContent(
                 // Overlay sticky header
                 StickyHeaderOverlay(
                     gridState = gridState,
-                    buckets = buckets,
+                    bucketLabelMap = state.bucketLabelMap,
                     statusBarPadding = statusBarPadding
                 )
             }
@@ -300,14 +282,9 @@ private fun BucketHeader(bucket: TimelineBucket) {
 @Composable
 private fun StickyHeaderOverlay(
     gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
-    buckets: List<TimelineBucket>,
+    bucketLabelMap: Map<String, String>,
     statusBarPadding: androidx.compose.ui.unit.Dp
 ) {
-    // Pre-build lookup map to avoid O(N) linear search per scroll frame
-    val bucketLabelMap = remember(buckets) {
-        buckets.associate { it.timeBucket to it.displayLabel }
-    }
-
     val currentBucketLabel by remember(bucketLabelMap) {
         derivedStateOf {
             val visibleItems = gridState.layoutInfo.visibleItemsInfo

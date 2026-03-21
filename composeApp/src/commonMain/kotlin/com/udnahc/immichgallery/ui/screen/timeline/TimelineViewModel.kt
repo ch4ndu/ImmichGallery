@@ -33,9 +33,19 @@ private const val PAGER_PREFETCH_DISTANCE = 30
 @Immutable
 data class TimelineState(
     val buckets: List<TimelineBucket> = emptyList(),
+    val loadedBuckets: Set<String> = emptySet(),
+    val loadingBuckets: Set<String> = emptySet(),
     val failedBuckets: Set<String> = emptySet(),
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    // Pre-computed on background dispatcher:
+    val cumulativeOffsets: List<Int> = emptyList(),
+    val allTimeBuckets: List<String> = emptyList(),
+    val estimatedGridItemCount: Int = 0,
+    val bucketLabelMap: Map<String, String> = emptyMap(),
+    // For O(log n) label lookup during scrollbar drag:
+    val cumulativeItemCounts: List<Int> = emptyList(),
+    val bucketDisplayLabels: List<String> = emptyList()
 )
 
 class TimelineViewModel(
@@ -49,7 +59,22 @@ class TimelineViewModel(
     private val _state = MutableStateFlow(TimelineState())
     val state: StateFlow<TimelineState> = _state.asStateFlow()
 
-    private val loadedBuckets = mutableSetOf<String>()
+    val labelProvider: (Float) -> String? = { fraction ->
+        val currentState = _state.value
+        val counts = currentState.cumulativeItemCounts
+        if (counts.isNotEmpty()) {
+            val targetIndex = (fraction * currentState.estimatedGridItemCount).toInt()
+            // Binary search: find first bucket whose cumulative count > targetIndex
+            var low = 0
+            var high = counts.size - 1
+            while (low < high) {
+                val mid = (low + high) ushr 1
+                if (counts[mid] <= targetIndex) low = mid + 1 else high = mid
+            }
+            currentState.bucketDisplayLabels.getOrNull(low)
+        } else null
+    }
+
 
     val assetsPaging: Flow<PagingData<Asset>> = Pager(
         config = PagingConfig(pageSize = PAGER_PAGE_SIZE, prefetchDistance = PAGER_PREFETCH_DISTANCE)
@@ -68,15 +93,15 @@ class TimelineViewModel(
     fun loadBuckets() {
         viewModelScope.launch(Dispatchers.IO) {
             log.d { "Loading timeline buckets..." }
-            _state.update { it.copy(isLoading = true, error = null) }
+            _state.update { it.copy(isLoading = true, error = null).withDerivedFields() }
             getTimelineBucketsUseCase().fold(
                 onSuccess = { buckets ->
                     log.d { "Loaded ${buckets.size} timeline buckets" }
-                    _state.update { it.copy(buckets = buckets, isLoading = false) }
+                    _state.update { it.copy(buckets = buckets, isLoading = false).withDerivedFields() }
                 },
                 onFailure = { e ->
                     log.e(e) { "Failed to load timeline buckets" }
-                    _state.update { it.copy(isLoading = false, error = e.message ?: "Failed to load timeline") }
+                    _state.update { it.copy(isLoading = false, error = e.message ?: "Failed to load timeline").withDerivedFields() }
                 }
             )
         }
@@ -84,38 +109,96 @@ class TimelineViewModel(
 
     fun loadBucketAssets(timeBucket: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (loadedBuckets.contains(timeBucket)) return@launch
-            if (_state.value.failedBuckets.contains(timeBucket)) return@launch
-            loadBucketAssetsInternal(timeBucket)
+            var shouldLoad = false
+            _state.update { current ->
+                if (current.loadedBuckets.contains(timeBucket) ||
+                    current.loadingBuckets.contains(timeBucket) ||
+                    current.failedBuckets.contains(timeBucket)
+                ) {
+                    shouldLoad = false
+                    current
+                } else {
+                    shouldLoad = true
+                    current.copy(loadingBuckets = current.loadingBuckets + timeBucket)
+                }
+            }
+            if (shouldLoad) {
+                loadBucketAssetsInternal(timeBucket)
+            }
+        }
+    }
+
+    fun onVisibleBucketsChanged(visibleTimeBuckets: Set<String>) {
+        val allBuckets = _state.value.allTimeBuckets
+        val indicesToLoad = mutableSetOf<Int>()
+        for (tb in visibleTimeBuckets) {
+            val idx = allBuckets.indexOf(tb)
+            if (idx >= 0) {
+                indicesToLoad.add(idx)
+                if (idx + 1 < allBuckets.size) indicesToLoad.add(idx + 1)
+                if (idx + 2 < allBuckets.size) indicesToLoad.add(idx + 2)
+            }
+        }
+        for (idx in indicesToLoad) {
+            loadBucketAssets(allBuckets[idx])
         }
     }
 
     fun retryBucket(timeBucket: String) {
         viewModelScope.launch(Dispatchers.IO) {
             log.d { "Retrying bucket: $timeBucket" }
-            loadedBuckets.remove(timeBucket)
             _state.update { state ->
-                state.copy(failedBuckets = state.failedBuckets - timeBucket)
+                state.copy(failedBuckets = state.failedBuckets - timeBucket).withDerivedFields()
             }
             loadBucketAssetsInternal(timeBucket)
         }
     }
 
+    private fun TimelineState.withDerivedFields(): TimelineState {
+        var loadedSum = 0
+        val offsets = buckets.map { bucket ->
+            val offset = loadedSum
+            if (loadedBuckets.contains(bucket.timeBucket)) {
+                loadedSum += bucket.count
+            }
+            offset
+        }
+
+        var cumulative = 0
+        val cumulativeCounts = buckets.map { bucket ->
+            cumulative += 1 + bucket.count  // header + assets
+            cumulative
+        }
+
+        return copy(
+            cumulativeOffsets = offsets,
+            allTimeBuckets = buckets.map { it.timeBucket },
+            estimatedGridItemCount = buckets.sumOf { it.count } + buckets.size,
+            bucketLabelMap = buckets.associate { it.timeBucket to it.displayLabel },
+            cumulativeItemCounts = cumulativeCounts,
+            bucketDisplayLabels = buckets.map { it.displayLabel }
+        )
+    }
+
     private suspend fun loadBucketAssetsInternal(timeBucket: String) {
-        loadedBuckets.add(timeBucket)
         log.d { "Loading assets for bucket: $timeBucket" }
         getBucketAssetsUseCase(timeBucket).fold(
             onSuccess = {
                 log.d { "Loaded assets for bucket: $timeBucket" }
                 _state.update { state ->
-                    state.copy(failedBuckets = state.failedBuckets - timeBucket)
+                    state.copy(
+                        loadingBuckets = state.loadingBuckets - timeBucket,
+                        loadedBuckets = state.loadedBuckets + timeBucket
+                    ).withDerivedFields()
                 }
             },
             onFailure = { e ->
                 log.e(e) { "Failed to load assets for bucket: $timeBucket" }
-                loadedBuckets.remove(timeBucket)
                 _state.update { state ->
-                    state.copy(failedBuckets = state.failedBuckets + timeBucket)
+                    state.copy(
+                        loadingBuckets = state.loadingBuckets - timeBucket,
+                        failedBuckets = state.failedBuckets + timeBucket
+                    ).withDerivedFields()
                 }
             }
         )

@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.album
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import coil3.compose.AsyncImage
+import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -106,12 +108,19 @@ private fun AlbumCard(album: Album, onClick: () -> Unit) {
         modifier = Modifier.clickable(onClick = onClick)
     ) {
         Column {
-            AsyncImage(
-                model = album.thumbnailUrl,
-                contentDescription = album.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f)
-            )
+            if (LocalAppActive.current) {
+                AsyncImage(
+                    model = album.thumbnailUrl,
+                    contentDescription = album.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f)
+                )
+            } else {
+                Box(
+                    Modifier.fillMaxWidth().aspectRatio(1f)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                )
+            }
             Column(modifier = Modifier.padding(Dimens.cardPadding)) {
                 Text(
                     text = album.name,
