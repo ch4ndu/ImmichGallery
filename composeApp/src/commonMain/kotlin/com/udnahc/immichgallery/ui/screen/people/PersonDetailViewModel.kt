@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -22,8 +23,11 @@ data class PersonDetailState(
 
 class PersonDetailViewModel(
     private val getPersonAssetsUseCase: GetPersonAssetsUseCase,
+    getApiKeyUseCase: GetApiKeyUseCase,
     private val personId: String
 ) : ViewModel() {
+
+    val apiKey: String = getApiKeyUseCase()
 
     private val _state = MutableStateFlow(PersonDetailState())
     val state: StateFlow<PersonDetailState> = _state.asStateFlow()

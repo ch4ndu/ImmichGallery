@@ -1,7 +1,9 @@
 package com.udnahc.immichgallery.data.model
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
+@Immutable
 @Serializable
 data class AlbumResponse(
     val id: String,
@@ -11,6 +13,7 @@ data class AlbumResponse(
     val updatedAt: String = ""
 )
 
+@Immutable
 @Serializable
 data class AlbumDetailResponse(
     val id: String,

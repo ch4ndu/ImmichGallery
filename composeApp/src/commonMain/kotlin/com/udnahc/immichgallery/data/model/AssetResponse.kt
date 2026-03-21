@@ -1,7 +1,9 @@
 package com.udnahc.immichgallery.data.model
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
+@Immutable
 @Serializable
 data class AssetResponse(
     val id: String,
@@ -20,6 +22,7 @@ data class AssetResponse(
  * Immich returns timeline bucket assets in columnar format:
  * {"id": ["a","b"], "isImage": [true,false], "stack": [["stackId","3"], null], ...}
  */
+@Immutable
 @Serializable
 data class TimelineBucketColumnarResponse(
     val id: List<String> = emptyList(),

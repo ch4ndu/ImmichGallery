@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
+import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,8 +24,11 @@ data class AlbumDetailState(
 
 class AlbumDetailViewModel(
     private val getAlbumDetailUseCase: GetAlbumDetailUseCase,
+    getApiKeyUseCase: GetApiKeyUseCase,
     private val albumId: String
 ) : ViewModel() {
+
+    val apiKey: String = getApiKeyUseCase()
 
     private val _state = MutableStateFlow(AlbumDetailState())
     val state: StateFlow<AlbumDetailState> = _state.asStateFlow()

@@ -15,6 +15,7 @@ import com.udnahc.immichgallery.domain.action.auth.ClearServerConfigAction
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
+import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
@@ -59,6 +60,7 @@ val sharedModule = module {
     // UseCases
     factory { ValidateServerUseCase(get()) }
     factory { GetLoginStatusUseCase(get()) }
+    factory { GetApiKeyUseCase(get()) }
     factory { GetTimelineBucketsUseCase(get()) }
     factory { GetBucketAssetsUseCase(get(), get()) }
     factory { GetAssetFileNameUseCase(get()) }
@@ -75,10 +77,10 @@ val sharedModule = module {
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
-    viewModel { TimelineViewModel(get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
-    viewModel { params -> AlbumDetailViewModel(get(), params.get()) }
+    viewModel { params -> AlbumDetailViewModel(get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }
-    viewModel { params -> PersonDetailViewModel(get(), params.get()) }
-    viewModel { SearchViewModel(get(), get()) }
+    viewModel { params -> PersonDetailViewModel(get(), get(), params.get()) }
+    viewModel { SearchViewModel(get(), get(), get()) }
 }

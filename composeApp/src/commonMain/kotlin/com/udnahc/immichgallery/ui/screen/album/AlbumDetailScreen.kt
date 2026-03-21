@@ -36,7 +36,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -49,7 +48,6 @@ import immichgallery.composeapp.generated.resources.ic_back
 import immichgallery.composeapp.generated.resources.retry
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -62,8 +60,7 @@ fun AlbumDetailScreen(
     viewModel: AlbumDetailViewModel = koinViewModel { parametersOf(albumId) }
 ) {
     val state by viewModel.state.collectAsState()
-    val serverConfigRepository: ServerConfigRepository = koinInject()
-    val apiKey = remember { serverConfigRepository.getApiKey() }
+    val apiKey = viewModel.apiKey
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -195,6 +192,26 @@ private fun PhotoRow(
             Box(modifier = Modifier.weight(1f))
         }
     }
+}
+
+@Preview
+@Composable
+private fun PhotoRowPreview() {
+    val sampleAssets = listOf(
+        Asset(
+            id = "1", type = AssetType.IMAGE, fileName = "photo1.jpg",
+            createdAt = "", thumbnailUrl = "", originalUrl = ""
+        ),
+        Asset(
+            id = "2", type = AssetType.IMAGE, fileName = "photo2.jpg",
+            createdAt = "", thumbnailUrl = "", originalUrl = ""
+        ),
+        Asset(
+            id = "3", type = AssetType.VIDEO, fileName = "video1.mp4",
+            createdAt = "", thumbnailUrl = "", originalUrl = ""
+        )
+    )
+    PhotoRow(assets = sampleAssets, allAssets = sampleAssets, onPhotoClick = { _, _ -> })
 }
 
 @Preview

@@ -35,7 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import chaintech.videoplayer.host.MediaPlayerHost
+import chaintech.videoplayer.model.ScreenResize
 import chaintech.videoplayer.model.VideoPlayerConfig
 import chaintech.videoplayer.ui.video.VideoPlayerComposable
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
@@ -217,7 +219,12 @@ private fun VideoContent(
     }
 
     val host = remember(url) {
-        MediaPlayerHost(url, autoPlay = false, headers = mapOf(API_KEY_HEADER to apiKey))
+        MediaPlayerHost(
+            url,
+            autoPlay = false,
+            headers = mapOf(API_KEY_HEADER to apiKey),
+            initialVideoFitMode = ScreenResize.FIT
+        )
     }
 
     LaunchedEffect(isCurrentPage) {
@@ -237,8 +244,10 @@ private fun VideoContent(
             isScreenLockEnabled = false,
             enablePIPControl = false,
             isScreenResizeEnabled = true,
+            isFullScreenEnabled = false,
             controlTopPadding = statusBarTop + Dimens.topBarHeight,
-            seekBarBottomPadding = navBarBottom
+            seekBarBottomPadding = navBarBottom + Dimens.screenPadding,
+            topControlSize = 48.dp
         )
     )
 }

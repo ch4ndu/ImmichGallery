@@ -35,7 +35,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.udnahc.immichgallery.data.repository.ServerConfigRepository
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
@@ -60,8 +61,7 @@ fun TimelineScreen(
     viewModel: TimelineViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val serverConfigRepository: ServerConfigRepository = koinInject()
-    val apiKey = remember { serverConfigRepository.getApiKey() }
+    val apiKey = viewModel.apiKey
     var selectedAssets by remember { mutableStateOf<List<Asset>?>(null) }
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -353,4 +353,33 @@ private fun PlaceholderCell(modifier: Modifier = Modifier) {
             .aspectRatio(1f)
             .background(MaterialTheme.colorScheme.surfaceVariant)
     )
+}
+
+@Preview
+@Composable
+private fun BucketHeaderPreview() {
+    BucketHeader(
+        bucket = TimelineBucket(
+            displayLabel = "March 2026",
+            timeBucket = "2026-03-01",
+            count = 42
+        )
+    )
+}
+
+@Preview
+@Composable
+private fun StickyHeaderOverlayPreview() {
+    val gridState = rememberLazyGridState()
+    StickyHeaderOverlay(
+        gridState = gridState,
+        bucketLabelMap = mapOf("2026-03" to "March 2026"),
+        statusBarPadding = 0.dp
+    )
+}
+
+@Preview
+@Composable
+private fun PlaceholderCellPreview() {
+    PlaceholderCell()
 }

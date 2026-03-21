@@ -35,8 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
-import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
@@ -48,7 +48,6 @@ import immichgallery.composeapp.generated.resources.search_placeholder
 import immichgallery.composeapp.generated.resources.search_type_filename
 import immichgallery.composeapp.generated.resources.search_type_smart
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val GRID_COLUMNS = 3
@@ -59,8 +58,7 @@ fun SearchScreen(
     viewModel: SearchViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val serverConfigRepository: ServerConfigRepository = koinInject()
-    val apiKey = remember { serverConfigRepository.getApiKey() }
+    val apiKey = viewModel.apiKey
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(selectedPhotoIndex) {
@@ -213,6 +211,22 @@ private fun PhotoRow(
             Box(modifier = Modifier.weight(1f))
         }
     }
+}
+
+@Preview
+@Composable
+private fun PhotoRowPreview() {
+    val sampleAssets = listOf(
+        Asset(
+            id = "1", type = AssetType.IMAGE, fileName = "photo1.jpg",
+            createdAt = "", thumbnailUrl = "", originalUrl = ""
+        ),
+        Asset(
+            id = "2", type = AssetType.IMAGE, fileName = "photo2.jpg",
+            createdAt = "", thumbnailUrl = "", originalUrl = ""
+        )
+    )
+    PhotoRow(assets = sampleAssets, allAssets = sampleAssets, onPhotoClick = { _, _ -> })
 }
 
 @Preview

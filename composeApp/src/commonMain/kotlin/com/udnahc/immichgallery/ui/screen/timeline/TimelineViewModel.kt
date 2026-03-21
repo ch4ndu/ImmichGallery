@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import kotlinx.coroutines.Dispatchers
@@ -37,8 +38,11 @@ data class TimelineState(
 
 class TimelineViewModel(
     private val getTimelineBucketsUseCase: GetTimelineBucketsUseCase,
-    private val getBucketAssetsUseCase: GetBucketAssetsUseCase
+    private val getBucketAssetsUseCase: GetBucketAssetsUseCase,
+    getApiKeyUseCase: GetApiKeyUseCase
 ) : ViewModel() {
+
+    val apiKey: String = getApiKeyUseCase()
 
     private val log = logging()
     private val _state = MutableStateFlow(TimelineState())

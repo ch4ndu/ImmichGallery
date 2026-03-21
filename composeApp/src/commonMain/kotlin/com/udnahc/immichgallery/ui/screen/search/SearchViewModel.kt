@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
 import kotlinx.coroutines.Dispatchers
@@ -30,8 +31,11 @@ data class SearchState(
 
 class SearchViewModel(
     private val smartSearchUseCase: SmartSearchUseCase,
-    private val metadataSearchUseCase: MetadataSearchUseCase
+    private val metadataSearchUseCase: MetadataSearchUseCase,
+    getApiKeyUseCase: GetApiKeyUseCase
 ) : ViewModel() {
+
+    val apiKey: String = getApiKeyUseCase()
 
     private val log = logging()
     private val _state = MutableStateFlow(SearchState())

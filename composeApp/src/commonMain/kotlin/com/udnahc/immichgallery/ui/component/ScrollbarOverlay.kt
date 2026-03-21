@@ -258,7 +258,7 @@ private fun ScrollbarHandle(
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .width(Dimens.scrollbarTouchTargetWidth + 120.dp)
+            .width(Dimens.scrollbarTouchTargetWidth + Dimens.scrollbarYearLabelWidth)
             .onSizeChanged { trackHeightPx = it.height }
             .semantics { contentDescription = thumbDescription }
     ) {
@@ -273,9 +273,9 @@ private fun ScrollbarHandle(
                     .align(Alignment.TopEnd)
                     .offset { IntOffset(0, markerOffsetPx) }
                     .padding(end = Dimens.scrollbarYearLabelPadding)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(Dimens.scrollbarYearLabelCornerRadius))
                     .background(yearLabelColor.copy(alpha = 0.12f))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .padding(horizontal = Dimens.scrollbarYearLabelPaddingHorizontal, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -331,11 +331,11 @@ private fun ScrollbarHandle(
                 .align(Alignment.TopEnd)
                 .offset {
                     val bubbleCenterOffset =
-                        handleOffsetPx + (handleSizePx / 2).toInt() - with(density) { 20.dp.toPx() }.toInt()
+                        handleOffsetPx + (handleSizePx / 2).toInt() - with(density) { Dimens.scrollbarBubbleVerticalOffset.toPx() }.toInt()
                     IntOffset(0, bubbleCenterOffset)
                 }
                 .padding(
-                    end = Dimens.scrollbarHandleSize - Dimens.scrollbarHandleClipOffset + Dimens.scrollbarBubbleGap + 20.dp
+                    end = Dimens.scrollbarHandleSize - Dimens.scrollbarHandleClipOffset + Dimens.scrollbarBubbleGap + Dimens.scrollbarBubbleVerticalOffset
                 ),
             enter = slideInHorizontally(
                 initialOffsetX = { it },

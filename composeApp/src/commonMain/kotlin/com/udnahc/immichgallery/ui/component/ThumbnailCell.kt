@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.udnahc.immichgallery.LocalAppActive
@@ -71,19 +72,19 @@ fun ThumbnailCell(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp)
+                    .padding(Dimens.smallSpacing)
                     .background(
                         Color.Black.copy(alpha = STACK_BADGE_ALPHA),
-                        RoundedCornerShape(4.dp)
+                        RoundedCornerShape(Dimens.smallSpacing)
                     )
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .padding(horizontal = Dimens.smallSpacing, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     painter = painterResource(Res.drawable.ic_stack),
                     contentDescription = stringResource(Res.string.stack_count),
                     tint = Color.White,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(Dimens.stackBadgeIconSize)
                 )
                 Text(
                     text = "${asset.stackCount}",
