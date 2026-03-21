@@ -34,11 +34,11 @@ import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
-import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.viewmodel.koinViewModel
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.unknown
+import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun PeopleScreen(
@@ -66,6 +66,7 @@ fun PeopleContent(
                 CircularProgressIndicator()
             }
         }
+
         state.error != null && state.people.isEmpty() -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -74,11 +75,17 @@ fun PeopleContent(
                 }
             }
         }
+
         else -> {
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val navBarPadding =
+                WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             val gridState = rememberLazyGridState()
-            ScrollbarOverlay(gridState = gridState, topPadding = statusBarPadding + Dimens.topBarHeight, bottomPadding = Dimens.bottomBarHeight + navBarPadding) {
+            ScrollbarOverlay(
+                gridState = gridState,
+                topPadding = statusBarPadding + Dimens.topBarHeight,
+                bottomPadding = Dimens.bottomBarHeight + navBarPadding
+            ) {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     state = gridState,
@@ -93,7 +100,9 @@ fun PeopleContent(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(state.people, key = { it.id }) { person ->
-                        PersonItem(person = person, onClick = { onPersonClick(person.id, person.name) })
+                        PersonItem(
+                            person = person,
+                            onClick = { onPersonClick(person.id, person.name) })
                     }
                 }
             }
@@ -102,7 +111,10 @@ fun PeopleContent(
 }
 
 @Composable
-private fun PersonItem(person: Person, onClick: () -> Unit) {
+private fun PersonItem(
+    person: Person,
+    onClick: () -> Unit
+) {
     val unknownLabel = stringResource(Res.string.unknown)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,

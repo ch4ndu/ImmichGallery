@@ -1,33 +1,37 @@
 package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridLayoutInfo
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,17 +54,19 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.ui.theme.Dimens
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import org.jetbrains.compose.resources.stringResource
+import com.udnahc.immichgallery.ui.util.rememberHapticFeedback
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.ic_scroll_arrows
+import immichgallery.composeapp.generated.resources.scroll_drag
 import immichgallery.composeapp.generated.resources.scrollbar_thumb
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
 
 private const val SCROLL_FRACTION_STEP = 0.005f
-private const val BUBBLE_ALPHA = 0.9f
-private const val AUTO_HIDE_DELAY_MS = 1500L
 private const val MIN_ITEMS_FOR_SCROLLBAR = 10
+private const val BUBBLE_ALPHA = 0.9f
 
 @Composable
 fun ScrollbarOverlay(
@@ -72,6 +78,7 @@ fun ScrollbarOverlay(
     scrollFractionProvider: (() -> Float)? = null,
     onScrollToFraction: ((Float) -> Unit)? = null,
     labelProvider: ((Float) -> String?)? = null,
+    yearMarkers: List<Pair<Float, String>> = emptyList(),
     content: @Composable () -> Unit
 ) {
     val scrollFraction by remember {
@@ -90,11 +97,11 @@ fun ScrollbarOverlay(
 
     ScrollbarLayout(
         scrollFraction = scrollFraction,
-        isScrollInProgress = listState.isScrollInProgress,
         showScrollbar = showScrollbar,
         topPadding = topPadding,
         bottomPadding = bottomPadding,
         labelProvider = labelProvider,
+        yearMarkers = yearMarkers,
         onDragFraction = onScrollToFraction ?: { fraction ->
             val targetIndex = dragFractionToIndex(fraction, totalItems)
             scrollJob?.cancel()
@@ -113,6 +120,7 @@ fun ScrollbarOverlay(
     topPadding: Dp,
     bottomPadding: Dp,
     labelProvider: ((Float) -> String?)? = null,
+    yearMarkers: List<Pair<Float, String>> = emptyList(),
     content: @Composable () -> Unit
 ) {
     val scrollFraction by remember {
@@ -130,11 +138,11 @@ fun ScrollbarOverlay(
 
     ScrollbarLayout(
         scrollFraction = scrollFraction,
-        isScrollInProgress = gridState.isScrollInProgress,
         showScrollbar = showScrollbar,
         topPadding = topPadding,
         bottomPadding = bottomPadding,
         labelProvider = labelProvider,
+        yearMarkers = yearMarkers,
         onDragFraction = { fraction ->
             val targetIndex = dragFractionToIndex(fraction, totalItems)
             scrollJob?.cancel()
@@ -148,97 +156,90 @@ fun ScrollbarOverlay(
 @Composable
 private fun ScrollbarLayout(
     scrollFraction: Float,
-    isScrollInProgress: Boolean,
     showScrollbar: Boolean,
     topPadding: Dp,
     bottomPadding: Dp,
     labelProvider: ((Float) -> String?)?,
+    yearMarkers: List<Pair<Float, String>>,
     onDragFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    var isVisible by remember { mutableStateOf(false) }
-    var isDragging by remember { mutableStateOf(false) }
-
-    // Show when scrolling, hide after delay when stopped
-    LaunchedEffect(isScrollInProgress, isDragging) {
-        if (isScrollInProgress || isDragging) {
-            isVisible = true
-        } else {
-            delay(AUTO_HIDE_DELAY_MS)
-            isVisible = false
-        }
-    }
-
-    val thumbVisible = isVisible && showScrollbar
-
     Box(modifier = modifier) {
         content()
 
         if (showScrollbar) {
-            ScrollbarThumb(
+            ScrollbarHandle(
                 scrollFraction = scrollFraction,
-                thumbVisible = thumbVisible,
                 topPadding = topPadding,
                 bottomPadding = bottomPadding,
                 labelProvider = labelProvider,
+                yearMarkers = yearMarkers,
                 onDragFraction = onDragFraction,
-                onDragStarted = { isDragging = true },
-                onDragStopped = {
-                    isDragging = false
-                    isVisible = true
-                },
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
         }
     }
 }
 
-private val BubbleShape = RoundedCornerShape(50)
-
 @Composable
-private fun ScrollbarThumb(
+private fun ScrollbarHandle(
     scrollFraction: Float,
-    thumbVisible: Boolean,
     topPadding: Dp,
     bottomPadding: Dp,
     labelProvider: ((Float) -> String?)?,
+    yearMarkers: List<Pair<Float, String>>,
     onDragFraction: (Float) -> Unit,
-    onDragStarted: () -> Unit,
-    onDragStopped: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
+    val haptics = rememberHapticFeedback()
     val thumbDescription = stringResource(Res.string.scrollbar_thumb)
+    val dragDescription = stringResource(Res.string.scroll_drag)
+
     var trackHeightPx by remember { mutableStateOf(0) }
-    val handleHeightPx = with(density) { Dimens.scrollbarHandleHeight.toPx() }
     val topPaddingPx = with(density) { topPadding.toPx() }
     val bottomPaddingPx = with(density) { bottomPadding.toPx() }
+    val handleSizePx = with(density) { Dimens.scrollbarHandleSize.toPx() }
 
-    // Track drag fraction independently so it updates immediately during drag
+    // Drag state
     var dragFraction by remember { mutableFloatStateOf(scrollFraction) }
     var isDragging by remember { mutableStateOf(false) }
 
-    // Sync with scroll fraction when NOT dragging
     LaunchedEffect(scrollFraction, isDragging) {
-        if (!isDragging) {
-            dragFraction = scrollFraction
-        }
+        if (!isDragging) dragFraction = scrollFraction
     }
 
     val currentFraction = if (isDragging) dragFraction else scrollFraction
 
-    val thumbOffsetPx = remember(trackHeightPx, currentFraction, handleHeightPx, topPaddingPx, bottomPaddingPx) {
-        val availableTrack = trackHeightPx - handleHeightPx - topPaddingPx - bottomPaddingPx
-        (topPaddingPx + availableTrack * currentFraction).coerceAtLeast(topPaddingPx).toInt()
+    // Handle position — center of handle at fraction position
+    val rawHandleOffsetPx =
+        remember(trackHeightPx, currentFraction, handleSizePx, topPaddingPx, bottomPaddingPx) {
+            val availableTrack = trackHeightPx - handleSizePx - topPaddingPx - bottomPaddingPx
+            (topPaddingPx + availableTrack * currentFraction).coerceAtLeast(topPaddingPx).toInt()
+        }
+    val animatedHandleOffsetPx by animateIntAsState(
+        targetValue = rawHandleOffsetPx,
+        animationSpec = if (isDragging) spring(stiffness = Spring.StiffnessHigh)
+        else spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
+    )
+    val handleOffsetPx = if (isDragging) rawHandleOffsetPx else animatedHandleOffsetPx
+
+    // Label + haptics
+    val label = if (isDragging && labelProvider != null) labelProvider(currentFraction) else null
+    var previousLabel by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(label) {
+        if (isDragging && label != null && label != previousLabel && previousLabel != null) {
+            haptics.performTick()
+        }
+        previousLabel = label
     }
 
-    val label = if (isDragging && labelProvider != null) {
-        labelProvider(currentFraction)
-    } else null
-
     val draggableState = rememberDraggableState { delta ->
-        val availableTrack = trackHeightPx - handleHeightPx - topPaddingPx - bottomPaddingPx
+        val availableTrack = trackHeightPx - handleSizePx - topPaddingPx - bottomPaddingPx
         if (availableTrack > 0) {
             val currentOffset = availableTrack * dragFraction
             val newOffset = (currentOffset + delta).coerceIn(0f, availableTrack)
@@ -247,82 +248,119 @@ private fun ScrollbarThumb(
         }
     }
 
-    // Touch target fills full height — topPadding is handled via offset math
+    val handleColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val handleIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val bubbleBackground = MaterialTheme.colorScheme.inverseSurface.copy(alpha = BUBBLE_ALPHA)
+    val bubbleTextColor = MaterialTheme.colorScheme.inverseOnSurface
+    val yearLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+
+    // Container for the scrollbar area — wider than touch target to fit year labels
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .width(Dimens.scrollbarTouchTargetWidth)
-            .padding(end = Dimens.scrollbarEndPadding)
+            .width(Dimens.scrollbarTouchTargetWidth + 120.dp)
             .onSizeChanged { trackHeightPx = it.height }
-            .then(
-                if (thumbVisible) {
-                    Modifier.draggable(
-                        state = draggableState,
-                        orientation = Orientation.Vertical,
-                        startDragImmediately = true,
-                        onDragStarted = {
-                            isDragging = true
-                            onDragStarted()
-                        },
-                        onDragStopped = {
-                            isDragging = false
-                            onDragStopped()
-                        }
-                    )
-                } else {
-                    Modifier
-                }
-            )
-            .semantics { contentDescription = thumbDescription },
-        contentAlignment = Alignment.TopEnd
+            .semantics { contentDescription = thumbDescription }
     ) {
-        // Only the visual thumb fades in/out — the draggable area stays composed
-        AnimatedVisibility(
-            visible = thumbVisible,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            Row(
+        // Year markers along the right edge — small pill badges
+        yearMarkers.forEach { (fraction, year) ->
+            val markerOffsetPx = remember(trackHeightPx, fraction, topPaddingPx, bottomPaddingPx) {
+                val availableTrack = trackHeightPx - topPaddingPx - bottomPaddingPx
+                (topPaddingPx + availableTrack * fraction).toInt()
+            }
+            Box(
                 modifier = Modifier
-                    .offset { IntOffset(0, thumbOffsetPx) }
-                    .wrapContentWidth(unbounded = true, align = Alignment.End)
-                    .height(Dimens.scrollbarBubbleHeight),
-                verticalAlignment = Alignment.CenterVertically
+                    .align(Alignment.TopEnd)
+                    .offset { IntOffset(0, markerOffsetPx) }
+                    .padding(end = Dimens.scrollbarYearLabelPadding)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(yearLabelColor.copy(alpha = 0.12f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center
             ) {
-                // Label bubble — expands horizontally when dragging with a label
-                AnimatedVisibility(
-                    visible = label != null,
-                    enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
-                    exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(BubbleShape)
-                            .background(
-                                MaterialTheme.colorScheme.inverseSurface.copy(alpha = BUBBLE_ALPHA)
-                            )
-                            .padding(
-                                horizontal = Dimens.scrollbarBubblePadding,
-                                vertical = Dimens.smallSpacing
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = label ?: "",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.inverseOnSurface,
-                            maxLines = 1
-                        )
-                    }
-                }
+                Text(
+                    text = year,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = yearLabelColor.copy(alpha = 0.7f),
+                    maxLines = 1
+                )
+            }
+        }
 
-                // Teardrop handle — always visible when thumb is shown
-                Box(
+        // Circle handle — always visible, clipped ~20% off the right edge
+        Surface(
+            shape = CircleShape,
+            color = handleColor,
+            shadowElevation = Dimens.scrollbarHandleElevation,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset {
+                    IntOffset(
+                        x = with(density) { Dimens.scrollbarHandleClipOffset.toPx() }.toInt(),
+                        y = handleOffsetPx
+                    )
+                }
+                .size(Dimens.scrollbarHandleSize)
+                .draggable(
+                    state = draggableState,
+                    orientation = Orientation.Vertical,
+                    startDragImmediately = true,
+                    onDragStarted = { isDragging = true },
+                    onDragStopped = { isDragging = false }
+                )
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(Res.drawable.ic_scroll_arrows),
+                    contentDescription = dragDescription,
+                    tint = handleIconColor,
                     modifier = Modifier
-                        .width(Dimens.scrollbarHandleWidth)
-                        .height(Dimens.scrollbarHandleHeight)
-                        .clip(RoundedCornerShape(Dimens.scrollbarHandleWidth / 2))
-                        .background(Color(0xFFFF5F68))
+                        .size(Dimens.scrollbarHandleIconSize)
+                        .offset(x = -(Dimens.scrollbarHandleClipOffset / 4))
+                )
+            }
+        }
+
+        // Date bubble — slides in from right when dragging
+        AnimatedVisibility(
+            visible = label != null,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset {
+                    val bubbleCenterOffset =
+                        handleOffsetPx + (handleSizePx / 2).toInt() - with(density) { 20.dp.toPx() }.toInt()
+                    IntOffset(0, bubbleCenterOffset)
+                }
+                .padding(
+                    end = Dimens.scrollbarHandleSize - Dimens.scrollbarHandleClipOffset + Dimens.scrollbarBubbleGap + 20.dp
+                ),
+            enter = slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+            ) + fadeIn(animationSpec = tween(150)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(200)
+            ) + fadeOut(animationSpec = tween(150))
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Dimens.scrollbarBubbleCornerRadius))
+                    .background(bubbleBackground)
+                    .padding(
+                        horizontal = Dimens.scrollbarBubblePadding,
+                        vertical = Dimens.smallSpacing
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label ?: "",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = bubbleTextColor,
+                    maxLines = 1
                 )
             }
         }
@@ -352,7 +390,10 @@ private fun LazyGridLayoutInfo.scrollFraction(): Float {
     return (itemFraction + pixelFraction).coerceIn(0f, 1f)
 }
 
-private fun dragFractionToIndex(fraction: Float, totalItems: Int): Int {
+private fun dragFractionToIndex(
+    fraction: Float,
+    totalItems: Int
+): Int {
     return (fraction * totalItems).toInt().coerceIn(0, (totalItems - 1).coerceAtLeast(0))
 }
 
@@ -362,7 +403,12 @@ private fun dragFractionToIndex(fraction: Float, totalItems: Int): Int {
 @Composable
 private fun ScrollbarOverlayPreview() {
     val listState = rememberLazyListState()
-    ScrollbarOverlay(listState = listState, topPadding = 0.dp, bottomPadding = 0.dp, modifier = Modifier.fillMaxSize()) {
+    ScrollbarOverlay(
+        listState = listState,
+        topPadding = 0.dp,
+        bottomPadding = 0.dp,
+        modifier = Modifier.fillMaxSize()
+    ) {
         LazyColumn(state = listState) {
             items(100) { index ->
                 Text(

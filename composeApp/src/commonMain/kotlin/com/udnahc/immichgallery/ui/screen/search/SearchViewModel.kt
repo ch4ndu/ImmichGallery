@@ -6,13 +6,13 @@ import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import org.lighthousegames.logging.logging
 
@@ -70,7 +70,12 @@ class SearchViewModel(
                 },
                 onFailure = { e ->
                     log.e(e) { "Search failed" }
-                    _state.update { it.copy(isLoading = false, error = e.message ?: "Search failed") }
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = e.message ?: "Search failed"
+                        )
+                    }
                 }
             )
         }

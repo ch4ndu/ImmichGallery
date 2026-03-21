@@ -3,11 +3,11 @@ package com.udnahc.immichgallery.data.remote
 import com.udnahc.immichgallery.data.model.AlbumDetailResponse
 import com.udnahc.immichgallery.data.model.AlbumResponse
 import com.udnahc.immichgallery.data.model.AssetResponse
-import com.udnahc.immichgallery.data.model.TimelineBucketColumnarResponse
 import com.udnahc.immichgallery.data.model.PeopleResponse
 import com.udnahc.immichgallery.data.model.SearchResponse
 import com.udnahc.immichgallery.data.model.ServerPingResponse
 import com.udnahc.immichgallery.data.model.TimeBucketResponse
+import com.udnahc.immichgallery.data.model.TimelineBucketColumnarResponse
 import com.udnahc.immichgallery.data.model.UserResponse
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import io.ktor.client.HttpClient
@@ -43,7 +43,10 @@ class ImmichApiService(
         }.body()
     }
 
-    suspend fun validateConnection(serverUrl: String, apiKey: String): UserResponse {
+    suspend fun validateConnection(
+        serverUrl: String,
+        apiKey: String
+    ): UserResponse {
         val url = serverUrl.trimEnd('/')
         log.d { "Validating connection to $url" }
         val ping = httpClient.get("$url/api/server/ping").body<ServerPingResponse>()
@@ -66,7 +69,10 @@ class ImmichApiService(
         return response.body()
     }
 
-    suspend fun getTimelineBucket(timeBucket: String, size: String = "MONTH"): List<AssetResponse> {
+    suspend fun getTimelineBucket(
+        timeBucket: String,
+        size: String = "MONTH"
+    ): List<AssetResponse> {
         val endpoint = "${baseUrl()}/api/timeline/bucket?size=$size&timeBucket=$timeBucket"
         log.d { "GET $endpoint" }
         val response = httpClient.get("${baseUrl()}/api/timeline/bucket") {
@@ -108,7 +114,11 @@ class ImmichApiService(
         }.body()
     }
 
-    suspend fun getPersonAssets(id: String, page: Int = 1, size: Int = 250): SearchResponse {
+    suspend fun getPersonAssets(
+        id: String,
+        page: Int = 1,
+        size: Int = 250
+    ): SearchResponse {
         log.d { "POST ${baseUrl()}/api/search/metadata personId=$id page=$page" }
         return httpClient.post("${baseUrl()}/api/search/metadata") {
             header("x-api-key", apiKey())
@@ -117,7 +127,11 @@ class ImmichApiService(
         }.body()
     }
 
-    suspend fun searchSmart(query: String, page: Int = 1, size: Int = 50): SearchResponse {
+    suspend fun searchSmart(
+        query: String,
+        page: Int = 1,
+        size: Int = 50
+    ): SearchResponse {
         log.d { "POST ${baseUrl()}/api/search/smart query=$query page=$page" }
         return httpClient.post("${baseUrl()}/api/search/smart") {
             header("x-api-key", apiKey())
@@ -126,7 +140,11 @@ class ImmichApiService(
         }.body()
     }
 
-    suspend fun searchMetadata(query: String, page: Int = 1, size: Int = 50): SearchResponse {
+    suspend fun searchMetadata(
+        query: String,
+        page: Int = 1,
+        size: Int = 50
+    ): SearchResponse {
         log.d { "POST ${baseUrl()}/api/search/metadata query=$query page=$page" }
         return httpClient.post("${baseUrl()}/api/search/metadata") {
             header("x-api-key", apiKey())
@@ -142,7 +160,10 @@ class ImmichApiService(
         }.body()
     }
 
-    fun thumbnailUrl(assetId: String, size: String = "preview"): String {
+    fun thumbnailUrl(
+        assetId: String,
+        size: String = "preview"
+    ): String {
         return "${baseUrl()}/api/assets/$assetId/thumbnail?size=$size"
     }
 

@@ -24,4 +24,7 @@ object SearchRoute
 data class AlbumDetailRoute(val albumId: String)
 
 @Serializable
-data class PersonDetailRoute(val personId: String, val personName: String)
+data class PersonDetailRoute(
+    val personId: String,
+    val personName: String
+)

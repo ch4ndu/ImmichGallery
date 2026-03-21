@@ -16,15 +16,19 @@ class TimelineRepository(
         apiService.getTimelineBuckets()
 
     suspend fun getBucketAssets(timeBucket: String): List<AssetResponse> {
-        val assets = apiService.getTimelineBucket(timeBucket = timeBucket)
-        dao.replaceBucket(timeBucket, assets.map { it.toTimelineEntity(timeBucket) })
-        return assets
+        val allAssets = apiService.getTimelineBucket(timeBucket = timeBucket)
+        val visibleAssets = allAssets.filter { it.visibility != "hidden" }
+        dao.replaceBucket(timeBucket, visibleAssets.map { it.toTimelineEntity(timeBucket) })
+        return visibleAssets
     }
 
     fun getTimelineAssetsPaging(): PagingSource<Int, TimelineAssetEntity> =
         dao.getAssetsPaging()
 
-    suspend fun getAssetPosition(assetId: String, createdAt: String): Int =
+    suspend fun getAssetPosition(
+        assetId: String,
+        createdAt: String
+    ): Int =
         dao.getAssetPosition(assetId, createdAt)
 
     suspend fun getAssetFileName(id: String): String {

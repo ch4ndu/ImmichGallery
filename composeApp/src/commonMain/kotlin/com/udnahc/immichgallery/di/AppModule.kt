@@ -60,7 +60,7 @@ val sharedModule = module {
     factory { ValidateServerUseCase(get()) }
     factory { GetLoginStatusUseCase(get()) }
     factory { GetTimelineBucketsUseCase(get()) }
-    factory { GetBucketAssetsUseCase(get()) }
+    factory { GetBucketAssetsUseCase(get(), get()) }
     factory { GetAssetFileNameUseCase(get()) }
     factory { GetAlbumsUseCase(get(), get()) }
     factory { GetAlbumDetailUseCase(get(), get()) }
@@ -75,7 +75,7 @@ val sharedModule = module {
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get()) }
     viewModel { AlbumListViewModel(get()) }
     viewModel { params -> AlbumDetailViewModel(get(), params.get()) }
     viewModel { PeopleViewModel(get()) }

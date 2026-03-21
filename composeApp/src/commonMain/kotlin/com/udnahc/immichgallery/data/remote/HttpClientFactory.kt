@@ -12,7 +12,10 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 object HttpClientFactory {
-    fun create(engine: HttpClientEngine, serverConfigRepository: ServerConfigRepository): HttpClient {
+    fun create(
+        engine: HttpClientEngine,
+        serverConfigRepository: ServerConfigRepository
+    ): HttpClient {
         return HttpClient(engine) {
             install(ContentNegotiation) {
                 json(Json {

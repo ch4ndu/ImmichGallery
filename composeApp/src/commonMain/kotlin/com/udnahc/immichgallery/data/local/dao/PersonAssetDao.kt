@@ -18,7 +18,10 @@ interface PersonAssetDao {
     suspend fun deleteByPerson(personId: String)
 
     @Transaction
-    suspend fun replacePerson(personId: String, assets: List<PersonAssetEntity>) {
+    suspend fun replacePerson(
+        personId: String,
+        assets: List<PersonAssetEntity>
+    ) {
         deleteByPerson(personId)
         insertAll(assets)
     }
@@ -27,7 +30,10 @@ interface PersonAssetDao {
     fun getAssetsPaging(personId: String): PagingSource<Int, PersonAssetEntity>
 
     @Query("SELECT COUNT(*) FROM person_assets WHERE personId = :personId AND sortOrder < :sortOrder")
-    suspend fun getAssetPosition(personId: String, sortOrder: Int): Int
+    suspend fun getAssetPosition(
+        personId: String,
+        sortOrder: Int
+    ): Int
 
     @Query("DELETE FROM person_assets")
     suspend fun deleteAll()

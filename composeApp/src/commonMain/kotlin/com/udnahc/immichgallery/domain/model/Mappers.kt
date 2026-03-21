@@ -20,7 +20,8 @@ fun AssetResponse.toDomain(baseUrl: String): Asset {
         thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=preview",
         originalUrl = "$baseUrl/api/assets/$id/original",
         videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback",
-        isFavorite = isFavorite
+        isFavorite = isFavorite,
+        stackCount = stackCount
     )
 }
 
@@ -66,11 +67,16 @@ fun AssetResponse.toTimelineEntity(timeBucket: String): TimelineAssetEntity {
         fileName = originalFileName,
         createdAt = fileCreatedAt,
         isFavorite = isFavorite,
-        timeBucket = timeBucket
+        timeBucket = timeBucket,
+        stackId = stackId,
+        stackCount = stackCount
     )
 }
 
-fun AssetResponse.toAlbumEntity(albumId: String, sortOrder: Int): AlbumAssetEntity {
+fun AssetResponse.toAlbumEntity(
+    albumId: String,
+    sortOrder: Int
+): AlbumAssetEntity {
     return AlbumAssetEntity(
         id = id,
         type = type,
@@ -82,7 +88,10 @@ fun AssetResponse.toAlbumEntity(albumId: String, sortOrder: Int): AlbumAssetEnti
     )
 }
 
-fun AssetResponse.toPersonEntity(personId: String, sortOrder: Int): PersonAssetEntity {
+fun AssetResponse.toPersonEntity(
+    personId: String,
+    sortOrder: Int
+): PersonAssetEntity {
     return PersonAssetEntity(
         id = id,
         type = type,
@@ -105,7 +114,8 @@ fun TimelineAssetEntity.toDomain(baseUrl: String): Asset {
         thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=preview",
         originalUrl = "$baseUrl/api/assets/$id/original",
         videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback",
-        isFavorite = isFavorite
+        isFavorite = isFavorite,
+        stackCount = stackCount
     )
 }
 

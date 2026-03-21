@@ -3,32 +3,18 @@ package com.udnahc.immichgallery.ui.screen.timeline
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.paging.Pager
-import androidx.paging.PagingConfig
-import androidx.paging.PagingData
-import androidx.paging.map
-import com.udnahc.immichgallery.data.repository.ServerConfigRepository
-import com.udnahc.immichgallery.data.repository.TimelineRepository
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
-import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import androidx.paging.cachedIn
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.lighthousegames.logging.logging
-
-private const val PAGER_PAGE_SIZE = 60
-private const val PAGER_PREFETCH_DISTANCE = 30
 
 @Immutable
 data class TimelineState(
@@ -36,23 +22,22 @@ data class TimelineState(
     val loadedBuckets: Set<String> = emptySet(),
     val loadingBuckets: Set<String> = emptySet(),
     val failedBuckets: Set<String> = emptySet(),
+    val bucketAssets: Map<String, List<Asset>> = emptyMap(),
     val isLoading: Boolean = false,
     val error: String? = null,
     // Pre-computed on background dispatcher:
-    val cumulativeOffsets: List<Int> = emptyList(),
     val allTimeBuckets: List<String> = emptyList(),
     val estimatedGridItemCount: Int = 0,
     val bucketLabelMap: Map<String, String> = emptyMap(),
     // For O(log n) label lookup during scrollbar drag:
     val cumulativeItemCounts: List<Int> = emptyList(),
-    val bucketDisplayLabels: List<String> = emptyList()
+    val bucketDisplayLabels: List<String> = emptyList(),
+    val yearMarkers: List<Pair<Float, String>> = emptyList()
 )
 
 class TimelineViewModel(
     private val getTimelineBucketsUseCase: GetTimelineBucketsUseCase,
-    private val getBucketAssetsUseCase: GetBucketAssetsUseCase,
-    private val timelineRepository: TimelineRepository,
-    private val serverConfigRepository: ServerConfigRepository
+    private val getBucketAssetsUseCase: GetBucketAssetsUseCase
 ) : ViewModel() {
 
     private val log = logging()
@@ -76,16 +61,6 @@ class TimelineViewModel(
     }
 
 
-    val assetsPaging: Flow<PagingData<Asset>> = Pager(
-        config = PagingConfig(pageSize = PAGER_PAGE_SIZE, prefetchDistance = PAGER_PREFETCH_DISTANCE)
-    ) {
-        timelineRepository.getTimelineAssetsPaging()
-    }.flow.map { pagingData ->
-        val baseUrl = serverConfigRepository.getServerUrl().trimEnd('/')
-        pagingData.map { entity -> entity.toDomain(baseUrl) }
-    }.flowOn(Dispatchers.Default)
-        .cachedIn(viewModelScope)
-
     init {
         loadBuckets()
     }
@@ -97,11 +72,18 @@ class TimelineViewModel(
             getTimelineBucketsUseCase().fold(
                 onSuccess = { buckets ->
                     log.d { "Loaded ${buckets.size} timeline buckets" }
-                    _state.update { it.copy(buckets = buckets, isLoading = false).withDerivedFields() }
+                    _state.update {
+                        it.copy(buckets = buckets, isLoading = false).withDerivedFields()
+                    }
                 },
                 onFailure = { e ->
                     log.e(e) { "Failed to load timeline buckets" }
-                    _state.update { it.copy(isLoading = false, error = e.message ?: "Failed to load timeline").withDerivedFields() }
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = e.message ?: "Failed to load timeline"
+                        ).withDerivedFields()
+                    }
                 }
             )
         }
@@ -155,40 +137,47 @@ class TimelineViewModel(
     }
 
     private fun TimelineState.withDerivedFields(): TimelineState {
-        var loadedSum = 0
-        val offsets = buckets.map { bucket ->
-            val offset = loadedSum
-            if (loadedBuckets.contains(bucket.timeBucket)) {
-                loadedSum += bucket.count
-            }
-            offset
-        }
-
         var cumulative = 0
         val cumulativeCounts = buckets.map { bucket ->
             cumulative += 1 + bucket.count  // header + assets
             cumulative
         }
 
+        val totalGridItems = buckets.sumOf { it.count } + buckets.size
+        // Year markers: first bucket of each unique year, with scroll fraction
+        val markers = mutableListOf<Pair<Float, String>>()
+        var lastYear = ""
+        for (i in buckets.indices) {
+            val year = buckets[i].displayLabel.substringAfterLast(" ", "")
+            if (year != lastYear && year.isNotEmpty()) {
+                val fraction = if (totalGridItems > 0) {
+                    (cumulativeCounts.getOrElse(i - 1) { 0 }).toFloat() / totalGridItems
+                } else 0f
+                markers.add(fraction.coerceIn(0f, 1f) to year)
+                lastYear = year
+            }
+        }
+
         return copy(
-            cumulativeOffsets = offsets,
             allTimeBuckets = buckets.map { it.timeBucket },
-            estimatedGridItemCount = buckets.sumOf { it.count } + buckets.size,
+            estimatedGridItemCount = totalGridItems,
             bucketLabelMap = buckets.associate { it.timeBucket to it.displayLabel },
             cumulativeItemCounts = cumulativeCounts,
-            bucketDisplayLabels = buckets.map { it.displayLabel }
+            bucketDisplayLabels = buckets.map { it.displayLabel },
+            yearMarkers = markers
         )
     }
 
     private suspend fun loadBucketAssetsInternal(timeBucket: String) {
         log.d { "Loading assets for bucket: $timeBucket" }
         getBucketAssetsUseCase(timeBucket).fold(
-            onSuccess = {
-                log.d { "Loaded assets for bucket: $timeBucket" }
+            onSuccess = { assets ->
+                log.d { "Loaded ${assets.size} assets for bucket: $timeBucket" }
                 _state.update { state ->
                     state.copy(
                         loadingBuckets = state.loadingBuckets - timeBucket,
-                        loadedBuckets = state.loadedBuckets + timeBucket
+                        loadedBuckets = state.loadedBuckets + timeBucket,
+                        bucketAssets = state.bucketAssets + (timeBucket to assets)
                     ).withDerivedFields()
                 }
             },

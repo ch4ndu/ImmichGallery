@@ -22,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -34,21 +33,21 @@ import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
 import com.udnahc.immichgallery.ui.theme.Dimens
-import org.jetbrains.compose.resources.DrawableResource
-import org.jetbrains.compose.resources.StringResource
-import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.resources.stringResource
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_albums
+import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.ic_people
 import immichgallery.composeapp.generated.resources.ic_search
-import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.ic_timeline
 import immichgallery.composeapp.generated.resources.logout
 import immichgallery.composeapp.generated.resources.tab_albums
 import immichgallery.composeapp.generated.resources.tab_people
 import immichgallery.composeapp.generated.resources.tab_search
 import immichgallery.composeapp.generated.resources.tab_timeline
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
 
 private const val BAR_ALPHA = 0.8f
 
@@ -119,7 +118,7 @@ fun MainScreen(
         // Bottom bar overlay — hide when photo overlay is active
         if (!overlayActive) {
             NavigationBar(
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier.align(Alignment.BottomCenter).height(Dimens.bottomBarHeight),
                 containerColor = barColor
             ) {
                 bottomNavItems.forEach { item ->
@@ -127,7 +126,9 @@ fun MainScreen(
                     val onClick = remember(item.route) {
                         {
                             tabNavController.navigate(item.route) {
-                                popUpTo(tabNavController.graph.startDestinationId) { saveState = true }
+                                popUpTo(tabNavController.graph.startDestinationId) {
+                                    saveState = true
+                                }
                                 launchSingleTop = true
                                 restoreState = true
                             }

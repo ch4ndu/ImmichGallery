@@ -35,11 +35,11 @@ import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
-import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.viewmodel.koinViewModel
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.items_count
 import immichgallery.composeapp.generated.resources.retry
+import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun AlbumListScreen(
@@ -67,6 +67,7 @@ fun AlbumListContent(
                 CircularProgressIndicator()
             }
         }
+
         state.error != null && state.albums.isEmpty() -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -75,11 +76,17 @@ fun AlbumListContent(
                 }
             }
         }
+
         else -> {
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val navBarPadding =
+                WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             val gridState = rememberLazyGridState()
-            ScrollbarOverlay(gridState = gridState, topPadding = statusBarPadding + Dimens.topBarHeight, bottomPadding = Dimens.bottomBarHeight + navBarPadding) {
+            ScrollbarOverlay(
+                gridState = gridState,
+                topPadding = statusBarPadding + Dimens.topBarHeight,
+                bottomPadding = Dimens.bottomBarHeight + navBarPadding
+            ) {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     state = gridState,
@@ -103,7 +110,10 @@ fun AlbumListContent(
 }
 
 @Composable
-private fun AlbumCard(album: Album, onClick: () -> Unit) {
+private fun AlbumCard(
+    album: Album,
+    onClick: () -> Unit
+) {
     Card(
         modifier = Modifier.clickable(onClick = onClick)
     ) {

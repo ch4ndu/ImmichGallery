@@ -15,7 +15,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.paging.compose.LazyPagingItems
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.ui.component.AssetPage
@@ -24,7 +23,7 @@ import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 
 @Composable
 fun TimelinePhotoOverlay(
-    pagingItems: LazyPagingItems<Asset>,
+    assets: List<Asset>,
     initialIndex: Int,
     apiKey: String,
     getAssetFileNameUseCase: GetAssetFileNameUseCase,
@@ -36,10 +35,10 @@ fun TimelinePhotoOverlay(
     val fileNameCache = remember { mutableStateMapOf<String, String>() }
 
     val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, (pagingItems.itemCount - 1).coerceAtLeast(0))
-    ) { pagingItems.itemCount }
+        initialPage = initialIndex.coerceIn(0, (assets.size - 1).coerceAtLeast(0))
+    ) { assets.size }
 
-    val currentAsset = if (pagingItems.itemCount > 0) pagingItems[pagerState.settledPage] else null
+    val currentAsset = if (assets.isNotEmpty()) assets[pagerState.settledPage] else null
 
     LaunchedEffect(currentAsset?.id) {
         val asset = currentAsset ?: return@LaunchedEffect
@@ -60,25 +59,23 @@ fun TimelinePhotoOverlay(
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
     ) {
-        if (pagingItems.itemCount > 0) {
+        if (assets.isNotEmpty()) {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                key = { page -> pagingItems.peek(page)?.id ?: page }
+                key = { page -> assets[page].id }
             ) { page ->
-                val asset = pagingItems[page]
+                val asset = assets[page]
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (asset != null) {
-                        AssetPage(
-                            asset = asset,
-                            apiKey = apiKey,
-                            isCurrentPage = pagerState.settledPage == page,
-                            onTap = { showTopBar = !showTopBar }
-                        )
-                    }
+                    AssetPage(
+                        asset = asset,
+                        apiKey = apiKey,
+                        isCurrentPage = pagerState.settledPage == page,
+                        onTap = { showTopBar = !showTopBar }
+                    )
                 }
             }
         }

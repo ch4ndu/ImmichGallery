@@ -9,7 +9,10 @@ class SmartSearchUseCase(
     private val repository: SearchRepository,
     private val serverConfigRepository: ServerConfigRepository
 ) {
-    suspend operator fun invoke(query: String, page: Int = 1): Result<List<Asset>> {
+    suspend operator fun invoke(
+        query: String,
+        page: Int = 1
+    ): Result<List<Asset>> {
         return runCatching {
             val baseUrl = serverConfigRepository.getServerUrl().trimEnd('/')
             repository.searchSmart(query, page).assets.items.map { it.toDomain(baseUrl) }

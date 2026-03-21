@@ -18,7 +18,10 @@ interface AlbumAssetDao {
     suspend fun deleteByAlbum(albumId: String)
 
     @Transaction
-    suspend fun replaceAlbum(albumId: String, assets: List<AlbumAssetEntity>) {
+    suspend fun replaceAlbum(
+        albumId: String,
+        assets: List<AlbumAssetEntity>
+    ) {
         deleteByAlbum(albumId)
         insertAll(assets)
     }
@@ -27,7 +30,10 @@ interface AlbumAssetDao {
     fun getAssetsPaging(albumId: String): PagingSource<Int, AlbumAssetEntity>
 
     @Query("SELECT COUNT(*) FROM album_assets WHERE albumId = :albumId AND sortOrder < :sortOrder")
-    suspend fun getAssetPosition(albumId: String, sortOrder: Int): Int
+    suspend fun getAssetPosition(
+        albumId: String,
+        sortOrder: Int
+    ): Int
 
     @Query("DELETE FROM album_assets")
     suspend fun deleteAll()

@@ -14,5 +14,7 @@ data class TimelineAssetEntity(
     val fileName: String,
     val createdAt: String,
     val isFavorite: Boolean,
-    val timeBucket: String
+    val timeBucket: String,
+    val stackId: String? = null,
+    val stackCount: Int = 0
 )

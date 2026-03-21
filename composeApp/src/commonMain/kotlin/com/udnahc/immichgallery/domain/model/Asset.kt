@@ -13,5 +13,6 @@ data class Asset(
     val thumbnailUrl: String,
     val originalUrl: String,
     val videoPlaybackUrl: String = "",
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val stackCount: Int = 0
 )

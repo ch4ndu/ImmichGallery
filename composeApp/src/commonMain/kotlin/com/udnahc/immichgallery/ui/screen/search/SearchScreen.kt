@@ -7,14 +7,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,20 +37,19 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.Asset
-import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
-import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
-import org.koin.compose.viewmodel.koinViewModel
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
 import immichgallery.composeapp.generated.resources.search_placeholder
 import immichgallery.composeapp.generated.resources.search_type_filename
 import immichgallery.composeapp.generated.resources.search_type_smart
+import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 
 private const val GRID_COLUMNS = 3
 
@@ -139,21 +137,32 @@ fun SearchContent(
                     CircularProgressIndicator()
                 }
             }
+
             state.error != null -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(state.error, color = MaterialTheme.colorScheme.error)
                 }
             }
+
             state.hasSearched && state.results.isEmpty() -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(Res.string.search_no_results), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        stringResource(Res.string.search_no_results),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
+
             state.results.isNotEmpty() -> {
                 val rows = remember(state.results) { state.results.chunked(GRID_COLUMNS) }
-                val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                val navBarPadding =
+                    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 val listState = rememberLazyListState()
-                ScrollbarOverlay(listState = listState, topPadding = statusBarPadding + Dimens.topBarHeight, bottomPadding = Dimens.bottomBarHeight + navBarPadding) {
+                ScrollbarOverlay(
+                    listState = listState,
+                    topPadding = statusBarPadding + Dimens.topBarHeight,
+                    bottomPadding = Dimens.bottomBarHeight + navBarPadding
+                ) {
                     LazyColumn(
                         state = listState,
                         contentPadding = PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
@@ -164,6 +173,7 @@ fun SearchContent(
                     }
                 }
             }
+
             else -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(

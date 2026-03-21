@@ -19,7 +19,7 @@ import com.udnahc.immichgallery.data.local.entity.TimelineAssetEntity
         AlbumAssetEntity::class,
         PersonAssetEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @ConstructedBy(AppDatabaseConstructor::class)

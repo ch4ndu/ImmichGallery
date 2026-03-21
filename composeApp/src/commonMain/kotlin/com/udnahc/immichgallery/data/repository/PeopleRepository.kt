@@ -31,7 +31,10 @@ class PeopleRepository(
     fun getPersonAssetsPaging(personId: String): PagingSource<Int, PersonAssetEntity> =
         dao.getAssetsPaging(personId)
 
-    suspend fun getAssetPosition(personId: String, sortOrder: Int): Int =
+    suspend fun getAssetPosition(
+        personId: String,
+        sortOrder: Int
+    ): Int =
         dao.getAssetPosition(personId, sortOrder)
 
     fun personThumbnailUrl(personId: String): String =

@@ -35,7 +35,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import chaintech.videoplayer.host.MediaPlayerHost
 import chaintech.videoplayer.model.VideoPlayerConfig
 import chaintech.videoplayer.ui.video.VideoPlayerComposable
@@ -45,9 +44,6 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.restoreEdgeToEdge
-import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.resources.stringResource
-import org.lighthousegames.logging.logging
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.back
 import immichgallery.composeapp.generated.resources.detail_download
@@ -60,6 +56,9 @@ import immichgallery.composeapp.generated.resources.ic_info
 import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.ic_share
 import immichgallery.composeapp.generated.resources.retry
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
+import org.lighthousegames.logging.logging
 
 internal const val DETAIL_BAR_ALPHA = 0.4f
 internal const val API_KEY_HEADER = "x-api-key"
@@ -70,7 +69,12 @@ private const val ERROR_ICON_ALPHA = 0.6f
 private val log = logging()
 
 @Composable
-internal fun AssetPage(asset: Asset, apiKey: String, isCurrentPage: Boolean, onTap: () -> Unit) {
+internal fun AssetPage(
+    asset: Asset,
+    apiKey: String,
+    isCurrentPage: Boolean,
+    onTap: () -> Unit
+) {
     if (asset.type == AssetType.VIDEO) {
         VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
     } else {
@@ -134,21 +138,30 @@ internal fun DetailTopBarOverlay(
                             text = { Text(stringResource(Res.string.detail_download)) },
                             onClick = { menuExpanded = false; onDownload() },
                             leadingIcon = {
-                                Icon(painterResource(Res.drawable.ic_download), contentDescription = null)
+                                Icon(
+                                    painterResource(Res.drawable.ic_download),
+                                    contentDescription = null
+                                )
                             }
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(Res.string.detail_share)) },
                             onClick = { menuExpanded = false; onShare() },
                             leadingIcon = {
-                                Icon(painterResource(Res.drawable.ic_share), contentDescription = null)
+                                Icon(
+                                    painterResource(Res.drawable.ic_share),
+                                    contentDescription = null
+                                )
                             }
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(Res.string.detail_info)) },
                             onClick = { menuExpanded = false; onInfo() },
                             leadingIcon = {
-                                Icon(painterResource(Res.drawable.ic_info), contentDescription = null)
+                                Icon(
+                                    painterResource(Res.drawable.ic_info),
+                                    contentDescription = null
+                                )
                             }
                         )
                     }
@@ -159,7 +172,10 @@ internal fun DetailTopBarOverlay(
 }
 
 @Composable
-private fun ImageContent(url: String, onTap: () -> Unit) {
+private fun ImageContent(
+    url: String,
+    onTap: () -> Unit
+) {
     var hasError by remember { mutableStateOf(false) }
 
     log.d { "ImageContent: loading $url" }
@@ -185,7 +201,11 @@ private fun ImageContent(url: String, onTap: () -> Unit) {
 }
 
 @Composable
-private fun VideoContent(url: String, apiKey: String, isCurrentPage: Boolean) {
+private fun VideoContent(
+    url: String,
+    apiKey: String,
+    isCurrentPage: Boolean
+) {
     log.d { "VideoContent: loading video from $url" }
     log.d { "VideoContent: apiKey present=${apiKey.isNotBlank()}" }
 

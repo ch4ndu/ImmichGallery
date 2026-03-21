@@ -35,10 +35,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.paging.compose.collectAsLazyPagingItems
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -48,7 +48,6 @@ import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.jetbrains.compose.resources.stringResource
-import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -61,9 +60,9 @@ fun TimelineScreen(
     viewModel: TimelineViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val pagingItems = viewModel.assetsPaging.collectAsLazyPagingItems()
     val serverConfigRepository: ServerConfigRepository = koinInject()
     val apiKey = remember { serverConfigRepository.getApiKey() }
+    var selectedAssets by remember { mutableStateOf<List<Asset>?>(null) }
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(selectedPhotoIndex) {
@@ -73,23 +72,37 @@ fun TimelineScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         TimelineContent(
             state = state,
-            pagingItemCount = pagingItems.itemCount,
-            pagingItemProvider = { index -> pagingItems[index] },
             onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
             onRetryBucket = viewModel::retryBucket,
-            onPhotoClick = { flatIndex -> selectedPhotoIndex = flatIndex },
+            onPhotoClick = { assetId ->
+                val currentState = viewModel.state.value
+                val flatAssets = mutableListOf<Asset>()
+                for (bucket in currentState.buckets) {
+                    flatAssets.addAll(currentState.bucketAssets[bucket.timeBucket] ?: continue)
+                }
+                val index = flatAssets.indexOfFirst { it.id == assetId }
+                if (index >= 0) {
+                    selectedAssets = flatAssets
+                    selectedPhotoIndex = index
+                }
+            },
             onRetry = viewModel::loadBuckets,
             labelProvider = viewModel.labelProvider
         )
 
-        selectedPhotoIndex?.let { index ->
+        val assets = selectedAssets
+        val index = selectedPhotoIndex
+        if (assets != null && index != null) {
             val getAssetFileNameUseCase: GetAssetFileNameUseCase = koinInject()
             TimelinePhotoOverlay(
-                pagingItems = pagingItems,
+                assets = assets,
                 initialIndex = index,
                 apiKey = apiKey,
                 getAssetFileNameUseCase = getAssetFileNameUseCase,
-                onDismiss = { selectedPhotoIndex = null }
+                onDismiss = {
+                    selectedAssets = null
+                    selectedPhotoIndex = null
+                }
             )
         }
     }
@@ -98,11 +111,9 @@ fun TimelineScreen(
 @Composable
 fun TimelineContent(
     state: TimelineState,
-    pagingItemCount: Int,
-    pagingItemProvider: (Int) -> Asset?,
     onVisibleBucketsChanged: (Set<String>) -> Unit,
     onRetryBucket: (String) -> Unit,
-    onPhotoClick: (Int) -> Unit,
+    onPhotoClick: (assetId: String) -> Unit,
     onRetry: () -> Unit,
     labelProvider: (Float) -> String?
 ) {
@@ -127,7 +138,6 @@ fun TimelineContent(
             val buckets = state.buckets
             val loadedBuckets = state.loadedBuckets
             val failedBuckets = state.failedBuckets
-            val cumulativeOffsets = state.cumulativeOffsets
 
             // Detect visible buckets from both header and asset items
             val visibleBucketKeys by remember {
@@ -138,8 +148,10 @@ fun TimelineContent(
                         if (key.startsWith(HEADER_KEY_PREFIX)) {
                             bucketKeys.add(key.removePrefix(HEADER_KEY_PREFIX))
                         } else {
-                            // Asset keys: "{timeBucket}_{idx}"
-                            val timeBucket = key.substringBeforeLast("_", "")
+                            // Asset keys: "{timeBucket}:{assetId}" or "{timeBucket}_{idx}"
+                            val timeBucket = key.substringBefore(":", "").ifEmpty {
+                                key.substringBeforeLast("_", "")
+                            }
                             if (timeBucket.isNotEmpty()) {
                                 bucketKeys.add(timeBucket)
                             }
@@ -164,7 +176,8 @@ fun TimelineContent(
                     gridState = gridState,
                     topPadding = statusBarPadding + Dimens.topBarHeight + Dimens.sectionHeaderHeight,
                     bottomPadding = Dimens.bottomBarHeight + navBarPadding,
-                    labelProvider = labelProvider
+                    labelProvider = labelProvider,
+                    yearMarkers = state.yearMarkers
                 ) {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(GRID_COLUMNS),
@@ -176,7 +189,7 @@ fun TimelineContent(
                             bottom = Dimens.bottomBarHeight + navBarPadding
                         )
                     ) {
-                        buckets.forEachIndexed { bucketIndex, bucket ->
+                        buckets.forEachIndexed { _, bucket ->
                             // Full-width header
                             item(
                                 key = "$HEADER_KEY_PREFIX${bucket.timeBucket}",
@@ -219,27 +232,25 @@ fun TimelineContent(
                                     PlaceholderCell()
                                 }
                             } else {
-                                // Loaded bucket: map to paging data
-                                val flatOffset = cumulativeOffsets[bucketIndex]
-                                items(
-                                    count = bucket.count,
-                                    key = { idx -> "${bucket.timeBucket}_$idx" }
-                                ) { idx ->
-                                    val pagingIndex = flatOffset + idx
-                                    val asset = if (pagingIndex < pagingItemCount) {
-                                        pagingItemProvider(pagingIndex)
-                                    } else {
-                                        null
-                                    }
-                                    if (asset != null) {
-                                        val onClick = remember(pagingIndex) {
-                                            { onPhotoClick(pagingIndex) }
-                                        }
+                                // Loaded bucket: render from bucketAssets map
+                                val assets = state.bucketAssets[bucket.timeBucket]
+                                if (assets != null) {
+                                    items(
+                                        count = assets.size,
+                                        key = { idx -> "${bucket.timeBucket}:${assets[idx].id}" }
+                                    ) { idx ->
+                                        val asset = assets[idx]
                                         ThumbnailCell(
                                             asset = asset,
-                                            onClick = onClick
+                                            onClick = { onPhotoClick(asset.id) }
                                         )
-                                    } else {
+                                    }
+                                } else {
+                                    // Fallback: bucket marked loaded but assets not yet in map
+                                    items(
+                                        count = bucket.count,
+                                        key = { idx -> "${bucket.timeBucket}_$idx" }
+                                    ) {
                                         PlaceholderCell()
                                     }
                                 }
@@ -302,8 +313,10 @@ private fun StickyHeaderOverlay(
             if (lastHeaderLabel == null && visibleItems.isNotEmpty()) {
                 val firstKey = visibleItems.first().key as? String
                 if (firstKey != null && !firstKey.startsWith(HEADER_KEY_PREFIX)) {
-                    // Parse bucket timeBucket from the asset key format: "{timeBucket}_{idx}"
-                    val timeBucket = firstKey.substringBeforeLast("_", "")
+                    // Parse bucket timeBucket from asset key: "{timeBucket}:{assetId}" or "{timeBucket}_{idx}"
+                    val timeBucket = firstKey.substringBefore(":", "").ifEmpty {
+                        firstKey.substringBeforeLast("_", "")
+                    }
                     if (timeBucket.isNotEmpty()) {
                         lastHeaderLabel = bucketLabelMap[timeBucket]
                     }

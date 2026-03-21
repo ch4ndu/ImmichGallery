@@ -19,7 +19,10 @@ interface TimelineAssetDao {
     suspend fun deleteByBucket(timeBucket: String)
 
     @Transaction
-    suspend fun replaceBucket(timeBucket: String, assets: List<TimelineAssetEntity>) {
+    suspend fun replaceBucket(
+        timeBucket: String,
+        assets: List<TimelineAssetEntity>
+    ) {
         deleteByBucket(timeBucket)
         insertAll(assets)
     }
@@ -31,13 +34,19 @@ interface TimelineAssetDao {
         "SELECT COUNT(*) FROM timeline_assets WHERE createdAt > :createdAt " +
                 "OR (createdAt = :createdAt AND id < :assetId)"
     )
-    suspend fun getAssetPosition(assetId: String, createdAt: String): Int
+    suspend fun getAssetPosition(
+        assetId: String,
+        createdAt: String
+    ): Int
 
     @Query("SELECT * FROM timeline_assets WHERE timeBucket = :timeBucket ORDER BY createdAt DESC")
     fun getAssetsByBucket(timeBucket: String): Flow<List<TimelineAssetEntity>>
 
     @Query("UPDATE timeline_assets SET fileName = :fileName WHERE id = :id")
-    suspend fun updateFileName(id: String, fileName: String)
+    suspend fun updateFileName(
+        id: String,
+        fileName: String
+    )
 
     @Query("DELETE FROM timeline_assets")
     suspend fun deleteAll()

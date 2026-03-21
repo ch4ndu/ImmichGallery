@@ -4,12 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 import org.lighthousegames.logging.logging
 
@@ -52,7 +52,8 @@ class LoginViewModel(
 
             log.d { "Login attempt to ${currentState.serverUrl}" }
             _state.update { it.copy(isLoading = true, error = null) }
-            val result = validateServerUseCase(currentState.serverUrl.trimEnd('/'), currentState.apiKey)
+            val result =
+                validateServerUseCase(currentState.serverUrl.trimEnd('/'), currentState.apiKey)
             result.fold(
                 onSuccess = {
                     log.d { "Login successful" }
@@ -61,7 +62,12 @@ class LoginViewModel(
                 },
                 onFailure = { e ->
                     log.e(e) { "Login failed" }
-                    _state.update { it.copy(isLoading = false, error = e.message ?: "Connection failed") }
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = e.message ?: "Connection failed"
+                        )
+                    }
                 }
             )
         }

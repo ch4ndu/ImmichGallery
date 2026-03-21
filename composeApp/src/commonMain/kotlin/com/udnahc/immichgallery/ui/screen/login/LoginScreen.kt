@@ -24,8 +24,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.ui.theme.Dimens
-import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.viewmodel.koinViewModel
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.app_title
 import immichgallery.composeapp.generated.resources.login_api_key_label
@@ -34,6 +32,8 @@ import immichgallery.composeapp.generated.resources.login_connect
 import immichgallery.composeapp.generated.resources.login_server_url_label
 import immichgallery.composeapp.generated.resources.login_server_url_placeholder
 import immichgallery.composeapp.generated.resources.login_subtitle
+import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun LoginScreen(

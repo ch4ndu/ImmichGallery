@@ -24,7 +24,10 @@ class AlbumRepository(
     fun getAlbumAssetsPaging(albumId: String): PagingSource<Int, AlbumAssetEntity> =
         dao.getAssetsPaging(albumId)
 
-    suspend fun getAssetPosition(albumId: String, sortOrder: Int): Int =
+    suspend fun getAssetPosition(
+        albumId: String,
+        sortOrder: Int
+    ): Int =
         dao.getAssetPosition(albumId, sortOrder)
 
     fun albumThumbnailUrl(albumThumbnailAssetId: String): String =

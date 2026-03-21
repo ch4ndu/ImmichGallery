@@ -43,13 +43,13 @@ import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
-import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.resources.stringResource
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.back
 import immichgallery.composeapp.generated.resources.ic_back
 import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.unknown
+import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -136,6 +136,7 @@ fun PersonDetailContent(
                 CircularProgressIndicator()
             }
         }
+
         state.error != null -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -144,14 +145,22 @@ fun PersonDetailContent(
                 }
             }
         }
+
         else -> {
             val rows = remember(state.assets) { state.assets.chunked(GRID_COLUMNS) }
             val listState = rememberLazyListState()
-            ScrollbarOverlay(listState = listState, topPadding = contentTopPadding, bottomPadding = contentBottomPadding) {
+            ScrollbarOverlay(
+                listState = listState,
+                topPadding = contentTopPadding,
+                bottomPadding = contentBottomPadding
+            ) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = contentTopPadding, bottom = contentBottomPadding)
+                    contentPadding = PaddingValues(
+                        top = contentTopPadding,
+                        bottom = contentBottomPadding
+                    )
                 ) {
                     items(rows, key = { it.first().id }) { row ->
                         PhotoRow(row, state.assets, onPhotoClick)
