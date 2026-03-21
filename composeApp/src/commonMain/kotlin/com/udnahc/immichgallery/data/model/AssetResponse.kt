@@ -15,7 +15,39 @@ data class AssetResponse(
     val isArchived: Boolean = false,
     val stackId: String? = null,
     val stackCount: Int = 0,
-    val visibility: String = "timeline"
+    val visibility: String = "timeline",
+    val exifInfo: ExifInfo? = null,
+    val people: List<AssetPersonResponse> = emptyList()
+)
+
+@Immutable
+@Serializable
+data class ExifInfo(
+    val make: String? = null,
+    val model: String? = null,
+    val focalLength: Double? = null,
+    val fNumber: Double? = null,
+    val exposureTime: String? = null,
+    val iso: Int? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val city: String? = null,
+    val state: String? = null,
+    val country: String? = null,
+    val dateTimeOriginal: String? = null,
+    val fileSizeInByte: Long? = null,
+    val exifImageWidth: Int? = null,
+    val exifImageHeight: Int? = null,
+    val lensModel: String? = null,
+    val description: String? = null
+)
+
+@Immutable
+@Serializable
+data class AssetPersonResponse(
+    val id: String,
+    val name: String = "",
+    val thumbnailPath: String = ""
 )
 
 /**

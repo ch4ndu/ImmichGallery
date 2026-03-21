@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 
 @Composable
@@ -21,11 +22,14 @@ fun StaticPhotoOverlay(
     assets: List<Asset>,
     initialIndex: Int,
     apiKey: String,
+    getAssetDetailUseCase: GetAssetDetailUseCase,
+    onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     PlatformBackHandler(enabled = true, onBack = onDismiss)
 
     var showTopBar by remember { mutableStateOf(true) }
+    var showDetailSheet by remember { mutableStateOf(false) }
 
     if (assets.isEmpty()) {
         Box(Modifier.fillMaxSize().background(Color.Black))
@@ -65,7 +69,27 @@ fun StaticPhotoOverlay(
             onBack = onDismiss,
             onDownload = {},
             onShare = {},
-            onInfo = {}
+            onInfo = { showDetailSheet = true }
         )
+
+        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+            DetailBottomHandle(
+                visible = showTopBar,
+                onClick = { showDetailSheet = true }
+            )
+        }
+
+        if (showDetailSheet) {
+            AssetDetailSheet(
+                assetId = currentAsset.id,
+                getAssetDetailUseCase = getAssetDetailUseCase,
+                onPersonClick = { personId, personName ->
+                    showDetailSheet = false
+                    onDismiss()
+                    onPersonClick(personId, personName)
+                },
+                onDismiss = { showDetailSheet = false }
+            )
+        }
     }
 }

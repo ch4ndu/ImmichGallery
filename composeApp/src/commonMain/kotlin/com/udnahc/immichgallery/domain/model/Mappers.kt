@@ -25,6 +25,38 @@ fun AssetResponse.toDomain(baseUrl: String): Asset {
     )
 }
 
+fun AssetResponse.toDetail(baseUrl: String): AssetDetail {
+    val exif = exifInfo
+    return AssetDetail(
+        id = id,
+        fileName = originalFileName,
+        dateTime = exif?.dateTimeOriginal ?: fileCreatedAt,
+        cameraMake = exif?.make,
+        cameraModel = exif?.model,
+        lensModel = exif?.lensModel,
+        focalLength = exif?.focalLength,
+        aperture = exif?.fNumber,
+        shutterSpeed = exif?.exposureTime,
+        iso = exif?.iso,
+        latitude = exif?.latitude,
+        longitude = exif?.longitude,
+        city = exif?.city,
+        state = exif?.state,
+        country = exif?.country,
+        fileSizeInByte = exif?.fileSizeInByte,
+        width = exif?.exifImageWidth,
+        height = exif?.exifImageHeight,
+        description = exif?.description,
+        people = people.map { person ->
+            AssetDetailPerson(
+                id = person.id,
+                name = person.name,
+                thumbnailUrl = "$baseUrl/api/people/${person.id}/thumbnail"
+            )
+        }
+    )
+}
+
 fun TimeBucketResponse.toDomain(): TimelineBucket {
     val label = try {
         val instant = Instant.parse(timeBucket)

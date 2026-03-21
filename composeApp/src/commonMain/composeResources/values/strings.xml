@@ -24,6 +24,9 @@
     <!-- Timeline -->
     <string name="timeline_failed_tap_retry">Failed to load. Tap to retry.</string>
 
+    <!-- People -->
+    <string name="people_search_placeholder">Search people…</string>
+
     <!-- Search -->
     <string name="search_placeholder">Search photos…</string>
     <string name="search_type_smart">Smart</string>
@@ -39,6 +42,11 @@
     <string name="detail_download">Download</string>
     <string name="detail_share">Share</string>
     <string name="detail_info">Info</string>
+    <string name="detail_people">People</string>
+    <string name="detail_location">Location</string>
+    <string name="detail_camera">Camera</string>
+    <string name="detail_loading">Loading details…</string>
+    <string name="detail_error">Failed to load details</string>
 
     <!-- Tabs -->
     <string name="tab_timeline">Timeline</string>

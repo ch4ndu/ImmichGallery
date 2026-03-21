@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -49,6 +50,7 @@ import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.unknown
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -59,6 +61,7 @@ fun PersonDetailScreen(
     personId: String,
     personName: String,
     onBack: () -> Unit,
+    onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
     viewModel: PersonDetailViewModel = koinViewModel { parametersOf(personId) }
 ) {
     val state by viewModel.state.collectAsState()
@@ -109,10 +112,13 @@ fun PersonDetailScreen(
         }
 
         selectedPhotoIndex?.let { index ->
+            val getAssetDetailUseCase: GetAssetDetailUseCase = koinInject()
             StaticPhotoOverlay(
                 assets = state.assets,
                 initialIndex = index,
                 apiKey = apiKey,
+                getAssetDetailUseCase = getAssetDetailUseCase,
+                onPersonClick = onPersonClick,
                 onDismiss = { selectedPhotoIndex = null }
             )
         }

@@ -39,6 +39,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
@@ -58,6 +59,7 @@ private const val HEADER_KEY_PREFIX = "header_"
 @Composable
 fun TimelineScreen(
     onOverlayActiveChanged: (Boolean) -> Unit = {},
+    onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
     viewModel: TimelineViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -94,11 +96,14 @@ fun TimelineScreen(
         val index = selectedPhotoIndex
         if (assets != null && index != null) {
             val getAssetFileNameUseCase: GetAssetFileNameUseCase = koinInject()
+            val getAssetDetailUseCase: GetAssetDetailUseCase = koinInject()
             TimelinePhotoOverlay(
                 assets = assets,
                 initialIndex = index,
                 apiKey = apiKey,
                 getAssetFileNameUseCase = getAssetFileNameUseCase,
+                getAssetDetailUseCase = getAssetDetailUseCase,
+                onPersonClick = onPersonClick,
                 onDismiss = {
                     selectedAssets = null
                     selectedPhotoIndex = null

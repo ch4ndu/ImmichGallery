@@ -16,8 +16,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
+import com.udnahc.immichgallery.ui.component.AssetDetailSheet
 import com.udnahc.immichgallery.ui.component.AssetPage
+import com.udnahc.immichgallery.ui.component.DetailBottomHandle
 import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 
@@ -27,11 +30,14 @@ fun TimelinePhotoOverlay(
     initialIndex: Int,
     apiKey: String,
     getAssetFileNameUseCase: GetAssetFileNameUseCase,
+    getAssetDetailUseCase: GetAssetDetailUseCase,
+    onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     PlatformBackHandler(enabled = true, onBack = onDismiss)
 
     var showTopBar by remember { mutableStateOf(true) }
+    var showDetailSheet by remember { mutableStateOf(false) }
     val fileNameCache = remember { mutableStateMapOf<String, String>() }
 
     val pagerState = rememberPagerState(
@@ -86,7 +92,27 @@ fun TimelinePhotoOverlay(
             onBack = onDismiss,
             onDownload = {},
             onShare = {},
-            onInfo = {}
+            onInfo = { showDetailSheet = true }
         )
+
+        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+            DetailBottomHandle(
+                visible = showTopBar,
+                onClick = { showDetailSheet = true }
+            )
+        }
+
+        if (showDetailSheet && currentAsset != null) {
+            AssetDetailSheet(
+                assetId = currentAsset.id,
+                getAssetDetailUseCase = getAssetDetailUseCase,
+                onPersonClick = { personId, personName ->
+                    showDetailSheet = false
+                    onDismiss()
+                    onPersonClick(personId, personName)
+                },
+                onDismiss = { showDetailSheet = false }
+            )
+        }
     }
 }

@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.search
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,11 +34,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -48,6 +52,7 @@ import immichgallery.composeapp.generated.resources.search_placeholder
 import immichgallery.composeapp.generated.resources.search_type_filename
 import immichgallery.composeapp.generated.resources.search_type_smart
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val GRID_COLUMNS = 3
@@ -55,6 +60,7 @@ private const val GRID_COLUMNS = 3
 @Composable
 fun SearchScreen(
     onOverlayActiveChanged: (Boolean) -> Unit = {},
+    onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -75,10 +81,13 @@ fun SearchScreen(
         )
 
         selectedPhotoIndex?.let { index ->
+            val getAssetDetailUseCase: GetAssetDetailUseCase = koinInject()
             StaticPhotoOverlay(
                 assets = state.results,
                 initialIndex = index,
                 apiKey = apiKey,
+                getAssetDetailUseCase = getAssetDetailUseCase,
+                onPersonClick = onPersonClick,
                 onDismiss = { selectedPhotoIndex = null }
             )
         }
@@ -94,9 +103,11 @@ fun SearchContent(
     onPhotoClick: (List<Asset>, Int) -> Unit
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val focusManager = LocalFocusManager.current
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
             .padding(horizontal = Dimens.screenPadding)
             .padding(top = statusBarPadding + Dimens.topBarHeight)
     ) {
@@ -156,6 +167,9 @@ fun SearchContent(
                 val navBarPadding =
                     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 val listState = rememberLazyListState()
+                LaunchedEffect(listState.isScrollInProgress) {
+                    if (listState.isScrollInProgress) focusManager.clearFocus()
+                }
                 ScrollbarOverlay(
                     listState = listState,
                     topPadding = statusBarPadding + Dimens.topBarHeight,

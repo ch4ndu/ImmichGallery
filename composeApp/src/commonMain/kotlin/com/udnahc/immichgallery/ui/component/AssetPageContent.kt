@@ -4,19 +4,20 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -26,20 +27,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import chaintech.videoplayer.host.MediaPlayerHost
-import chaintech.videoplayer.model.ScreenResize
-import chaintech.videoplayer.model.VideoPlayerConfig
-import chaintech.videoplayer.ui.video.VideoPlayerComposable
+import androidx.compose.ui.text.style.TextOverflow
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
@@ -105,10 +102,13 @@ internal fun DetailTopBarOverlay(
                 .statusBarsPadding()
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().height(Dimens.sectionHeaderHeight),
+                modifier = Modifier.fillMaxWidth().height(Dimens.bottomBarHeight),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
+                    onClick = onBack
+                ) {
                     Icon(
                         painterResource(Res.drawable.ic_back),
                         contentDescription = stringResource(Res.string.back),
@@ -125,7 +125,10 @@ internal fun DetailTopBarOverlay(
                 )
                 Box {
                     var menuExpanded by remember { mutableStateOf(false) }
-                    IconButton(onClick = { menuExpanded = true }) {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
+                    ) {
                         Icon(
                             painterResource(Res.drawable.ic_more_vert),
                             contentDescription = null,
@@ -173,6 +176,39 @@ internal fun DetailTopBarOverlay(
     }
 }
 
+private const val HANDLE_WIDTH = 32
+private const val HANDLE_HEIGHT = 4
+
+@Composable
+internal fun DetailBottomHandle(
+    visible: Boolean,
+    onClick: () -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInVertically { it },
+        exit = slideOutVertically { it }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .background(Color.Black.copy(alpha = DETAIL_BAR_ALPHA))
+                .navigationBarsPadding()
+                .padding(vertical = Dimens.mediumSpacing),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(HANDLE_WIDTH.dp)
+                    .height(HANDLE_HEIGHT.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.6f))
+            )
+        }
+    }
+}
+
 @Composable
 private fun ImageContent(
     url: String,
@@ -209,7 +245,6 @@ private fun VideoContent(
     isCurrentPage: Boolean
 ) {
     log.d { "VideoContent: loading video from $url" }
-    log.d { "VideoContent: apiKey present=${apiKey.isNotBlank()}" }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -218,37 +253,11 @@ private fun VideoContent(
         }
     }
 
-    val host = remember(url) {
-        MediaPlayerHost(
-            url,
-            autoPlay = false,
-            headers = mapOf(API_KEY_HEADER to apiKey),
-            initialVideoFitMode = ScreenResize.FIT
-        )
-    }
-
-    LaunchedEffect(isCurrentPage) {
-        if (isCurrentPage) host.play() else host.pause()
-    }
-
-    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-
-    VideoPlayerComposable(
-        modifier = Modifier.fillMaxSize(),
-        playerHost = host,
-        playerConfig = VideoPlayerConfig(
-            isPauseResumeEnabled = true,
-            isSeekBarVisible = true,
-            enableFullEdgeToEdge = false,
-            isScreenLockEnabled = false,
-            enablePIPControl = false,
-            isScreenResizeEnabled = true,
-            isFullScreenEnabled = false,
-            controlTopPadding = statusBarTop + Dimens.topBarHeight,
-            seekBarBottomPadding = navBarBottom + Dimens.screenPadding,
-            topControlSize = 48.dp
-        )
+    PlatformVideoPlayer(
+        url = url,
+        apiKey = apiKey,
+        isCurrentPage = isCurrentPage,
+        modifier = Modifier.fillMaxSize()
     )
 }
 

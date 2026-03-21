@@ -17,6 +17,8 @@ import org.lighthousegames.logging.logging
 @Immutable
 data class PeopleState(
     val people: List<Person> = emptyList(),
+    val filteredPeople: List<Person> = emptyList(),
+    val query: String = "",
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -33,6 +35,15 @@ class PeopleViewModel(
         loadPeople()
     }
 
+    fun updateQuery(query: String) {
+        _state.update {
+            it.copy(
+                query = query,
+                filteredPeople = it.people.filterByQuery(query)
+            )
+        }
+    }
+
     fun loadPeople() {
         viewModelScope.launch(Dispatchers.IO) {
             log.d { "Loading people..." }
@@ -40,7 +51,13 @@ class PeopleViewModel(
             getPeopleUseCase().fold(
                 onSuccess = { people ->
                     log.d { "Loaded ${people.size} people" }
-                    _state.update { it.copy(people = people, isLoading = false) }
+                    _state.update {
+                        it.copy(
+                            people = people,
+                            filteredPeople = people.filterByQuery(it.query),
+                            isLoading = false
+                        )
+                    }
                 },
                 onFailure = { e ->
                     log.e(e) { "Failed to load people" }
@@ -54,4 +71,7 @@ class PeopleViewModel(
             )
         }
     }
+
+    private fun List<Person>.filterByQuery(query: String): List<Person> =
+        if (query.isBlank()) this else filter { it.name.contains(query, ignoreCase = true) }
 }

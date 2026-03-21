@@ -63,7 +63,10 @@ fun AppNavigation() {
             val route = backStackEntry.toRoute<AlbumDetailRoute>()
             AlbumDetailScreen(
                 albumId = route.albumId,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onPersonClick = { personId, personName ->
+                    navController.navigate(PersonDetailRoute(personId, personName))
+                }
             )
         }
         composable<PersonDetailRoute> { backStackEntry ->
@@ -71,7 +74,10 @@ fun AppNavigation() {
             PersonDetailScreen(
                 personId = route.personId,
                 personName = route.personName,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onPersonClick = { personId, personName ->
+                    navController.navigate(PersonDetailRoute(personId, personName))
+                }
             )
         }
     }

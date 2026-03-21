@@ -18,6 +18,7 @@ import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
@@ -64,6 +65,7 @@ val sharedModule = module {
     factory { GetTimelineBucketsUseCase(get()) }
     factory { GetBucketAssetsUseCase(get(), get()) }
     factory { GetAssetFileNameUseCase(get()) }
+    factory { GetAssetDetailUseCase(get(), get()) }
     factory { GetAlbumsUseCase(get(), get()) }
     factory { GetAlbumDetailUseCase(get(), get()) }
     factory { GetPeopleUseCase(get(), get()) }
