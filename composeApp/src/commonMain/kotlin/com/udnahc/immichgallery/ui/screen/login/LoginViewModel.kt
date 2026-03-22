@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.lighthousegames.logging.logging
 
+@androidx.compose.runtime.Immutable
 data class LoginState(
     val serverUrl: String = "http://192.168.86.167:2283",
     val apiKey: String = "pcikjymklYXrSTYr5FqXHY9birKVp0GzyOYuG6I",

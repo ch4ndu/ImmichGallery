@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import coil3.compose.AsyncImage
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.AssetDetailPerson
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
@@ -52,6 +53,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import androidx.compose.ui.tooling.preview.Preview
 import org.jetbrains.compose.resources.stringResource
 
 private const val BYTES_PER_KB = 1_024.0
@@ -303,6 +305,57 @@ private fun buildSizeInfo(detail: AssetDetail): String {
 private fun buildLocationText(detail: AssetDetail): String? {
     val parts = listOfNotNull(detail.city, detail.state, detail.country)
     return parts.joinToString(", ").ifEmpty { null }
+}
+
+@Preview
+@Composable
+private fun AssetDetailContentPreview() {
+    AssetDetailContent(
+        detail = AssetDetail(
+            id = "1",
+            fileName = "IMG_2024.jpg",
+            dateTime = "2024-06-15T10:30:00Z",
+            cameraMake = "Apple",
+            cameraModel = "iPhone 15 Pro",
+            lensModel = "iPhone 15 Pro back camera",
+            focalLength = 6.765,
+            aperture = 1.78,
+            shutterSpeed = "1/120",
+            iso = 100,
+            latitude = 37.7749,
+            longitude = -122.4194,
+            city = "San Francisco",
+            state = "California",
+            country = "United States",
+            fileSizeInByte = 4_500_000,
+            width = 4032,
+            height = 3024,
+            description = "Golden Gate Bridge at sunset",
+            people = listOf(
+                AssetDetailPerson(id = "p1", name = "Alice", thumbnailUrl = ""),
+                AssetDetailPerson(id = "p2", name = "Bob", thumbnailUrl = "")
+            )
+        ),
+        onPersonClick = { _, _ -> }
+    )
+}
+
+@Preview
+@Composable
+private fun SectionHeaderPreview() {
+    SectionHeader(title = "People")
+}
+
+@Preview
+@Composable
+private fun PeopleRowPreview() {
+    PeopleRow(
+        people = listOf(
+            AssetDetailPerson(id = "1", name = "Alice", thumbnailUrl = ""),
+            AssetDetailPerson(id = "2", name = "Bob", thumbnailUrl = "")
+        ),
+        onPersonClick = { _, _ -> }
+    )
 }
 
 private fun buildCameraInfo(detail: AssetDetail): List<String> {

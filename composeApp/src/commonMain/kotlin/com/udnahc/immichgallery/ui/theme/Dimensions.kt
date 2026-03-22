@@ -2,6 +2,8 @@ package com.udnahc.immichgallery.ui.theme
 
 import androidx.compose.ui.unit.dp
 
+const val GRID_COLUMNS = 3
+
 object Dimens {
     val screenPadding = 16.dp
     val gridSpacing = 2.dp
@@ -36,4 +38,6 @@ object Dimens {
     val scrollbarBubbleVerticalOffset = 20.dp
     val stackBadgeIconSize = 12.dp
     val stackBadgePaddingHorizontal = 6.dp
+    val stackBadgePaddingVertical = 2.dp
+    val scrollbarYearLabelPaddingVertical = 2.dp
 }

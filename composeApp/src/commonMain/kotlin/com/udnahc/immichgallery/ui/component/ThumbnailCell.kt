@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
@@ -77,7 +76,7 @@ fun ThumbnailCell(
                         Color.Black.copy(alpha = STACK_BADGE_ALPHA),
                         RoundedCornerShape(Dimens.smallSpacing)
                     )
-                    .padding(horizontal = Dimens.smallSpacing, vertical = 2.dp),
+                    .padding(horizontal = Dimens.smallSpacing, vertical = Dimens.stackBadgePaddingVertical),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -90,9 +89,42 @@ fun ThumbnailCell(
                     text = "${asset.stackCount}",
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(start = 2.dp)
+                    modifier = Modifier.padding(start = Dimens.stackBadgePaddingVertical)
                 )
             }
         }
     }
+}
+
+@Preview
+@Composable
+private fun ThumbnailCellPreview() {
+    ThumbnailCell(
+        asset = Asset(
+            id = "1",
+            type = AssetType.IMAGE,
+            fileName = "photo.jpg",
+            createdAt = "",
+            thumbnailUrl = "",
+            originalUrl = ""
+        ),
+        onClick = {}
+    )
+}
+
+@Preview
+@Composable
+private fun ThumbnailCellVideoPreview() {
+    ThumbnailCell(
+        asset = Asset(
+            id = "2",
+            type = AssetType.VIDEO,
+            fileName = "video.mp4",
+            createdAt = "",
+            thumbnailUrl = "",
+            originalUrl = "",
+            stackCount = 3
+        ),
+        onClick = {}
+    )
 }

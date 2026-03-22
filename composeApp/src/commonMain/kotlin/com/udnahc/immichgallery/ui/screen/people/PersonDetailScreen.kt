@@ -39,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
-import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -50,7 +49,6 @@ import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.unknown
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -112,12 +110,11 @@ fun PersonDetailScreen(
         }
 
         selectedPhotoIndex?.let { index ->
-            val getAssetDetailUseCase: GetAssetDetailUseCase = koinInject()
             StaticPhotoOverlay(
                 assets = state.assets,
                 initialIndex = index,
                 apiKey = apiKey,
-                getAssetDetailUseCase = getAssetDetailUseCase,
+                getAssetDetailUseCase = viewModel.getAssetDetailUseCase,
                 onPersonClick = onPersonClick,
                 onDismiss = { selectedPhotoIndex = null }
             )
@@ -150,7 +147,7 @@ fun PersonDetailContent(
         }
 
         else -> {
-            val rows = remember(state.assets) { state.assets.chunked(GRID_COLUMNS) }
+            val rows = state.rows
             val listState = rememberLazyListState()
             ScrollbarOverlay(
                 listState = listState,
@@ -185,7 +182,7 @@ private fun PhotoRow(
         horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
     ) {
         assets.forEach { asset ->
-            val onClick = remember(asset.id) {
+            val onClick = remember(asset.id, allAssets) {
                 {
                     val index = allAssets.indexOf(asset)
                     onPhotoClick(allAssets, index)
@@ -227,7 +224,10 @@ private fun PersonDetailContentPreview() {
         createdAt = "", thumbnailUrl = "", originalUrl = ""
     )
     PersonDetailContent(
-        state = PersonDetailState(assets = listOf(sampleAsset)),
+        state = PersonDetailState(
+            assets = listOf(sampleAsset),
+            rows = listOf(listOf(sampleAsset))
+        ),
         onPhotoClick = { _, _ -> },
         onRetry = {},
         contentTopPadding = 0.dp,

@@ -53,6 +53,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.ui.screen.timeline.YearMarker
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.rememberHapticFeedback
 import immichgallery.composeapp.generated.resources.Res
@@ -78,7 +79,7 @@ fun ScrollbarOverlay(
     scrollFractionProvider: (() -> Float)? = null,
     onScrollToFraction: ((Float) -> Unit)? = null,
     labelProvider: ((Float) -> String?)? = null,
-    yearMarkers: List<Pair<Float, String>> = emptyList(),
+    yearMarkers: List<YearMarker> = emptyList(),
     content: @Composable () -> Unit
 ) {
     val scrollFraction by remember {
@@ -120,7 +121,7 @@ fun ScrollbarOverlay(
     topPadding: Dp,
     bottomPadding: Dp,
     labelProvider: ((Float) -> String?)? = null,
-    yearMarkers: List<Pair<Float, String>> = emptyList(),
+    yearMarkers: List<YearMarker> = emptyList(),
     content: @Composable () -> Unit
 ) {
     val scrollFraction by remember {
@@ -160,7 +161,7 @@ private fun ScrollbarLayout(
     topPadding: Dp,
     bottomPadding: Dp,
     labelProvider: ((Float) -> String?)?,
-    yearMarkers: List<Pair<Float, String>>,
+    yearMarkers: List<YearMarker>,
     onDragFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
@@ -188,7 +189,7 @@ private fun ScrollbarHandle(
     topPadding: Dp,
     bottomPadding: Dp,
     labelProvider: ((Float) -> String?)?,
-    yearMarkers: List<Pair<Float, String>>,
+    yearMarkers: List<YearMarker>,
     onDragFraction: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -263,10 +264,10 @@ private fun ScrollbarHandle(
             .semantics { contentDescription = thumbDescription }
     ) {
         // Year markers along the right edge — small pill badges
-        yearMarkers.forEach { (fraction, year) ->
-            val markerOffsetPx = remember(trackHeightPx, fraction, topPaddingPx, bottomPaddingPx) {
+        yearMarkers.forEach { marker ->
+            val markerOffsetPx = remember(trackHeightPx, marker.fraction, topPaddingPx, bottomPaddingPx) {
                 val availableTrack = trackHeightPx - topPaddingPx - bottomPaddingPx
-                (topPaddingPx + availableTrack * fraction).toInt()
+                (topPaddingPx + availableTrack * marker.fraction).toInt()
             }
             Box(
                 modifier = Modifier
@@ -275,11 +276,11 @@ private fun ScrollbarHandle(
                     .padding(end = Dimens.scrollbarYearLabelPadding)
                     .clip(RoundedCornerShape(Dimens.scrollbarYearLabelCornerRadius))
                     .background(yearLabelColor.copy(alpha = 0.12f))
-                    .padding(horizontal = Dimens.scrollbarYearLabelPaddingHorizontal, vertical = 2.dp),
+                    .padding(horizontal = Dimens.scrollbarYearLabelPaddingHorizontal, vertical = Dimens.scrollbarYearLabelPaddingVertical),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = year,
+                    text = marker.year,
                     style = MaterialTheme.typography.labelSmall,
                     color = yearLabelColor.copy(alpha = 0.7f),
                     maxLines = 1

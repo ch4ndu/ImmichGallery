@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
+import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -18,6 +20,7 @@ import kotlinx.coroutines.launch
 data class AlbumDetailState(
     val albumName: String = "",
     val assets: List<Asset> = emptyList(),
+    val rows: List<List<Asset>> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -25,6 +28,7 @@ data class AlbumDetailState(
 class AlbumDetailViewModel(
     private val getAlbumDetailUseCase: GetAlbumDetailUseCase,
     getApiKeyUseCase: GetApiKeyUseCase,
+    val getAssetDetailUseCase: GetAssetDetailUseCase,
     private val albumId: String
 ) : ViewModel() {
 
@@ -43,7 +47,12 @@ class AlbumDetailViewModel(
             getAlbumDetailUseCase(albumId).fold(
                 onSuccess = { detail ->
                     _state.update {
-                        it.copy(albumName = detail.name, assets = detail.assets, isLoading = false)
+                        it.copy(
+                            albumName = detail.name,
+                            assets = detail.assets,
+                            rows = detail.assets.chunked(GRID_COLUMNS),
+                            isLoading = false
+                        )
                     }
                 },
                 onFailure = { e ->

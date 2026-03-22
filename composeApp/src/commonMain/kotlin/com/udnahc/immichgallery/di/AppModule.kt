@@ -1,7 +1,6 @@
 package com.udnahc.immichgallery.di
 
 import com.russhwolf.settings.Settings
-import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.remote.HttpClientFactory
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.data.remote.createHttpClientEngine
@@ -46,16 +45,11 @@ val sharedModule = module {
     single { HttpClientFactory.create(get(), get()) }
     single { ImmichApiService(get(), get()) }
 
-    // DAOs (from platform-provided AppDatabase)
-    single { get<AppDatabase>().timelineAssetDao() }
-    single { get<AppDatabase>().albumAssetDao() }
-    single { get<AppDatabase>().personAssetDao() }
-
     // Repositories
     single { AuthRepository(get()) }
-    single { TimelineRepository(get(), get()) }
-    single { AlbumRepository(get(), get()) }
-    single { PeopleRepository(get(), get()) }
+    single { TimelineRepository(get()) }
+    single { AlbumRepository(get()) }
+    single { PeopleRepository(get()) }
     single { SearchRepository(get()) }
 
     // UseCases
@@ -79,10 +73,10 @@ val sharedModule = module {
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
-    viewModel { params -> AlbumDetailViewModel(get(), get(), params.get()) }
+    viewModel { params -> AlbumDetailViewModel(get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }
-    viewModel { params -> PersonDetailViewModel(get(), get(), params.get()) }
-    viewModel { SearchViewModel(get(), get(), get()) }
+    viewModel { params -> PersonDetailViewModel(get(), get(), get(), params.get()) }
+    viewModel { SearchViewModel(get(), get(), get(), get()) }
 }

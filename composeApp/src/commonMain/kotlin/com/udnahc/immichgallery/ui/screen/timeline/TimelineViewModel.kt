@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
+import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +18,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.lighthousegames.logging.logging
+
+@Immutable
+data class YearMarker(val fraction: Float, val year: String)
 
 @Immutable
 data class TimelineState(
@@ -33,13 +38,15 @@ data class TimelineState(
     // For O(log n) label lookup during scrollbar drag:
     val cumulativeItemCounts: List<Int> = emptyList(),
     val bucketDisplayLabels: List<String> = emptyList(),
-    val yearMarkers: List<Pair<Float, String>> = emptyList()
+    val yearMarkers: List<YearMarker> = emptyList()
 )
 
 class TimelineViewModel(
     private val getTimelineBucketsUseCase: GetTimelineBucketsUseCase,
     private val getBucketAssetsUseCase: GetBucketAssetsUseCase,
-    getApiKeyUseCase: GetApiKeyUseCase
+    getApiKeyUseCase: GetApiKeyUseCase,
+    val getAssetFileNameUseCase: GetAssetFileNameUseCase,
+    val getAssetDetailUseCase: GetAssetDetailUseCase
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
@@ -130,6 +137,20 @@ class TimelineViewModel(
         }
     }
 
+    fun getGlobalPhotoIndex(assetId: String): Int? {
+        val currentState = _state.value
+        var globalIndex = 0
+        for (bucket in currentState.buckets) {
+            val bucketAssets = currentState.bucketAssets[bucket.timeBucket]
+            if (bucketAssets != null) {
+                val localIndex = bucketAssets.indexOfFirst { it.id == assetId }
+                if (localIndex >= 0) return globalIndex + localIndex
+            }
+            globalIndex += bucket.count
+        }
+        return null
+    }
+
     fun retryBucket(timeBucket: String) {
         viewModelScope.launch(Dispatchers.IO) {
             log.d { "Retrying bucket: $timeBucket" }
@@ -149,7 +170,7 @@ class TimelineViewModel(
 
         val totalGridItems = buckets.sumOf { it.count } + buckets.size
         // Year markers: first bucket of each unique year, with scroll fraction
-        val markers = mutableListOf<Pair<Float, String>>()
+        val markers = mutableListOf<YearMarker>()
         var lastYear = ""
         for (i in buckets.indices) {
             val year = buckets[i].displayLabel.substringAfterLast(" ", "")
@@ -157,7 +178,7 @@ class TimelineViewModel(
                 val fraction = if (totalGridItems > 0) {
                     (cumulativeCounts.getOrElse(i - 1) { 0 }).toFloat() / totalGridItems
                 } else 0f
-                markers.add(fraction.coerceIn(0f, 1f) to year)
+                markers.add(YearMarker(fraction.coerceIn(0f, 1f), year))
                 lastYear = year
             }
         }

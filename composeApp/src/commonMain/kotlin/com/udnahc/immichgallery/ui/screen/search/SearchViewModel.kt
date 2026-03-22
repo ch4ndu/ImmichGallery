@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
+import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
@@ -24,6 +26,7 @@ data class SearchState(
     val query: String = "",
     val searchType: SearchType = SearchType.SMART,
     val results: List<Asset> = emptyList(),
+    val rows: List<List<Asset>> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val hasSearched: Boolean = false
@@ -32,7 +35,8 @@ data class SearchState(
 class SearchViewModel(
     private val smartSearchUseCase: SmartSearchUseCase,
     private val metadataSearchUseCase: MetadataSearchUseCase,
-    getApiKeyUseCase: GetApiKeyUseCase
+    getApiKeyUseCase: GetApiKeyUseCase,
+    val getAssetDetailUseCase: GetAssetDetailUseCase
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
@@ -70,7 +74,13 @@ class SearchViewModel(
             result.fold(
                 onSuccess = { assets ->
                     log.d { "Search returned ${assets.size} results" }
-                    _state.update { it.copy(results = assets, isLoading = false) }
+                    _state.update {
+                        it.copy(
+                            results = assets,
+                            rows = assets.chunked(GRID_COLUMNS),
+                            isLoading = false
+                        )
+                    }
                 },
                 onFailure = { e ->
                     log.e(e) { "Search failed" }

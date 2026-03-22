@@ -41,7 +41,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
-import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -52,7 +51,6 @@ import immichgallery.composeapp.generated.resources.search_placeholder
 import immichgallery.composeapp.generated.resources.search_type_filename
 import immichgallery.composeapp.generated.resources.search_type_smart
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val GRID_COLUMNS = 3
@@ -81,12 +79,11 @@ fun SearchScreen(
         )
 
         selectedPhotoIndex?.let { index ->
-            val getAssetDetailUseCase: GetAssetDetailUseCase = koinInject()
             StaticPhotoOverlay(
                 assets = state.results,
                 initialIndex = index,
                 apiKey = apiKey,
-                getAssetDetailUseCase = getAssetDetailUseCase,
+                getAssetDetailUseCase = viewModel.getAssetDetailUseCase,
                 onPersonClick = onPersonClick,
                 onDismiss = { selectedPhotoIndex = null }
             )
@@ -163,7 +160,7 @@ fun SearchContent(
             }
 
             state.results.isNotEmpty() -> {
-                val rows = remember(state.results) { state.results.chunked(GRID_COLUMNS) }
+                val rows = state.rows
                 val navBarPadding =
                     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 val listState = rememberLazyListState()
@@ -209,7 +206,7 @@ private fun PhotoRow(
         horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
     ) {
         assets.forEach { asset ->
-            val onClick = remember(asset.id) {
+            val onClick = remember(asset.id, allAssets) {
                 {
                     val index = allAssets.indexOf(asset)
                     onPhotoClick(allAssets, index)

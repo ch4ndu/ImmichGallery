@@ -9,7 +9,6 @@ plugins {
     alias(libs.plugins.composeHotReload)
     alias(libs.plugins.kotlinxSerialization)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.room)
 }
 
 kotlin {
@@ -86,14 +85,6 @@ kotlin {
             // Logging
             implementation(libs.kmlogging)
 
-            // Room
-            implementation(libs.androidx.room.runtime)
-            implementation(libs.androidx.room.paging)
-            implementation(libs.sqlite.bundled)
-
-            // Paging
-            implementation(libs.paging.common)
-            implementation(libs.paging.compose)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -139,18 +130,6 @@ android {
 
 dependencies {
     debugImplementation(libs.compose.uiTooling)
-    listOf(
-        "kspAndroid",
-        "kspJvm",
-        "kspIosSimulatorArm64",
-        "kspIosArm64"
-    ).forEach {
-        add(it, libs.androidx.room.compiler)
-    }
-}
-
-room {
-    schemaDirectory("$projectDir/schemas")
 }
 
 compose.desktop {

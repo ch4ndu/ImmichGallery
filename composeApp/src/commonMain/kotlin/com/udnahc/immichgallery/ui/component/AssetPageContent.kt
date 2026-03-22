@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
@@ -140,6 +141,7 @@ internal fun DetailTopBarOverlay(
                         onDismissRequest = { menuExpanded = false }
                     ) {
                         DropdownMenuItem(
+                            modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
                             text = { Text(stringResource(Res.string.detail_download)) },
                             onClick = { menuExpanded = false; onDownload() },
                             leadingIcon = {
@@ -150,6 +152,7 @@ internal fun DetailTopBarOverlay(
                             }
                         )
                         DropdownMenuItem(
+                            modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
                             text = { Text(stringResource(Res.string.detail_share)) },
                             onClick = { menuExpanded = false; onShare() },
                             leadingIcon = {
@@ -160,6 +163,7 @@ internal fun DetailTopBarOverlay(
                             }
                         )
                         DropdownMenuItem(
+                            modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
                             text = { Text(stringResource(Res.string.detail_info)) },
                             onClick = { menuExpanded = false; onInfo() },
                             leadingIcon = {
@@ -228,6 +232,7 @@ private fun ImageContent(
             model = url,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
+            scrollBar = null,
             onTap = { onTap() }
         )
     } else {
@@ -283,5 +288,41 @@ private fun ErrorState(
         TextButton(onClick = onRetry) {
             Text(stringResource(Res.string.retry), color = Color.White)
         }
+    }
+}
+
+@Preview
+@Composable
+private fun DetailTopBarOverlayPreview() {
+    DetailTopBarOverlay(
+        showTopBar = true,
+        title = "IMG_2024.jpg",
+        onBack = {},
+        onDownload = {},
+        onShare = {},
+        onInfo = {}
+    )
+}
+
+@Preview
+@Composable
+private fun DetailBottomHandlePreview() {
+    DetailBottomHandle(
+        visible = true,
+        onClick = {}
+    )
+}
+
+@Preview
+@Composable
+private fun ErrorStatePreview() {
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        ErrorState(
+            message = "Failed to load image",
+            onRetry = {}
+        )
     }
 }

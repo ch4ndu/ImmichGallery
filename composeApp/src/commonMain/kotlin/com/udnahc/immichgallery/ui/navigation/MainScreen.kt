@@ -67,6 +67,7 @@ import org.jetbrains.compose.resources.stringResource
 
 private const val BAR_ALPHA = 0.8f
 
+@androidx.compose.runtime.Immutable
 data class BottomNavItem(
     val labelRes: StringResource,
     val route: Any,
@@ -83,12 +84,14 @@ fun MainScreen(
     val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    val bottomNavItems = listOf(
-        BottomNavItem(Res.string.tab_timeline, TimelineRoute, Res.drawable.ic_timeline),
-        BottomNavItem(Res.string.tab_albums, AlbumsRoute, Res.drawable.ic_albums),
-        BottomNavItem(Res.string.tab_people, PeopleRoute, Res.drawable.ic_people),
-        BottomNavItem(Res.string.tab_search, SearchRoute, Res.drawable.ic_search)
-    )
+    val bottomNavItems = remember {
+        listOf(
+            BottomNavItem(Res.string.tab_timeline, TimelineRoute, Res.drawable.ic_timeline),
+            BottomNavItem(Res.string.tab_albums, AlbumsRoute, Res.drawable.ic_albums),
+            BottomNavItem(Res.string.tab_people, PeopleRoute, Res.drawable.ic_people),
+            BottomNavItem(Res.string.tab_search, SearchRoute, Res.drawable.ic_search)
+        )
+    }
 
     val currentTabTitle = bottomNavItems
         .firstOrNull { item ->

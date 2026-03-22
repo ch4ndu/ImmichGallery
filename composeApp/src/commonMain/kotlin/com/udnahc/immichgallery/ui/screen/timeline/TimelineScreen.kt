@@ -39,8 +39,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
-import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
-import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -50,7 +48,6 @@ import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val GRID_COLUMNS = 3
@@ -64,7 +61,6 @@ fun TimelineScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val apiKey = viewModel.apiKey
-    var selectedAssets by remember { mutableStateOf<List<Asset>?>(null) }
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(selectedPhotoIndex) {
@@ -77,37 +73,23 @@ fun TimelineScreen(
             onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
             onRetryBucket = viewModel::retryBucket,
             onPhotoClick = { assetId ->
-                val currentState = viewModel.state.value
-                val flatAssets = mutableListOf<Asset>()
-                for (bucket in currentState.buckets) {
-                    flatAssets.addAll(currentState.bucketAssets[bucket.timeBucket] ?: continue)
-                }
-                val index = flatAssets.indexOfFirst { it.id == assetId }
-                if (index >= 0) {
-                    selectedAssets = flatAssets
-                    selectedPhotoIndex = index
-                }
+                selectedPhotoIndex = viewModel.getGlobalPhotoIndex(assetId)
             },
             onRetry = viewModel::loadBuckets,
             labelProvider = viewModel.labelProvider
         )
 
-        val assets = selectedAssets
         val index = selectedPhotoIndex
-        if (assets != null && index != null) {
-            val getAssetFileNameUseCase: GetAssetFileNameUseCase = koinInject()
-            val getAssetDetailUseCase: GetAssetDetailUseCase = koinInject()
+        if (index != null) {
             TimelinePhotoOverlay(
-                assets = assets,
+                timelineState = viewModel.state,
                 initialIndex = index,
                 apiKey = apiKey,
-                getAssetFileNameUseCase = getAssetFileNameUseCase,
-                getAssetDetailUseCase = getAssetDetailUseCase,
+                getAssetFileNameUseCase = viewModel.getAssetFileNameUseCase,
+                getAssetDetailUseCase = viewModel.getAssetDetailUseCase,
+                onBucketNeeded = viewModel::loadBucketAssets,
                 onPersonClick = onPersonClick,
-                onDismiss = {
-                    selectedAssets = null
-                    selectedPhotoIndex = null
-                }
+                onDismiss = { selectedPhotoIndex = null }
             )
         }
     }
