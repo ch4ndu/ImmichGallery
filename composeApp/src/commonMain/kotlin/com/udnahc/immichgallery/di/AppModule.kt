@@ -73,7 +73,7 @@ val sharedModule = module {
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
     viewModel { params -> AlbumDetailViewModel(get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }

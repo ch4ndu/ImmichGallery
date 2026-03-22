@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,11 +48,15 @@ import androidx.navigation.compose.rememberNavController
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
+import com.udnahc.immichgallery.data.repository.ServerConfigRepository
+import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_albums
 import immichgallery.composeapp.generated.resources.ic_more_vert
+import immichgallery.composeapp.generated.resources.timeline_group_day
+import immichgallery.composeapp.generated.resources.timeline_group_month
 import immichgallery.composeapp.generated.resources.ic_people
 import immichgallery.composeapp.generated.resources.ic_search
 import immichgallery.composeapp.generated.resources.ic_timeline
@@ -64,6 +69,7 @@ import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.koinInject
 
 private const val BAR_ALPHA = 0.8f
 
@@ -103,6 +109,18 @@ fun MainScreen(
 
     var overlayActive by remember { mutableStateOf(false) }
 
+    val serverConfigRepo = koinInject<ServerConfigRepository>()
+    var timelineGroupSize by remember {
+        val saved = serverConfigRepo.getTimelineGroupSize()
+        mutableStateOf(
+            TimelineGroupSize.entries.find { it.apiValue == saved }
+                ?: TimelineGroupSize.MONTH
+        )
+    }
+
+    val isTimelineTab = currentDestination?.hierarchy
+        ?.any { it.hasRoute(TimelineRoute::class) } == true
+
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -113,6 +131,7 @@ fun MainScreen(
         ) {
             composable<TimelineRoute> {
                 TimelineScreen(
+                    groupSize = timelineGroupSize,
                     onOverlayActiveChanged = { overlayActive = it },
                     onPersonClick = onPersonClick
                 )
@@ -136,7 +155,18 @@ fun MainScreen(
             TopBarOverlay(
                 title = currentTabTitle,
                 barColor = barColor,
-                onLogout = onLogout
+                onLogout = onLogout,
+                trailingContent = if (isTimelineTab) {
+                    {
+                        TimelineGroupDropdown(
+                            selected = timelineGroupSize,
+                            onSelected = { newSize ->
+                                timelineGroupSize = newSize
+                                serverConfigRepo.setTimelineGroupSize(newSize.apiValue)
+                            }
+                        )
+                    }
+                } else null
             )
         }
 
@@ -167,7 +197,8 @@ fun MainScreen(
 private fun TopBarOverlay(
     title: String,
     barColor: androidx.compose.ui.graphics.Color,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    trailingContent: @Composable (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -185,26 +216,71 @@ private fun TopBarOverlay(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.align(Alignment.CenterStart)
         )
-        Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-            IconButton(onClick = { showMenu = true }, modifier = Modifier.size(Dimens.topBarHeight)) {
-                Icon(
-                    painterResource(Res.drawable.ic_more_vert),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onBackground
-                )
+        Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (trailingContent != null) {
+                trailingContent()
             }
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.logout)) },
-                    onClick = {
-                        showMenu = false
-                        onLogout()
+            Box {
+                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(Dimens.topBarHeight)) {
+                    Icon(
+                        painterResource(Res.drawable.ic_more_vert),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(Res.string.logout)) },
+                        onClick = {
+                            showMenu = false
+                            onLogout()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineGroupDropdown(
+    selected: TimelineGroupSize,
+    onSelected: (TimelineGroupSize) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(
+                text = stringResource(
+                    when (selected) {
+                        TimelineGroupSize.MONTH -> Res.string.timeline_group_month
+                        TimelineGroupSize.DAY -> Res.string.timeline_group_day
                     }
-                )
-            }
+                ),
+                style = MaterialTheme.typography.labelLarge
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.timeline_group_month)) },
+                onClick = {
+                    onSelected(TimelineGroupSize.MONTH)
+                    expanded = false
+                }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(Res.string.timeline_group_day)) },
+                onClick = {
+                    onSelected(TimelineGroupSize.DAY)
+                    expanded = false
+                }
+            )
         }
     }
 }

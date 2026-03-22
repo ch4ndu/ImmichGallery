@@ -40,9 +40,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.ui.component.PhotoRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
-import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
@@ -52,8 +52,6 @@ import immichgallery.composeapp.generated.resources.search_type_filename
 import immichgallery.composeapp.generated.resources.search_type_smart
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
-
-private const val GRID_COLUMNS = 3
 
 @Composable
 fun SearchScreen(
@@ -193,51 +191,6 @@ fun SearchContent(
             }
         }
     }
-}
-
-@Composable
-private fun PhotoRow(
-    assets: List<Asset>,
-    allAssets: List<Asset>,
-    onPhotoClick: (List<Asset>, Int) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
-    ) {
-        assets.forEach { asset ->
-            val onClick = remember(asset.id, allAssets) {
-                {
-                    val index = allAssets.indexOf(asset)
-                    onPhotoClick(allAssets, index)
-                }
-            }
-            ThumbnailCell(
-                asset = asset,
-                onClick = onClick,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        repeat(GRID_COLUMNS - assets.size) {
-            Box(modifier = Modifier.weight(1f))
-        }
-    }
-}
-
-@Preview
-@Composable
-private fun PhotoRowPreview() {
-    val sampleAssets = listOf(
-        Asset(
-            id = "1", type = AssetType.IMAGE, fileName = "photo1.jpg",
-            createdAt = "", thumbnailUrl = "", originalUrl = ""
-        ),
-        Asset(
-            id = "2", type = AssetType.IMAGE, fileName = "photo2.jpg",
-            createdAt = "", thumbnailUrl = "", originalUrl = ""
-        )
-    )
-    PhotoRow(assets = sampleAssets, allAssets = sampleAssets, onPhotoClick = { _, _ -> })
 }
 
 @Preview

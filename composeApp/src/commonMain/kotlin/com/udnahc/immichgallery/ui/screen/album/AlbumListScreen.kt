@@ -19,10 +19,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,11 +31,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import coil3.compose.AsyncImage
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Album
+import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.items_count
-import immichgallery.composeapp.generated.resources.retry
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -61,23 +59,11 @@ fun AlbumListContent(
     onAlbumClick: (String) -> Unit,
     onRetry: () -> Unit
 ) {
-    when {
-        state.isLoading && state.albums.isEmpty() -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        }
-
-        state.error != null && state.albums.isEmpty() -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(state.error, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onRetry) { Text(stringResource(Res.string.retry)) }
-                }
-            }
-        }
-
-        else -> {
+    LoadingErrorContent(
+        isLoading = state.isLoading && state.albums.isEmpty(),
+        error = if (state.albums.isEmpty()) state.error else null,
+        onRetry = onRetry
+    ) {
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val navBarPadding =
                 WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -105,7 +91,6 @@ fun AlbumListContent(
                     }
                 }
             }
-        }
     }
 }
 

@@ -2,6 +2,9 @@ package com.udnahc.immichgallery.ui.screen.timeline
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,41 +23,44 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.key
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.ui.component.LoadingErrorContent
+import com.udnahc.immichgallery.ui.component.PlaceholderCell
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
-import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
-private const val GRID_COLUMNS = 3
 private const val HEADER_KEY_PREFIX = "header_"
+private const val ZOOM_STEP_THRESHOLD = 1.3f
 
 @Composable
 fun TimelineScreen(
+    groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
     onOverlayActiveChanged: (Boolean) -> Unit = {},
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
     viewModel: TimelineViewModel = koinViewModel()
@@ -63,6 +69,10 @@ fun TimelineScreen(
     val apiKey = viewModel.apiKey
     var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
 
+    LaunchedEffect(groupSize) {
+        viewModel.setGroupSize(groupSize)
+    }
+
     LaunchedEffect(selectedPhotoIndex) {
         onOverlayActiveChanged(selectedPhotoIndex != null)
     }
@@ -70,6 +80,9 @@ fun TimelineScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         TimelineContent(
             state = state,
+            groupSize = groupSize,
+            gridColumns = state.gridColumns,
+            onGridColumnsChanged = viewModel::setGridColumns,
             onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
             onRetryBucket = viewModel::retryBucket,
             onPhotoClick = { assetId ->
@@ -98,33 +111,28 @@ fun TimelineScreen(
 @Composable
 fun TimelineContent(
     state: TimelineState,
+    groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
+    gridColumns: Int = 3,
+    onGridColumnsChanged: (Int) -> Unit = {},
     onVisibleBucketsChanged: (Set<String>) -> Unit,
     onRetryBucket: (String) -> Unit,
     onPhotoClick: (assetId: String) -> Unit,
     onRetry: () -> Unit,
     labelProvider: (Float) -> String?
 ) {
-    when {
-        state.isLoading && state.buckets.isEmpty() -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        }
-
-        state.error != null && state.buckets.isEmpty() -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(state.error, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onRetry) { Text(stringResource(Res.string.retry)) }
-                }
-            }
-        }
-
-        else -> {
+    LoadingErrorContent(
+        isLoading = state.isLoading && state.buckets.isEmpty(),
+        error = if (state.buckets.isEmpty()) state.error else null,
+        onRetry = onRetry
+    ) {
+        key(groupSize) {
             val gridState = rememberLazyGridState()
             val buckets = state.buckets
             val loadedBuckets = state.loadedBuckets
             val failedBuckets = state.failedBuckets
+
+            // Pinch-to-zoom state
+            var zoomAccumulator by remember { mutableFloatStateOf(1f) }
 
             // Detect visible buckets from both header and asset items
             val visibleBucketKeys by remember {
@@ -136,7 +144,7 @@ fun TimelineContent(
                             bucketKeys.add(key.removePrefix(HEADER_KEY_PREFIX))
                         } else {
                             // Asset keys: "{timeBucket}:{assetId}" or "{timeBucket}_{idx}"
-                            val timeBucket = key.substringBefore(":", "").ifEmpty {
+                            val timeBucket = key.substringBefore("|", "").ifEmpty {
                                 key.substringBeforeLast("_", "")
                             }
                             if (timeBucket.isNotEmpty()) {
@@ -158,7 +166,41 @@ fun TimelineContent(
             val navBarPadding =
                 WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier.fillMaxSize().pointerInput(gridColumns) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        var previousDistance = 0f
+                        do {
+                            val event = awaitPointerEvent()
+                            val pressed = event.changes.filter { it.pressed }
+                            if (pressed.size >= 2) {
+                                val dist = (pressed[0].position - pressed[1].position)
+                                    .getDistance()
+                                if (previousDistance > 0f && dist > 0f) {
+                                    val zoom = dist / previousDistance
+                                    zoomAccumulator *= zoom
+                                    if (zoomAccumulator > ZOOM_STEP_THRESHOLD &&
+                                        gridColumns > MIN_GRID_COLUMNS
+                                    ) {
+                                        onGridColumnsChanged(gridColumns - 1)
+                                        zoomAccumulator = 1f
+                                    } else if (zoomAccumulator < 1f / ZOOM_STEP_THRESHOLD &&
+                                        gridColumns < MAX_GRID_COLUMNS
+                                    ) {
+                                        onGridColumnsChanged(gridColumns + 1)
+                                        zoomAccumulator = 1f
+                                    }
+                                }
+                                previousDistance = dist
+                                event.changes.forEach { it.consume() }
+                            } else {
+                                previousDistance = 0f
+                            }
+                        } while (event.changes.any { it.pressed })
+                    }
+                }
+            ) {
                 ScrollbarOverlay(
                     gridState = gridState,
                     topPadding = statusBarPadding + Dimens.topBarHeight + Dimens.sectionHeaderHeight,
@@ -167,7 +209,7 @@ fun TimelineContent(
                     yearMarkers = state.yearMarkers
                 ) {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(GRID_COLUMNS),
+                        columns = GridCells.Fixed(gridColumns),
                         state = gridState,
                         modifier = Modifier.fillMaxSize(),
                         horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
@@ -177,16 +219,20 @@ fun TimelineContent(
                         )
                     ) {
                         buckets.forEachIndexed { _, bucket ->
-                            // Full-width header
-                            item(
-                                key = "$HEADER_KEY_PREFIX${bucket.timeBucket}",
-                                span = { GridItemSpan(maxLineSpan) }
-                            ) {
-                                BucketHeader(bucket)
-                            }
-
                             val isFailed = failedBuckets.contains(bucket.timeBucket)
                             val isLoaded = loadedBuckets.contains(bucket.timeBucket)
+
+                            // Skip monthly header in DAY mode for loaded buckets
+                            // (day sub-headers provide the date context)
+                            val isDayLoaded = groupSize == TimelineGroupSize.DAY && isLoaded
+                            if (!isDayLoaded) {
+                                item(
+                                    key = "$HEADER_KEY_PREFIX${bucket.timeBucket}",
+                                    span = { GridItemSpan(maxLineSpan) }
+                                ) {
+                                    BucketHeader(bucket)
+                                }
+                            }
 
                             if (isFailed) {
                                 // Show a single full-span failed row
@@ -222,15 +268,48 @@ fun TimelineContent(
                                 // Loaded bucket: render from bucketAssets map
                                 val assets = state.bucketAssets[bucket.timeBucket]
                                 if (assets != null) {
-                                    items(
-                                        count = assets.size,
-                                        key = { idx -> "${bucket.timeBucket}:${assets[idx].id}" }
-                                    ) { idx ->
-                                        val asset = assets[idx]
-                                        ThumbnailCell(
-                                            asset = asset,
-                                            onClick = { onPhotoClick(asset.id) }
-                                        )
+                                    val dayGroupList = if (groupSize == TimelineGroupSize.DAY) {
+                                        state.dayGroups[bucket.timeBucket]
+                                    } else null
+
+                                    if (!dayGroupList.isNullOrEmpty()) {
+                                        // DAY mode: render day sub-headers + assets
+                                        dayGroupList.forEach { dayGroup ->
+                                            item(
+                                                key = "${bucket.timeBucket}_day_${dayGroup.label}",
+                                                span = { GridItemSpan(maxLineSpan) }
+                                            ) {
+                                                BucketHeader(
+                                                    TimelineBucket(dayGroup.label, "", 0)
+                                                )
+                                            }
+                                            items(
+                                                count = dayGroup.assets.size,
+                                                key = { idx ->
+                                                    "${bucket.timeBucket}|${dayGroup.assets[idx].id}"
+                                                }
+                                            ) { idx ->
+                                                val asset = dayGroup.assets[idx]
+                                                ThumbnailCell(
+                                                    asset = asset,
+                                                    onClick = { onPhotoClick(asset.id) }
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        // MONTH mode: render flat
+                                        items(
+                                            count = assets.size,
+                                            key = { idx ->
+                                                "${bucket.timeBucket}|${assets[idx].id}"
+                                            }
+                                        ) { idx ->
+                                            val asset = assets[idx]
+                                            ThumbnailCell(
+                                                asset = asset,
+                                                onClick = { onPhotoClick(asset.id) }
+                                            )
+                                        }
                                     }
                                 } else {
                                     // Fallback: bucket marked loaded but assets not yet in map
@@ -286,30 +365,17 @@ private fun StickyHeaderOverlay(
     val currentBucketLabel by remember(bucketLabelMap) {
         derivedStateOf {
             val visibleItems = gridState.layoutInfo.visibleItemsInfo
-            // Find the last header that has scrolled to or past the top
-            var lastHeaderLabel: String? = null
-            for (item in visibleItems) {
-                val key = item.key as? String ?: continue
-                if (key.startsWith(HEADER_KEY_PREFIX)) {
-                    val timeBucket = key.removePrefix(HEADER_KEY_PREFIX)
-                    lastHeaderLabel = bucketLabelMap[timeBucket]
-                    if (lastHeaderLabel != null) break
+            if (visibleItems.isEmpty()) return@derivedStateOf null
+            val firstKey = visibleItems.first().key as? String ?: return@derivedStateOf null
+            val timeBucket = if (firstKey.startsWith(HEADER_KEY_PREFIX)) {
+                firstKey.removePrefix(HEADER_KEY_PREFIX)
+            } else {
+                // Asset keys: "{timeBucket}|{assetId}" or "{timeBucket}_{idx}"
+                firstKey.substringBefore("|", "").ifEmpty {
+                    firstKey.substringBeforeLast("_", "")
                 }
             }
-            // If no header is visible in the viewport, find which bucket the first visible item belongs to
-            if (lastHeaderLabel == null && visibleItems.isNotEmpty()) {
-                val firstKey = visibleItems.first().key as? String
-                if (firstKey != null && !firstKey.startsWith(HEADER_KEY_PREFIX)) {
-                    // Parse bucket timeBucket from asset key: "{timeBucket}:{assetId}" or "{timeBucket}_{idx}"
-                    val timeBucket = firstKey.substringBefore(":", "").ifEmpty {
-                        firstKey.substringBeforeLast("_", "")
-                    }
-                    if (timeBucket.isNotEmpty()) {
-                        lastHeaderLabel = bucketLabelMap[timeBucket]
-                    }
-                }
-            }
-            lastHeaderLabel
+            if (timeBucket.isNotEmpty()) bucketLabelMap[timeBucket] else null
         }
     }
 
@@ -333,15 +399,6 @@ private fun StickyHeaderOverlay(
     }
 }
 
-@Composable
-private fun PlaceholderCell(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .aspectRatio(1f)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-    )
-}
-
 @Preview
 @Composable
 private fun BucketHeaderPreview() {
@@ -363,10 +420,4 @@ private fun StickyHeaderOverlayPreview() {
         bucketLabelMap = mapOf("2026-03" to "March 2026"),
         statusBarPadding = 0.dp
     )
-}
-
-@Preview
-@Composable
-private fun PlaceholderCellPreview() {
-    PlaceholderCell()
 }

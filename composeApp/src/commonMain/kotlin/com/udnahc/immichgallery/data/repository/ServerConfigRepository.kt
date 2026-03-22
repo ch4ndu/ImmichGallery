@@ -14,6 +14,16 @@ class ServerConfigRepository(private val settings: Settings) {
     }
 
     fun isLoggedIn(): Boolean = getServerUrl().isNotBlank() && getApiKey().isNotBlank()
+    fun getGridColumns(): Int = settings.getInt("grid_columns", 3)
+    fun setGridColumns(columns: Int) {
+        settings.putInt("grid_columns", columns)
+    }
+
+    fun getTimelineGroupSize(): String = settings.getString("timeline_group_size", "MONTH")
+    fun setTimelineGroupSize(size: String) {
+        settings.putString("timeline_group_size", size)
+    }
+
     fun clear() {
         settings.clear()
     }

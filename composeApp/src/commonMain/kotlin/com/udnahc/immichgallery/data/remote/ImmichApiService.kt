@@ -58,29 +58,23 @@ class ImmichApiService(
         return UserResponse()
     }
 
-    suspend fun getTimelineBuckets(size: String = "MONTH"): List<TimeBucketResponse> {
-        val endpoint = "${baseUrl()}/api/timeline/buckets?size=$size"
+    suspend fun getTimelineBuckets(): List<TimeBucketResponse> {
+        val endpoint = "${baseUrl()}/api/timeline/buckets"
         log.d { "GET $endpoint" }
-        val response = httpClient.get("${baseUrl()}/api/timeline/buckets") {
+        val response = httpClient.get(endpoint) {
             header("x-api-key", apiKey())
-            url { parameters.append("size", size) }
         }
         log.d { "Timeline buckets response status: ${response.status}" }
         return response.body()
     }
 
     suspend fun getTimelineBucket(
-        timeBucket: String,
-        size: String = "MONTH"
+        timeBucket: String
     ): List<AssetResponse> {
-        val endpoint = "${baseUrl()}/api/timeline/bucket?size=$size&timeBucket=$timeBucket"
+        val endpoint = "${baseUrl()}/api/timeline/bucket?timeBucket=$timeBucket"
         log.d { "GET $endpoint" }
-        val response = httpClient.get("${baseUrl()}/api/timeline/bucket") {
+        val response = httpClient.get(endpoint) {
             header("x-api-key", apiKey())
-            url {
-                parameters.append("size", size)
-                parameters.append("timeBucket", timeBucket)
-            }
         }
         if (response.status.value != 200) {
             val body = response.bodyAsText()

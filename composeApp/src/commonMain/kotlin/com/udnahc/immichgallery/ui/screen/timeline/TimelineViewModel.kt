@@ -3,8 +3,10 @@ package com.udnahc.immichgallery.ui.screen.timeline
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
@@ -12,23 +14,37 @@ import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import org.lighthousegames.logging.logging
+
+const val MIN_GRID_COLUMNS = 2
+const val MAX_GRID_COLUMNS = 7
 
 @Immutable
 data class YearMarker(val fraction: Float, val year: String)
 
 @Immutable
+data class DayGroup(val label: String, val assets: List<Asset>)
+
+@Immutable
 data class TimelineState(
+    val groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
+    val gridColumns: Int = 3,
     val buckets: List<TimelineBucket> = emptyList(),
     val loadedBuckets: Set<String> = emptySet(),
     val loadingBuckets: Set<String> = emptySet(),
     val failedBuckets: Set<String> = emptySet(),
     val bucketAssets: Map<String, List<Asset>> = emptyMap(),
+    val dayGroups: Map<String, List<DayGroup>> = emptyMap(),
     val isLoading: Boolean = false,
     val error: String? = null,
     // Pre-computed on background dispatcher:
@@ -46,14 +62,16 @@ class TimelineViewModel(
     private val getBucketAssetsUseCase: GetBucketAssetsUseCase,
     getApiKeyUseCase: GetApiKeyUseCase,
     val getAssetFileNameUseCase: GetAssetFileNameUseCase,
-    val getAssetDetailUseCase: GetAssetDetailUseCase
+    val getAssetDetailUseCase: GetAssetDetailUseCase,
+    private val serverConfigRepository: ServerConfigRepository
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
 
     private val log = logging()
-    private val _state = MutableStateFlow(TimelineState())
-    val state: StateFlow<TimelineState> = _state.asStateFlow()
+    private var loadBucketsJob: Job? = null
+    private val _state: MutableStateFlow<TimelineState>
+    val state: StateFlow<TimelineState>
 
     val labelProvider: (Float) -> String? = { fraction ->
         val currentState = _state.value
@@ -73,11 +91,32 @@ class TimelineViewModel(
 
 
     init {
+        val saved = serverConfigRepository.getTimelineGroupSize()
+        val initialSize = TimelineGroupSize.entries.find { it.apiValue == saved }
+            ?: TimelineGroupSize.MONTH
+        val initialColumns = serverConfigRepository.getGridColumns().coerceIn(MIN_GRID_COLUMNS, MAX_GRID_COLUMNS)
+        _state = MutableStateFlow(TimelineState(groupSize = initialSize, gridColumns = initialColumns))
+        state = _state.asStateFlow()
         loadBuckets()
     }
 
+    fun setGroupSize(size: TimelineGroupSize) {
+        if (size == _state.value.groupSize) return
+        serverConfigRepository.setTimelineGroupSize(size.apiValue)
+        _state.update { TimelineState(groupSize = size, gridColumns = it.gridColumns) }
+        loadBuckets()
+    }
+
+    fun setGridColumns(columns: Int) {
+        val clamped = columns.coerceIn(MIN_GRID_COLUMNS, MAX_GRID_COLUMNS)
+        if (clamped == _state.value.gridColumns) return
+        serverConfigRepository.setGridColumns(clamped)
+        _state.update { it.copy(gridColumns = clamped) }
+    }
+
     fun loadBuckets() {
-        viewModelScope.launch(Dispatchers.IO) {
+        loadBucketsJob?.cancel()
+        loadBucketsJob = viewModelScope.launch(Dispatchers.IO) {
             log.d { "Loading timeline buckets..." }
             _state.update { it.copy(isLoading = true, error = null).withDerivedFields() }
             getTimelineBucketsUseCase().fold(
@@ -183,10 +222,15 @@ class TimelineViewModel(
             }
         }
 
+        // Day sub-header labels for StickyHeaderOverlay
+        val dayLabelEntries = dayGroups.flatMap { (monthKey, groups) ->
+            groups.map { "${monthKey}_day_${it.label}" to it.label }
+        }
+
         return copy(
             allTimeBuckets = buckets.map { it.timeBucket },
             estimatedGridItemCount = totalGridItems,
-            bucketLabelMap = buckets.associate { it.timeBucket to it.displayLabel },
+            bucketLabelMap = buckets.associate { it.timeBucket to it.displayLabel } + dayLabelEntries,
             cumulativeItemCounts = cumulativeCounts,
             bucketDisplayLabels = buckets.map { it.displayLabel },
             yearMarkers = markers
@@ -199,10 +243,16 @@ class TimelineViewModel(
             onSuccess = { assets ->
                 log.d { "Loaded ${assets.size} assets for bucket: $timeBucket" }
                 _state.update { state ->
+                    val newDayGroups = if (state.groupSize == TimelineGroupSize.DAY) {
+                        state.dayGroups + (timeBucket to computeDayGroups(assets))
+                    } else {
+                        state.dayGroups
+                    }
                     state.copy(
                         loadingBuckets = state.loadingBuckets - timeBucket,
                         loadedBuckets = state.loadedBuckets + timeBucket,
-                        bucketAssets = state.bucketAssets + (timeBucket to assets)
+                        bucketAssets = state.bucketAssets + (timeBucket to assets),
+                        dayGroups = newDayGroups
                     ).withDerivedFields()
                 }
             },
@@ -216,5 +266,32 @@ class TimelineViewModel(
                 }
             }
         )
+    }
+
+    private fun computeDayGroups(assets: List<Asset>): List<DayGroup> {
+        val tz = TimeZone.currentSystemDefault()
+        return assets
+            .groupBy { asset ->
+                try {
+                    Instant.parse(asset.createdAt).toLocalDateTime(tz).date
+                } catch (_: Exception) {
+                    try {
+                        LocalDate.parse(asset.createdAt.take(10))
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+            .filterKeys { it != null }
+            .entries
+            .sortedByDescending { it.key }
+            .map { (date, dayAssets) ->
+                val d = date!!
+                val monthName = d.month.name.lowercase().replaceFirstChar { it.uppercase() }
+                DayGroup(
+                    label = "${d.dayOfMonth} $monthName ${d.year}",
+                    assets = dayAssets.sortedByDescending { it.createdAt }
+                )
+            }
     }
 }

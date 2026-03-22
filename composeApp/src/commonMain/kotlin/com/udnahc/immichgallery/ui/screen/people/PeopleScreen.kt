@@ -21,13 +21,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,12 +40,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import coil3.compose.AsyncImage
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Person
+import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_close
 import immichgallery.composeapp.generated.resources.people_search_placeholder
-import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.unknown
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -75,23 +73,11 @@ fun PeopleContent(
     onQueryChange: (String) -> Unit,
     onRetry: () -> Unit
 ) {
-    when {
-        state.isLoading && state.people.isEmpty() -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        }
-
-        state.error != null && state.people.isEmpty() -> {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(state.error, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = onRetry) { Text(stringResource(Res.string.retry)) }
-                }
-            }
-        }
-
-        else -> {
+    LoadingErrorContent(
+        isLoading = state.isLoading && state.people.isEmpty(),
+        error = if (state.people.isEmpty()) state.error else null,
+        onRetry = onRetry
+    ) {
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val navBarPadding =
                 WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -158,7 +144,6 @@ fun PeopleContent(
                     }
                 }
             }
-        }
     }
 }
 
