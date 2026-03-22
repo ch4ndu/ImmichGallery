@@ -19,15 +19,12 @@ A read-only gallery app for self-hosted [Immich](https://immich.app/) photo serv
 
 ### UI & Interaction
 - 4-tab bottom navigation (Timeline, Albums, People, Search)
-- Interactive fast-scroll scrollbar with date label bubble
 - Material 3 theming with light/dark mode support
 - Ege-to-Edge support
 
 ### Connection & Data
 - API key authentication to self-hosted Immich servers
-- Local caching via Room database for offline browsing
 - Authenticated image loading via Coil + Ktor
-- Efficient pagination with Paging 3
 
 ### Multi-Platform
 - Android (minSdk 24)
