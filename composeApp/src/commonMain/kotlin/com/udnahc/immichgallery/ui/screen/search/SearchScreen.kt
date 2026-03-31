@@ -40,6 +40,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import com.udnahc.immichgallery.ui.component.PhotoRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
@@ -81,7 +82,7 @@ fun SearchScreen(
                 assets = state.results,
                 initialIndex = index,
                 apiKey = apiKey,
-                getAssetDetailUseCase = viewModel.getAssetDetailUseCase,
+                getAssetDetail = viewModel::getAssetDetail,
                 onPersonClick = onPersonClick,
                 onDismiss = { selectedPhotoIndex = null }
             )
@@ -158,7 +159,7 @@ fun SearchContent(
             }
 
             state.results.isNotEmpty() -> {
-                val rows = state.rows
+                val rows = remember(state.results) { state.results.chunked(GRID_COLUMNS) }
                 val navBarPadding =
                     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 val listState = rememberLazyListState()
@@ -170,9 +171,12 @@ fun SearchContent(
                     topPadding = statusBarPadding + Dimens.topBarHeight,
                     bottomPadding = Dimens.bottomBarHeight + navBarPadding
                 ) {
+                    val contentPadding = remember(navBarPadding) {
+                        PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
+                    }
                     LazyColumn(
                         state = listState,
-                        contentPadding = PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
+                        contentPadding = contentPadding
                     ) {
                         items(rows, key = { it.first().id }) { row ->
                             PhotoRow(row, state.results, onPhotoClick)

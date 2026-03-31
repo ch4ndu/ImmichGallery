@@ -4,8 +4,8 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
-import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
@@ -26,7 +26,6 @@ data class SearchState(
     val query: String = "",
     val searchType: SearchType = SearchType.SMART,
     val results: List<Asset> = emptyList(),
-    val rows: List<List<Asset>> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val hasSearched: Boolean = false
@@ -36,7 +35,7 @@ class SearchViewModel(
     private val smartSearchUseCase: SmartSearchUseCase,
     private val metadataSearchUseCase: MetadataSearchUseCase,
     getApiKeyUseCase: GetApiKeyUseCase,
-    val getAssetDetailUseCase: GetAssetDetailUseCase
+    private val getAssetDetailUseCase: GetAssetDetailUseCase
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
@@ -44,6 +43,9 @@ class SearchViewModel(
     private val log = logging()
     private val _state = MutableStateFlow(SearchState())
     val state: StateFlow<SearchState> = _state.asStateFlow()
+
+    suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
+        getAssetDetailUseCase(assetId)
 
     private var searchJob: Job? = null
 
@@ -77,7 +79,6 @@ class SearchViewModel(
                     _state.update {
                         it.copy(
                             results = assets,
-                            rows = assets.chunked(GRID_COLUMNS),
                             isLoading = false
                         )
                     }

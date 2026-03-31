@@ -26,7 +26,7 @@ fun PhotoRow(
         horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
     ) {
         assets.forEach { asset ->
-            val onClick = remember(asset.id, allAssets) {
+            val onClick = remember(asset.id, onPhotoClick) {
                 {
                     val index = allAssets.indexOf(asset)
                     onPhotoClick(allAssets, index)

@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -63,7 +64,7 @@ fun AlbumDetailScreen(
                 assets = state.assets,
                 initialIndex = index,
                 apiKey = apiKey,
-                getAssetDetailUseCase = viewModel.getAssetDetailUseCase,
+                getAssetDetail = viewModel::getAssetDetail,
                 onPersonClick = onPersonClick,
                 onDismiss = { selectedPhotoIndex = null }
             )
@@ -84,7 +85,7 @@ fun AlbumDetailContent(
         error = state.error,
         onRetry = onRetry
     ) {
-        val rows = state.rows
+        val rows = remember(state.assets) { state.assets.chunked(GRID_COLUMNS) }
         val listState = rememberLazyListState()
         ScrollbarOverlay(
             listState = listState,
@@ -94,10 +95,12 @@ fun AlbumDetailContent(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    top = contentTopPadding,
-                    bottom = contentBottomPadding
-                )
+                contentPadding = remember(contentTopPadding, contentBottomPadding) {
+                    PaddingValues(
+                        top = contentTopPadding,
+                        bottom = contentBottomPadding
+                    )
+                }
             ) {
                 items(rows, key = { it.first().id }) { row ->
                     PhotoRow(row, state.assets, onPhotoClick)
@@ -117,8 +120,7 @@ private fun AlbumDetailContentPreview() {
     AlbumDetailContent(
         state = AlbumDetailState(
             albumName = "Vacation",
-            assets = listOf(sampleAsset),
-            rows = listOf(listOf(sampleAsset))
+            assets = listOf(sampleAsset)
         ),
         onPhotoClick = { _, _ -> },
         onRetry = {},

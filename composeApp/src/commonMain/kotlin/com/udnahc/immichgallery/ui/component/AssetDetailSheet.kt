@@ -39,7 +39,6 @@ import androidx.compose.ui.text.style.TextAlign
 import coil3.compose.AsyncImage
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetDetailPerson
-import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.detail_camera
@@ -63,7 +62,7 @@ private const val BYTES_PER_MB = 1_048_576.0
 @Composable
 fun AssetDetailSheet(
     assetId: String,
-    getAssetDetailUseCase: GetAssetDetailUseCase,
+    getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -76,7 +75,7 @@ fun AssetDetailSheet(
         isLoading = true
         error = null
         withContext(Dispatchers.IO) {
-            getAssetDetailUseCase(assetId)
+            getAssetDetail(assetId)
         }.fold(
             onSuccess = { detail = it; isLoading = false },
             onFailure = { error = it.message; isLoading = false }
@@ -157,7 +156,7 @@ private fun AssetDetailContent(
         }
 
         // Dimensions & file size
-        val sizeInfo = buildSizeInfo(detail)
+        val sizeInfo = remember(detail) { buildSizeInfo(detail) }
         if (sizeInfo.isNotEmpty()) {
             Text(
                 text = sizeInfo,
@@ -177,7 +176,7 @@ private fun AssetDetailContent(
         }
 
         // Location
-        val locationText = buildLocationText(detail)
+        val locationText = remember(detail) { buildLocationText(detail) }
         if (locationText != null) {
             Spacer(Modifier.height(Dimens.largeSpacing))
             HorizontalDivider()
@@ -198,7 +197,7 @@ private fun AssetDetailContent(
         }
 
         // Camera details
-        val cameraInfo = buildCameraInfo(detail)
+        val cameraInfo = remember(detail) { buildCameraInfo(detail) }
         if (cameraInfo.isNotEmpty()) {
             Spacer(Modifier.height(Dimens.largeSpacing))
             HorizontalDivider()

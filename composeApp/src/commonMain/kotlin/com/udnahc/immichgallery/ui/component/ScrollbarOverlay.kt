@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -265,26 +266,28 @@ private fun ScrollbarHandle(
     ) {
         // Year markers along the right edge — small pill badges
         yearMarkers.forEach { marker ->
-            val markerOffsetPx = remember(trackHeightPx, marker.fraction, topPaddingPx, bottomPaddingPx) {
-                val availableTrack = trackHeightPx - topPaddingPx - bottomPaddingPx
-                (topPaddingPx + availableTrack * marker.fraction).toInt()
-            }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset { IntOffset(0, markerOffsetPx) }
-                    .padding(end = Dimens.scrollbarYearLabelPadding)
-                    .clip(RoundedCornerShape(Dimens.scrollbarYearLabelCornerRadius))
-                    .background(yearLabelColor.copy(alpha = 0.12f))
-                    .padding(horizontal = Dimens.scrollbarYearLabelPaddingHorizontal, vertical = Dimens.scrollbarYearLabelPaddingVertical),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = marker.year,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = yearLabelColor.copy(alpha = 0.7f),
-                    maxLines = 1
-                )
+            key(marker.year) {
+                val markerOffsetPx = remember(trackHeightPx, marker.fraction, topPaddingPx, bottomPaddingPx) {
+                    val availableTrack = trackHeightPx - topPaddingPx - bottomPaddingPx
+                    (topPaddingPx + availableTrack * marker.fraction).toInt()
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset { IntOffset(0, markerOffsetPx) }
+                        .padding(end = Dimens.scrollbarYearLabelPadding)
+                        .clip(RoundedCornerShape(Dimens.scrollbarYearLabelCornerRadius))
+                        .background(yearLabelColor.copy(alpha = 0.12f))
+                        .padding(horizontal = Dimens.scrollbarYearLabelPaddingHorizontal, vertical = Dimens.scrollbarYearLabelPaddingVertical),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = marker.year,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = yearLabelColor.copy(alpha = 0.7f),
+                        maxLines = 1
+                    )
+                }
             }
         }
 

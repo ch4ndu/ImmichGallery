@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.PhotoRow
@@ -71,7 +72,7 @@ fun PersonDetailScreen(
                 assets = state.assets,
                 initialIndex = index,
                 apiKey = apiKey,
-                getAssetDetailUseCase = viewModel.getAssetDetailUseCase,
+                getAssetDetail = viewModel::getAssetDetail,
                 onPersonClick = onPersonClick,
                 onDismiss = { selectedPhotoIndex = null }
             )
@@ -92,7 +93,7 @@ fun PersonDetailContent(
         error = state.error,
         onRetry = onRetry
     ) {
-        val rows = state.rows
+        val rows = remember(state.assets) { state.assets.chunked(GRID_COLUMNS) }
         val listState = rememberLazyListState()
         ScrollbarOverlay(
             listState = listState,
@@ -102,10 +103,12 @@ fun PersonDetailContent(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    top = contentTopPadding,
-                    bottom = contentBottomPadding
-                )
+                contentPadding = remember(contentTopPadding, contentBottomPadding) {
+                    PaddingValues(
+                        top = contentTopPadding,
+                        bottom = contentBottomPadding
+                    )
+                }
             ) {
                 items(rows, key = { it.first().id }) { row ->
                     PhotoRow(row, state.assets, onPhotoClick)
@@ -124,8 +127,7 @@ private fun PersonDetailContentPreview() {
     )
     PersonDetailContent(
         state = PersonDetailState(
-            assets = listOf(sampleAsset),
-            rows = listOf(listOf(sampleAsset))
+            assets = listOf(sampleAsset)
         ),
         onPhotoClick = { _, _ -> },
         onRetry = {},

@@ -18,9 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.TimelineBucket
-import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
-import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.ui.component.AssetDetailSheet
 import com.udnahc.immichgallery.ui.component.AssetPage
 import com.udnahc.immichgallery.ui.component.DetailBottomHandle
@@ -33,8 +32,8 @@ fun TimelinePhotoOverlay(
     timelineState: StateFlow<TimelineState>,
     initialIndex: Int,
     apiKey: String,
-    getAssetFileNameUseCase: GetAssetFileNameUseCase,
-    getAssetDetailUseCase: GetAssetDetailUseCase,
+    getAssetFileName: suspend (assetId: String, fallback: String) -> Result<String>,
+    getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: () -> Unit
@@ -43,6 +42,7 @@ fun TimelinePhotoOverlay(
 
     val state by timelineState.collectAsState()
     var showTopBar by remember { mutableStateOf(true) }
+    val onTap = remember { { showTopBar = !showTopBar } }
     var showDetailSheet by remember { mutableStateOf(false) }
     val fileNameCache = remember { mutableStateMapOf<String, String>() }
 
@@ -79,7 +79,7 @@ fun TimelinePhotoOverlay(
             return@LaunchedEffect
         }
         if (fileNameCache.containsKey(asset.id)) return@LaunchedEffect
-        getAssetFileNameUseCase(asset.id, asset.fileName).onSuccess { name ->
+        getAssetFileName(asset.id, asset.fileName).onSuccess { name ->
             fileNameCache[asset.id] = name
         }
     }
@@ -106,7 +106,7 @@ fun TimelinePhotoOverlay(
                         asset = asset,
                         apiKey = apiKey,
                         isCurrentPage = pagerState.settledPage == page,
-                        onTap = { showTopBar = !showTopBar }
+                        onTap = onTap
                     )
                 } else {
                     CircularProgressIndicator(color = Color.White)
@@ -133,7 +133,7 @@ fun TimelinePhotoOverlay(
         if (showDetailSheet && currentAsset != null) {
             AssetDetailSheet(
                 assetId = currentAsset.id,
-                getAssetDetailUseCase = getAssetDetailUseCase,
+                getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
                     onDismiss()

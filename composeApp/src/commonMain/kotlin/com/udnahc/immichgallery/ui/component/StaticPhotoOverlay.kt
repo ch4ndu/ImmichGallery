@@ -14,7 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.udnahc.immichgallery.domain.model.Asset
-import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
+import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 
 @Composable
@@ -22,13 +22,14 @@ fun StaticPhotoOverlay(
     assets: List<Asset>,
     initialIndex: Int,
     apiKey: String,
-    getAssetDetailUseCase: GetAssetDetailUseCase,
+    getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     PlatformBackHandler(enabled = true, onBack = onDismiss)
 
     var showTopBar by remember { mutableStateOf(true) }
+    val onTap = remember { { showTopBar = !showTopBar } }
     var showDetailSheet by remember { mutableStateOf(false) }
 
     if (assets.isEmpty()) {
@@ -57,7 +58,7 @@ fun StaticPhotoOverlay(
                     asset = asset,
                     apiKey = apiKey,
                     isCurrentPage = pagerState.settledPage == page,
-                    onTap = { showTopBar = !showTopBar }
+                    onTap = onTap
                 )
             }
         }
@@ -82,7 +83,7 @@ fun StaticPhotoOverlay(
         if (showDetailSheet) {
             AssetDetailSheet(
                 assetId = currentAsset.id,
-                getAssetDetailUseCase = getAssetDetailUseCase,
+                getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
                     onDismiss()

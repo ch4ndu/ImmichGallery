@@ -12,6 +12,7 @@ import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
@@ -84,12 +85,18 @@ class TimelineViewModel(
     private val getTimelineBucketsUseCase: GetTimelineBucketsUseCase,
     private val getBucketAssetsUseCase: GetBucketAssetsUseCase,
     getApiKeyUseCase: GetApiKeyUseCase,
-    val getAssetFileNameUseCase: GetAssetFileNameUseCase,
-    val getAssetDetailUseCase: GetAssetDetailUseCase,
+    private val getAssetFileNameUseCase: GetAssetFileNameUseCase,
+    private val getAssetDetailUseCase: GetAssetDetailUseCase,
     private val serverConfigRepository: ServerConfigRepository
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
+
+    suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
+        getAssetDetailUseCase(assetId)
+
+    suspend fun getAssetFileName(assetId: String, fallback: String): Result<String> =
+        getAssetFileNameUseCase(assetId, fallback)
 
     private val log = logging()
     private var loadBucketsJob: Job? = null

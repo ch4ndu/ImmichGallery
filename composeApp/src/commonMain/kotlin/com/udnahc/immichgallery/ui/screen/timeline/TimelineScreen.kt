@@ -97,8 +97,8 @@ fun TimelineScreen(
                 timelineState = viewModel.state,
                 initialIndex = index,
                 apiKey = apiKey,
-                getAssetFileNameUseCase = viewModel.getAssetFileNameUseCase,
-                getAssetDetailUseCase = viewModel.getAssetDetailUseCase,
+                getAssetFileName = viewModel::getAssetFileName,
+                getAssetDetail = viewModel::getAssetDetail,
                 onBucketNeeded = viewModel::loadBucketAssets,
                 onPersonClick = onPersonClick,
                 onDismiss = { selectedPhotoIndex = null }
@@ -190,10 +190,12 @@ fun TimelineContent(
                         modifier = Modifier.fillMaxSize(),
                         horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
                         verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
-                        contentPadding = PaddingValues(
-                            top = statusBarPadding + Dimens.topBarHeight,
-                            bottom = Dimens.bottomBarHeight + navBarPadding
-                        )
+                        contentPadding = remember(statusBarPadding, navBarPadding) {
+                            PaddingValues(
+                                top = statusBarPadding + Dimens.topBarHeight,
+                                bottom = Dimens.bottomBarHeight + navBarPadding
+                            )
+                        }
                     ) {
                         items(
                             count = displayItems.size,
