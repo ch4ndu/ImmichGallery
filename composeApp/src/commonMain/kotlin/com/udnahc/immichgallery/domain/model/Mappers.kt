@@ -21,6 +21,7 @@ fun AssetResponse.toDomain(baseUrl: String): Asset {
             val h = exif.exifImageHeight
             if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
         }
+        ?: thumbhash?.let { thumbhashToAspectRatio(it) }
     return Asset(
         id = id,
         type = if (type == "VIDEO") AssetType.VIDEO else AssetType.IMAGE,

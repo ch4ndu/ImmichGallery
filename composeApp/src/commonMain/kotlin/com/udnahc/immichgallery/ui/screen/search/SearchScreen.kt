@@ -9,8 +9,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,12 +22,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.items
-import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,19 +43,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
-import com.udnahc.immichgallery.domain.model.Asset
-import com.udnahc.immichgallery.domain.model.AssetType
+import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
-import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
-import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
+import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
@@ -78,7 +80,7 @@ fun SearchScreen(
     var selectedAssetId by remember { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
-    val staggeredGridState = rememberLazyStaggeredGridState()
+    val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(selectedAssetId) {
@@ -98,7 +100,10 @@ fun SearchScreen(
                     onSearchTypeChange = viewModel::updateSearchType,
                     onSearch = viewModel::search,
                     onPhotoClick = { assetId -> selectedAssetId = assetId },
-                    staggeredGridState = staggeredGridState,
+                    onSetAvailableWidth = viewModel::setAvailableWidth,
+                    onSetTargetRowHeight = viewModel::setTargetRowHeight,
+                    onLoadMore = viewModel::loadMore,
+                    listState = listState,
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility
                 )
@@ -120,11 +125,13 @@ fun SearchScreen(
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId ->
                         if (currentAssetId != null) {
-                            val itemIndex = state.results.indexOfFirst { it.id == currentAssetId }
-                            if (itemIndex >= 0) {
-                                val visible = staggeredGridState.layoutInfo.visibleItemsInfo.map { it.index }
-                                if (itemIndex !in visible) {
-                                    coroutineScope.launch { staggeredGridState.scrollToItem(itemIndex) }
+                            val rowIndex = state.rows.indexOfFirst { row ->
+                                row.photos.any { it.asset.id == currentAssetId }
+                            }
+                            if (rowIndex >= 0) {
+                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
+                                if (rowIndex !in visible) {
+                                    coroutineScope.launch { listState.scrollToItem(rowIndex) }
                                 }
                             }
                         }
@@ -146,7 +153,10 @@ fun SearchContent(
     onSearchTypeChange: (SearchType) -> Unit,
     onSearch: () -> Unit,
     onPhotoClick: (String) -> Unit,
-    staggeredGridState: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
+    onSetAvailableWidth: (Float) -> Unit,
+    onSetTargetRowHeight: (Float) -> Unit = {},
+    onLoadMore: () -> Unit,
+    listState: LazyListState = rememberLazyListState(),
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
@@ -213,33 +223,74 @@ fun SearchContent(
             state.results.isNotEmpty() -> {
                 val navBarPadding =
                     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                LaunchedEffect(staggeredGridState.isScrollInProgress) {
-                    if (staggeredGridState.isScrollInProgress) focusManager.clearFocus()
+                val density = LocalDensity.current
+
+                LaunchedEffect(listState.isScrollInProgress) {
+                    if (listState.isScrollInProgress) focusManager.clearFocus()
                 }
-                ScrollbarOverlay(
-                    staggeredGridState = staggeredGridState,
-                    topPadding = statusBarPadding + Dimens.topBarHeight,
-                    bottomPadding = Dimens.bottomBarHeight + navBarPadding
+
+                // Load-more detection
+                LaunchedEffect(listState) {
+                    snapshotFlow { listState.layoutInfo }
+                        .collect { layoutInfo ->
+                            val totalItems = layoutInfo.totalItemsCount
+                            val lastVisible =
+                                layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                            if (totalItems > 0 && lastVisible >= totalItems - 3) {
+                                onLoadMore()
+                            }
+                        }
+                }
+
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pinchToZoomRowHeight(state.targetRowHeight, onSetTargetRowHeight)
                 ) {
-                    val contentPadding = remember(navBarPadding) {
-                        PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
+                    val widthDp = with(density) { constraints.maxWidth.toDp() }
+                    LaunchedEffect(widthDp) {
+                        onSetAvailableWidth(widthDp.value)
                     }
-                    LazyVerticalStaggeredGrid(
-                        columns = StaggeredGridCells.Fixed(GRID_COLUMNS),
-                        state = staggeredGridState,
-                        contentPadding = contentPadding,
-                        horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
-                        verticalItemSpacing = Dimens.gridSpacing
+
+                    ScrollbarOverlay(
+                        listState = listState,
+                        topPadding = statusBarPadding + Dimens.topBarHeight,
+                        bottomPadding = Dimens.bottomBarHeight + navBarPadding
                     ) {
-                        items(state.results.size, key = { state.results[it].id }) { index ->
-                            val asset = state.results[index]
-                            ThumbnailCell(
-                                asset = asset,
-                                onClick = { onPhotoClick(asset.id) },
-                                modifier = Modifier.aspectRatio(asset.aspectRatio),
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope
-                            )
+                        val contentPadding = remember(navBarPadding) {
+                            PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
+                        }
+                        LazyColumn(
+                            state = listState,
+                            contentPadding = contentPadding,
+                            verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
+                        ) {
+                            itemsIndexed(
+                                items = state.rows,
+                                key = { _, row -> row.gridKey }
+                            ) { _, row ->
+                                JustifiedPhotoRow(
+                                    row = row,
+                                    spacing = Dimens.gridSpacing,
+                                    onPhotoClick = onPhotoClick,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope
+                                )
+                            }
+                            if (state.isLoadingMore) {
+                                item(key = "loading_more") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = Dimens.mediumSpacing),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -265,6 +316,8 @@ private fun SearchContentPreview() {
         onQueryChange = {},
         onSearchTypeChange = {},
         onSearch = {},
-        onPhotoClick = {}
+        onPhotoClick = {},
+        onSetAvailableWidth = {},
+        onLoadMore = {}
     )
 }

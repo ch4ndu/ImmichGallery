@@ -16,6 +16,9 @@ import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
+import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
+import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
@@ -41,8 +44,6 @@ import org.lighthousegames.logging.logging
 
 const val MIN_TARGET_ROW_HEIGHT = 80f
 const val MAX_TARGET_ROW_HEIGHT = 300f
-private const val DEFAULT_TARGET_ROW_HEIGHT = 150f
-private const val GRID_SPACING_DP = 2f
 private const val MAX_PLACEHOLDER_HEIGHT_DP = 10000f
 private const val SECTION_HEADER_HEIGHT_DP = 48f
 
@@ -489,55 +490,6 @@ class TimelineViewModel(
             }
         }
         return items
-    }
-
-    private fun packIntoRows(
-        assets: List<Asset>,
-        bucketIndex: Int,
-        sectionLabel: String,
-        availableWidth: Float,
-        targetRowHeight: Float,
-        spacing: Float
-    ): List<RowItem> {
-        if (availableWidth <= 0f || assets.isEmpty()) return emptyList()
-        val rows = mutableListOf<RowItem>()
-        var currentRow = mutableListOf<PhotoItem>()
-        var currentSumAR = 0f
-
-        for (asset in assets) {
-            val photoItem = PhotoItem(
-                gridKey = "p_${asset.id}",
-                bucketIndex = bucketIndex,
-                sectionLabel = sectionLabel,
-                asset = asset
-            )
-            currentRow.add(photoItem)
-            currentSumAR += asset.aspectRatio
-            val neededWidth = targetRowHeight * currentSumAR + (currentRow.size - 1) * spacing
-            if (neededWidth >= availableWidth) {
-                val actualHeight = (availableWidth - (currentRow.size - 1) * spacing) / currentSumAR
-                rows.add(RowItem(
-                    gridKey = "row_${currentRow.first().gridKey}",
-                    bucketIndex = bucketIndex,
-                    sectionLabel = sectionLabel,
-                    photos = currentRow.toList(),
-                    rowHeight = actualHeight
-                ))
-                currentRow = mutableListOf()
-                currentSumAR = 0f
-            }
-        }
-        if (currentRow.isNotEmpty()) {
-            rows.add(RowItem(
-                gridKey = "row_${currentRow.first().gridKey}",
-                bucketIndex = bucketIndex,
-                sectionLabel = sectionLabel,
-                photos = currentRow.toList(),
-                rowHeight = targetRowHeight,
-                isComplete = false
-            ))
-        }
-        return rows
     }
 
     private data class ScrollbarData(

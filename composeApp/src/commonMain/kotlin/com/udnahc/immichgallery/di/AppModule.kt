@@ -21,6 +21,7 @@ import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
+import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
@@ -65,6 +66,7 @@ val sharedModule = module {
     factory { GetAlbumDetailUseCase(get(), get()) }
     factory { GetPeopleUseCase(get(), get()) }
     factory { GetPersonAssetsUseCase(get(), get()) }
+    factory { GetPersonAssetsPageUseCase(get(), get()) }
     factory { SmartSearchUseCase(get(), get()) }
     factory { MetadataSearchUseCase(get(), get()) }
 
@@ -79,6 +81,6 @@ val sharedModule = module {
     viewModel { AlbumListViewModel(get()) }
     viewModel { params -> AlbumDetailViewModel(get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }
-    viewModel { params -> PersonDetailViewModel(get(), get(), get(), params.get()) }
+    viewModel { params -> PersonDetailViewModel(get(), get(), get(), get(), params.get()) }
     viewModel { SearchViewModel(get(), get(), get(), get()) }
 }

@@ -22,6 +22,19 @@ class PeopleRepository(
         return allItems
     }
 
+    /**
+     * Fetches a single page of person assets.
+     * Returns (items, hasMore) where hasMore indicates if more pages exist.
+     */
+    suspend fun getPersonAssetsPage(
+        id: String,
+        page: Int,
+        size: Int = 250
+    ): Pair<List<AssetResponse>, Boolean> {
+        val response = apiService.getPersonAssets(id, page, size)
+        return response.assets.items to (response.assets.nextPage != null)
+    }
+
     fun personThumbnailUrl(personId: String): String =
         apiService.personThumbnailUrl(personId)
 }

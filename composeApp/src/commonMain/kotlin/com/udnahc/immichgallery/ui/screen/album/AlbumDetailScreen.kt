@@ -8,19 +8,19 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,12 +34,12 @@ import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.DetailTopBar
+import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
-import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
-import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
+import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -57,7 +57,7 @@ fun AlbumDetailScreen(
     var selectedAssetId by remember { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
-    val staggeredGridState = rememberLazyStaggeredGridState()
+    val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -76,9 +76,11 @@ fun AlbumDetailScreen(
                     state = state,
                     onPhotoClick = { assetId -> selectedAssetId = assetId },
                     onRetry = viewModel::loadAlbumDetail,
+                    onAvailableWidthChanged = viewModel::setAvailableWidth,
+                    onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                     contentTopPadding = contentTopPadding,
                     contentBottomPadding = contentBottomPadding,
-                    staggeredGridState = staggeredGridState,
+                    listState = listState,
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility
                 )
@@ -100,11 +102,13 @@ fun AlbumDetailScreen(
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId ->
                         if (currentAssetId != null) {
-                            val itemIndex = state.assets.indexOfFirst { it.id == currentAssetId }
-                            if (itemIndex >= 0) {
-                                val visible = staggeredGridState.layoutInfo.visibleItemsInfo.map { it.index }
-                                if (itemIndex !in visible) {
-                                    coroutineScope.launch { staggeredGridState.scrollToItem(itemIndex) }
+                            val rowIndex = state.rows.indexOfFirst { row ->
+                                row.photos.any { it.asset.id == currentAssetId }
+                            }
+                            if (rowIndex >= 0) {
+                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
+                                if (rowIndex !in visible) {
+                                    coroutineScope.launch { listState.scrollToItem(rowIndex) }
                                 }
                             }
                         }
@@ -116,7 +120,13 @@ fun AlbumDetailScreen(
             }
         }
 
-        DetailTopBar(title = state.albumName, onBack = onBack)
+        AnimatedVisibility(
+            visible = selectedAssetId == null,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            DetailTopBar(title = state.albumName, onBack = onBack)
+        }
     }
 }
 
@@ -126,9 +136,11 @@ fun AlbumDetailContent(
     state: AlbumDetailState,
     onPhotoClick: (String) -> Unit,
     onRetry: () -> Unit,
+    onAvailableWidthChanged: (Float) -> Unit = {},
+    onTargetRowHeightChanged: (Float) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
-    staggeredGridState: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
+    listState: LazyListState = rememberLazyListState(),
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
@@ -137,33 +149,43 @@ fun AlbumDetailContent(
         error = state.error,
         onRetry = onRetry
     ) {
-        ScrollbarOverlay(
-            staggeredGridState = staggeredGridState,
-            topPadding = contentTopPadding,
-            bottomPadding = contentBottomPadding
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .pinchToZoomRowHeight(state.targetRowHeight, onTargetRowHeightChanged)
         ) {
-            LazyVerticalStaggeredGrid(
-                columns = StaggeredGridCells.Fixed(GRID_COLUMNS),
-                state = staggeredGridState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = remember(contentTopPadding, contentBottomPadding) {
-                    PaddingValues(
-                        top = contentTopPadding,
-                        bottom = contentBottomPadding
-                    )
-                },
-                horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
-                verticalItemSpacing = Dimens.gridSpacing
+            val widthDp = maxWidth.value
+            LaunchedEffect(widthDp) {
+                onAvailableWidthChanged(widthDp)
+            }
+
+            ScrollbarOverlay(
+                listState = listState,
+                topPadding = contentTopPadding,
+                bottomPadding = contentBottomPadding
             ) {
-                items(state.assets.size, key = { state.assets[it].id }) { index ->
-                    val asset = state.assets[index]
-                    ThumbnailCell(
-                        asset = asset,
-                        onClick = { onPhotoClick(asset.id) },
-                        modifier = Modifier.aspectRatio(asset.aspectRatio),
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope
-                    )
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = remember(contentTopPadding, contentBottomPadding) {
+                        PaddingValues(
+                            top = contentTopPadding,
+                            bottom = contentBottomPadding
+                        )
+                    }
+                ) {
+                    itemsIndexed(
+                        items = state.rows,
+                        key = { _, row -> row.gridKey }
+                    ) { _, row ->
+                        JustifiedPhotoRow(
+                            row = row,
+                            spacing = Dimens.gridSpacing,
+                            onPhotoClick = onPhotoClick,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope
+                        )
+                    }
                 }
             }
         }

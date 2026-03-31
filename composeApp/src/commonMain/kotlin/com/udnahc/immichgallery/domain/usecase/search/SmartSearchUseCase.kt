@@ -2,7 +2,7 @@ package com.udnahc.immichgallery.domain.usecase.search
 
 import com.udnahc.immichgallery.data.repository.SearchRepository
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
-import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.SearchResult
 import com.udnahc.immichgallery.domain.model.toDomain
 
 class SmartSearchUseCase(
@@ -12,10 +12,14 @@ class SmartSearchUseCase(
     suspend operator fun invoke(
         query: String,
         page: Int = 1
-    ): Result<List<Asset>> {
+    ): Result<SearchResult> {
         return runCatching {
             val baseUrl = serverConfigRepository.getServerUrl().trimEnd('/')
-            repository.searchSmart(query, page).assets.items.map { it.toDomain(baseUrl) }
+            val response = repository.searchSmart(query, page)
+            SearchResult(
+                assets = response.assets.items.map { it.toDomain(baseUrl) },
+                hasMore = response.assets.nextPage != null
+            )
         }
     }
 }

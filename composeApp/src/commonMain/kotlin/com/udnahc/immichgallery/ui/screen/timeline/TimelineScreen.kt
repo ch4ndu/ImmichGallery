@@ -9,8 +9,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -56,6 +54,7 @@ import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
+import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
@@ -68,9 +67,6 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
-private const val ZOOM_STEP_THRESHOLD = 1.3f
-private const val ZOOM_IN_FACTOR = 1.25f
-private const val ZOOM_OUT_FACTOR = 0.8f
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -189,9 +185,6 @@ fun TimelineContent(
         onRetry = onRetry
     ) {
         key(state.groupSize) {
-            // Pinch-to-zoom state
-            var zoomAccumulator by remember { mutableFloatStateOf(1f) }
-
             // Visibility: prefetch nearby buckets only when scroll settles
             @OptIn(FlowPreview::class)
             LaunchedEffect(Unit) {
@@ -206,35 +199,9 @@ fun TimelineContent(
                 WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
             BoxWithConstraints(
-                modifier = Modifier.fillMaxSize().pointerInput(targetRowHeight) {
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        var previousDistance = 0f
-                        do {
-                            val event = awaitPointerEvent()
-                            val pressed = event.changes.filter { it.pressed }
-                            if (pressed.size >= 2) {
-                                val dist = (pressed[0].position - pressed[1].position)
-                                    .getDistance()
-                                if (previousDistance > 0f && dist > 0f) {
-                                    val zoom = dist / previousDistance
-                                    zoomAccumulator *= zoom
-                                    if (zoomAccumulator > ZOOM_STEP_THRESHOLD) {
-                                        onTargetRowHeightChanged(targetRowHeight * ZOOM_IN_FACTOR)
-                                        zoomAccumulator = 1f
-                                    } else if (zoomAccumulator < 1f / ZOOM_STEP_THRESHOLD) {
-                                        onTargetRowHeightChanged(targetRowHeight * ZOOM_OUT_FACTOR)
-                                        zoomAccumulator = 1f
-                                    }
-                                }
-                                previousDistance = dist
-                                event.changes.forEach { it.consume() }
-                            } else {
-                                previousDistance = 0f
-                            }
-                        } while (event.changes.any { it.pressed })
-                    }
-                }
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pinchToZoomRowHeight(targetRowHeight, onTargetRowHeightChanged)
             ) {
                 // Report available width to ViewModel for row packing
                 LaunchedEffect(maxWidth) {
