@@ -5,7 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.ErrorItem
+import com.udnahc.immichgallery.domain.model.HeaderItem
+import com.udnahc.immichgallery.domain.model.PhotoItem
+import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
@@ -16,8 +21,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Instant
@@ -39,22 +49,35 @@ data class DayGroup(val label: String, val assets: List<Asset>)
 data class TimelineState(
     val groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
     val gridColumns: Int = 3,
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val displayItems: List<TimelineDisplayItem> = emptyList(),
+    // Scrollbar support:
+    val yearMarkers: List<YearMarker> = emptyList(),
+    val totalItemCount: Int = 0,
+    val cumulativeItemCounts: List<Int> = emptyList(),
+    val bucketDisplayLabels: List<String> = emptyList(),
+    // For TimelinePhotoOverlay (unchanged contract):
+    val buckets: List<TimelineBucket> = emptyList(),
+    val bucketAssets: Map<String, List<Asset>> = emptyMap(),
+    val loadedBuckets: Set<String> = emptySet()
+)
+
+// Private bucket management state
+private data class BucketData(
     val buckets: List<TimelineBucket> = emptyList(),
     val loadedBuckets: Set<String> = emptySet(),
     val loadingBuckets: Set<String> = emptySet(),
     val failedBuckets: Set<String> = emptySet(),
     val bucketAssets: Map<String, List<Asset>> = emptyMap(),
-    val dayGroups: Map<String, List<DayGroup>> = emptyMap(),
+    val dayGroups: Map<String, List<DayGroup>> = emptyMap()
+)
+
+private data class UiConfig(
+    val groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
+    val gridColumns: Int = 3,
     val isLoading: Boolean = false,
-    val error: String? = null,
-    // Pre-computed on background dispatcher:
-    val allTimeBuckets: List<String> = emptyList(),
-    val estimatedGridItemCount: Int = 0,
-    val bucketLabelMap: Map<String, String> = emptyMap(),
-    // For O(log n) label lookup during scrollbar drag:
-    val cumulativeItemCounts: List<Int> = emptyList(),
-    val bucketDisplayLabels: List<String> = emptyList(),
-    val yearMarkers: List<YearMarker> = emptyList()
+    val error: String? = null
 )
 
 class TimelineViewModel(
@@ -70,69 +93,84 @@ class TimelineViewModel(
 
     private val log = logging()
     private var loadBucketsJob: Job? = null
-    private val _state: MutableStateFlow<TimelineState>
+
+    private val _bucketData = MutableStateFlow(BucketData())
+    private val _uiConfig: MutableStateFlow<UiConfig>
+
     val state: StateFlow<TimelineState>
 
     val labelProvider: (Float) -> String? = { fraction ->
-        val currentState = _state.value
-        val counts = currentState.cumulativeItemCounts
+        val s = state.value
+        val counts = s.cumulativeItemCounts
         if (counts.isNotEmpty()) {
-            val targetIndex = (fraction * currentState.estimatedGridItemCount).toInt()
-            // Binary search: find first bucket whose cumulative count > targetIndex
+            val targetIndex = (fraction * s.totalItemCount).toInt()
             var low = 0
             var high = counts.size - 1
             while (low < high) {
                 val mid = (low + high) ushr 1
                 if (counts[mid] <= targetIndex) low = mid + 1 else high = mid
             }
-            currentState.bucketDisplayLabels.getOrNull(low)
+            s.bucketDisplayLabels.getOrNull(low)
         } else null
     }
-
 
     init {
         val saved = serverConfigRepository.getTimelineGroupSize()
         val initialSize = TimelineGroupSize.entries.find { it.apiValue == saved }
             ?: TimelineGroupSize.MONTH
-        val initialColumns = serverConfigRepository.getGridColumns().coerceIn(MIN_GRID_COLUMNS, MAX_GRID_COLUMNS)
-        _state = MutableStateFlow(TimelineState(groupSize = initialSize, gridColumns = initialColumns))
-        state = _state.asStateFlow()
+        val initialColumns = serverConfigRepository.getGridColumns()
+            .coerceIn(MIN_GRID_COLUMNS, MAX_GRID_COLUMNS)
+
+        _uiConfig = MutableStateFlow(UiConfig(groupSize = initialSize, gridColumns = initialColumns))
+
+        @OptIn(FlowPreview::class)
+        state = combine(_bucketData, _uiConfig) { data, config ->
+            buildTimelineState(data, config)
+        }
+            .debounce(100)
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, TimelineState(
+                groupSize = initialSize,
+                gridColumns = initialColumns
+            ))
+
         loadBuckets()
     }
 
     fun setGroupSize(size: TimelineGroupSize) {
-        if (size == _state.value.groupSize) return
+        if (size == _uiConfig.value.groupSize) return
         serverConfigRepository.setTimelineGroupSize(size.apiValue)
-        _state.update { TimelineState(groupSize = size, gridColumns = it.gridColumns) }
+        _bucketData.update { BucketData() }
+        _uiConfig.update { it.copy(groupSize = size) }
         loadBuckets()
     }
 
     fun setGridColumns(columns: Int) {
         val clamped = columns.coerceIn(MIN_GRID_COLUMNS, MAX_GRID_COLUMNS)
-        if (clamped == _state.value.gridColumns) return
+        if (clamped == _uiConfig.value.gridColumns) return
         serverConfigRepository.setGridColumns(clamped)
-        _state.update { it.copy(gridColumns = clamped) }
+        _uiConfig.update { it.copy(gridColumns = clamped) }
     }
 
     fun loadBuckets() {
         loadBucketsJob?.cancel()
         loadBucketsJob = viewModelScope.launch(Dispatchers.IO) {
             log.d { "Loading timeline buckets..." }
-            _state.update { it.copy(isLoading = true, error = null).withDerivedFields() }
+            _uiConfig.update { it.copy(isLoading = true, error = null) }
             getTimelineBucketsUseCase().fold(
                 onSuccess = { buckets ->
                     log.d { "Loaded ${buckets.size} timeline buckets" }
-                    _state.update {
-                        it.copy(buckets = buckets, isLoading = false).withDerivedFields()
+                    _bucketData.update { it.copy(buckets = buckets) }
+                    _uiConfig.update { it.copy(isLoading = false) }
+                    // Trigger initial loading — visibility callback may not fire for index 0
+                    for (i in 0..minOf(4, buckets.size - 1)) {
+                        loadBucketAssets(buckets[i].timeBucket)
                     }
                 },
                 onFailure = { e ->
                     log.e(e) { "Failed to load timeline buckets" }
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            error = e.message ?: "Failed to load timeline"
-                        ).withDerivedFields()
+                    _uiConfig.update {
+                        it.copy(isLoading = false, error = e.message ?: "Failed to load timeline")
                     }
                 }
             )
@@ -142,10 +180,10 @@ class TimelineViewModel(
     fun loadBucketAssets(timeBucket: String) {
         viewModelScope.launch(Dispatchers.IO) {
             var shouldLoad = false
-            _state.update { current ->
-                if (current.loadedBuckets.contains(timeBucket) ||
-                    current.loadingBuckets.contains(timeBucket) ||
-                    current.failedBuckets.contains(timeBucket)
+            _bucketData.update { current ->
+                if (timeBucket in current.loadedBuckets ||
+                    timeBucket in current.loadingBuckets ||
+                    timeBucket in current.failedBuckets
                 ) {
                     shouldLoad = false
                     current
@@ -160,29 +198,33 @@ class TimelineViewModel(
         }
     }
 
-    fun onVisibleBucketsChanged(visibleTimeBuckets: Set<String>) {
-        val allBuckets = _state.value.allTimeBuckets
-        val indicesToLoad = mutableSetOf<Int>()
-        for (tb in visibleTimeBuckets) {
-            val idx = allBuckets.indexOf(tb)
-            if (idx >= 0) {
-                indicesToLoad.add(idx)
-                if (idx + 1 < allBuckets.size) indicesToLoad.add(idx + 1)
-                if (idx + 2 < allBuckets.size) indicesToLoad.add(idx + 2)
+    fun onFirstVisibleItemChanged(firstVisibleIndex: Int) {
+        val snapshot = state.value
+        if (firstVisibleIndex !in snapshot.displayItems.indices) return
+        val bucketIndex = snapshot.displayItems[firstVisibleIndex].bucketIndex
+        for (offset in -2..2) {
+            val idx = bucketIndex + offset
+            if (idx in snapshot.buckets.indices) {
+                loadBucketAssets(snapshot.buckets[idx].timeBucket)
             }
         }
-        for (idx in indicesToLoad) {
-            loadBucketAssets(allBuckets[idx])
+    }
+
+    fun retryBucket(timeBucket: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            log.d { "Retrying bucket: $timeBucket" }
+            _bucketData.update { it.copy(failedBuckets = it.failedBuckets - timeBucket) }
+            loadBucketAssetsInternal(timeBucket)
         }
     }
 
     fun getGlobalPhotoIndex(assetId: String): Int? {
-        val currentState = _state.value
+        val s = state.value
         var globalIndex = 0
-        for (bucket in currentState.buckets) {
-            val bucketAssets = currentState.bucketAssets[bucket.timeBucket]
-            if (bucketAssets != null) {
-                val localIndex = bucketAssets.indexOfFirst { it.id == assetId }
+        for (bucket in s.buckets) {
+            val assets = s.bucketAssets[bucket.timeBucket]
+            if (assets != null) {
+                val localIndex = assets.indexOfFirst { it.id == assetId }
                 if (localIndex >= 0) return globalIndex + localIndex
             }
             globalIndex += bucket.count
@@ -190,25 +232,161 @@ class TimelineViewModel(
         return null
     }
 
-    fun retryBucket(timeBucket: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            log.d { "Retrying bucket: $timeBucket" }
-            _state.update { state ->
-                state.copy(failedBuckets = state.failedBuckets - timeBucket).withDerivedFields()
+    // --- Private ---
+
+    private suspend fun loadBucketAssetsInternal(timeBucket: String) {
+        log.d { "Loading assets for bucket: $timeBucket" }
+        getBucketAssetsUseCase(timeBucket).fold(
+            onSuccess = { assets ->
+                log.d { "Loaded ${assets.size} assets for bucket: $timeBucket" }
+                _bucketData.update { data ->
+                    val groupSize = _uiConfig.value.groupSize
+                    val newDayGroups = if (groupSize == TimelineGroupSize.DAY) {
+                        data.dayGroups + (timeBucket to computeDayGroups(assets))
+                    } else {
+                        data.dayGroups
+                    }
+                    data.copy(
+                        loadingBuckets = data.loadingBuckets - timeBucket,
+                        loadedBuckets = data.loadedBuckets + timeBucket,
+                        bucketAssets = data.bucketAssets + (timeBucket to assets),
+                        dayGroups = newDayGroups
+                    )
+                }
+            },
+            onFailure = { e ->
+                log.e(e) { "Failed to load assets for bucket: $timeBucket" }
+                _bucketData.update { data ->
+                    data.copy(
+                        loadingBuckets = data.loadingBuckets - timeBucket,
+                        failedBuckets = data.failedBuckets + timeBucket
+                    )
+                }
             }
-            loadBucketAssetsInternal(timeBucket)
-        }
+        )
     }
 
-    private fun TimelineState.withDerivedFields(): TimelineState {
+    private fun buildTimelineState(data: BucketData, config: UiConfig): TimelineState {
+        val displayItems = buildDisplayItems(data, config.groupSize)
+        val scrollbarData = computeScrollbarData(data.buckets)
+
+        return TimelineState(
+            groupSize = config.groupSize,
+            gridColumns = config.gridColumns,
+            isLoading = config.isLoading,
+            error = config.error,
+            displayItems = displayItems,
+            yearMarkers = scrollbarData.yearMarkers,
+            totalItemCount = scrollbarData.totalItemCount,
+            cumulativeItemCounts = scrollbarData.cumulativeItemCounts,
+            bucketDisplayLabels = scrollbarData.bucketDisplayLabels,
+            buckets = data.buckets,
+            bucketAssets = data.bucketAssets,
+            loadedBuckets = data.loadedBuckets
+        )
+    }
+
+    private fun buildDisplayItems(
+        data: BucketData,
+        groupSize: TimelineGroupSize
+    ): List<TimelineDisplayItem> {
+        val items = mutableListOf<TimelineDisplayItem>()
+
+        for ((index, bucket) in data.buckets.withIndex()) {
+            val timeBucket = bucket.timeBucket
+            val isFailed = timeBucket in data.failedBuckets
+            val isLoaded = timeBucket in data.loadedBuckets
+            val monthLabel = bucket.displayLabel
+
+            items.add(HeaderItem(
+                gridKey = "h_$index",
+                bucketIndex = index,
+                sectionLabel = monthLabel,
+                label = monthLabel
+            ))
+
+            when {
+                isFailed -> {
+                    items.add(ErrorItem(
+                        gridKey = "err_$index",
+                        bucketIndex = index,
+                        sectionLabel = monthLabel,
+                        timeBucket = timeBucket
+                    ))
+                }
+                !isLoaded -> {
+                    repeat(bucket.count) { idx ->
+                        items.add(PlaceholderItem(
+                            gridKey = "pl_${index}_$idx",
+                            bucketIndex = index,
+                            sectionLabel = monthLabel
+                        ))
+                    }
+                }
+                else -> {
+                    val assets = data.bucketAssets[timeBucket]
+                    if (assets != null) {
+                        val dayGroupList = if (groupSize == TimelineGroupSize.DAY) {
+                            data.dayGroups[timeBucket]
+                        } else null
+
+                        if (!dayGroupList.isNullOrEmpty()) {
+                            for (dayGroup in dayGroupList) {
+                                items.add(HeaderItem(
+                                    gridKey = "dh_${index}_${dayGroup.label}",
+                                    bucketIndex = index,
+                                    sectionLabel = dayGroup.label,
+                                    label = dayGroup.label
+                                ))
+                                for (asset in dayGroup.assets) {
+                                    items.add(PhotoItem(
+                                        gridKey = "p_${asset.id}",
+                                        bucketIndex = index,
+                                        sectionLabel = dayGroup.label,
+                                        asset = asset
+                                    ))
+                                }
+                            }
+                        } else {
+                            for (asset in assets) {
+                                items.add(PhotoItem(
+                                    gridKey = "p_${asset.id}",
+                                    bucketIndex = index,
+                                    sectionLabel = monthLabel,
+                                    asset = asset
+                                ))
+                            }
+                        }
+                    } else {
+                        repeat(bucket.count) { idx ->
+                            items.add(PlaceholderItem(
+                                gridKey = "pl_${index}_$idx",
+                                bucketIndex = index,
+                                sectionLabel = monthLabel
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+        return items
+    }
+
+    private data class ScrollbarData(
+        val yearMarkers: List<YearMarker>,
+        val totalItemCount: Int,
+        val cumulativeItemCounts: List<Int>,
+        val bucketDisplayLabels: List<String>
+    )
+
+    private fun computeScrollbarData(buckets: List<TimelineBucket>): ScrollbarData {
         var cumulative = 0
         val cumulativeCounts = buckets.map { bucket ->
-            cumulative += 1 + bucket.count  // header + assets
+            cumulative += 1 + bucket.count
             cumulative
         }
-
         val totalGridItems = buckets.sumOf { it.count } + buckets.size
-        // Year markers: first bucket of each unique year, with scroll fraction
+
         val markers = mutableListOf<YearMarker>()
         var lastYear = ""
         for (i in buckets.indices) {
@@ -222,72 +400,38 @@ class TimelineViewModel(
             }
         }
 
-        // Day sub-header labels for StickyHeaderOverlay
-        val dayLabelEntries = dayGroups.flatMap { (monthKey, groups) ->
-            groups.map { "${monthKey}_day_${it.label}" to it.label }
-        }
-
-        return copy(
-            allTimeBuckets = buckets.map { it.timeBucket },
-            estimatedGridItemCount = totalGridItems,
-            bucketLabelMap = buckets.associate { it.timeBucket to it.displayLabel } + dayLabelEntries,
+        return ScrollbarData(
+            yearMarkers = markers,
+            totalItemCount = totalGridItems,
             cumulativeItemCounts = cumulativeCounts,
-            bucketDisplayLabels = buckets.map { it.displayLabel },
-            yearMarkers = markers
-        )
-    }
-
-    private suspend fun loadBucketAssetsInternal(timeBucket: String) {
-        log.d { "Loading assets for bucket: $timeBucket" }
-        getBucketAssetsUseCase(timeBucket).fold(
-            onSuccess = { assets ->
-                log.d { "Loaded ${assets.size} assets for bucket: $timeBucket" }
-                _state.update { state ->
-                    val newDayGroups = if (state.groupSize == TimelineGroupSize.DAY) {
-                        state.dayGroups + (timeBucket to computeDayGroups(assets))
-                    } else {
-                        state.dayGroups
-                    }
-                    state.copy(
-                        loadingBuckets = state.loadingBuckets - timeBucket,
-                        loadedBuckets = state.loadedBuckets + timeBucket,
-                        bucketAssets = state.bucketAssets + (timeBucket to assets),
-                        dayGroups = newDayGroups
-                    ).withDerivedFields()
-                }
-            },
-            onFailure = { e ->
-                log.e(e) { "Failed to load assets for bucket: $timeBucket" }
-                _state.update { state ->
-                    state.copy(
-                        loadingBuckets = state.loadingBuckets - timeBucket,
-                        failedBuckets = state.failedBuckets + timeBucket
-                    ).withDerivedFields()
-                }
-            }
+            bucketDisplayLabels = buckets.map { it.displayLabel }
         )
     }
 
     private fun computeDayGroups(assets: List<Asset>): List<DayGroup> {
         val tz = TimeZone.currentSystemDefault()
-        return assets
-            .groupBy { asset ->
+        val grouped = assets.groupBy { asset ->
+            try {
+                Instant.parse(asset.createdAt).toLocalDateTime(tz).date
+            } catch (_: Exception) {
                 try {
-                    Instant.parse(asset.createdAt).toLocalDateTime(tz).date
+                    LocalDate.parse(asset.createdAt.take(10))
                 } catch (_: Exception) {
-                    try {
-                        LocalDate.parse(asset.createdAt.take(10))
-                    } catch (_: Exception) {
-                        null
-                    }
+                    null
                 }
             }
+        }
+        val unparseable = grouped[null]?.size ?: 0
+        if (unparseable > 0) {
+            log.w { "$unparseable assets have unparseable createdAt dates" }
+        }
+        return grouped
             .filterKeys { it != null }
             .entries
             .sortedByDescending { it.key }
             .map { (date, dayAssets) ->
                 val d = date!!
-                val monthName = d.month.name.lowercase().replaceFirstChar { it.uppercase() }
+                val monthName = d.month.name.lowercase()
                 DayGroup(
                     label = "${d.dayOfMonth} $monthName ${d.year}",
                     assets = dayAssets.sortedByDescending { it.createdAt }

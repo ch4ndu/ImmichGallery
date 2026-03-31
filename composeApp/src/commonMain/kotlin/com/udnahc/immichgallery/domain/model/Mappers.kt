@@ -5,6 +5,7 @@ import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.model.PersonResponse
 import com.udnahc.immichgallery.data.model.TimeBucketResponse
 import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
@@ -61,7 +62,13 @@ fun TimeBucketResponse.toDomain(): TimelineBucket {
         val monthName = local.month.name.lowercase().replaceFirstChar { it.uppercase() }
         "$monthName ${local.year}"
     } catch (_: Exception) {
-        timeBucket
+        try {
+            val date = LocalDate.parse(timeBucket.take(10))
+            val monthName = date.month.name.lowercase().replaceFirstChar { it.uppercase() }
+            "$monthName ${date.year}"
+        } catch (_: Exception) {
+            timeBucket
+        }
     }
     return TimelineBucket(
         displayLabel = label,
