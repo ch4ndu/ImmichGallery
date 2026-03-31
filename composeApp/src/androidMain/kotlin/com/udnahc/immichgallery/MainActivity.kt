@@ -7,10 +7,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
+import com.udnahc.immichgallery.di.initPlatformContext
 import com.udnahc.immichgallery.ui.util.registerActivity
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        initPlatformContext(this)
         registerActivity(this)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(

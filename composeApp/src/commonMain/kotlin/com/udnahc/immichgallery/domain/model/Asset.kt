@@ -14,5 +14,6 @@ data class Asset(
     val originalUrl: String,
     val videoPlaybackUrl: String = "",
     val isFavorite: Boolean = false,
-    val stackCount: Int = 0
+    val stackCount: Int = 0,
+    val aspectRatio: Float = 1f
 )

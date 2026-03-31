@@ -31,7 +31,7 @@ object Dimens {
     val scrollbarBubblePadding = 12.dp
     val scrollbarBubbleCornerRadius = 20.dp
     val scrollbarBubbleGap = 4.dp
-    val scrollbarYearLabelPadding = 2.dp
+    val scrollbarYearLabelPadding = 48.dp
     val scrollbarYearLabelCornerRadius = 10.dp
     val scrollbarYearLabelPaddingHorizontal = 6.dp
     val scrollbarYearLabelWidth = 196.dp

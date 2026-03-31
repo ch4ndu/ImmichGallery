@@ -34,9 +34,22 @@ data class PhotoItem(
 data class PlaceholderItem(
     override val gridKey: String,
     override val bucketIndex: Int,
-    override val sectionLabel: String
+    override val sectionLabel: String,
+    val estimatedHeight: Float = 150f
 ) : TimelineDisplayItem {
     override val isFullSpan: Boolean = false
+}
+
+@Immutable
+data class RowItem(
+    override val gridKey: String,
+    override val bucketIndex: Int,
+    override val sectionLabel: String,
+    val photos: List<PhotoItem>,
+    val rowHeight: Float,
+    val isComplete: Boolean = true
+) : TimelineDisplayItem {
+    override val isFullSpan: Boolean = true
 }
 
 @Immutable

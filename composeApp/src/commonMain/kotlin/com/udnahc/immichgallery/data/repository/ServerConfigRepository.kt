@@ -24,6 +24,11 @@ class ServerConfigRepository(private val settings: Settings) {
         settings.putString("timeline_group_size", size)
     }
 
+    fun getTargetRowHeight(): Float = settings.getFloat("target_row_height", 150f)
+    fun setTargetRowHeight(height: Float) {
+        settings.putFloat("target_row_height", height)
+    }
+
     fun clear() {
         settings.clear()
     }

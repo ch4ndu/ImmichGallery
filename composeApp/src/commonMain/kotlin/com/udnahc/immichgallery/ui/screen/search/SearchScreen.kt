@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,10 +23,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,9 +51,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
-import com.udnahc.immichgallery.ui.component.PhotoRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import immichgallery.composeapp.generated.resources.Res
@@ -76,7 +78,7 @@ fun SearchScreen(
     var selectedAssetId by remember { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
-    val listState = rememberLazyListState()
+    val staggeredGridState = rememberLazyStaggeredGridState()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(selectedAssetId) {
@@ -96,7 +98,7 @@ fun SearchScreen(
                     onSearchTypeChange = viewModel::updateSearchType,
                     onSearch = viewModel::search,
                     onPhotoClick = { assetId -> selectedAssetId = assetId },
-                    listState = listState,
+                    staggeredGridState = staggeredGridState,
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility
                 )
@@ -118,11 +120,11 @@ fun SearchScreen(
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId ->
                         if (currentAssetId != null) {
-                            val rowIndex = state.results.indexOfFirst { it.id == currentAssetId } / GRID_COLUMNS
-                            if (rowIndex >= 0) {
-                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                                if (rowIndex !in visible) {
-                                    coroutineScope.launch { listState.scrollToItem(rowIndex) }
+                            val itemIndex = state.results.indexOfFirst { it.id == currentAssetId }
+                            if (itemIndex >= 0) {
+                                val visible = staggeredGridState.layoutInfo.visibleItemsInfo.map { it.index }
+                                if (itemIndex !in visible) {
+                                    coroutineScope.launch { staggeredGridState.scrollToItem(itemIndex) }
                                 }
                             }
                         }
@@ -144,7 +146,7 @@ fun SearchContent(
     onSearchTypeChange: (SearchType) -> Unit,
     onSearch: () -> Unit,
     onPhotoClick: (String) -> Unit,
-    listState: LazyListState = rememberLazyListState(),
+    staggeredGridState: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
@@ -209,32 +211,32 @@ fun SearchContent(
             }
 
             state.results.isNotEmpty() -> {
-                val rows = remember(state.results) { state.results.chunked(GRID_COLUMNS) }
                 val navBarPadding =
                     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                LaunchedEffect(listState.isScrollInProgress) {
-                    if (listState.isScrollInProgress) focusManager.clearFocus()
+                LaunchedEffect(staggeredGridState.isScrollInProgress) {
+                    if (staggeredGridState.isScrollInProgress) focusManager.clearFocus()
                 }
                 ScrollbarOverlay(
-                    listState = listState,
+                    staggeredGridState = staggeredGridState,
                     topPadding = statusBarPadding + Dimens.topBarHeight,
                     bottomPadding = Dimens.bottomBarHeight + navBarPadding
                 ) {
                     val contentPadding = remember(navBarPadding) {
                         PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
                     }
-                    LazyColumn(
-                        state = listState,
-                        contentPadding = contentPadding
+                    LazyVerticalStaggeredGrid(
+                        columns = StaggeredGridCells.Fixed(GRID_COLUMNS),
+                        state = staggeredGridState,
+                        contentPadding = contentPadding,
+                        horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
+                        verticalItemSpacing = Dimens.gridSpacing
                     ) {
-                        items(rows, key = { it.first().id }) { row ->
-                            PhotoRow(
-                                row,
-                                state.results,
-                                onPhotoClick = { _, index ->
-                                    val asset = state.results.getOrNull(index)
-                                    if (asset != null) onPhotoClick(asset.id)
-                                },
+                        items(state.results.size, key = { state.results[it].id }) { index ->
+                            val asset = state.results[index]
+                            ThumbnailCell(
+                                asset = asset,
+                                onClick = { onPhotoClick(asset.id) },
+                                modifier = Modifier.aspectRatio(asset.aspectRatio),
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope
                             )

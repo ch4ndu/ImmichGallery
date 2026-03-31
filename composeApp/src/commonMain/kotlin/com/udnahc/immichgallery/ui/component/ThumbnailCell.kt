@@ -21,7 +21,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
-import coil3.compose.AsyncImage
+import androidx.compose.foundation.Image
+import coil3.compose.LocalPlatformContext
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.size.Precision
+import coil3.size.Size
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
@@ -34,6 +39,7 @@ import immichgallery.composeapp.generated.resources.stack_count
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
+private const val THUMBNAIL_DECODE_SIZE = 256
 private const val VIDEO_OVERLAY_ALPHA = 0.5f
 private const val STACK_BADGE_ALPHA = 0.6f
 
@@ -48,7 +54,6 @@ fun ThumbnailCell(
 ) {
     Box(
         modifier = modifier
-            .aspectRatio(1f)
             .clickable(onClick = onClick)
     ) {
         if (LocalAppActive.current) {
@@ -65,8 +70,15 @@ fun ThumbnailCell(
             } else {
                 Modifier.matchParentSize()
             }
-            AsyncImage(
-                model = asset.thumbnailUrl,
+            val painter = rememberAsyncImagePainter(
+                model = ImageRequest.Builder(LocalPlatformContext.current)
+                    .data(asset.thumbnailUrl)
+                    .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
+                    .precision(Precision.EXACT)
+                    .build()
+            )
+            Image(
+                painter = painter,
                 contentDescription = asset.fileName,
                 contentScale = ContentScale.Crop,
                 modifier = imageModifier
@@ -127,7 +139,8 @@ private fun ThumbnailCellPreview() {
             thumbnailUrl = "",
             originalUrl = ""
         ),
-        onClick = {}
+        onClick = {},
+        modifier = Modifier.aspectRatio(1f)
     )
 }
 
@@ -144,6 +157,7 @@ private fun ThumbnailCellVideoPreview() {
             originalUrl = "",
             stackCount = 3
         ),
-        onClick = {}
+        onClick = {},
+        modifier = Modifier.aspectRatio(1f)
     )
 }

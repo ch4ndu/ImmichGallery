@@ -1,5 +1,7 @@
 package com.udnahc.immichgallery.domain.model
 
+import com.udnahc.immichgallery.data.local.entity.TimelineAssetEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.model.AlbumResponse
 import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.model.PersonResponse
@@ -9,17 +11,27 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
+private const val MIN_ASPECT_RATIO = 0.5f
+private const val MAX_ASPECT_RATIO = 2.0f
+
 fun AssetResponse.toDomain(baseUrl: String): Asset {
+    val computedRatio = ratio?.takeIf { it > 0f }
+        ?: exifInfo?.let { exif ->
+            val w = exif.exifImageWidth
+            val h = exif.exifImageHeight
+            if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
+        }
     return Asset(
         id = id,
         type = if (type == "VIDEO") AssetType.VIDEO else AssetType.IMAGE,
         fileName = originalFileName,
         createdAt = fileCreatedAt,
-        thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=preview",
-        originalUrl = "$baseUrl/api/assets/$id/original",
-        videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback",
+        thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=thumbnail&edited=true",
+        originalUrl = "$baseUrl/api/assets/$id/original?edited=true",
+        videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
         isFavorite = isFavorite,
-        stackCount = stackCount
+        stackCount = stackCount,
+        aspectRatio = (computedRatio ?: 1f).coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
     )
 }
 
@@ -82,7 +94,7 @@ fun AlbumResponse.toDomain(baseUrl: String): Album {
         id = id,
         name = albumName,
         assetCount = assetCount,
-        thumbnailUrl = albumThumbnailAssetId?.let { "$baseUrl/api/assets/$it/thumbnail?size=preview" }
+        thumbnailUrl = albumThumbnailAssetId?.let { "$baseUrl/api/assets/$it/thumbnail?size=thumbnail&edited=true" }
     )
 }
 
@@ -91,5 +103,47 @@ fun PersonResponse.toDomain(baseUrl: String): Person {
         id = id,
         name = name,
         thumbnailUrl = "$baseUrl/api/people/$id/thumbnail"
+    )
+}
+
+fun TimelineBucketEntity.toDomain(): TimelineBucket = TimelineBucket(
+    displayLabel = displayLabel,
+    timeBucket = timeBucket,
+    count = count
+)
+
+fun TimelineAssetEntity.toDomain(): Asset = Asset(
+    id = id,
+    type = if (type == "VIDEO") AssetType.VIDEO else AssetType.IMAGE,
+    fileName = fileName,
+    createdAt = createdAt,
+    thumbnailUrl = thumbnailUrl,
+    originalUrl = originalUrl,
+    videoPlaybackUrl = videoPlaybackUrl,
+    isFavorite = isFavorite,
+    stackCount = stackCount,
+    aspectRatio = aspectRatio
+)
+
+fun AssetResponse.toEntity(timeBucket: String, baseUrl: String, sortOrder: Int): TimelineAssetEntity {
+    val computedRatio = ratio?.takeIf { it > 0f }
+        ?: exifInfo?.let { exif ->
+            val w = exif.exifImageWidth
+            val h = exif.exifImageHeight
+            if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
+        }
+    return TimelineAssetEntity(
+        id = id,
+        timeBucket = timeBucket,
+        type = type,
+        fileName = originalFileName,
+        createdAt = fileCreatedAt,
+        thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=thumbnail&edited=true",
+        originalUrl = "$baseUrl/api/assets/$id/original?edited=true",
+        videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
+        isFavorite = isFavorite,
+        stackCount = stackCount,
+        aspectRatio = (computedRatio ?: 1f).coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO),
+        sortOrder = sortOrder
     )
 }

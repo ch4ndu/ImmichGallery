@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -23,11 +24,9 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,22 +51,26 @@ import com.udnahc.immichgallery.domain.model.ErrorItem
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
+import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
-import com.udnahc.immichgallery.ui.component.PlaceholderCell
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
-import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val ZOOM_STEP_THRESHOLD = 1.3f
+private const val ZOOM_IN_FACTOR = 1.25f
+private const val ZOOM_OUT_FACTOR = 0.8f
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -82,7 +85,7 @@ fun TimelineScreen(
     var selectedAssetId by remember { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
-    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(groupSize) {
@@ -93,18 +96,31 @@ fun TimelineScreen(
         onOverlayActiveChanged(selectedAssetId != null)
     }
 
+    // Compute initial photo index for overlay (suspend, gated on non-null)
+    var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(selectedAssetId) {
+        val id = selectedAssetId
+        if (id != null) {
+            overlayInitialIndex = viewModel.getGlobalPhotoIndex(id) ?: 0
+        } else {
+            overlayInitialIndex = null
+        }
+    }
+    val showOverlay = selectedAssetId != null && overlayInitialIndex != null
+
     Box(modifier = Modifier.fillMaxSize()) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             AnimatedVisibility(
-                visible = selectedAssetId == null,
+                visible = !showOverlay,
                 enter = fadeIn(),
                 exit = fadeOut()
             ) {
                 TimelineContent(
                     state = state,
-                    gridState = gridState,
+                    listState = listState,
                     onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
-                    onGridColumnsChanged = viewModel::setGridColumns,
+                    onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+                    onAvailableWidthChanged = viewModel::setAvailableWidth,
                     onRetryBucket = viewModel::retryBucket,
                     onPhotoClick = { assetId -> selectedAssetId = assetId },
                     onRetry = viewModel::loadBuckets,
@@ -115,27 +131,27 @@ fun TimelineScreen(
             }
 
             AnimatedVisibility(
-                visible = selectedAssetId != null,
+                visible = showOverlay,
                 enter = fadeIn(),
                 exit = fadeOut()
             ) {
                 val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
-                val initialIndex = viewModel.getGlobalPhotoIndex(assetId) ?: 0
                 TimelinePhotoOverlay(
                     timelineState = viewModel.state,
-                    initialIndex = initialIndex,
+                    initialIndex = overlayInitialIndex ?: 0,
                     apiKey = apiKey,
                     getAssetFileName = viewModel::getAssetFileName,
                     getAssetDetail = viewModel::getAssetDetail,
+                    getAssetsForBucket = viewModel::getAssetsForBucket,
                     onBucketNeeded = viewModel::loadBucketAssets,
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId ->
                         if (currentAssetId != null) {
                             val displayIndex = viewModel.getDisplayItemIndex(currentAssetId)
                             if (displayIndex != null) {
-                                val visible = gridState.layoutInfo.visibleItemsInfo.map { it.index }
+                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
                                 if (displayIndex !in visible) {
-                                    coroutineScope.launch { gridState.scrollToItem(displayIndex) }
+                                    coroutineScope.launch { listState.scrollToItem(displayIndex) }
                                 }
                             }
                         }
@@ -153,9 +169,10 @@ fun TimelineScreen(
 @Composable
 fun TimelineContent(
     state: TimelineState,
-    gridState: LazyGridState = rememberLazyGridState(),
+    listState: LazyListState = rememberLazyListState(),
     onFirstVisibleItemChanged: (Int) -> Unit,
-    onGridColumnsChanged: (Int) -> Unit = {},
+    onTargetRowHeightChanged: (Float) -> Unit = {},
+    onAvailableWidthChanged: (Float) -> Unit = {},
     onRetryBucket: (String) -> Unit,
     onPhotoClick: (assetId: String) -> Unit,
     onRetry: () -> Unit,
@@ -164,7 +181,7 @@ fun TimelineContent(
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val displayItems = state.displayItems
-    val gridColumns = state.gridColumns
+    val targetRowHeight = state.targetRowHeight
 
     LoadingErrorContent(
         isLoading = state.isLoading && displayItems.isEmpty(),
@@ -175,10 +192,12 @@ fun TimelineContent(
             // Pinch-to-zoom state
             var zoomAccumulator by remember { mutableFloatStateOf(1f) }
 
-            // Visibility: pass first visible item index to ViewModel
+            // Visibility: prefetch nearby buckets only when scroll settles
+            @OptIn(FlowPreview::class)
             LaunchedEffect(Unit) {
-                snapshotFlow { gridState.firstVisibleItemIndex }
+                snapshotFlow { listState.firstVisibleItemIndex }
                     .distinctUntilChanged()
+                    .debounce(300)
                     .collectLatest { onFirstVisibleItemChanged(it) }
             }
 
@@ -186,8 +205,8 @@ fun TimelineContent(
             val navBarPadding =
                 WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-            Box(
-                modifier = Modifier.fillMaxSize().pointerInput(gridColumns) {
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize().pointerInput(targetRowHeight) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
                         var previousDistance = 0f
@@ -200,15 +219,11 @@ fun TimelineContent(
                                 if (previousDistance > 0f && dist > 0f) {
                                     val zoom = dist / previousDistance
                                     zoomAccumulator *= zoom
-                                    if (zoomAccumulator > ZOOM_STEP_THRESHOLD &&
-                                        gridColumns > MIN_GRID_COLUMNS
-                                    ) {
-                                        onGridColumnsChanged(gridColumns - 1)
+                                    if (zoomAccumulator > ZOOM_STEP_THRESHOLD) {
+                                        onTargetRowHeightChanged(targetRowHeight * ZOOM_IN_FACTOR)
                                         zoomAccumulator = 1f
-                                    } else if (zoomAccumulator < 1f / ZOOM_STEP_THRESHOLD &&
-                                        gridColumns < MAX_GRID_COLUMNS
-                                    ) {
-                                        onGridColumnsChanged(gridColumns + 1)
+                                    } else if (zoomAccumulator < 1f / ZOOM_STEP_THRESHOLD) {
+                                        onTargetRowHeightChanged(targetRowHeight * ZOOM_OUT_FACTOR)
                                         zoomAccumulator = 1f
                                     }
                                 }
@@ -221,18 +236,21 @@ fun TimelineContent(
                     }
                 }
             ) {
+                // Report available width to ViewModel for row packing
+                LaunchedEffect(maxWidth) {
+                    onAvailableWidthChanged(maxWidth.value)
+                }
+
                 ScrollbarOverlay(
-                    gridState = gridState,
+                    listState = listState,
                     topPadding = statusBarPadding + Dimens.topBarHeight + Dimens.sectionHeaderHeight,
                     bottomPadding = Dimens.bottomBarHeight + navBarPadding,
                     labelProvider = labelProvider,
                     yearMarkers = state.yearMarkers
                 ) {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(gridColumns),
-                        state = gridState,
+                    LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
                         verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
                         contentPadding = remember(statusBarPadding, navBarPadding) {
                             PaddingValues(
@@ -243,25 +261,24 @@ fun TimelineContent(
                     ) {
                         items(
                             count = displayItems.size,
-                            key = { displayItems[it].gridKey },
-                            span = { index ->
-                                GridItemSpan(
-                                    if (displayItems[index].isFullSpan) maxLineSpan else 1
-                                )
-                            }
+                            key = { displayItems[it].gridKey }
                         ) { index ->
                             when (val item = displayItems[index]) {
                                 is HeaderItem -> SectionHeader(label = item.label)
-                                is PhotoItem -> ThumbnailCell(
-                                    asset = item.asset,
-                                    onClick = { onPhotoClick(item.asset.id) },
+                                is RowItem -> JustifiedPhotoRow(
+                                    row = item,
+                                    spacing = Dimens.gridSpacing,
+                                    onPhotoClick = onPhotoClick,
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope
                                 )
-                                is PlaceholderItem -> PlaceholderCell()
+                                is PlaceholderItem -> PlaceholderRow(
+                                    estimatedHeight = item.estimatedHeight
+                                )
                                 is ErrorItem -> ErrorCell(
                                     onRetry = { onRetryBucket(item.timeBucket) }
                                 )
+                                is PhotoItem -> { /* Should not appear at top level with row packing */ }
                             }
                         }
                     }
@@ -269,7 +286,7 @@ fun TimelineContent(
 
                 // Sticky header overlay
                 StickyHeaderOverlay(
-                    gridState = gridState,
+                    listState = listState,
                     displayItems = displayItems,
                     statusBarPadding = statusBarPadding
                 )
@@ -296,6 +313,16 @@ private fun SectionHeader(label: String) {
 }
 
 @Composable
+private fun PlaceholderRow(estimatedHeight: Float) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(estimatedHeight.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    )
+}
+
+@Composable
 private fun ErrorCell(onRetry: () -> Unit) {
     val failedText = stringResource(Res.string.timeline_failed_tap_retry)
     Box(
@@ -315,13 +342,13 @@ private fun ErrorCell(onRetry: () -> Unit) {
 
 @Composable
 private fun StickyHeaderOverlay(
-    gridState: LazyGridState,
+    listState: LazyListState,
     displayItems: List<TimelineDisplayItem>,
     statusBarPadding: Dp
 ) {
     val label by remember(displayItems) {
         derivedStateOf {
-            displayItems.getOrNull(gridState.firstVisibleItemIndex)?.sectionLabel
+            displayItems.getOrNull(listState.firstVisibleItemIndex)?.sectionLabel
         }
     }
 
@@ -360,9 +387,9 @@ private fun ErrorCellPreview() {
 @Preview
 @Composable
 private fun StickyHeaderOverlayPreview() {
-    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
     StickyHeaderOverlay(
-        gridState = gridState,
+        listState = listState,
         displayItems = emptyList(),
         statusBarPadding = 0.dp
     )

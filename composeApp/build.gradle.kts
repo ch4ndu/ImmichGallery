@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.composeHotReload)
     alias(libs.plugins.kotlinxSerialization)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
 }
 
 kotlin {
@@ -79,6 +80,10 @@ kotlin {
             // DateTime
             implementation(libs.kotlinx.datetime)
 
+            // Room
+            implementation(libs.room.runtime)
+            implementation(libs.sqlite.bundled)
+
             // Settings
             implementation(libs.multiplatform.settings)
 
@@ -130,6 +135,14 @@ android {
 
 dependencies {
     debugImplementation(libs.compose.uiTooling)
+    add("kspAndroid", libs.room.compiler)
+    add("kspIosArm64", libs.room.compiler)
+    add("kspIosSimulatorArm64", libs.room.compiler)
+    add("kspJvm", libs.room.compiler)
+}
+
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 compose.desktop {

@@ -16,6 +16,7 @@ data class AssetResponse(
     val stackId: String? = null,
     val stackCount: Int = 0,
     val visibility: String = "timeline",
+    val ratio: Float? = null,
     val exifInfo: ExifInfo? = null,
     val people: List<AssetPersonResponse> = emptyList()
 )
@@ -63,6 +64,7 @@ data class TimelineBucketColumnarResponse(
     val isFavorite: List<Boolean?> = emptyList(),
     val duration: List<String?> = emptyList(),
     val thumbhash: List<String?> = emptyList(),
+    val ratio: List<Float?> = emptyList(),
     val stack: List<List<String>?> = emptyList(),
     val visibility: List<String?> = emptyList()
 ) {
@@ -78,6 +80,7 @@ data class TimelineBucketColumnarResponse(
                 isFavorite = isFavorite.getOrElse(i) { false } ?: false,
                 isArchived = false,
                 thumbhash = thumbhash.getOrElse(i) { null },
+                ratio = ratio.getOrElse(i) { null },
                 stackId = stackTuple?.getOrNull(0),
                 stackCount = stackTuple?.getOrNull(1)?.toIntOrNull() ?: 0,
                 visibility = visibility.getOrElse(i) { "timeline" } ?: "timeline"

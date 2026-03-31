@@ -7,17 +7,19 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,9 +35,9 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
-import com.udnahc.immichgallery.ui.component.PhotoRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.component.ThumbnailCell
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import immichgallery.composeapp.generated.resources.Res
@@ -60,7 +62,7 @@ fun PersonDetailScreen(
     var selectedAssetId by remember { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
-    val listState = rememberLazyListState()
+    val staggeredGridState = rememberLazyStaggeredGridState()
     val coroutineScope = rememberCoroutineScope()
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -81,7 +83,7 @@ fun PersonDetailScreen(
                     onRetry = viewModel::loadAssets,
                     contentTopPadding = contentTopPadding,
                     contentBottomPadding = contentBottomPadding,
-                    listState = listState,
+                    staggeredGridState = staggeredGridState,
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility
                 )
@@ -103,11 +105,11 @@ fun PersonDetailScreen(
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId ->
                         if (currentAssetId != null) {
-                            val rowIndex = state.assets.indexOfFirst { it.id == currentAssetId } / GRID_COLUMNS
-                            if (rowIndex >= 0) {
-                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                                if (rowIndex !in visible) {
-                                    coroutineScope.launch { listState.scrollToItem(rowIndex) }
+                            val itemIndex = state.assets.indexOfFirst { it.id == currentAssetId }
+                            if (itemIndex >= 0) {
+                                val visible = staggeredGridState.layoutInfo.visibleItemsInfo.map { it.index }
+                                if (itemIndex !in visible) {
+                                    coroutineScope.launch { staggeredGridState.scrollToItem(itemIndex) }
                                 }
                             }
                         }
@@ -134,7 +136,7 @@ fun PersonDetailContent(
     onRetry: () -> Unit,
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
-    listState: LazyListState = rememberLazyListState(),
+    staggeredGridState: LazyStaggeredGridState = rememberLazyStaggeredGridState(),
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
@@ -143,30 +145,30 @@ fun PersonDetailContent(
         error = state.error,
         onRetry = onRetry
     ) {
-        val rows = remember(state.assets) { state.assets.chunked(GRID_COLUMNS) }
         ScrollbarOverlay(
-            listState = listState,
+            staggeredGridState = staggeredGridState,
             topPadding = contentTopPadding,
             bottomPadding = contentBottomPadding
         ) {
-            LazyColumn(
-                state = listState,
+            LazyVerticalStaggeredGrid(
+                columns = StaggeredGridCells.Fixed(GRID_COLUMNS),
+                state = staggeredGridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = remember(contentTopPadding, contentBottomPadding) {
                     PaddingValues(
                         top = contentTopPadding,
                         bottom = contentBottomPadding
                     )
-                }
+                },
+                horizontalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
+                verticalItemSpacing = Dimens.gridSpacing
             ) {
-                items(rows, key = { it.first().id }) { row ->
-                    PhotoRow(
-                        row,
-                        state.assets,
-                        onPhotoClick = { _, index ->
-                            val asset = state.assets.getOrNull(index)
-                            if (asset != null) onPhotoClick(asset.id)
-                        },
+                items(state.assets.size, key = { state.assets[it].id }) { index ->
+                    val asset = state.assets[index]
+                    ThumbnailCell(
+                        asset = asset,
+                        onClick = { onPhotoClick(asset.id) },
+                        modifier = Modifier.aspectRatio(asset.aspectRatio),
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope
                     )

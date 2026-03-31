@@ -26,6 +26,8 @@ import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridLayoutInfo
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridLayoutInfo
+import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -68,6 +71,9 @@ import org.jetbrains.compose.resources.stringResource
 
 private const val SCROLL_FRACTION_STEP = 0.005f
 private const val MIN_ITEMS_FOR_SCROLLBAR = 10
+private const val YEAR_MARKER_EDGE_PADDING = 24f
+private const val YEAR_MARKER_MIN_SPACING_DP = 28f
+private const val HANDLE_EDGE_PADDING = 8f
 private const val BUBBLE_ALPHA = 0.9f
 
 @Composable
@@ -156,6 +162,46 @@ fun ScrollbarOverlay(
 }
 
 @Composable
+fun ScrollbarOverlay(
+    staggeredGridState: LazyStaggeredGridState,
+    modifier: Modifier = Modifier,
+    topPadding: Dp,
+    bottomPadding: Dp,
+    labelProvider: ((Float) -> String?)? = null,
+    yearMarkers: List<YearMarker> = emptyList(),
+    content: @Composable () -> Unit
+) {
+    val scrollFraction by remember {
+        derivedStateOf {
+            val fraction = staggeredGridState.layoutInfo.scrollFraction()
+            (fraction / SCROLL_FRACTION_STEP).toInt() * SCROLL_FRACTION_STEP
+        }
+    }
+
+    val totalItems = staggeredGridState.layoutInfo.totalItemsCount
+    val showScrollbar = totalItems >= MIN_ITEMS_FOR_SCROLLBAR
+
+    val coroutineScope = rememberCoroutineScope()
+    var scrollJob by remember { mutableStateOf<Job?>(null) }
+
+    ScrollbarLayout(
+        scrollFraction = scrollFraction,
+        showScrollbar = showScrollbar,
+        topPadding = topPadding,
+        bottomPadding = bottomPadding,
+        labelProvider = labelProvider,
+        yearMarkers = yearMarkers,
+        onDragFraction = { fraction ->
+            val targetIndex = dragFractionToIndex(fraction, totalItems)
+            scrollJob?.cancel()
+            scrollJob = coroutineScope.launch { staggeredGridState.scrollToItem(targetIndex) }
+        },
+        modifier = modifier,
+        content = content
+    )
+}
+
+@Composable
 private fun ScrollbarLayout(
     scrollFraction: Float,
     showScrollbar: Boolean,
@@ -200,9 +246,16 @@ private fun ScrollbarHandle(
     val dragDescription = stringResource(Res.string.scroll_drag)
 
     var trackHeightPx by remember { mutableStateOf(0) }
-    val topPaddingPx = with(density) { topPadding.toPx() }
-    val bottomPaddingPx = with(density) { bottomPadding.toPx() }
-    val handleSizePx = with(density) { Dimens.scrollbarHandleSize.toPx() }
+    // Pre-compute pixel values once (stable across recompositions for same Dp inputs)
+    val topPaddingPx = remember(topPadding) { with(density) { topPadding.toPx() } }
+    val bottomPaddingPx = remember(bottomPadding) { with(density) { bottomPadding.toPx() } }
+    val handleSizePx = remember { with(density) { Dimens.scrollbarHandleSize.toPx() } }
+    val handleEdgePaddingPx = remember { with(density) { HANDLE_EDGE_PADDING.dp.toPx() } }
+    val yearMarkerEdgePaddingPx = remember { with(density) { YEAR_MARKER_EDGE_PADDING.dp.toPx() } }
+    val handleClipOffsetPx =
+        remember { with(density) { Dimens.scrollbarHandleClipOffset.toPx() }.toInt() }
+    val bubbleVerticalOffsetPx =
+        remember { with(density) { Dimens.scrollbarBubbleVerticalOffset.toPx() }.toInt() }
 
     // Drag state
     var dragFraction by remember { mutableFloatStateOf(scrollFraction) }
@@ -214,11 +267,14 @@ private fun ScrollbarHandle(
 
     val currentFraction = if (isDragging) dragFraction else scrollFraction
 
-    // Handle position — center of handle at fraction position
+    // Handle position
+    val handleTop = topPaddingPx + handleEdgePaddingPx
+    val handleBottom = bottomPaddingPx + handleEdgePaddingPx
     val rawHandleOffsetPx =
-        remember(trackHeightPx, currentFraction, handleSizePx, topPaddingPx, bottomPaddingPx) {
-            val availableTrack = trackHeightPx - handleSizePx - topPaddingPx - bottomPaddingPx
-            (topPaddingPx + availableTrack * currentFraction).coerceAtLeast(topPaddingPx).toInt()
+        remember(trackHeightPx, currentFraction, handleSizePx, handleTop, handleBottom) {
+            val availableTrack = trackHeightPx - handleSizePx - handleTop - handleBottom
+            val maxOffset = (trackHeightPx - handleSizePx - handleBottom).coerceAtLeast(handleTop)
+            (handleTop + availableTrack * currentFraction).coerceIn(handleTop, maxOffset).toInt()
         }
     val animatedHandleOffsetPx by animateIntAsState(
         targetValue = rawHandleOffsetPx,
@@ -241,7 +297,7 @@ private fun ScrollbarHandle(
     }
 
     val draggableState = rememberDraggableState { delta ->
-        val availableTrack = trackHeightPx - handleSizePx - topPaddingPx - bottomPaddingPx
+        val availableTrack = trackHeightPx - handleSizePx - handleTop - handleBottom
         if (availableTrack > 0) {
             val currentOffset = availableTrack * dragFraction
             val newOffset = (currentOffset + delta).coerceIn(0f, availableTrack)
@@ -256,20 +312,58 @@ private fun ScrollbarHandle(
     val bubbleTextColor = MaterialTheme.colorScheme.inverseOnSurface
     val yearLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
 
-    // Container for the scrollbar area — wider than touch target to fit year labels
+    // Filter out overlapping year markers — skip markers too close to the previous one
+    val yearMarkerMinSpacingPx = remember { with(density) { YEAR_MARKER_MIN_SPACING_DP.dp.toPx() } }
+    val visibleMarkers = remember(
+        yearMarkers,
+        trackHeightPx,
+        topPaddingPx,
+        bottomPaddingPx,
+        yearMarkerEdgePaddingPx
+    ) {
+        if (trackHeightPx == 0) return@remember yearMarkers
+        val markerTop = topPaddingPx + yearMarkerEdgePaddingPx
+        val markerBottom = bottomPaddingPx + yearMarkerEdgePaddingPx
+        val availableTrack = trackHeightPx - markerTop - markerBottom
+        if (availableTrack <= 0) return@remember emptyList()
+
+        val result = mutableListOf<YearMarker>()
+        var lastOffsetPx = -yearMarkerMinSpacingPx
+        for (marker in yearMarkers) {
+            val offsetPx = markerTop + availableTrack * marker.fraction
+            if (offsetPx - lastOffsetPx >= yearMarkerMinSpacingPx) {
+                result.add(marker)
+                lastOffsetPx = offsetPx
+            }
+        }
+        result
+    }
+
+    // Container for the scrollbar area
     Box(
         modifier = modifier
             .fillMaxHeight()
             .width(Dimens.scrollbarTouchTargetWidth + Dimens.scrollbarYearLabelWidth)
+            .clipToBounds()
             .onSizeChanged { trackHeightPx = it.height }
             .semantics { contentDescription = thumbDescription }
     ) {
         // Year markers along the right edge — small pill badges
-        yearMarkers.forEach { marker ->
+        visibleMarkers.forEach { marker ->
             key(marker.year) {
-                val markerOffsetPx = remember(trackHeightPx, marker.fraction, topPaddingPx, bottomPaddingPx) {
-                    val availableTrack = trackHeightPx - topPaddingPx - bottomPaddingPx
-                    (topPaddingPx + availableTrack * marker.fraction).toInt()
+                val markerOffsetPx = remember(
+                    trackHeightPx,
+                    marker.fraction,
+                    topPaddingPx,
+                    bottomPaddingPx,
+                    yearMarkerEdgePaddingPx
+                ) {
+                    val markerTop = topPaddingPx + yearMarkerEdgePaddingPx
+                    val markerBottom = bottomPaddingPx + yearMarkerEdgePaddingPx
+                    val availableTrack = trackHeightPx - markerTop - markerBottom
+                    val maxOffset = (trackHeightPx - markerBottom).coerceAtLeast(markerTop)
+                    (markerTop + availableTrack * marker.fraction).coerceIn(markerTop, maxOffset)
+                        .toInt()
                 }
                 Box(
                     modifier = Modifier
@@ -278,7 +372,10 @@ private fun ScrollbarHandle(
                         .padding(end = Dimens.scrollbarYearLabelPadding)
                         .clip(RoundedCornerShape(Dimens.scrollbarYearLabelCornerRadius))
                         .background(yearLabelColor.copy(alpha = 0.12f))
-                        .padding(horizontal = Dimens.scrollbarYearLabelPaddingHorizontal, vertical = Dimens.scrollbarYearLabelPaddingVertical),
+                        .padding(
+                            horizontal = Dimens.scrollbarYearLabelPaddingHorizontal,
+                            vertical = Dimens.scrollbarYearLabelPaddingVertical
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -291,19 +388,14 @@ private fun ScrollbarHandle(
             }
         }
 
-        // Circle handle — always visible, clipped ~20% off the right edge
+        // Circle handle
         Surface(
             shape = CircleShape,
             color = handleColor,
             shadowElevation = Dimens.scrollbarHandleElevation,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .offset {
-                    IntOffset(
-                        x = with(density) { Dimens.scrollbarHandleClipOffset.toPx() }.toInt(),
-                        y = handleOffsetPx
-                    )
-                }
+                .offset { IntOffset(x = handleClipOffsetPx, y = handleOffsetPx) }
                 .size(Dimens.scrollbarHandleSize)
                 .draggable(
                     state = draggableState,
@@ -335,7 +427,7 @@ private fun ScrollbarHandle(
                 .align(Alignment.TopEnd)
                 .offset {
                     val bubbleCenterOffset =
-                        handleOffsetPx + (handleSizePx / 2).toInt() - with(density) { Dimens.scrollbarBubbleVerticalOffset.toPx() }.toInt()
+                        handleOffsetPx + (handleSizePx / 2).toInt() - bubbleVerticalOffsetPx
                     IntOffset(0, bubbleCenterOffset)
                 }
                 .padding(
@@ -385,6 +477,16 @@ private fun LazyListLayoutInfo.scrollFraction(estimatedItemCount: Int?): Float {
 }
 
 private fun LazyGridLayoutInfo.scrollFraction(): Float {
+    if (totalItemsCount == 0) return 0f
+    val firstVisible = visibleItemsInfo.firstOrNull() ?: return 0f
+    val itemFraction = firstVisible.index.toFloat() / totalItemsCount
+    val pixelFraction = if (firstVisible.size.height > 0) {
+        -firstVisible.offset.y.toFloat() / firstVisible.size.height / totalItemsCount
+    } else 0f
+    return (itemFraction + pixelFraction).coerceIn(0f, 1f)
+}
+
+private fun LazyStaggeredGridLayoutInfo.scrollFraction(): Float {
     if (totalItemsCount == 0) return 0f
     val firstVisible = visibleItemsInfo.firstOrNull() ?: return 0f
     val itemFraction = firstVisible.index.toFloat() / totalItemsCount
