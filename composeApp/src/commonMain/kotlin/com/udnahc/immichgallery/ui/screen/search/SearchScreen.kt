@@ -1,5 +1,12 @@
 package com.udnahc.immichgallery.ui.screen.search
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +23,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
@@ -31,6 +39,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,20 +49,22 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
-import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import com.udnahc.immichgallery.ui.component.PhotoRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.theme.GRID_COLUMNS
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
 import immichgallery.composeapp.generated.resources.search_placeholder
 import immichgallery.composeapp.generated.resources.search_type_filename
 import immichgallery.composeapp.generated.resources.search_type_smart
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun SearchScreen(
     onOverlayActiveChanged: (Boolean) -> Unit = {},
@@ -62,41 +73,80 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val apiKey = viewModel.apiKey
-    var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedAssetId by remember { mutableStateOf<String?>(null) }
+    var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
+    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(selectedPhotoIndex) {
-        onOverlayActiveChanged(selectedPhotoIndex != null)
+    LaunchedEffect(selectedAssetId) {
+        onOverlayActiveChanged(selectedAssetId != null)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        SearchContent(
-            state = state,
-            onQueryChange = viewModel::updateQuery,
-            onSearchTypeChange = viewModel::updateSearchType,
-            onSearch = viewModel::search,
-            onPhotoClick = { _, index -> selectedPhotoIndex = index }
-        )
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = selectedAssetId == null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                SearchContent(
+                    state = state,
+                    onQueryChange = viewModel::updateQuery,
+                    onSearchTypeChange = viewModel::updateSearchType,
+                    onSearch = viewModel::search,
+                    onPhotoClick = { assetId -> selectedAssetId = assetId },
+                    listState = listState,
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility
+                )
+            }
 
-        selectedPhotoIndex?.let { index ->
-            StaticPhotoOverlay(
-                assets = state.results,
-                initialIndex = index,
-                apiKey = apiKey,
-                getAssetDetail = viewModel::getAssetDetail,
-                onPersonClick = onPersonClick,
-                onDismiss = { selectedPhotoIndex = null }
-            )
+            AnimatedVisibility(
+                visible = selectedAssetId != null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
+                val initialIndex = state.results.indexOfFirst { it.id == assetId }
+                    .coerceAtLeast(0)
+                StaticPhotoOverlay(
+                    assets = state.results,
+                    initialIndex = initialIndex,
+                    apiKey = apiKey,
+                    getAssetDetail = viewModel::getAssetDetail,
+                    onPersonClick = onPersonClick,
+                    onDismiss = { currentAssetId ->
+                        if (currentAssetId != null) {
+                            val rowIndex = state.results.indexOfFirst { it.id == currentAssetId } / GRID_COLUMNS
+                            if (rowIndex >= 0) {
+                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
+                                if (rowIndex !in visible) {
+                                    coroutineScope.launch { listState.scrollToItem(rowIndex) }
+                                }
+                            }
+                        }
+                        selectedAssetId = null
+                    },
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun SearchContent(
     state: SearchState,
     onQueryChange: (String) -> Unit,
     onSearchTypeChange: (SearchType) -> Unit,
     onSearch: () -> Unit,
-    onPhotoClick: (List<Asset>, Int) -> Unit
+    onPhotoClick: (String) -> Unit,
+    listState: LazyListState = rememberLazyListState(),
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val focusManager = LocalFocusManager.current
@@ -162,7 +212,6 @@ fun SearchContent(
                 val rows = remember(state.results) { state.results.chunked(GRID_COLUMNS) }
                 val navBarPadding =
                     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                val listState = rememberLazyListState()
                 LaunchedEffect(listState.isScrollInProgress) {
                     if (listState.isScrollInProgress) focusManager.clearFocus()
                 }
@@ -179,7 +228,16 @@ fun SearchContent(
                         contentPadding = contentPadding
                     ) {
                         items(rows, key = { it.first().id }) { row ->
-                            PhotoRow(row, state.results, onPhotoClick)
+                            PhotoRow(
+                                row,
+                                state.results,
+                                onPhotoClick = { _, index ->
+                                    val asset = state.results.getOrNull(index)
+                                    if (asset != null) onPhotoClick(asset.id)
+                                },
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope
+                            )
                         }
                     }
                 }
@@ -205,6 +263,6 @@ private fun SearchContentPreview() {
         onQueryChange = {},
         onSearchTypeChange = {},
         onSearch = {},
-        onPhotoClick = { _, _ -> }
+        onPhotoClick = {}
     )
 }

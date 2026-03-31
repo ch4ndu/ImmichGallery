@@ -225,6 +225,13 @@ class TimelineViewModel(
         }
     }
 
+    fun getDisplayItemIndex(assetId: String): Int? {
+        val items = state.value.displayItems
+        return items.indexOfFirst {
+            it is com.udnahc.immichgallery.domain.model.PhotoItem && it.asset.id == assetId
+        }.takeIf { it >= 0 }
+    }
+
     fun getGlobalPhotoIndex(assetId: String): Int? {
         val s = state.value
         var globalIndex = 0

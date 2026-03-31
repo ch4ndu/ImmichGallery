@@ -1,6 +1,11 @@
 package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -27,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,10 +40,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
+import coil3.compose.AsyncImage
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
@@ -68,17 +76,68 @@ private const val ERROR_ICON_ALPHA = 0.6f
 
 private val log = logging()
 
+private const val THUMBNAIL_HIDE_DELAY_MS = 500L
+
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun AssetPage(
     asset: Asset,
     apiKey: String,
     isCurrentPage: Boolean,
-    onTap: () -> Unit
+    onTap: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
-    if (asset.type == AssetType.VIDEO) {
-        VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
-    } else {
-        ImageContent(url = asset.originalUrl, onTap = onTap)
+    val isTransitionActive = sharedTransitionScope?.isTransitionActive ?: false
+    var coverThumbnail by remember { mutableStateOf(false) }
+
+    // After a delay, cover the thumbnail so it doesn't peek through zoom-out.
+    // Reset when transition becomes active again (dismiss).
+    LaunchedEffect(isTransitionActive) {
+        if (!isTransitionActive) {
+            kotlinx.coroutines.delay(THUMBNAIL_HIDE_DELAY_MS)
+            coverThumbnail = true
+        } else {
+            coverThumbnail = false
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Base layer: thumbnail with shared bounds modifier — always in composition
+        // so the exit animation can find it.
+        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+            val sharedModifier = with(sharedTransitionScope) {
+                Modifier.fillMaxSize().sharedBounds(
+                    sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(
+                        contentScale = ContentScale.Fit
+                    )
+                )
+            }
+            Box(modifier = sharedModifier) {
+                AsyncImage(
+                    model = asset.thumbnailUrl,
+                    contentDescription = asset.fileName,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+                // Opaque cover to hide thumbnail from zoom-out, while keeping
+                // the shared bounds composable fully in the tree for exit animation
+                if (coverThumbnail) {
+                    Box(Modifier.fillMaxSize().background(Color.Black))
+                }
+            }
+        }
+
+        // Content layer: full-res image or video, layered on top after transition completes
+        if (!isTransitionActive) {
+            if (asset.type == AssetType.VIDEO) {
+                VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
+            } else {
+                ImageContent(url = asset.originalUrl, onTap = onTap)
+            }
+        }
     }
 }
 

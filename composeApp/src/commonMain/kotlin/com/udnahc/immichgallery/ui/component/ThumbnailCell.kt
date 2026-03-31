@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.component
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -34,11 +37,14 @@ import org.jetbrains.compose.resources.stringResource
 private const val VIDEO_OVERLAY_ALPHA = 0.5f
 private const val STACK_BADGE_ALPHA = 0.6f
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun ThumbnailCell(
     asset: Asset,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     Box(
         modifier = modifier
@@ -46,11 +52,24 @@ fun ThumbnailCell(
             .clickable(onClick = onClick)
     ) {
         if (LocalAppActive.current) {
+            val imageModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                with(sharedTransitionScope) {
+                    Modifier.matchParentSize().sharedBounds(
+                        sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(
+                            contentScale = ContentScale.Crop
+                        )
+                    )
+                }
+            } else {
+                Modifier.matchParentSize()
+            }
             AsyncImage(
                 model = asset.thumbnailUrl,
                 contentDescription = asset.fileName,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize()
+                modifier = imageModifier
             )
         } else {
             Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.surfaceVariant))

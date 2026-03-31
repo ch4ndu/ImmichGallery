@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +30,7 @@ import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import kotlinx.coroutines.flow.StateFlow
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun TimelinePhotoOverlay(
     timelineState: StateFlow<TimelineState>,
@@ -36,10 +40,10 @@ fun TimelinePhotoOverlay(
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: (currentAssetId: String?) -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
-    PlatformBackHandler(enabled = true, onBack = onDismiss)
-
     val state by timelineState.collectAsState()
     var showTopBar by remember { mutableStateOf(true) }
     val onTap = remember { { showTopBar = !showTopBar } }
@@ -62,6 +66,10 @@ fun TimelinePhotoOverlay(
     val currentAsset = resolvePageAsset(
         pagerState.settledPage, state.buckets, state.bucketAssets
     )
+
+    PlatformBackHandler(enabled = true, onBack = {
+        onDismiss(currentAsset?.id)
+    })
 
     // Trigger bucket loading for the current page
     val currentBucket = resolvePageBucket(pagerState.settledPage, state.buckets)
@@ -97,6 +105,7 @@ fun TimelinePhotoOverlay(
             key = { page -> page }
         ) { page ->
             val asset = resolvePageAsset(page, state.buckets, state.bucketAssets)
+            val isSettledPage = pagerState.settledPage == page
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -105,8 +114,10 @@ fun TimelinePhotoOverlay(
                     AssetPage(
                         asset = asset,
                         apiKey = apiKey,
-                        isCurrentPage = pagerState.settledPage == page,
-                        onTap = onTap
+                        isCurrentPage = isSettledPage,
+                        onTap = onTap,
+                        sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
+                        animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null
                     )
                 } else {
                     CircularProgressIndicator(color = Color.White)
@@ -117,7 +128,7 @@ fun TimelinePhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = displayFileName,
-            onBack = onDismiss,
+            onBack = { onDismiss(currentAsset?.id) },
             onDownload = {},
             onShare = {},
             onInfo = { showDetailSheet = true }
@@ -136,7 +147,7 @@ fun TimelinePhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss()
+                    onDismiss(null)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }

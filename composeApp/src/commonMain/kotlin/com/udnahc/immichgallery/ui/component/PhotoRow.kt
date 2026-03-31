@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.component
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -14,12 +17,15 @@ import com.udnahc.immichgallery.ui.theme.Dimens
 
 private const val DEFAULT_COLUMNS = 3
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun PhotoRow(
     assets: List<Asset>,
     allAssets: List<Asset>,
     onPhotoClick: (List<Asset>, Int) -> Unit,
-    columns: Int = DEFAULT_COLUMNS
+    columns: Int = DEFAULT_COLUMNS,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -35,7 +41,9 @@ fun PhotoRow(
             ThumbnailCell(
                 asset = asset,
                 onClick = onClick,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope
             )
         }
         repeat(columns - assets.size) {

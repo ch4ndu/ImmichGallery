@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.component
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +20,7 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun StaticPhotoOverlay(
     assets: List<Asset>,
@@ -24,10 +28,10 @@ fun StaticPhotoOverlay(
     apiKey: String,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: (currentAssetId: String?) -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
-    PlatformBackHandler(enabled = true, onBack = onDismiss)
-
     var showTopBar by remember { mutableStateOf(true) }
     val onTap = remember { { showTopBar = !showTopBar } }
     var showDetailSheet by remember { mutableStateOf(false) }
@@ -41,6 +45,10 @@ fun StaticPhotoOverlay(
         initialPage = initialIndex.coerceIn(0, (assets.size - 1).coerceAtLeast(0))
     ) { assets.size }
 
+    PlatformBackHandler(enabled = true, onBack = {
+        onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+    })
+
     Box(
         modifier = Modifier.fillMaxSize().background(Color.Black)
     ) {
@@ -50,6 +58,7 @@ fun StaticPhotoOverlay(
             key = { page -> assets[page].id }
         ) { page ->
             val asset = assets[page]
+            val isSettledPage = pagerState.settledPage == page
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -57,8 +66,10 @@ fun StaticPhotoOverlay(
                 AssetPage(
                     asset = asset,
                     apiKey = apiKey,
-                    isCurrentPage = pagerState.settledPage == page,
-                    onTap = onTap
+                    isCurrentPage = isSettledPage,
+                    onTap = onTap,
+                    sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
+                    animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null
                 )
             }
         }
@@ -67,7 +78,7 @@ fun StaticPhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = currentAsset.fileName,
-            onBack = onDismiss,
+            onBack = { onDismiss(currentAsset.id) },
             onDownload = {},
             onShare = {},
             onInfo = { showDetailSheet = true }
@@ -86,7 +97,7 @@ fun StaticPhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss()
+                    onDismiss(null)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }
@@ -94,4 +105,3 @@ fun StaticPhotoOverlay(
         }
     }
 }
-

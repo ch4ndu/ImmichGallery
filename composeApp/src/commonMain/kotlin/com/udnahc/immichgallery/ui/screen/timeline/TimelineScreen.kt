@@ -1,5 +1,12 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -18,6 +25,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +39,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -54,11 +63,13 @@ import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val ZOOM_STEP_THRESHOLD = 1.3f
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun TimelineScreen(
     groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
@@ -68,54 +79,89 @@ fun TimelineScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val apiKey = viewModel.apiKey
-    var selectedPhotoIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedAssetId by remember { mutableStateOf<String?>(null) }
+    var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
+    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
+    val gridState = rememberLazyGridState()
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(groupSize) {
         viewModel.setGroupSize(groupSize)
     }
 
-    LaunchedEffect(selectedPhotoIndex) {
-        onOverlayActiveChanged(selectedPhotoIndex != null)
+    LaunchedEffect(selectedAssetId) {
+        onOverlayActiveChanged(selectedAssetId != null)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        TimelineContent(
-            state = state,
-            onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
-            onGridColumnsChanged = viewModel::setGridColumns,
-            onRetryBucket = viewModel::retryBucket,
-            onPhotoClick = { assetId ->
-                selectedPhotoIndex = viewModel.getGlobalPhotoIndex(assetId)
-            },
-            onRetry = viewModel::loadBuckets,
-            labelProvider = viewModel.labelProvider
-        )
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = selectedAssetId == null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                TimelineContent(
+                    state = state,
+                    gridState = gridState,
+                    onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
+                    onGridColumnsChanged = viewModel::setGridColumns,
+                    onRetryBucket = viewModel::retryBucket,
+                    onPhotoClick = { assetId -> selectedAssetId = assetId },
+                    onRetry = viewModel::loadBuckets,
+                    labelProvider = viewModel.labelProvider,
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility
+                )
+            }
 
-        val index = selectedPhotoIndex
-        if (index != null) {
-            TimelinePhotoOverlay(
-                timelineState = viewModel.state,
-                initialIndex = index,
-                apiKey = apiKey,
-                getAssetFileName = viewModel::getAssetFileName,
-                getAssetDetail = viewModel::getAssetDetail,
-                onBucketNeeded = viewModel::loadBucketAssets,
-                onPersonClick = onPersonClick,
-                onDismiss = { selectedPhotoIndex = null }
-            )
+            AnimatedVisibility(
+                visible = selectedAssetId != null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
+                val initialIndex = viewModel.getGlobalPhotoIndex(assetId) ?: 0
+                TimelinePhotoOverlay(
+                    timelineState = viewModel.state,
+                    initialIndex = initialIndex,
+                    apiKey = apiKey,
+                    getAssetFileName = viewModel::getAssetFileName,
+                    getAssetDetail = viewModel::getAssetDetail,
+                    onBucketNeeded = viewModel::loadBucketAssets,
+                    onPersonClick = onPersonClick,
+                    onDismiss = { currentAssetId ->
+                        if (currentAssetId != null) {
+                            val displayIndex = viewModel.getDisplayItemIndex(currentAssetId)
+                            if (displayIndex != null) {
+                                val visible = gridState.layoutInfo.visibleItemsInfo.map { it.index }
+                                if (displayIndex !in visible) {
+                                    coroutineScope.launch { gridState.scrollToItem(displayIndex) }
+                                }
+                            }
+                        }
+                        selectedAssetId = null
+                    },
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun TimelineContent(
     state: TimelineState,
+    gridState: LazyGridState = rememberLazyGridState(),
     onFirstVisibleItemChanged: (Int) -> Unit,
     onGridColumnsChanged: (Int) -> Unit = {},
     onRetryBucket: (String) -> Unit,
     onPhotoClick: (assetId: String) -> Unit,
     onRetry: () -> Unit,
-    labelProvider: (Float) -> String?
+    labelProvider: (Float) -> String?,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val displayItems = state.displayItems
     val gridColumns = state.gridColumns
@@ -126,8 +172,6 @@ fun TimelineContent(
         onRetry = onRetry
     ) {
         key(state.groupSize) {
-            val gridState = rememberLazyGridState()
-
             // Pinch-to-zoom state
             var zoomAccumulator by remember { mutableFloatStateOf(1f) }
 
@@ -210,7 +254,9 @@ fun TimelineContent(
                                 is HeaderItem -> SectionHeader(label = item.label)
                                 is PhotoItem -> ThumbnailCell(
                                     asset = item.asset,
-                                    onClick = { onPhotoClick(item.asset.id) }
+                                    onClick = { onPhotoClick(item.asset.id) },
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope
                                 )
                                 is PlaceholderItem -> PlaceholderCell()
                                 is ErrorItem -> ErrorCell(
@@ -269,7 +315,7 @@ private fun ErrorCell(onRetry: () -> Unit) {
 
 @Composable
 private fun StickyHeaderOverlay(
-    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    gridState: LazyGridState,
     displayItems: List<TimelineDisplayItem>,
     statusBarPadding: Dp
 ) {
