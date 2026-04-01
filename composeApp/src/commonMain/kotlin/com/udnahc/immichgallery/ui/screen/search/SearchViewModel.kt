@@ -60,30 +60,31 @@ class SearchViewModel(
     private var searchJob: Job? = null
 
     fun updateQuery(query: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(query = query) }
-        }
+        _state.update { it.copy(query = query) }
     }
 
     fun updateSearchType(type: SearchType) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(searchType = type) }
-        }
+        _state.update { it.copy(searchType = type) }
     }
 
     fun setAvailableWidth(widthDp: Float) {
-        val current = _state.value
-        if (current.availableWidth == widthDp) return
-        _state.update { it.copy(availableWidth = widthDp) }
-        if (current.results.isNotEmpty()) {
-            repackRows()
+        if (widthDp == _state.value.availableWidth) return
+        _state.update { current ->
+            val rows = if (current.results.isNotEmpty() && widthDp > 0f) {
+                packIntoRows(current.results, availableWidth = widthDp, targetRowHeight = current.targetRowHeight, spacing = GRID_SPACING_DP)
+            } else current.rows
+            current.copy(availableWidth = widthDp, rows = rows)
         }
     }
 
     fun setTargetRowHeight(height: Float) {
         if (height == _state.value.targetRowHeight) return
-        _state.update { it.copy(targetRowHeight = height) }
-        repackRows()
+        _state.update { current ->
+            val rows = if (current.results.isNotEmpty() && current.availableWidth > 0f) {
+                packIntoRows(current.results, availableWidth = current.availableWidth, targetRowHeight = height, spacing = GRID_SPACING_DP)
+            } else current.rows
+            current.copy(targetRowHeight = height, rows = rows)
+        }
     }
 
     fun search() {
@@ -180,15 +181,4 @@ class SearchViewModel(
         }
     }
 
-    private fun repackRows() {
-        val current = _state.value
-        if (current.availableWidth <= 0f || current.results.isEmpty()) return
-        val rows = packIntoRows(
-            assets = current.results,
-            availableWidth = current.availableWidth,
-            targetRowHeight = current.targetRowHeight,
-            spacing = GRID_SPACING_DP
-        )
-        _state.update { it.copy(rows = rows) }
-    }
 }

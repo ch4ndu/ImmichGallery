@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -33,8 +36,26 @@ fun StaticPhotoOverlay(
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     var showTopBar by remember { mutableStateOf(true) }
-    val onTap = remember { { showTopBar = !showTopBar } }
+    var isSlideshow by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
+
+    val onTap: () -> Unit = remember {
+        {
+            if (isSlideshow) {
+                isSlideshow = false
+                showTopBar = true
+            } else {
+                showTopBar = !showTopBar
+            }
+        }
+    }
+
+    // Wake lock for slideshow mode
+    val wakeLock = rememberScreenWakeLock()
+    LaunchedEffect(isSlideshow) {
+        if (isSlideshow) wakeLock.acquire() else wakeLock.release()
+    }
+    DisposableEffect(Unit) { onDispose { wakeLock.release() } }
 
     if (assets.isEmpty()) {
         Box(Modifier.fillMaxSize().background(Color.Black))
@@ -44,6 +65,18 @@ fun StaticPhotoOverlay(
     val pagerState = rememberPagerState(
         initialPage = initialIndex.coerceIn(0, (assets.size - 1).coerceAtLeast(0))
     ) { assets.size }
+
+    // Auto-advance slideshow — single coroutine that loops
+    LaunchedEffect(isSlideshow) {
+        if (isSlideshow && assets.size > 1) {
+            while (isSlideshow) {
+                kotlinx.coroutines.delay(5000)
+                if (!isSlideshow) break
+                val next = (pagerState.settledPage + 1) % assets.size
+                pagerState.animateScrollToPage(next)
+            }
+        }
+    }
 
     PlatformBackHandler(enabled = true, onBack = {
         onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
@@ -67,6 +100,7 @@ fun StaticPhotoOverlay(
                     asset = asset,
                     apiKey = apiKey,
                     isCurrentPage = isSettledPage,
+                    isSlideshow = isSlideshow,
                     onTap = onTap,
                     sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
                     animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null
@@ -81,7 +115,10 @@ fun StaticPhotoOverlay(
             onBack = { onDismiss(currentAsset.id) },
             onDownload = {},
             onShare = {},
-            onInfo = { showDetailSheet = true }
+            onInfo = { showDetailSheet = true },
+            onSlideshow = if (assets.size > 1) {
+                { isSlideshow = true; showTopBar = false }
+            } else null
         )
 
         Box(modifier = Modifier.align(Alignment.BottomCenter)) {

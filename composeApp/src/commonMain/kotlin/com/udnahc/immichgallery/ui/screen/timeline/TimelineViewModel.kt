@@ -3,7 +3,8 @@ package com.udnahc.immichgallery.ui.screen.timeline
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.udnahc.immichgallery.data.repository.ServerConfigRepository
+import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
+import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
 import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.model.Asset
@@ -21,6 +22,8 @@ import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
+import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
+import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import kotlinx.coroutines.Dispatchers
@@ -93,7 +96,10 @@ class TimelineViewModel(
     getApiKeyUseCase: GetApiKeyUseCase,
     private val getAssetFileNameUseCase: GetAssetFileNameUseCase,
     private val getAssetDetailUseCase: GetAssetDetailUseCase,
-    private val serverConfigRepository: ServerConfigRepository
+    private val getTimelineGroupSizeUseCase: GetTimelineGroupSizeUseCase,
+    private val getTargetRowHeightUseCase: GetTargetRowHeightUseCase,
+    private val setTimelineGroupSizeAction: SetTimelineGroupSizeAction,
+    private val setTargetRowHeightAction: SetTargetRowHeightAction
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
@@ -141,10 +147,10 @@ class TimelineViewModel(
     }
 
     init {
-        val saved = serverConfigRepository.getTimelineGroupSize()
+        val saved = getTimelineGroupSizeUseCase()
         val initialSize = TimelineGroupSize.entries.find { it.apiValue == saved }
             ?: TimelineGroupSize.MONTH
-        val initialTargetRowHeight = serverConfigRepository.getTargetRowHeight()
+        val initialTargetRowHeight = getTargetRowHeightUseCase()
             .coerceIn(MIN_TARGET_ROW_HEIGHT, MAX_TARGET_ROW_HEIGHT)
 
         _uiConfig = MutableStateFlow(UiConfig(groupSize = initialSize, targetRowHeight = initialTargetRowHeight))
@@ -155,7 +161,7 @@ class TimelineViewModel(
         }
             .debounce(200)
             .flowOn(Dispatchers.Default)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, TimelineState(
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TimelineState(
                 groupSize = initialSize,
                 targetRowHeight = initialTargetRowHeight
             ))
@@ -165,7 +171,7 @@ class TimelineViewModel(
 
     fun setGroupSize(size: TimelineGroupSize) {
         if (size == _uiConfig.value.groupSize) return
-        serverConfigRepository.setTimelineGroupSize(size.apiValue)
+        setTimelineGroupSizeAction(size.apiValue)
         // Invalidate display cache and asset cache for regrouping
         cachedAssets.clear()
         cachedBucketItems = emptyMap()
@@ -182,7 +188,7 @@ class TimelineViewModel(
     fun setTargetRowHeight(height: Float) {
         val clamped = height.coerceIn(MIN_TARGET_ROW_HEIGHT, MAX_TARGET_ROW_HEIGHT)
         if (clamped == _uiConfig.value.targetRowHeight) return
-        serverConfigRepository.setTargetRowHeight(clamped)
+        setTargetRowHeightAction(clamped)
         _uiConfig.update { it.copy(targetRowHeight = clamped) }
     }
 

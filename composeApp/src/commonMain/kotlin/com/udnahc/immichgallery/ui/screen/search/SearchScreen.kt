@@ -99,7 +99,7 @@ fun SearchScreen(
                     onQueryChange = viewModel::updateQuery,
                     onSearchTypeChange = viewModel::updateSearchType,
                     onSearch = viewModel::search,
-                    onPhotoClick = { assetId -> selectedAssetId = assetId },
+                    onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
                     onSetAvailableWidth = viewModel::setAvailableWidth,
                     onSetTargetRowHeight = viewModel::setTargetRowHeight,
                     onLoadMore = viewModel::loadMore,
@@ -129,8 +129,8 @@ fun SearchScreen(
                                 row.photos.any { it.asset.id == currentAssetId }
                             }
                             if (rowIndex >= 0) {
-                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                                if (rowIndex !in visible) {
+                                val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == rowIndex }
+                                if (!isVisible) {
                                     coroutineScope.launch { listState.scrollToItem(rowIndex) }
                                 }
                             }
@@ -286,7 +286,7 @@ fun SearchContent(
                                         contentAlignment = Alignment.Center
                                     ) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(Dimens.iconSize)
                                         )
                                     }
                                 }

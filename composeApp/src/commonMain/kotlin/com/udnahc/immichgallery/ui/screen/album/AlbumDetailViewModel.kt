@@ -52,14 +52,22 @@ class AlbumDetailViewModel(
 
     fun setAvailableWidth(widthDp: Float) {
         if (widthDp == _state.value.availableWidth) return
-        _state.update { it.copy(availableWidth = widthDp) }
-        repackRows()
+        _state.update { current ->
+            val rows = if (current.assets.isNotEmpty() && widthDp > 0f) {
+                packIntoRows(current.assets, availableWidth = widthDp, targetRowHeight = current.targetRowHeight, spacing = GRID_SPACING_DP)
+            } else current.rows
+            current.copy(availableWidth = widthDp, rows = rows)
+        }
     }
 
     fun setTargetRowHeight(height: Float) {
         if (height == _state.value.targetRowHeight) return
-        _state.update { it.copy(targetRowHeight = height) }
-        repackRows()
+        _state.update { current ->
+            val rows = if (current.assets.isNotEmpty() && current.availableWidth > 0f) {
+                packIntoRows(current.assets, availableWidth = current.availableWidth, targetRowHeight = height, spacing = GRID_SPACING_DP)
+            } else current.rows
+            current.copy(targetRowHeight = height, rows = rows)
+        }
     }
 
     fun loadAlbumDetail() {
@@ -93,15 +101,4 @@ class AlbumDetailViewModel(
         }
     }
 
-    private fun repackRows() {
-        val current = _state.value
-        if (current.availableWidth <= 0f || current.assets.isEmpty()) return
-        val rows = packIntoRows(
-            assets = current.assets,
-            availableWidth = current.availableWidth,
-            targetRowHeight = current.targetRowHeight,
-            spacing = GRID_SPACING_DP
-        )
-        _state.update { it.copy(rows = rows) }
-    }
 }

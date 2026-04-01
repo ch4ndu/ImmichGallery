@@ -55,10 +55,12 @@ import com.udnahc.immichgallery.ui.util.restoreEdgeToEdge
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.back
 import immichgallery.composeapp.generated.resources.detail_download
+import immichgallery.composeapp.generated.resources.detail_slideshow
 import immichgallery.composeapp.generated.resources.detail_failed_image
 import immichgallery.composeapp.generated.resources.detail_info
 import immichgallery.composeapp.generated.resources.detail_share
 import immichgallery.composeapp.generated.resources.ic_back
+import immichgallery.composeapp.generated.resources.ic_play
 import immichgallery.composeapp.generated.resources.ic_download
 import immichgallery.composeapp.generated.resources.ic_info
 import immichgallery.composeapp.generated.resources.ic_more_vert
@@ -84,6 +86,7 @@ internal fun AssetPage(
     asset: Asset,
     apiKey: String,
     isCurrentPage: Boolean,
+    isSlideshow: Boolean = false,
     onTap: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
@@ -132,10 +135,15 @@ internal fun AssetPage(
 
         // Content layer: full-res image or video, layered on top after transition completes
         if (!isTransitionActive) {
-            if (asset.type == AssetType.VIDEO) {
-                VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
+            if (isSlideshow) {
+                val imageUrl = if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
+                KenBurnsImage(url = imageUrl, isActive = isCurrentPage, modifier = Modifier.fillMaxSize())
             } else {
-                ImageContent(url = asset.originalUrl, onTap = onTap)
+                if (asset.type == AssetType.VIDEO) {
+                    VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
+                } else {
+                    ImageContent(url = asset.originalUrl, onTap = onTap)
+                }
             }
         }
     }
@@ -148,7 +156,8 @@ internal fun DetailTopBarOverlay(
     onBack: () -> Unit,
     onDownload: () -> Unit,
     onShare: () -> Unit,
-    onInfo: () -> Unit
+    onInfo: () -> Unit,
+    onSlideshow: (() -> Unit)? = null
 ) {
     AnimatedVisibility(
         visible = showTopBar,
@@ -199,6 +208,19 @@ internal fun DetailTopBarOverlay(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
+                        if (onSlideshow != null) {
+                            DropdownMenuItem(
+                                modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
+                                text = { Text(stringResource(Res.string.detail_slideshow)) },
+                                onClick = { menuExpanded = false; onSlideshow() },
+                                leadingIcon = {
+                                    Icon(
+                                        painterResource(Res.drawable.ic_play),
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
                             text = { Text(stringResource(Res.string.detail_download)) },

@@ -74,7 +74,7 @@ fun AlbumDetailScreen(
             ) {
                 AlbumDetailContent(
                     state = state,
-                    onPhotoClick = { assetId -> selectedAssetId = assetId },
+                    onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
                     onRetry = viewModel::loadAlbumDetail,
                     onAvailableWidthChanged = viewModel::setAvailableWidth,
                     onTargetRowHeightChanged = viewModel::setTargetRowHeight,
@@ -106,8 +106,8 @@ fun AlbumDetailScreen(
                                 row.photos.any { it.asset.id == currentAssetId }
                             }
                             if (rowIndex >= 0) {
-                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                                if (rowIndex !in visible) {
+                                val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == rowIndex }
+                                if (!isVisible) {
                                     coroutineScope.launch { listState.scrollToItem(rowIndex) }
                                 }
                             }

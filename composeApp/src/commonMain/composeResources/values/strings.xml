@@ -11,6 +11,7 @@
     <string name="login_api_key_placeholder">Your Immich API key</string>
     <string name="login_connect">Connect</string>
     <string name="login_required_fields">Server URL and API key are required</string>
+    <string name="login_connection_failed">Connection failed</string>
 
     <!-- Common -->
     <string name="retry">Retry</string>
@@ -20,6 +21,14 @@
     <string name="scrollbar_thumb">Scroll position indicator</string>
     <string name="scrollbar_track">Scrollbar track</string>
     <string name="items_count">%1$d items</string>
+
+    <!-- Errors -->
+    <string name="error_load_timeline">Failed to load timeline</string>
+    <string name="error_load_album">Failed to load album</string>
+    <string name="error_load_albums">Failed to load albums</string>
+    <string name="error_load_people">Failed to load people</string>
+    <string name="error_load_photos">Failed to load photos</string>
+    <string name="error_search_failed">Search failed</string>
 
     <!-- Timeline -->
     <string name="timeline_failed_tap_retry">Failed to load. Tap to retry.</string>
@@ -44,6 +53,7 @@
     <string name="detail_download">Download</string>
     <string name="detail_share">Share</string>
     <string name="detail_info">Info</string>
+    <string name="detail_slideshow">Slideshow</string>
     <string name="detail_people">People</string>
     <string name="detail_location">Location</string>
     <string name="detail_camera">Camera</string>

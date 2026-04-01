@@ -36,11 +36,13 @@ class PeopleViewModel(
     }
 
     fun updateQuery(query: String) {
-        _state.update {
-            it.copy(
-                query = query,
-                filteredPeople = it.people.filterByQuery(query)
-            )
+        viewModelScope.launch(Dispatchers.Default) {
+            _state.update {
+                it.copy(
+                    query = query,
+                    filteredPeople = it.people.filterByQuery(query)
+                )
+            }
         }
     }
 

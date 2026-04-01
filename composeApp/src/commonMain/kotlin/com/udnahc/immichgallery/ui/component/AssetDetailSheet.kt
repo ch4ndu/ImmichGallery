@@ -36,7 +36,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import coil3.compose.AsyncImage
+import androidx.compose.foundation.Image
+import coil3.compose.LocalPlatformContext
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.size.Precision
+import coil3.size.Size
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetDetailPerson
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -57,6 +62,7 @@ import org.jetbrains.compose.resources.stringResource
 
 private const val BYTES_PER_KB = 1_024.0
 private const val BYTES_PER_MB = 1_048_576.0
+private const val THUMBNAIL_DECODE_SIZE = 256
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -243,14 +249,22 @@ private fun PeopleRow(
         horizontalArrangement = Arrangement.spacedBy(Dimens.largeSpacing)
     ) {
         items(people, key = { it.id }) { person ->
+            val onClick = remember(person.id) { { onPersonClick(person.id, person.name) } }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .width(Dimens.personAvatarSize)
-                    .clickable { onPersonClick(person.id, person.name) }
+                    .clickable(onClick = onClick)
             ) {
-                AsyncImage(
-                    model = person.thumbnailUrl,
+                val painter = rememberAsyncImagePainter(
+                    model = ImageRequest.Builder(LocalPlatformContext.current)
+                        .data(person.thumbnailUrl)
+                        .precision(Precision.EXACT)
+                        .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
+                        .build()
+                )
+                Image(
+                    painter = painter,
                     contentDescription = person.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier

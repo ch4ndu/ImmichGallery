@@ -48,7 +48,6 @@ import androidx.navigation.compose.rememberNavController
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
-import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -69,7 +68,6 @@ import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-import org.koin.compose.koinInject
 
 private const val BAR_ALPHA = 0.8f
 
@@ -99,27 +97,21 @@ fun MainScreen(
         )
     }
 
-    val currentTabTitle = bottomNavItems
-        .firstOrNull { item ->
+    val selectedIndex = remember(currentDestination) {
+        bottomNavItems.indexOfFirst { item ->
             currentDestination?.hierarchy?.any { it.hasRoute(item.route::class) } == true
-        }
-        ?.labelRes
-        ?.let { stringResource(it) }
-        ?: ""
+        }.coerceAtLeast(0)
+    }
+    val currentTabTitle = bottomNavItems.getOrNull(selectedIndex)?.labelRes
+        ?.let { stringResource(it) } ?: ""
 
     var overlayActive by remember { mutableStateOf(false) }
 
-    val serverConfigRepo = koinInject<ServerConfigRepository>()
-    var timelineGroupSize by remember {
-        val saved = serverConfigRepo.getTimelineGroupSize()
-        mutableStateOf(
-            TimelineGroupSize.entries.find { it.apiValue == saved }
-                ?: TimelineGroupSize.MONTH
-        )
-    }
+    var timelineGroupSize by remember { mutableStateOf(TimelineGroupSize.MONTH) }
 
-    val isTimelineTab = currentDestination?.hierarchy
-        ?.any { it.hasRoute(TimelineRoute::class) } == true
+    val isTimelineTab = remember(currentDestination) {
+        currentDestination?.hierarchy?.any { it.hasRoute(TimelineRoute::class) } == true
+    }
 
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
 
@@ -162,7 +154,6 @@ fun MainScreen(
                             selected = timelineGroupSize,
                             onSelected = { newSize ->
                                 timelineGroupSize = newSize
-                                serverConfigRepo.setTimelineGroupSize(newSize.apiValue)
                             }
                         )
                     }
@@ -174,9 +165,7 @@ fun MainScreen(
         if (!overlayActive) {
             BottomBarOverlay(
                 items = bottomNavItems,
-                selectedIndex = bottomNavItems.indexOfFirst { item ->
-                    currentDestination?.hierarchy?.any { it.hasRoute(item.route::class) } == true
-                }.coerceAtLeast(0),
+                selectedIndex = selectedIndex,
                 barColor = barColor,
                 onItemClick = { item ->
                     tabNavController.navigate(item.route) {

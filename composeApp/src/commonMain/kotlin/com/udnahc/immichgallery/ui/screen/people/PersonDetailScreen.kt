@@ -88,7 +88,7 @@ fun PersonDetailScreen(
             ) {
                 PersonDetailContent(
                     state = state,
-                    onPhotoClick = { assetId -> selectedAssetId = assetId },
+                    onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
                     onRetry = viewModel::loadAssets,
                     onLoadMore = viewModel::loadMore,
                     onAvailableWidth = viewModel::setAvailableWidth,
@@ -121,8 +121,8 @@ fun PersonDetailScreen(
                                 row.photos.any { it.asset.id == currentAssetId }
                             }
                             if (rowIndex >= 0) {
-                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                                if (rowIndex !in visible) {
+                                val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == rowIndex }
+                                if (!isVisible) {
                                     coroutineScope.launch { listState.scrollToItem(rowIndex) }
                                 }
                             }

@@ -97,8 +97,12 @@ fun ScrollbarOverlay(
         }
     }
 
-    val totalItems = estimatedItemCount ?: listState.layoutInfo.totalItemsCount
-    val showScrollbar = totalItems >= MIN_ITEMS_FOR_SCROLLBAR
+    val totalItems by remember(estimatedItemCount) {
+        derivedStateOf { estimatedItemCount ?: listState.layoutInfo.totalItemsCount }
+    }
+    val showScrollbar by remember(estimatedItemCount) {
+        derivedStateOf { (estimatedItemCount ?: listState.layoutInfo.totalItemsCount) >= MIN_ITEMS_FOR_SCROLLBAR }
+    }
 
     val coroutineScope = rememberCoroutineScope()
     var scrollJob by remember { mutableStateOf<Job?>(null) }
@@ -138,8 +142,8 @@ fun ScrollbarOverlay(
         }
     }
 
-    val totalItems = gridState.layoutInfo.totalItemsCount
-    val showScrollbar = totalItems >= MIN_ITEMS_FOR_SCROLLBAR
+    val totalItems by remember { derivedStateOf { gridState.layoutInfo.totalItemsCount } }
+    val showScrollbar by remember { derivedStateOf { totalItems >= MIN_ITEMS_FOR_SCROLLBAR } }
 
     val coroutineScope = rememberCoroutineScope()
     var scrollJob by remember { mutableStateOf<Job?>(null) }
@@ -178,8 +182,8 @@ fun ScrollbarOverlay(
         }
     }
 
-    val totalItems = staggeredGridState.layoutInfo.totalItemsCount
-    val showScrollbar = totalItems >= MIN_ITEMS_FOR_SCROLLBAR
+    val totalItems by remember { derivedStateOf { staggeredGridState.layoutInfo.totalItemsCount } }
+    val showScrollbar by remember { derivedStateOf { totalItems >= MIN_ITEMS_FOR_SCROLLBAR } }
 
     val coroutineScope = rememberCoroutineScope()
     var scrollJob by remember { mutableStateOf<Job?>(null) }

@@ -62,7 +62,7 @@ fun AssetResponse.toDetail(baseUrl: String): AssetDetail {
             AssetDetailPerson(
                 id = person.id,
                 name = person.name,
-                thumbnailUrl = "$baseUrl/api/people/${person.id}/thumbnail"
+                thumbnailUrl = "$baseUrl/api/people/${person.id}/thumbnail?edited=true"
             )
         }
     )
@@ -103,7 +103,17 @@ fun PersonResponse.toDomain(baseUrl: String): Person {
     return Person(
         id = id,
         name = name,
-        thumbnailUrl = "$baseUrl/api/people/$id/thumbnail"
+        thumbnailUrl = "$baseUrl/api/people/$id/thumbnail?edited=true"
+    )
+}
+
+fun TimeBucketResponse.toEntity(sortOrder: Int): TimelineBucketEntity {
+    val domain = toDomain()
+    return TimelineBucketEntity(
+        timeBucket = timeBucket,
+        displayLabel = domain.displayLabel,
+        count = count,
+        sortOrder = sortOrder
     )
 }
 
@@ -133,6 +143,7 @@ fun AssetResponse.toEntity(timeBucket: String, baseUrl: String, sortOrder: Int):
             val h = exif.exifImageHeight
             if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
         }
+        ?: thumbhash?.let { thumbhashToAspectRatio(it) }
     return TimelineAssetEntity(
         id = id,
         timeBucket = timeBucket,

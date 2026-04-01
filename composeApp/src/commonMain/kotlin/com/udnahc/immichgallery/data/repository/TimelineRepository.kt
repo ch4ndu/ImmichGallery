@@ -1,7 +1,6 @@
 package com.udnahc.immichgallery.data.repository
 
 import com.udnahc.immichgallery.data.local.dao.TimelineDao
-import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
@@ -21,13 +20,7 @@ class TimelineRepository(
     suspend fun refreshBuckets(): List<TimelineBucket> {
         val responses = apiService.getTimelineBuckets()
         val entities = responses.mapIndexed { index, response ->
-            val domain = response.toDomain()
-            TimelineBucketEntity(
-                timeBucket = response.timeBucket,
-                displayLabel = domain.displayLabel,
-                count = response.count,
-                sortOrder = index
-            )
+            response.toEntity(index)
         }
         withContext(Dispatchers.IO) {
             timelineDao.clearBuckets()

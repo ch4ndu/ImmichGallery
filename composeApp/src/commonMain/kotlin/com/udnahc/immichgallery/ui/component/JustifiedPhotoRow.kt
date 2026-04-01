@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,9 +37,10 @@ fun JustifiedPhotoRow(
             } else {
                 Modifier.aspectRatio(photo.asset.aspectRatio).fillMaxHeight()
             }
+            val onClick = remember(photo.asset.id) { { onPhotoClick(photo.asset.id) } }
             ThumbnailCell(
                 asset = photo.asset,
-                onClick = { onPhotoClick(photo.asset.id) },
+                onClick = onClick,
                 modifier = cellModifier,
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope

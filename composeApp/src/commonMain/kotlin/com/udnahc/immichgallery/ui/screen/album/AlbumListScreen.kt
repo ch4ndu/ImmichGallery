@@ -24,11 +24,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
-import coil3.compose.AsyncImage
+import androidx.compose.foundation.Image
+import coil3.compose.LocalPlatformContext
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.size.Precision
+import coil3.size.Size
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
@@ -38,6 +44,8 @@ import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.items_count
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
+
+private const val THUMBNAIL_DECODE_SIZE = 256
 
 @Composable
 fun AlbumListScreen(
@@ -87,7 +95,8 @@ fun AlbumListContent(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(state.albums, key = { it.id }) { album ->
-                        AlbumCard(album = album, onClick = { onAlbumClick(album.id) })
+                        val onClick = remember(album.id) { { onAlbumClick(album.id) } }
+                        AlbumCard(album = album, onClick = onClick)
                     }
                 }
             }
@@ -104,8 +113,15 @@ private fun AlbumCard(
     ) {
         Column {
             if (LocalAppActive.current) {
-                AsyncImage(
-                    model = album.thumbnailUrl,
+                val painter = rememberAsyncImagePainter(
+                    model = ImageRequest.Builder(LocalPlatformContext.current)
+                        .data(album.thumbnailUrl)
+                        .precision(Precision.EXACT)
+                        .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
+                        .build()
+                )
+                Image(
+                    painter = painter,
                     contentDescription = album.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxWidth().aspectRatio(1f)

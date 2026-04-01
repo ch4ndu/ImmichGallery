@@ -12,6 +12,8 @@ import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.data.repository.TimelineRepository
 import com.udnahc.immichgallery.domain.action.auth.ClearServerConfigAction
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
+import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
+import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
 import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
@@ -25,6 +27,8 @@ import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
+import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
+import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailViewModel
@@ -69,15 +73,19 @@ val sharedModule = module {
     factory { GetPersonAssetsPageUseCase(get(), get()) }
     factory { SmartSearchUseCase(get(), get()) }
     factory { MetadataSearchUseCase(get(), get()) }
+    factory { GetTimelineGroupSizeUseCase(get()) }
+    factory { GetTargetRowHeightUseCase(get()) }
 
     // Actions
     factory { SaveServerConfigAction(get()) }
     factory { ClearServerConfigAction(get()) }
     factory { LoadBucketAssetsAction(get()) }
+    factory { SetTimelineGroupSizeAction(get()) }
+    factory { SetTargetRowHeightAction(get()) }
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
     viewModel { params -> AlbumDetailViewModel(get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }

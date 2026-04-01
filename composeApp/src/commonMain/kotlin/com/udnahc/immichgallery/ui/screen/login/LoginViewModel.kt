@@ -32,15 +32,11 @@ class LoginViewModel(
     val state: StateFlow<LoginState> = _state.asStateFlow()
 
     fun updateServerUrl(url: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(serverUrl = url, error = null) }
-        }
+        _state.update { it.copy(serverUrl = url, error = null) }
     }
 
     fun updateApiKey(key: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(apiKey = key, error = null) }
-        }
+        _state.update { it.copy(apiKey = key, error = null) }
     }
 
     fun login() {

@@ -118,7 +118,7 @@ fun TimelineScreen(
                     onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                     onAvailableWidthChanged = viewModel::setAvailableWidth,
                     onRetryBucket = viewModel::retryBucket,
-                    onPhotoClick = { assetId -> selectedAssetId = assetId },
+                    onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
                     onRetry = viewModel::loadBuckets,
                     labelProvider = viewModel.labelProvider,
                     sharedTransitionScope = this@SharedTransitionLayout,
@@ -145,8 +145,8 @@ fun TimelineScreen(
                         if (currentAssetId != null) {
                             val displayIndex = viewModel.getDisplayItemIndex(currentAssetId)
                             if (displayIndex != null) {
-                                val visible = listState.layoutInfo.visibleItemsInfo.map { it.index }
-                                if (displayIndex !in visible) {
+                                val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == displayIndex }
+                                if (!isVisible) {
                                     coroutineScope.launch { listState.scrollToItem(displayIndex) }
                                 }
                             }

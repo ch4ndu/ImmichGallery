@@ -6,7 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 
-private var activityRef: java.lang.ref.WeakReference<ComponentActivity>? = null
+internal var activityRef: java.lang.ref.WeakReference<ComponentActivity>? = null
 
 fun registerActivity(activity: ComponentActivity) {
     activityRef = java.lang.ref.WeakReference(activity)
