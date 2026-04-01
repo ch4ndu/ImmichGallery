@@ -39,7 +39,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
@@ -66,6 +68,7 @@ import immichgallery.composeapp.generated.resources.ic_info
 import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.ic_share
 import immichgallery.composeapp.generated.resources.retry
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.lighthousegames.logging.logging
@@ -98,7 +101,7 @@ internal fun AssetPage(
     // Reset when transition becomes active again (dismiss).
     LaunchedEffect(isTransitionActive) {
         if (!isTransitionActive) {
-            kotlinx.coroutines.delay(THUMBNAIL_HIDE_DELAY_MS)
+            delay(THUMBNAIL_HIDE_DELAY_MS)
             coverThumbnail = true
         } else {
             coverThumbnail = false
@@ -110,13 +113,17 @@ internal fun AssetPage(
         // so the exit animation can find it.
         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
             val sharedModifier = with(sharedTransitionScope) {
-                Modifier.fillMaxSize().sharedBounds(
-                    sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(
-                        contentScale = ContentScale.Fit
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .sharedBounds(
+                        sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(
+                            contentScale = ContentScale.Fit
+                        )
                     )
-                )
             }
             Box(modifier = sharedModifier) {
                 AsyncImage(
@@ -137,12 +144,26 @@ internal fun AssetPage(
         if (!isTransitionActive) {
             if (isSlideshow) {
                 val imageUrl = if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
-                KenBurnsImage(url = imageUrl, isActive = isCurrentPage, modifier = Modifier.fillMaxSize())
+                Box(
+                    modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                        detectTapGestures { onTap() }
+                    }
+                ) {
+                    KenBurnsImage(url = imageUrl, isActive = isCurrentPage, modifier = Modifier.fillMaxSize())
+                }
             } else {
-                if (asset.type == AssetType.VIDEO) {
-                    VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
-                } else {
-                    ImageContent(url = asset.originalUrl, onTap = onTap)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (asset.type == AssetType.VIDEO) {
+                        VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
+                    } else {
+                        ImageContent(url = asset.originalUrl, onTap = onTap)
+                    }
                 }
             }
         }

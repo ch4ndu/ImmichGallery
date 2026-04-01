@@ -4,6 +4,9 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -13,10 +16,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -104,8 +110,28 @@ fun TimelinePhotoOverlay(
         it.fileName.ifEmpty { fileNameCache[it.id] ?: "" }
     } ?: ""
 
+    // Vertical swipe gesture state
+    var verticalDragOffset by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    val swipeThresholdPx = remember { with(density) { 100.dp.toPx() } }
+
     Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black)
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .draggable(
+                state = rememberDraggableState { delta -> verticalDragOffset += delta },
+                orientation = Orientation.Vertical,
+                onDragStopped = {
+                    when {
+                        verticalDragOffset > swipeThresholdPx -> onDismiss(currentAsset?.id)
+                        verticalDragOffset < -swipeThresholdPx && !showDetailSheet -> {
+                            showDetailSheet = true
+                        }
+                    }
+                    verticalDragOffset = 0f
+                }
+            )
     ) {
         HorizontalPager(
             state = pagerState,
