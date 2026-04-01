@@ -3,7 +3,6 @@ package com.udnahc.immichgallery.ui.screen.people
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,10 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -46,12 +42,10 @@ import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
-import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.unknown
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -62,17 +56,29 @@ fun PersonDetailScreen(
     personId: String,
     personName: String,
     onBack: () -> Unit,
+    onPhotoClick: (assetId: String) -> Unit = {},
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     viewModel: PersonDetailViewModel = koinViewModel { parametersOf(personId) }
 ) {
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
-    val apiKey = viewModel.apiKey
-    var selectedAssetId by remember { mutableStateOf<String?>(null) }
-    var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
-    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
+
+    // Scroll back to last viewed asset when returning from detail
+    LaunchedEffect(viewModel.lastViewedAssetId) {
+        val assetId = viewModel.lastViewedAssetId ?: return@LaunchedEffect
+        val rowIndex = state.rows.indexOfFirst { row ->
+            row.photos.any { it.asset.id == assetId }
+        }
+        if (rowIndex >= 0) {
+            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == rowIndex }
+            if (!isVisible) {
+                listState.scrollToItem(rowIndex)
+            }
+        }
+    }
 
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -80,71 +86,24 @@ fun PersonDetailScreen(
     val contentBottomPadding = navBarPadding
 
     Box(modifier = Modifier.fillMaxSize()) {
-        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                visible = selectedAssetId == null,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                PersonDetailContent(
-                    state = state,
-                    onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
-                    onRetry = viewModel::loadAssets,
-                    onLoadMore = viewModel::loadMore,
-                    onAvailableWidth = viewModel::setAvailableWidth,
-                    onTargetRowHeightChanged = viewModel::setTargetRowHeight,
-                    contentTopPadding = contentTopPadding,
-                    contentBottomPadding = contentBottomPadding,
-                    listState = listState,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedVisibilityScope = this@AnimatedVisibility
-                )
-            }
+        PersonDetailContent(
+            state = state,
+            onPhotoClick = onPhotoClick,
+            onRetry = viewModel::loadAssets,
+            onLoadMore = viewModel::loadMore,
+            onAvailableWidth = viewModel::setAvailableWidth,
+            onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+            contentTopPadding = contentTopPadding,
+            contentBottomPadding = contentBottomPadding,
+            listState = listState,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope
+        )
 
-            AnimatedVisibility(
-                visible = selectedAssetId != null,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
-                val initialIndex = state.assets.indexOfFirst { it.id == assetId }
-                    .coerceAtLeast(0)
-                StaticPhotoOverlay(
-                    assets = state.assets,
-                    initialIndex = initialIndex,
-                    apiKey = apiKey,
-                    getAssetDetail = viewModel::getAssetDetail,
-                    onPersonClick = onPersonClick,
-                    onDismiss = { currentAssetId ->
-                        if (currentAssetId != null) {
-                            val rowIndex = state.rows.indexOfFirst { row ->
-                                row.photos.any { it.asset.id == currentAssetId }
-                            }
-                            if (rowIndex >= 0) {
-                                val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == rowIndex }
-                                if (!isVisible) {
-                                    coroutineScope.launch { listState.scrollToItem(rowIndex) }
-                                }
-                            }
-                        }
-                        selectedAssetId = null
-                    },
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedVisibilityScope = this@AnimatedVisibility
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = selectedAssetId == null,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            DetailTopBar(
-                title = personName.ifBlank { unknownLabel },
-                onBack = onBack
-            )
-        }
+        DetailTopBar(
+            title = personName.ifBlank { unknownLabel },
+            onBack = onBack
+        )
     }
 }
 

@@ -104,6 +104,15 @@ class TimelineViewModel(
 
     val apiKey: String = getApiKeyUseCase()
 
+    // Detail screen state — set before navigating to PhotoDetailRoute
+    var detailInitialIndex: Int = 0
+        private set
+    var lastViewedAssetId: String? = null
+
+    suspend fun prepareForDetail(assetId: String) {
+        detailInitialIndex = getGlobalPhotoIndex(assetId) ?: 0
+    }
+
     suspend fun getAssetsForBucket(timeBucket: String): List<Asset> =
         getBucketAssetsUseCase(timeBucket)
 

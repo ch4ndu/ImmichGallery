@@ -1,12 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,15 +29,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -72,15 +64,13 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun TimelineScreen(
     groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
-    onOverlayActiveChanged: (Boolean) -> Unit = {},
+    onPhotoClick: (assetId: String) -> Unit = {},
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     viewModel: TimelineViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val apiKey = viewModel.apiKey
-    var selectedAssetId by remember { mutableStateOf<String?>(null) }
-    var lastSelectedAssetId by remember { mutableStateOf<String?>(null) }
-    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -88,77 +78,36 @@ fun TimelineScreen(
         viewModel.setGroupSize(groupSize)
     }
 
-    LaunchedEffect(selectedAssetId) {
-        onOverlayActiveChanged(selectedAssetId != null)
-    }
-
-    // Compute initial photo index for overlay (suspend, gated on non-null)
-    var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(selectedAssetId) {
-        val id = selectedAssetId
-        if (id != null) {
-            overlayInitialIndex = viewModel.getGlobalPhotoIndex(id) ?: 0
-        } else {
-            overlayInitialIndex = null
-        }
-    }
-    val showOverlay = selectedAssetId != null && overlayInitialIndex != null
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                visible = !showOverlay,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                TimelineContent(
-                    state = state,
-                    listState = listState,
-                    onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
-                    onTargetRowHeightChanged = viewModel::setTargetRowHeight,
-                    onAvailableWidthChanged = viewModel::setAvailableWidth,
-                    onRetryBucket = viewModel::retryBucket,
-                    onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
-                    onRetry = viewModel::loadBuckets,
-                    labelProvider = viewModel.labelProvider,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedVisibilityScope = this@AnimatedVisibility
-                )
-            }
-
-            AnimatedVisibility(
-                visible = showOverlay,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
-                TimelinePhotoOverlay(
-                    timelineState = viewModel.state,
-                    initialIndex = overlayInitialIndex ?: 0,
-                    apiKey = apiKey,
-                    getAssetFileName = viewModel::getAssetFileName,
-                    getAssetDetail = viewModel::getAssetDetail,
-                    getAssetsForBucket = viewModel::getAssetsForBucket,
-                    onBucketNeeded = viewModel::loadBucketAssets,
-                    onPersonClick = onPersonClick,
-                    onDismiss = { currentAssetId ->
-                        if (currentAssetId != null) {
-                            val displayIndex = viewModel.getDisplayItemIndex(currentAssetId)
-                            if (displayIndex != null) {
-                                val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == displayIndex }
-                                if (!isVisible) {
-                                    coroutineScope.launch { listState.scrollToItem(displayIndex) }
-                                }
-                            }
-                        }
-                        selectedAssetId = null
-                    },
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedVisibilityScope = this@AnimatedVisibility
-                )
+    // Scroll back to last viewed asset when returning from detail
+    LaunchedEffect(viewModel.lastViewedAssetId) {
+        val assetId = viewModel.lastViewedAssetId ?: return@LaunchedEffect
+        val displayIndex = viewModel.getDisplayItemIndex(assetId)
+        if (displayIndex != null) {
+            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == displayIndex }
+            if (!isVisible) {
+                listState.scrollToItem(displayIndex)
             }
         }
     }
+
+    TimelineContent(
+        state = state,
+        listState = listState,
+        onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
+        onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+        onAvailableWidthChanged = viewModel::setAvailableWidth,
+        onRetryBucket = viewModel::retryBucket,
+        onPhotoClick = { assetId ->
+            coroutineScope.launch {
+                viewModel.prepareForDetail(assetId)
+                onPhotoClick(assetId)
+            }
+        },
+        onRetry = viewModel::loadBuckets,
+        labelProvider = viewModel.labelProvider,
+        sharedTransitionScope = sharedTransitionScope,
+        animatedVisibilityScope = animatedVisibilityScope
+    )
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)

@@ -28,3 +28,9 @@ data class PersonDetailRoute(
     val personId: String,
     val personName: String
 )
+
+@Serializable
+data class PhotoDetailRoute(
+    val sourceScreen: String,
+    val assetId: String
+)

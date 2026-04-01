@@ -1,9 +1,16 @@
 package com.udnahc.immichgallery.ui.navigation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -31,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,10 +53,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
+import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
+import com.udnahc.immichgallery.ui.screen.detail.PhotoDetailScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
-import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
@@ -64,6 +74,7 @@ import immichgallery.composeapp.generated.resources.tab_albums
 import immichgallery.composeapp.generated.resources.tab_people
 import immichgallery.composeapp.generated.resources.tab_search
 import immichgallery.composeapp.generated.resources.tab_timeline
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
@@ -78,6 +89,7 @@ data class BottomNavItem(
     val iconRes: DrawableResource
 )
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MainScreen(
     onAlbumClick: (albumId: String) -> Unit,
@@ -87,6 +99,7 @@ fun MainScreen(
     val tabNavController = rememberNavController()
     val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+    val coroutineScope = rememberCoroutineScope()
 
     val bottomNavItems = remember {
         listOf(
@@ -105,7 +118,10 @@ fun MainScreen(
     val currentTabTitle = bottomNavItems.getOrNull(selectedIndex)?.labelRes
         ?.let { stringResource(it) } ?: ""
 
-    var overlayActive by remember { mutableStateOf(false) }
+    // Derive overlay active from nav state — no callback needed
+    val overlayActive = remember(currentDestination) {
+        currentDestination?.hasRoute(PhotoDetailRoute::class) == true
+    }
 
     var timelineGroupSize by remember { mutableStateOf(TimelineGroupSize.MONTH) }
 
@@ -116,34 +132,60 @@ fun MainScreen(
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Tab content — fills entire screen edge-to-edge
-        NavHost(
-            navController = tabNavController,
-            startDestination = TimelineRoute
-        ) {
-            composable<TimelineRoute> {
-                TimelineScreen(
-                    groupSize = timelineGroupSize,
-                    onOverlayActiveChanged = { overlayActive = it },
-                    onPersonClick = onPersonClick
-                )
-            }
-            composable<AlbumsRoute> {
-                AlbumListScreen(onAlbumClick = onAlbumClick)
-            }
-            composable<PeopleRoute> {
-                PeopleScreen(onPersonClick = onPersonClick)
-            }
-            composable<SearchRoute> {
-                SearchScreen(
-                    onOverlayActiveChanged = { overlayActive = it },
-                    onPersonClick = onPersonClick
-                )
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            NavHost(
+                navController = tabNavController,
+                startDestination = TimelineRoute
+            ) {
+                composable<TimelineRoute> {
+                    TimelineScreen(
+                        groupSize = timelineGroupSize,
+                        onPhotoClick = { assetId ->
+                            coroutineScope.launch {
+                                tabNavController.navigate(PhotoDetailRoute("timeline", assetId))
+                            }
+                        },
+                        onPersonClick = onPersonClick,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@composable
+                    )
+                }
+                composable<AlbumsRoute> {
+                    AlbumListScreen(onAlbumClick = onAlbumClick)
+                }
+                composable<PeopleRoute> {
+                    PeopleScreen(onPersonClick = onPersonClick)
+                }
+                composable<SearchRoute> {
+                    SearchScreen(
+                        onPhotoClick = { assetId ->
+                            tabNavController.navigate(PhotoDetailRoute("search", assetId))
+                        },
+                        onPersonClick = onPersonClick,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@composable
+                    )
+                }
+                composable<PhotoDetailRoute> { backStackEntry ->
+                    val route = backStackEntry.toRoute<PhotoDetailRoute>()
+                    PhotoDetailScreen(
+                        route = route,
+                        tabNavController = tabNavController,
+                        onBack = { tabNavController.popBackStack() },
+                        onPersonClick = onPersonClick,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@composable
+                    )
+                }
             }
         }
 
-        // Top bar overlay — hide when photo overlay is active
-        if (!overlayActive) {
+        // Top bar overlay — animated hide/show
+        AnimatedVisibility(
+            visible = !overlayActive,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
             TopBarOverlay(
                 title = currentTabTitle,
                 barColor = barColor,
@@ -161,8 +203,13 @@ fun MainScreen(
             )
         }
 
-        // Bottom bar overlay — hide when photo overlay is active
-        if (!overlayActive) {
+        // Bottom bar overlay — animated hide/show with slide
+        AnimatedVisibility(
+            visible = !overlayActive,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
             BottomBarOverlay(
                 items = bottomNavItems,
                 selectedIndex = selectedIndex,
@@ -175,8 +222,7 @@ fun MainScreen(
                         launchSingleTop = true
                         restoreState = true
                     }
-                },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                }
             )
         }
     }

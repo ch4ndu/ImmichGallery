@@ -49,6 +49,7 @@ class SearchViewModel(
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
+    var lastViewedAssetId: String? = null
 
     private val log = logging()
     private val _state = MutableStateFlow(SearchState())
