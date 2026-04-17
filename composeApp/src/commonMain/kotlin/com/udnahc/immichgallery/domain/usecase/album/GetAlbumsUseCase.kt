@@ -1,18 +1,17 @@
 package com.udnahc.immichgallery.domain.usecase.album
 
 import com.udnahc.immichgallery.data.repository.AlbumRepository
-import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.Album
-import com.udnahc.immichgallery.domain.model.toDomain
+import kotlinx.coroutines.flow.Flow
 
 class GetAlbumsUseCase(
-    private val repository: AlbumRepository,
-    private val serverConfigRepository: ServerConfigRepository
+    private val repository: AlbumRepository
 ) {
-    suspend operator fun invoke(): Result<List<Album>> {
-        return runCatching {
-            val baseUrl = serverConfigRepository.getServerUrl().trimEnd('/')
-            repository.getAlbums().map { it.toDomain(baseUrl) }
-        }
-    }
+    fun observe(): Flow<List<Album>> = repository.observeAlbums()
+
+    suspend fun sync(): Result<Unit> = repository.syncAlbums()
+
+    suspend fun getLastSyncedAt(): Long? = repository.getLastSyncedAt()
+
+    suspend fun hasCachedAlbums(): Boolean = repository.hasCachedAlbums()
 }

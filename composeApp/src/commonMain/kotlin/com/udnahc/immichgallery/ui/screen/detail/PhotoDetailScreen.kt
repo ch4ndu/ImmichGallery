@@ -8,7 +8,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavController
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.navigation.AlbumDetailRoute
 import com.udnahc.immichgallery.ui.navigation.AlbumsRoute
+import com.udnahc.immichgallery.ui.navigation.PersonDetailRoute
 import com.udnahc.immichgallery.ui.navigation.PhotoDetailRoute
 import com.udnahc.immichgallery.ui.navigation.SearchRoute
 import com.udnahc.immichgallery.ui.navigation.TimelineRoute
@@ -71,7 +73,11 @@ fun PhotoDetailScreen(
             )
         }
         "album" -> {
-            val parentEntry = tabNavController.previousBackStackEntry ?: return
+            val parentEntry = try {
+                tabNavController.getBackStackEntry<AlbumDetailRoute>()
+            } catch (_: Exception) {
+                tabNavController.previousBackStackEntry
+            } ?: return
             val vm: AlbumDetailViewModel = koinViewModel(
                 viewModelStoreOwner = parentEntry
             )
@@ -91,7 +97,11 @@ fun PhotoDetailScreen(
             )
         }
         "person" -> {
-            val parentEntry = tabNavController.previousBackStackEntry ?: return
+            val parentEntry = try {
+                tabNavController.getBackStackEntry<PersonDetailRoute>()
+            } catch (_: Exception) {
+                tabNavController.previousBackStackEntry
+            } ?: return
             val vm: PersonDetailViewModel = koinViewModel(
                 viewModelStoreOwner = parentEntry
             )

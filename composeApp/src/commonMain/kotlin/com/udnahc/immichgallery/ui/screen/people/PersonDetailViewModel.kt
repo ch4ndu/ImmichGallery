@@ -7,7 +7,9 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
+import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.groupAssets
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
@@ -20,17 +22,39 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.lighthousegames.logging.logging
+
+/** Display item: either a section header label or a photo row. */
+@Immutable
+sealed interface PersonDisplayItem {
+    val key: String
+}
+
+@Immutable
+data class PersonHeaderItem(val label: String) : PersonDisplayItem {
+    override val key: String get() = "header_$label"
+}
+
+@Immutable
+data class PersonRowItem(val row: RowItem) : PersonDisplayItem {
+    override val key: String get() = row.gridKey
+}
 
 @Immutable
 data class PersonDetailState(
     val assets: List<Asset> = emptyList(),
-    val rows: List<RowItem> = emptyList(),
+    val displayItems: List<PersonDisplayItem> = emptyList(),
     val availableWidth: Float = 0f,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
+    val groupSize: GroupSize = GroupSize.MONTH,
     val hasMore: Boolean = true,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val bannerError: String? = null,
+    val lastSyncedAt: Long? = null,
+    val isBuilding: Boolean = false,
+    val isSyncing: Boolean = false
 )
 
 class PersonDetailViewModel(
@@ -44,6 +68,7 @@ class PersonDetailViewModel(
     val apiKey: String = getApiKeyUseCase()
     var lastViewedAssetId: String? = null
 
+    private val log = logging()
     private val _state = MutableStateFlow(PersonDetailState())
     val state: StateFlow<PersonDetailState> = _state.asStateFlow()
 
@@ -53,59 +78,40 @@ class PersonDetailViewModel(
         getAssetDetailUseCase(assetId)
 
     init {
-        loadAssets()
+        viewModelScope.launch(Dispatchers.IO) {
+            getPersonAssetsUseCase.observe(personId).collect { assets ->
+                log.d { "Room emitted ${assets.size} assets for person $personId" }
+                _state.update { current ->
+                    val items = buildDisplayItems(assets, current.groupSize, current.availableWidth, current.targetRowHeight)
+                    current.copy(assets = assets, displayItems = items)
+                }
+            }
+        }
+
+        syncFromServer()
     }
 
     fun setAvailableWidth(widthDp: Float) {
         if (widthDp == _state.value.availableWidth) return
         _state.update { current ->
-            val rows = if (current.assets.isNotEmpty() && widthDp > 0f) {
-                packIntoRows(current.assets, availableWidth = widthDp, targetRowHeight = current.targetRowHeight, spacing = GRID_SPACING_DP)
-            } else current.rows
-            current.copy(availableWidth = widthDp, rows = rows)
+            val items = buildDisplayItems(current.assets, current.groupSize, widthDp, current.targetRowHeight)
+            current.copy(availableWidth = widthDp, displayItems = items)
         }
     }
 
     fun setTargetRowHeight(height: Float) {
         if (height == _state.value.targetRowHeight) return
         _state.update { current ->
-            val rows = if (current.assets.isNotEmpty() && current.availableWidth > 0f) {
-                packIntoRows(current.assets, availableWidth = current.availableWidth, targetRowHeight = height, spacing = GRID_SPACING_DP)
-            } else current.rows
-            current.copy(targetRowHeight = height, rows = rows)
+            val items = buildDisplayItems(current.assets, current.groupSize, current.availableWidth, height)
+            current.copy(targetRowHeight = height, displayItems = items)
         }
     }
 
-    fun loadAssets() {
-        currentPage = 1
-        viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(isLoading = true, error = null, assets = emptyList(), rows = emptyList(), hasMore = true) }
-            getPersonAssetsPageUseCase(personId, page = 1).fold(
-                onSuccess = { (assets, hasMore) ->
-                    currentPage = 2
-                    val width = _state.value.availableWidth
-                    val height = _state.value.targetRowHeight
-                    val rows = if (width > 0f && assets.isNotEmpty()) {
-                        packIntoRows(assets, availableWidth = width, targetRowHeight = height, spacing = GRID_SPACING_DP)
-                    } else emptyList()
-                    _state.update {
-                        it.copy(
-                            assets = assets,
-                            rows = rows,
-                            hasMore = hasMore,
-                            isLoading = false
-                        )
-                    }
-                },
-                onFailure = { e ->
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            error = e.message ?: "Failed to load photos"
-                        )
-                    }
-                }
-            )
+    fun setGroupSize(size: GroupSize) {
+        if (size == _state.value.groupSize) return
+        _state.update { current ->
+            val items = buildDisplayItems(current.assets, size, current.availableWidth, current.targetRowHeight)
+            current.copy(groupSize = size, displayItems = items)
         }
     }
 
@@ -115,30 +121,107 @@ class PersonDetailViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             _state.update { it.copy(isLoadingMore = true) }
             getPersonAssetsPageUseCase(personId, page = currentPage).fold(
-                onSuccess = { (newAssets, hasMore) ->
+                onSuccess = { hasMore ->
                     currentPage++
-                    val allAssets = _state.value.assets + newAssets
-                    val width = _state.value.availableWidth
-                    val height = _state.value.targetRowHeight
-                    val rows = if (width > 0f && allAssets.isNotEmpty()) {
-                        packIntoRows(allAssets, availableWidth = width, targetRowHeight = height, spacing = GRID_SPACING_DP)
-                    } else emptyList()
-                    _state.update {
-                        it.copy(
-                            assets = allAssets,
-                            rows = rows,
-                            hasMore = hasMore,
-                            isLoadingMore = false
-                        )
-                    }
+                    _state.update { it.copy(hasMore = hasMore, isLoadingMore = false) }
                 },
-                onFailure = { e ->
-                    _state.update {
-                        it.copy(isLoadingMore = false)
-                    }
+                onFailure = {
+                    _state.update { it.copy(isLoadingMore = false) }
                 }
             )
         }
     }
 
+    fun refreshAll() {
+        syncFromServer()
+    }
+
+    fun dismissBannerError() {
+        _state.update { it.copy(bannerError = null) }
+    }
+
+    private fun buildDisplayItems(
+        assets: List<Asset>,
+        groupSize: GroupSize,
+        availableWidth: Float,
+        targetRowHeight: Float
+    ): List<PersonDisplayItem> {
+        if (assets.isEmpty() || availableWidth <= 0f) return emptyList()
+        val groups = groupAssets(assets, groupSize)
+        val items = mutableListOf<PersonDisplayItem>()
+        for (group in groups) {
+            if (group.label.isNotEmpty()) {
+                items.add(PersonHeaderItem(group.label))
+            }
+            val rows = packIntoRows(group.assets, availableWidth = availableWidth, targetRowHeight = targetRowHeight, spacing = GRID_SPACING_DP)
+            for (row in rows) {
+                items.add(PersonRowItem(row))
+            }
+        }
+        return items
+    }
+
+    private fun syncFromServer() {
+        currentPage = 1
+        viewModelScope.launch(Dispatchers.IO) {
+            val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
+
+            if (!hasCachedAssets) {
+                _state.update { it.copy(isBuilding = true, error = null) }
+            } else {
+                _state.update { it.copy(isSyncing = true, bannerError = null) }
+            }
+
+            val lastSync = getPersonAssetsUseCase.getLastSyncedAt(personId)
+            _state.update { it.copy(lastSyncedAt = lastSync) }
+
+            if (!hasCachedAssets) {
+                log.d { "First launch — syncing all assets for person $personId..." }
+                getPersonAssetsUseCase.syncAll(personId).fold(
+                    onSuccess = {
+                        _state.update {
+                            it.copy(
+                                hasMore = false,
+                                isBuilding = false,
+                                isSyncing = false,
+                                error = null
+                            )
+                        }
+                    },
+                    onFailure = { e ->
+                        log.e(e) { "Failed to sync person assets for $personId" }
+                        _state.update {
+                            it.copy(
+                                isBuilding = false,
+                                isSyncing = false,
+                                error = "No connection to server"
+                            )
+                        }
+                    }
+                )
+            } else {
+                getPersonAssetsPageUseCase(personId, page = 1).fold(
+                    onSuccess = { hasMore ->
+                        currentPage = 2
+                        _state.update {
+                            it.copy(
+                                hasMore = hasMore,
+                                isSyncing = false,
+                                error = null
+                            )
+                        }
+                    },
+                    onFailure = { e ->
+                        log.e(e) { "Failed to sync person assets for $personId" }
+                        _state.update {
+                            it.copy(
+                                isSyncing = false,
+                                bannerError = "Cannot connect to server"
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    }
 }

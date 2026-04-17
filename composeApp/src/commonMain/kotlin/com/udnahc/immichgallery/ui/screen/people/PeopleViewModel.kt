@@ -20,7 +20,11 @@ data class PeopleState(
     val filteredPeople: List<Person> = emptyList(),
     val query: String = "",
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val bannerError: String? = null,
+    val lastSyncedAt: Long? = null,
+    val isBuilding: Boolean = false,
+    val isSyncing: Boolean = false
 )
 
 class PeopleViewModel(
@@ -32,7 +36,21 @@ class PeopleViewModel(
     val state: StateFlow<PeopleState> = _state.asStateFlow()
 
     init {
-        loadPeople()
+        // Observe Room for people (reactive SSOT)
+        viewModelScope.launch(Dispatchers.IO) {
+            getPeopleUseCase.observe().collect { people ->
+                log.d { "Room emitted ${people.size} people" }
+                _state.update {
+                    it.copy(
+                        people = people,
+                        filteredPeople = people.filterByQuery(it.query)
+                    )
+                }
+            }
+        }
+
+        // Initial sync from network
+        syncFromServer()
     }
 
     fun updateQuery(query: String) {
@@ -46,28 +64,49 @@ class PeopleViewModel(
         }
     }
 
-    fun loadPeople() {
+    fun refreshAll() {
+        syncFromServer()
+    }
+
+    fun dismissBannerError() {
+        _state.update { it.copy(bannerError = null) }
+    }
+
+    private fun syncFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            log.d { "Loading people..." }
-            _state.update { it.copy(isLoading = true, error = null) }
-            getPeopleUseCase().fold(
-                onSuccess = { people ->
-                    log.d { "Loaded ${people.size} people" }
-                    _state.update {
-                        it.copy(
-                            people = people,
-                            filteredPeople = people.filterByQuery(it.query),
-                            isLoading = false
-                        )
-                    }
+            val hasCachedPeople = getPeopleUseCase.hasCachedPeople()
+
+            if (!hasCachedPeople) {
+                _state.update { it.copy(isBuilding = true, error = null) }
+            } else {
+                _state.update { it.copy(isSyncing = true, bannerError = null) }
+            }
+
+            val lastSync = getPeopleUseCase.getLastSyncedAt()
+            _state.update { it.copy(lastSyncedAt = lastSync) }
+
+            getPeopleUseCase.sync().fold(
+                onSuccess = {
+                    log.d { "Synced people from server" }
+                    _state.update { it.copy(isBuilding = false, isSyncing = false, error = null) }
                 },
                 onFailure = { e ->
-                    log.e(e) { "Failed to load people" }
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            error = e.message ?: "Failed to load people"
-                        )
+                    log.e(e) { "Failed to sync people from server" }
+                    if (!hasCachedPeople) {
+                        _state.update {
+                            it.copy(
+                                isBuilding = false,
+                                isSyncing = false,
+                                error = "No connection to server"
+                            )
+                        }
+                    } else {
+                        _state.update {
+                            it.copy(
+                                isSyncing = false,
+                                bannerError = "Cannot connect to server"
+                            )
+                        }
                     }
                 }
             )

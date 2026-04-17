@@ -44,8 +44,11 @@ import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
+import com.udnahc.immichgallery.ui.component.SectionHeader
+import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -66,13 +69,21 @@ fun TimelineScreen(
     groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
     onPhotoClick: (assetId: String) -> Unit = {},
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
+    onRefreshCallback: ((() -> Unit)?) -> Unit = {},
+    onSyncingState: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     viewModel: TimelineViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val isBuilding by viewModel.isBuilding.collectAsState()
+    val buildError by viewModel.buildError.collectAsState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+
+    // Report refresh callback and syncing state to parent
+    LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
+    LaunchedEffect(state.isSyncing, isBuilding) { onSyncingState(state.isSyncing || isBuilding) }
 
     LaunchedEffect(groupSize) {
         viewModel.setGroupSize(groupSize)
@@ -90,6 +101,35 @@ fun TimelineScreen(
         }
     }
 
+    // First-launch building screen (bypasses debounced state pipeline)
+    if (isBuilding) {
+        LoadingErrorContent(
+            isLoading = true,
+            error = null,
+            onRetry = viewModel::refreshAll,
+            loadingText = "Preparing timeline, please wait..."
+        ) {}
+        return
+    }
+    if (buildError != null) {
+        LoadingErrorContent(
+            isLoading = false,
+            error = buildError,
+            onRetry = viewModel::refreshAll
+        ) {}
+        return
+    }
+
+    val stableOnPhotoClick = remember {
+        { assetId: String ->
+            coroutineScope.launch {
+                viewModel.prepareForDetail(assetId)
+                onPhotoClick(assetId)
+            }
+            Unit
+        }
+    }
+
     TimelineContent(
         state = state,
         listState = listState,
@@ -97,13 +137,10 @@ fun TimelineScreen(
         onTargetRowHeightChanged = viewModel::setTargetRowHeight,
         onAvailableWidthChanged = viewModel::setAvailableWidth,
         onRetryBucket = viewModel::retryBucket,
-        onPhotoClick = { assetId ->
-            coroutineScope.launch {
-                viewModel.prepareForDetail(assetId)
-                onPhotoClick(assetId)
-            }
-        },
-        onRetry = viewModel::loadBuckets,
+        onPhotoClick = stableOnPhotoClick,
+        onRetry = viewModel::refreshAll,
+        onDismissBannerError = viewModel::dismissBannerError,
+        onDismissBannerSuccess = viewModel::dismissBannerSuccess,
         labelProvider = viewModel.labelProvider,
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope
@@ -121,6 +158,8 @@ fun TimelineContent(
     onRetryBucket: (String) -> Unit,
     onPhotoClick: (assetId: String) -> Unit,
     onRetry: () -> Unit,
+    onDismissBannerError: () -> Unit = {},
+    onDismissBannerSuccess: () -> Unit = {},
     labelProvider: (Float) -> String?,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
@@ -177,7 +216,8 @@ fun TimelineContent(
                     ) {
                         items(
                             count = displayItems.size,
-                            key = { displayItems[it].gridKey }
+                            key = { displayItems[it].gridKey },
+                            contentType = { displayItems[it]::class }
                         ) { index ->
                             when (val item = displayItems[index]) {
                                 is HeaderItem -> SectionHeader(label = item.label)
@@ -206,25 +246,28 @@ fun TimelineContent(
                     displayItems = displayItems,
                     statusBarPadding = statusBarPadding
                 )
+
+                // Banner overlays
+                val bannerModifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = Dimens.topBarHeight + Dimens.sectionHeaderHeight)
+                if (state.bannerError != null) {
+                    ErrorBanner(
+                        message = state.bannerError,
+                        lastSyncedAt = state.lastSyncedAt,
+                        onDismiss = onDismissBannerError,
+                        modifier = bannerModifier
+                    )
+                } else if (state.bannerSuccess != null) {
+                    SuccessBanner(
+                        message = state.bannerSuccess,
+                        onDismiss = onDismissBannerSuccess,
+                        modifier = bannerModifier
+                    )
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun SectionHeader(label: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(Dimens.sectionHeaderHeight)
-            .padding(horizontal = Dimens.sectionHeaderPadding),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onBackground
-        )
     }
 }
 

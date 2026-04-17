@@ -18,7 +18,11 @@ import org.lighthousegames.logging.logging
 data class AlbumListState(
     val albums: List<Album> = emptyList(),
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val bannerError: String? = null,
+    val lastSyncedAt: Long? = null,
+    val isBuilding: Boolean = false,
+    val isSyncing: Boolean = false
 )
 
 class AlbumListViewModel(
@@ -30,25 +34,61 @@ class AlbumListViewModel(
     val state: StateFlow<AlbumListState> = _state.asStateFlow()
 
     init {
-        loadAlbums()
+        // Observe Room for albums (reactive SSOT)
+        viewModelScope.launch(Dispatchers.IO) {
+            getAlbumsUseCase.observe().collect { albums ->
+                log.d { "Room emitted ${albums.size} albums" }
+                _state.update { it.copy(albums = albums) }
+            }
+        }
+
+        // Initial sync from network
+        syncFromServer()
     }
 
-    fun loadAlbums() {
+    fun refreshAll() {
+        syncFromServer()
+    }
+
+    fun dismissBannerError() {
+        _state.update { it.copy(bannerError = null) }
+    }
+
+    private fun syncFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            log.d { "Loading albums..." }
-            _state.update { it.copy(isLoading = true, error = null) }
-            getAlbumsUseCase().fold(
-                onSuccess = { albums ->
-                    log.d { "Loaded ${albums.size} albums" }
-                    _state.update { it.copy(albums = albums, isLoading = false) }
+            val hasCachedAlbums = getAlbumsUseCase.hasCachedAlbums()
+
+            if (!hasCachedAlbums) {
+                _state.update { it.copy(isBuilding = true, error = null) }
+            } else {
+                _state.update { it.copy(isSyncing = true, bannerError = null) }
+            }
+
+            val lastSync = getAlbumsUseCase.getLastSyncedAt()
+            _state.update { it.copy(lastSyncedAt = lastSync) }
+
+            getAlbumsUseCase.sync().fold(
+                onSuccess = {
+                    log.d { "Synced albums from server" }
+                    _state.update { it.copy(isBuilding = false, isSyncing = false, error = null) }
                 },
                 onFailure = { e ->
-                    log.e(e) { "Failed to load albums" }
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            error = e.message ?: "Failed to load albums"
-                        )
+                    log.e(e) { "Failed to sync albums from server" }
+                    if (!hasCachedAlbums) {
+                        _state.update {
+                            it.copy(
+                                isBuilding = false,
+                                isSyncing = false,
+                                error = "No connection to server"
+                            )
+                        }
+                    } else {
+                        _state.update {
+                            it.copy(
+                                isSyncing = false,
+                                bannerError = "Cannot connect to server"
+                            )
+                        }
                     }
                 }
             )

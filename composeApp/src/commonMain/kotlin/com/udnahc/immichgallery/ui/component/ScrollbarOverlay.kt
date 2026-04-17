@@ -1,8 +1,9 @@
 package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.ui.screen.timeline.YearMarker
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.excludeFromSystemGestures
 import com.udnahc.immichgallery.ui.util.rememberHapticFeedback
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_scroll_arrows
@@ -280,15 +282,28 @@ private fun ScrollbarHandle(
             val maxOffset = (trackHeightPx - handleSizePx - handleBottom).coerceAtLeast(handleTop)
             (handleTop + availableTrack * currentFraction).coerceIn(handleTop, maxOffset).toInt()
         }
-    val animatedHandleOffsetPx by animateIntAsState(
-        targetValue = rawHandleOffsetPx,
-        animationSpec = if (isDragging) spring(stiffness = Spring.StiffnessHigh)
-        else spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        )
-    )
-    val handleOffsetPx = if (isDragging) rawHandleOffsetPx else animatedHandleOffsetPx
+    // Use Animatable so we can snapTo (instant) on first layout and animateTo (spring) on scroll
+    val handleAnimatable = remember { Animatable(0, Int.VectorConverter) }
+    var hasSnappedToLayout by remember { mutableStateOf(false) }
+    LaunchedEffect(rawHandleOffsetPx, trackHeightPx) {
+        if (trackHeightPx == 0) return@LaunchedEffect
+        if (!hasSnappedToLayout) {
+            // First valid layout — snap instantly, no animation
+            handleAnimatable.snapTo(rawHandleOffsetPx)
+            hasSnappedToLayout = true
+        } else if (isDragging) {
+            handleAnimatable.snapTo(rawHandleOffsetPx)
+        } else {
+            handleAnimatable.animateTo(
+                rawHandleOffsetPx,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+    }
+    val handleOffsetPx = if (isDragging) rawHandleOffsetPx else handleAnimatable.value
 
     // Label + haptics
     val label = if (isDragging && labelProvider != null) labelProvider(currentFraction) else null
@@ -401,6 +416,7 @@ private fun ScrollbarHandle(
                 .align(Alignment.TopEnd)
                 .offset { IntOffset(x = handleClipOffsetPx, y = handleOffsetPx) }
                 .size(Dimens.scrollbarHandleSize)
+                .excludeFromSystemGestures()
                 .draggable(
                     state = draggableState,
                     orientation = Orientation.Vertical,

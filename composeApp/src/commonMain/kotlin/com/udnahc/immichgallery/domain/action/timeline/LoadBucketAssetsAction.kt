@@ -6,5 +6,5 @@ class LoadBucketAssetsAction(
     private val repository: TimelineRepository
 ) {
     suspend operator fun invoke(timeBucket: String): Result<Unit> =
-        repository.loadBucketAssets(timeBucket)
+        repository.syncBucketAssets(timeBucket)
 }

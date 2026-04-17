@@ -4,9 +4,6 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -15,18 +12,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.SlideshowConfig
+import com.udnahc.immichgallery.domain.model.SlideshowOrder
+import com.udnahc.immichgallery.ui.util.DragToDismissState
+import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.dragToDismiss
 import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -42,13 +44,16 @@ fun StaticPhotoOverlay(
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     var showTopBar by remember { mutableStateOf(true) }
-    var isSlideshow by remember { mutableStateOf(false) }
+    var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
+    var showSlideshowDialog by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
+
+    val isSlideshow = slideshowConfig != null
 
     val onTap: () -> Unit = remember {
         {
-            if (isSlideshow) {
-                isSlideshow = false
+            if (slideshowConfig != null) {
+                slideshowConfig = null
                 showTopBar = true
             } else {
                 showTopBar = !showTopBar
@@ -72,15 +77,25 @@ fun StaticPhotoOverlay(
         initialPage = initialIndex.coerceIn(0, (assets.size - 1).coerceAtLeast(0))
     ) { assets.size }
 
-    // Auto-advance slideshow — single coroutine that loops
-    LaunchedEffect(isSlideshow) {
-        if (isSlideshow && assets.size > 1) {
-            while (isSlideshow) {
-                kotlinx.coroutines.delay(5000)
-                if (!isSlideshow) break
-                val next = (pagerState.settledPage + 1) % assets.size
-                pagerState.animateScrollToPage(next)
+    // Auto-advance slideshow — keyed on config so it restarts on config change
+    LaunchedEffect(slideshowConfig) {
+        val config = slideshowConfig ?: return@LaunchedEffect
+        if (assets.size <= 1) return@LaunchedEffect
+        val delayMs = config.durationSeconds * 1000L
+        while (true) {
+            kotlinx.coroutines.delay(delayMs)
+            if (slideshowConfig == null) break
+            val next = if (config.order == SlideshowOrder.RANDOM) {
+                var target = (0 until assets.size).random()
+                // Avoid staying on the same page
+                while (target == pagerState.settledPage && assets.size > 1) {
+                    target = (0 until assets.size).random()
+                }
+                target
+            } else {
+                (pagerState.settledPage + 1) % assets.size
             }
+            pagerState.animateScrollToPage(next)
         }
     }
 
@@ -88,30 +103,58 @@ fun StaticPhotoOverlay(
         onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
     })
 
-    // Vertical swipe gesture state
-    var verticalDragOffset by remember { mutableFloatStateOf(0f) }
+    // Slideshow options dialog
+    if (showSlideshowDialog) {
+        SlideshowOptionsDialog(
+            onConfirm = { config ->
+                showSlideshowDialog = false
+                slideshowConfig = config
+                showTopBar = false
+            },
+            onDismiss = { showSlideshowDialog = false }
+        )
+    }
+
     val density = LocalDensity.current
-    val swipeThresholdPx = remember { with(density) { 100.dp.toPx() } }
+    val dismissThresholdPx = remember(density) {
+        with(density) { PhotoDismissMotion.dismissThreshold.toPx() }
+    }
+    val flickVelocityPx = remember(density) {
+        with(density) { PhotoDismissMotion.flickVelocity.toPx() }
+    }
+    val scope = rememberCoroutineScope()
+    val dragState = remember(scope) {
+        DragToDismissState(
+            scope = scope,
+            dismissThresholdPx = dismissThresholdPx,
+            flickVelocityPx = flickVelocityPx,
+            exitSpec = PhotoDismissMotion.exitSpec,
+            snapBackSpec = PhotoDismissMotion.snapBackSpec,
+        )
+    }
+    var isCurrentPageZoomed by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState.settledPage) { isCurrentPageZoomed = false }
+
+    val gestureEnabled = !showDetailSheet && !isSlideshow
+    LaunchedEffect(gestureEnabled) {
+        if (!gestureEnabled && dragState.isActive) dragState.cancel()
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .draggable(
-                state = rememberDraggableState { delta -> verticalDragOffset += delta },
-                orientation = Orientation.Vertical,
-                onDragStopped = {
-                    when {
-                        verticalDragOffset > swipeThresholdPx -> {
-                            isSlideshow = false
-                            onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
-                        }
-                        verticalDragOffset < -swipeThresholdPx && !showDetailSheet -> {
-                            showDetailSheet = true
-                        }
-                    }
-                    verticalDragOffset = 0f
-                }
+            .background(Color.Black.copy(alpha = dragState.scrimAlpha))
+            .dragToDismiss(
+                state = dragState,
+                enabled = gestureEnabled,
+                isZoomed = { isCurrentPageZoomed },
+                dismissThresholdPx = dismissThresholdPx,
+                flickVelocityPx = flickVelocityPx,
+                onDismiss = {
+                    slideshowConfig = null
+                    onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+                },
+                onOpenDetailSheet = { showDetailSheet = true },
             )
     ) {
         HorizontalPager(
@@ -121,6 +164,15 @@ fun StaticPhotoOverlay(
         ) { page ->
             val asset = assets[page]
             val isSettledPage = pagerState.settledPage == page
+            val transformForPage = if (isSettledPage) {
+                Modifier.graphicsLayer {
+                    scaleX = dragState.scale
+                    scaleY = dragState.scale
+                    translationX = dragState.translation.x
+                    translationY = dragState.translation.y
+                    transformOrigin = dragState.pivot
+                }
+            } else Modifier
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -130,9 +182,13 @@ fun StaticPhotoOverlay(
                     apiKey = apiKey,
                     isCurrentPage = isSettledPage,
                     isSlideshow = isSlideshow,
+                    slideshowConfig = slideshowConfig,
                     onTap = onTap,
                     sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
-                    animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null
+                    animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
+                    pageTransform = transformForPage,
+                    isDragging = isSettledPage && dragState.isActive,
+                    onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
                 )
             }
         }
@@ -146,7 +202,7 @@ fun StaticPhotoOverlay(
             onShare = {},
             onInfo = { showDetailSheet = true },
             onSlideshow = if (assets.size > 1) {
-                { isSlideshow = true; showTopBar = false }
+                { showSlideshowDialog = true }
             } else null
         )
 

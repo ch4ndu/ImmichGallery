@@ -4,9 +4,15 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -17,6 +23,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,7 +33,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -35,6 +44,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,10 +54,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.data.repository.ServerStatusRepository
 import kotlin.math.roundToInt
+import org.koin.compose.koinInject
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -64,6 +81,7 @@ import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_albums
 import immichgallery.composeapp.generated.resources.ic_more_vert
+import immichgallery.composeapp.generated.resources.ic_refresh
 import immichgallery.composeapp.generated.resources.timeline_group_day
 import immichgallery.composeapp.generated.resources.timeline_group_month
 import immichgallery.composeapp.generated.resources.ic_people
@@ -96,6 +114,13 @@ fun MainScreen(
     onPersonClick: (personId: String, personName: String) -> Unit,
     onLogout: () -> Unit
 ) {
+    val serverStatusRepository: ServerStatusRepository = koinInject()
+    val isServerOnline by serverStatusRepository.isOnline.collectAsState()
+
+    LaunchedEffect(Unit) {
+        serverStatusRepository.startMonitoring(this)
+    }
+
     val tabNavController = rememberNavController()
     val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -128,6 +153,13 @@ fun MainScreen(
     val isTimelineTab = remember(currentDestination) {
         currentDestination?.hierarchy?.any { it.hasRoute(TimelineRoute::class) } == true
     }
+    val isSearchTab = remember(currentDestination) {
+        currentDestination?.hierarchy?.any { it.hasRoute(SearchRoute::class) } == true
+    }
+
+    // Per-tab refresh callbacks and syncing state — set by each screen
+    var tabRefreshCallback by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var tabIsSyncing by remember { mutableStateOf(false) }
 
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
 
@@ -146,15 +178,25 @@ fun MainScreen(
                             }
                         },
                         onPersonClick = onPersonClick,
+                        onRefreshCallback = { callback -> tabRefreshCallback = callback },
+                        onSyncingState = { syncing -> tabIsSyncing = syncing },
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = this@composable
                     )
                 }
                 composable<AlbumsRoute> {
-                    AlbumListScreen(onAlbumClick = onAlbumClick)
+                    AlbumListScreen(
+                        onAlbumClick = onAlbumClick,
+                        onRefreshCallback = { callback -> tabRefreshCallback = callback },
+                        onSyncingState = { syncing -> tabIsSyncing = syncing }
+                    )
                 }
                 composable<PeopleRoute> {
-                    PeopleScreen(onPersonClick = onPersonClick)
+                    PeopleScreen(
+                        onPersonClick = onPersonClick,
+                        onRefreshCallback = { callback -> tabRefreshCallback = callback },
+                        onSyncingState = { syncing -> tabIsSyncing = syncing }
+                    )
                 }
                 composable<SearchRoute> {
                     SearchScreen(
@@ -189,6 +231,10 @@ fun MainScreen(
             TopBarOverlay(
                 title = currentTabTitle,
                 barColor = barColor,
+                isServerOnline = isServerOnline,
+                isSyncing = tabIsSyncing,
+                showRefresh = !isSearchTab,
+                onRefresh = { tabRefreshCallback?.invoke() },
                 onLogout = onLogout,
                 trailingContent = if (isTimelineTab) {
                     {
@@ -232,10 +278,36 @@ fun MainScreen(
 private fun TopBarOverlay(
     title: String,
     barColor: androidx.compose.ui.graphics.Color,
+    isServerOnline: Boolean,
+    isSyncing: Boolean,
+    showRefresh: Boolean,
+    onRefresh: () -> Unit,
     onLogout: () -> Unit,
     trailingContent: @Composable (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    var showRefreshDialog by remember { mutableStateOf(false) }
+
+    if (showRefreshDialog) {
+        AlertDialog(
+            onDismissRequest = { showRefreshDialog = false },
+            title = { Text("Refresh data") },
+            text = { Text("Refresh all $title data from server?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRefreshDialog = false
+                    onRefresh()
+                }) {
+                    Text("Refresh")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRefreshDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -258,6 +330,55 @@ private fun TopBarOverlay(
             if (trailingContent != null) {
                 trailingContent()
             }
+
+            // Refresh button (spinning when syncing)
+            if (showRefresh) {
+                if (isSyncing) {
+                    val infiniteTransition = rememberInfiniteTransition()
+                    val rotation by infiniteTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1000, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
+                        )
+                    )
+                    IconButton(
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier.size(Dimens.topBarHeight)
+                    ) {
+                        Icon(
+                            painterResource(Res.drawable.ic_refresh),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                            modifier = Modifier.graphicsLayer { rotationZ = rotation }
+                        )
+                    }
+                } else {
+                    IconButton(
+                        onClick = { showRefreshDialog = true },
+                        modifier = Modifier.size(Dimens.topBarHeight)
+                    ) {
+                        Icon(
+                            painterResource(Res.drawable.ic_refresh),
+                            contentDescription = "Refresh",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                }
+            }
+
+            // Server status indicator
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(if (isServerOnline) Color(0xFF4CAF50) else Color(0xFFEF5350))
+            )
+
+            Spacer(Modifier.width(4.dp))
+
             Box {
                 IconButton(onClick = { showMenu = true }, modifier = Modifier.size(Dimens.topBarHeight)) {
                     Icon(

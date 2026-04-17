@@ -15,4 +15,8 @@ fun initPlatformContext(context: Context) {
 actual fun platformModule(): Module = module {
     single { createDatabase(appContext) }
     single { get<AppDatabase>().timelineDao() }
+    single { get<AppDatabase>().assetDao() }
+    single { get<AppDatabase>().syncMetadataDao() }
+    single { get<AppDatabase>().albumDao() }
+    single { get<AppDatabase>().personDao() }
 }

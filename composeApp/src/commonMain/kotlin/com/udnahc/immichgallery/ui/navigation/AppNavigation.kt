@@ -5,7 +5,9 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.compose.NavHost
+import kotlinx.coroutines.launch
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
@@ -25,6 +27,7 @@ private val log = logging()
 fun AppNavigation() {
     val getLoginStatusUseCase: GetLoginStatusUseCase = koinInject()
     val clearServerConfigAction: ClearServerConfigAction = koinInject()
+    val coroutineScope = rememberCoroutineScope()
     val navController = rememberNavController()
     val isLoggedIn = getLoginStatusUseCase()
     log.d { "AppNavigation: isLoggedIn=$isLoggedIn" }
@@ -57,7 +60,9 @@ fun AppNavigation() {
                         navController.navigate(PersonDetailRoute(personId, personName))
                     },
                     onLogout = {
-                        clearServerConfigAction()
+                        coroutineScope.launch {
+                            clearServerConfigAction()
+                        }
                         navController.navigate(LoginRoute) {
                             popUpTo<MainRoute> { inclusive = true }
                         }

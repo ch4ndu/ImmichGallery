@@ -17,6 +17,7 @@ object HttpClientFactory {
         serverConfigRepository: ServerConfigRepository
     ): HttpClient {
         return HttpClient(engine) {
+            expectSuccess = true
             install(ContentNegotiation) {
                 json(Json {
                     ignoreUnknownKeys = true

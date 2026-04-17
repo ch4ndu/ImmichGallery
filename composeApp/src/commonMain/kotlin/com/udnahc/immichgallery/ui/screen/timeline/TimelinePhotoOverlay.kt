@@ -4,9 +4,6 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -16,16 +13,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.TimelineBucket
@@ -33,7 +30,10 @@ import com.udnahc.immichgallery.ui.component.AssetDetailSheet
 import com.udnahc.immichgallery.ui.component.AssetPage
 import com.udnahc.immichgallery.ui.component.DetailBottomHandle
 import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
+import com.udnahc.immichgallery.ui.util.DragToDismissState
+import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.dragToDismiss
 import kotlinx.coroutines.flow.StateFlow
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -110,27 +110,43 @@ fun TimelinePhotoOverlay(
         it.fileName.ifEmpty { fileNameCache[it.id] ?: "" }
     } ?: ""
 
-    // Vertical swipe gesture state
-    var verticalDragOffset by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
-    val swipeThresholdPx = remember { with(density) { 100.dp.toPx() } }
+    val dismissThresholdPx = remember(density) {
+        with(density) { PhotoDismissMotion.dismissThreshold.toPx() }
+    }
+    val flickVelocityPx = remember(density) {
+        with(density) { PhotoDismissMotion.flickVelocity.toPx() }
+    }
+    val scope = rememberCoroutineScope()
+    val dragState = remember(scope) {
+        DragToDismissState(
+            scope = scope,
+            dismissThresholdPx = dismissThresholdPx,
+            flickVelocityPx = flickVelocityPx,
+            exitSpec = PhotoDismissMotion.exitSpec,
+            snapBackSpec = PhotoDismissMotion.snapBackSpec,
+        )
+    }
+    var isCurrentPageZoomed by remember { mutableStateOf(false) }
+    LaunchedEffect(pagerState.settledPage) { isCurrentPageZoomed = false }
+
+    val gestureEnabled = !showDetailSheet
+    LaunchedEffect(gestureEnabled) {
+        if (!gestureEnabled && dragState.isActive) dragState.cancel()
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .draggable(
-                state = rememberDraggableState { delta -> verticalDragOffset += delta },
-                orientation = Orientation.Vertical,
-                onDragStopped = {
-                    when {
-                        verticalDragOffset > swipeThresholdPx -> onDismiss(currentAsset?.id)
-                        verticalDragOffset < -swipeThresholdPx && !showDetailSheet -> {
-                            showDetailSheet = true
-                        }
-                    }
-                    verticalDragOffset = 0f
-                }
+            .background(Color.Black.copy(alpha = dragState.scrimAlpha))
+            .dragToDismiss(
+                state = dragState,
+                enabled = gestureEnabled,
+                isZoomed = { isCurrentPageZoomed },
+                dismissThresholdPx = dismissThresholdPx,
+                flickVelocityPx = flickVelocityPx,
+                onDismiss = { onDismiss(currentAsset?.id) },
+                onOpenDetailSheet = { showDetailSheet = true },
             )
     ) {
         HorizontalPager(
@@ -153,6 +169,16 @@ fun TimelinePhotoOverlay(
                 }
             }
 
+            val transformForPage = if (isSettledPage) {
+                Modifier.graphicsLayer {
+                    scaleX = dragState.scale
+                    scaleY = dragState.scale
+                    translationX = dragState.translation.x
+                    translationY = dragState.translation.y
+                    transformOrigin = dragState.pivot
+                }
+            } else Modifier
+
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -164,7 +190,10 @@ fun TimelinePhotoOverlay(
                         isCurrentPage = isSettledPage,
                         onTap = onTap,
                         sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
-                        animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null
+                        animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
+                        pageTransform = transformForPage,
+                        isDragging = isSettledPage && dragState.isActive,
+                        onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
                     )
                 } else {
                     CircularProgressIndicator(color = Color.White)

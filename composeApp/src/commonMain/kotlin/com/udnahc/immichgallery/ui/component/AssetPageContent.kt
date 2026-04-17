@@ -49,9 +49,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import coil3.compose.AsyncImage
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
+import com.github.panpf.zoomimage.rememberCoilZoomState
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.domain.model.SlideshowAnimations
+import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.restoreEdgeToEdge
 import immichgallery.composeapp.generated.resources.Res
@@ -90,25 +93,30 @@ internal fun AssetPage(
     apiKey: String,
     isCurrentPage: Boolean,
     isSlideshow: Boolean = false,
+    slideshowConfig: SlideshowConfig? = null,
     onTap: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    pageTransform: Modifier = Modifier,
+    isDragging: Boolean = false,
+    onZoomStateChanged: ((Boolean) -> Unit)? = null,
 ) {
     val isTransitionActive = sharedTransitionScope?.isTransitionActive ?: false
     var coverThumbnail by remember { mutableStateOf(false) }
 
     // After a delay, cover the thumbnail so it doesn't peek through zoom-out.
-    // Reset when transition becomes active again (dismiss).
-    LaunchedEffect(isTransitionActive) {
-        if (!isTransitionActive) {
+    // Reset when transition becomes active again (dismiss) or drag starts — during
+    // drag-to-dismiss the thumbnail must be visible as the sharedBounds target.
+    LaunchedEffect(isTransitionActive, isDragging) {
+        if (isTransitionActive || isDragging) {
+            coverThumbnail = false
+        } else {
             delay(THUMBNAIL_HIDE_DELAY_MS)
             coverThumbnail = true
-        } else {
-            coverThumbnail = false
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().then(pageTransform)) {
         // Base layer: thumbnail with shared bounds modifier — always in composition
         // so the exit animation can find it.
         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
@@ -144,14 +152,29 @@ internal fun AssetPage(
         if (!isTransitionActive) {
             if (isSlideshow) {
                 val imageUrl = if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
+                val durationMs = (slideshowConfig?.durationSeconds ?: 5) * 1000
                 Box(
                     modifier = Modifier.fillMaxSize().pointerInput(Unit) {
                         detectTapGestures { onTap() }
                     }
                 ) {
-                    KenBurnsImage(url = imageUrl, isActive = isCurrentPage, modifier = Modifier.fillMaxSize())
+                    if (slideshowConfig?.animations == SlideshowAnimations.OFF) {
+                        AsyncImage(
+                            model = imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        KenBurnsImage(
+                            url = imageUrl,
+                            isActive = isCurrentPage,
+                            durationMs = durationMs,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
-            } else {
+            } else if (asset.type == AssetType.VIDEO) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -159,11 +182,29 @@ internal fun AssetPage(
                         .navigationBarsPadding(),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (asset.type == AssetType.VIDEO) {
-                        VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
-                    } else {
-                        ImageContent(url = asset.originalUrl, onTap = onTap)
-                    }
+                    VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
+                }
+            } else {
+                // Image with zoom — draw under system bars when zoomed/panned
+                val zoomState = rememberCoilZoomState()
+                val userTransform = zoomState.zoomable.userTransform
+                val isZoomed = userTransform.scaleX > 1.01f ||
+                    userTransform.offsetX != 0f || userTransform.offsetY != 0f
+                LaunchedEffect(isZoomed, isCurrentPage) {
+                    if (isCurrentPage) onZoomStateChanged?.invoke(isZoomed)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (!isZoomed) Modifier
+                                .statusBarsPadding()
+                                .navigationBarsPadding()
+                            else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ImageContent(url = asset.originalUrl, onTap = onTap, zoomState = zoomState)
                 }
             }
         }
@@ -318,7 +359,8 @@ internal fun DetailBottomHandle(
 @Composable
 private fun ImageContent(
     url: String,
-    onTap: () -> Unit
+    onTap: () -> Unit,
+    zoomState: com.github.panpf.zoomimage.CoilZoomState
 ) {
     var hasError by remember { mutableStateOf(false) }
 
@@ -334,6 +376,7 @@ private fun ImageContent(
             model = url,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
+            zoomState = zoomState,
             scrollBar = null,
             onTap = { onTap() }
         )

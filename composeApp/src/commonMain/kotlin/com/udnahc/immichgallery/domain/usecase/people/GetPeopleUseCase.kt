@@ -1,20 +1,17 @@
 package com.udnahc.immichgallery.domain.usecase.people
 
 import com.udnahc.immichgallery.data.repository.PeopleRepository
-import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.Person
-import com.udnahc.immichgallery.domain.model.toDomain
+import kotlinx.coroutines.flow.Flow
 
 class GetPeopleUseCase(
-    private val repository: PeopleRepository,
-    private val serverConfigRepository: ServerConfigRepository
+    private val repository: PeopleRepository
 ) {
-    suspend operator fun invoke(): Result<List<Person>> {
-        return runCatching {
-            val baseUrl = serverConfigRepository.getServerUrl().trimEnd('/')
-            repository.getPeople().people
-                .filter { !it.isHidden }
-                .map { it.toDomain(baseUrl) }
-        }
-    }
+    fun observe(): Flow<List<Person>> = repository.observePeople()
+
+    suspend fun sync(): Result<Unit> = repository.syncPeople()
+
+    suspend fun getLastSyncedAt(): Long? = repository.getLastSyncedAt()
+
+    suspend fun hasCachedPeople(): Boolean = repository.hasCachedPeople()
 }

@@ -1,6 +1,8 @@
 package com.udnahc.immichgallery.domain.model
 
-import com.udnahc.immichgallery.data.local.entity.TimelineAssetEntity
+import com.udnahc.immichgallery.data.local.entity.AlbumEntity
+import com.udnahc.immichgallery.data.local.entity.AssetEntity
+import com.udnahc.immichgallery.data.local.entity.PersonEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.model.AlbumResponse
 import com.udnahc.immichgallery.data.model.AssetResponse
@@ -14,14 +16,20 @@ import kotlinx.datetime.toLocalDateTime
 private const val MIN_ASPECT_RATIO = 0.5f
 private const val MAX_ASPECT_RATIO = 2.0f
 
-fun AssetResponse.toDomain(baseUrl: String): Asset {
-    val computedRatio = ratio?.takeIf { it > 0f }
+private fun AssetResponse.computeAspectRatio(): Float {
+    val computed = ratio?.takeIf { it > 0f }
         ?: exifInfo?.let { exif ->
             val w = exif.exifImageWidth
             val h = exif.exifImageHeight
             if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
         }
         ?: thumbhash?.let { thumbhashToAspectRatio(it) }
+    return (computed ?: 1f).coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
+}
+
+// --- AssetResponse -> Domain ---
+
+fun AssetResponse.toDomain(baseUrl: String): Asset {
     return Asset(
         id = id,
         type = if (type == "VIDEO") AssetType.VIDEO else AssetType.IMAGE,
@@ -32,7 +40,7 @@ fun AssetResponse.toDomain(baseUrl: String): Asset {
         videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
         isFavorite = isFavorite,
         stackCount = stackCount,
-        aspectRatio = (computedRatio ?: 1f).coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
+        aspectRatio = computeAspectRatio()
     )
 }
 
@@ -68,6 +76,37 @@ fun AssetResponse.toDetail(baseUrl: String): AssetDetail {
     )
 }
 
+// --- AssetResponse -> Room Entity ---
+
+fun AssetResponse.toAssetEntity(): AssetEntity {
+    return AssetEntity(
+        id = id,
+        type = type,
+        fileName = originalFileName,
+        createdAt = fileCreatedAt,
+        isFavorite = isFavorite,
+        stackCount = stackCount,
+        aspectRatio = computeAspectRatio()
+    )
+}
+
+// --- Room Entity -> Domain ---
+
+fun AssetEntity.toDomain(baseUrl: String): Asset = Asset(
+    id = id,
+    type = if (type == "VIDEO") AssetType.VIDEO else AssetType.IMAGE,
+    fileName = fileName,
+    createdAt = createdAt,
+    thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=thumbnail&edited=true",
+    originalUrl = "$baseUrl/api/assets/$id/original?edited=true",
+    videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
+    isFavorite = isFavorite,
+    stackCount = stackCount,
+    aspectRatio = aspectRatio
+)
+
+// --- TimeBucket mappers ---
+
 fun TimeBucketResponse.toDomain(): TimelineBucket {
     val label = try {
         val instant = Instant.parse(timeBucket)
@@ -90,23 +129,6 @@ fun TimeBucketResponse.toDomain(): TimelineBucket {
     )
 }
 
-fun AlbumResponse.toDomain(baseUrl: String): Album {
-    return Album(
-        id = id,
-        name = albumName,
-        assetCount = assetCount,
-        thumbnailUrl = albumThumbnailAssetId?.let { "$baseUrl/api/assets/$it/thumbnail?size=thumbnail&edited=true" }
-    )
-}
-
-fun PersonResponse.toDomain(baseUrl: String): Person {
-    return Person(
-        id = id,
-        name = name,
-        thumbnailUrl = "$baseUrl/api/people/$id/thumbnail?edited=true"
-    )
-}
-
 fun TimeBucketResponse.toEntity(sortOrder: Int): TimelineBucketEntity {
     val domain = toDomain()
     return TimelineBucketEntity(
@@ -123,39 +145,59 @@ fun TimelineBucketEntity.toDomain(): TimelineBucket = TimelineBucket(
     count = count
 )
 
-fun TimelineAssetEntity.toDomain(): Asset = Asset(
-    id = id,
-    type = if (type == "VIDEO") AssetType.VIDEO else AssetType.IMAGE,
-    fileName = fileName,
-    createdAt = createdAt,
-    thumbnailUrl = thumbnailUrl,
-    originalUrl = originalUrl,
-    videoPlaybackUrl = videoPlaybackUrl,
-    isFavorite = isFavorite,
-    stackCount = stackCount,
-    aspectRatio = aspectRatio
-)
+// --- Album mappers ---
 
-fun AssetResponse.toEntity(timeBucket: String, baseUrl: String, sortOrder: Int): TimelineAssetEntity {
-    val computedRatio = ratio?.takeIf { it > 0f }
-        ?: exifInfo?.let { exif ->
-            val w = exif.exifImageWidth
-            val h = exif.exifImageHeight
-            if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
-        }
-        ?: thumbhash?.let { thumbhashToAspectRatio(it) }
-    return TimelineAssetEntity(
+fun AlbumResponse.toDomain(baseUrl: String): Album {
+    return Album(
         id = id,
-        timeBucket = timeBucket,
-        type = type,
-        fileName = originalFileName,
-        createdAt = fileCreatedAt,
-        thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=thumbnail&edited=true",
-        originalUrl = "$baseUrl/api/assets/$id/original?edited=true",
-        videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
-        isFavorite = isFavorite,
-        stackCount = stackCount,
-        aspectRatio = (computedRatio ?: 1f).coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO),
+        name = albumName,
+        assetCount = assetCount,
+        thumbnailUrl = albumThumbnailAssetId?.let { "$baseUrl/api/assets/$it/thumbnail?size=thumbnail&edited=true" }
+    )
+}
+
+fun AlbumResponse.toAlbumEntity(): AlbumEntity {
+    return AlbumEntity(
+        id = id,
+        name = albumName,
+        assetCount = assetCount,
+        thumbnailAssetId = albumThumbnailAssetId,
+        updatedAt = updatedAt
+    )
+}
+
+fun AlbumEntity.toDomain(baseUrl: String): Album {
+    return Album(
+        id = id,
+        name = name,
+        assetCount = assetCount,
+        thumbnailUrl = thumbnailAssetId?.let { "$baseUrl/api/assets/$it/thumbnail?size=thumbnail&edited=true" }
+    )
+}
+
+// --- Person mappers ---
+
+fun PersonResponse.toDomain(baseUrl: String): Person {
+    return Person(
+        id = id,
+        name = name,
+        thumbnailUrl = "$baseUrl/api/people/$id/thumbnail?edited=true"
+    )
+}
+
+fun PersonResponse.toPersonEntity(sortOrder: Int): PersonEntity {
+    return PersonEntity(
+        id = id,
+        name = name,
+        isHidden = isHidden,
         sortOrder = sortOrder
+    )
+}
+
+fun PersonEntity.toDomain(baseUrl: String): Person {
+    return Person(
+        id = id,
+        name = name,
+        thumbnailUrl = "$baseUrl/api/people/$id/thumbnail?edited=true"
     )
 }

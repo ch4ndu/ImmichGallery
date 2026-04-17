@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -46,6 +47,7 @@ import coil3.size.Precision
 import coil3.size.Size
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Person
+import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -62,15 +64,21 @@ private const val THUMBNAIL_DECODE_SIZE = 256
 @Composable
 fun PeopleScreen(
     onPersonClick: (personId: String, personName: String) -> Unit,
+    onRefreshCallback: ((() -> Unit)?) -> Unit = {},
+    onSyncingState: (Boolean) -> Unit = {},
     viewModel: PeopleViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+
+    LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
+    LaunchedEffect(state.isSyncing, state.isBuilding) { onSyncingState(state.isSyncing || state.isBuilding) }
 
     PeopleContent(
         state = state,
         onPersonClick = onPersonClick,
         onQueryChange = viewModel::updateQuery,
-        onRetry = viewModel::loadPeople
+        onRetry = viewModel::refreshAll,
+        onDismissBanner = viewModel::dismissBannerError
     )
 }
 
@@ -79,23 +87,26 @@ fun PeopleContent(
     state: PeopleState,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onQueryChange: (String) -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onDismissBanner: () -> Unit = {}
 ) {
     LoadingErrorContent(
-        isLoading = state.isLoading && state.people.isEmpty(),
+        isLoading = (state.isBuilding || state.isLoading) && state.people.isEmpty(),
         error = if (state.people.isEmpty()) state.error else null,
-        onRetry = onRetry
+        onRetry = onRetry,
+        loadingText = if (state.isBuilding) "Preparing people, please wait..." else null
     ) {
-            val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            val navBarPadding =
-                WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            val gridState = rememberLazyGridState()
-            val topContentPadding = statusBarPadding + Dimens.topBarHeight + Dimens.screenPadding
+        val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navBarPadding =
+            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val gridState = rememberLazyGridState()
+        val topContentPadding = statusBarPadding + Dimens.topBarHeight + Dimens.screenPadding
 
-            val focusManager = LocalFocusManager.current
-            LaunchedEffect(gridState.isScrollInProgress) {
-                if (gridState.isScrollInProgress) focusManager.clearFocus()
-            }
+        val focusManager = LocalFocusManager.current
+        LaunchedEffect(gridState.isScrollInProgress) {
+            if (gridState.isScrollInProgress) focusManager.clearFocus()
+        }
+        Box(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -153,6 +164,19 @@ fun PeopleContent(
                     }
                 }
             }
+
+            if (state.bannerError != null) {
+                ErrorBanner(
+                    message = state.bannerError,
+                    lastSyncedAt = state.lastSyncedAt,
+                    onDismiss = onDismissBanner,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = Dimens.topBarHeight)
+                )
+            }
+        }
     }
 }
 

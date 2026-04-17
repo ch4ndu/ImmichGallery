@@ -1,11 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.people
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -30,18 +26,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.udnahc.immichgallery.domain.model.Asset
-import com.udnahc.immichgallery.domain.model.AssetType
-import com.udnahc.immichgallery.domain.model.PhotoItem
-import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.DetailTopBar
+import com.udnahc.immichgallery.ui.component.ErrorBanner
+import com.udnahc.immichgallery.ui.component.GroupSizeDropdown
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
+import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
@@ -69,13 +62,13 @@ fun PersonDetailScreen(
     // Scroll back to last viewed asset when returning from detail
     LaunchedEffect(viewModel.lastViewedAssetId) {
         val assetId = viewModel.lastViewedAssetId ?: return@LaunchedEffect
-        val rowIndex = state.rows.indexOfFirst { row ->
-            row.photos.any { it.asset.id == assetId }
+        val itemIndex = state.displayItems.indexOfFirst { item ->
+            item is PersonRowItem && item.row.photos.any { it.asset.id == assetId }
         }
-        if (rowIndex >= 0) {
-            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == rowIndex }
+        if (itemIndex >= 0) {
+            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == itemIndex }
             if (!isVisible) {
-                listState.scrollToItem(rowIndex)
+                listState.scrollToItem(itemIndex)
             }
         }
     }
@@ -89,7 +82,8 @@ fun PersonDetailScreen(
         PersonDetailContent(
             state = state,
             onPhotoClick = onPhotoClick,
-            onRetry = viewModel::loadAssets,
+            onRetry = viewModel::refreshAll,
+            onDismissBanner = viewModel::dismissBannerError,
             onLoadMore = viewModel::loadMore,
             onAvailableWidth = viewModel::setAvailableWidth,
             onTargetRowHeightChanged = viewModel::setTargetRowHeight,
@@ -102,7 +96,13 @@ fun PersonDetailScreen(
 
         DetailTopBar(
             title = personName.ifBlank { unknownLabel },
-            onBack = onBack
+            onBack = onBack,
+            trailingContent = {
+                GroupSizeDropdown(
+                    selected = state.groupSize,
+                    onSelected = viewModel::setGroupSize
+                )
+            }
         )
     }
 }
@@ -113,6 +113,7 @@ fun PersonDetailContent(
     state: PersonDetailState,
     onPhotoClick: (String) -> Unit,
     onRetry: () -> Unit,
+    onDismissBanner: () -> Unit = {},
     onLoadMore: () -> Unit,
     onAvailableWidth: (Float) -> Unit,
     onTargetRowHeightChanged: (Float) -> Unit = {},
@@ -122,12 +123,11 @@ fun PersonDetailContent(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
-    val density = LocalDensity.current
-
     LoadingErrorContent(
-        isLoading = state.isLoading,
-        error = state.error,
-        onRetry = onRetry
+        isLoading = (state.isBuilding || state.isLoading) && state.assets.isEmpty(),
+        error = if (state.assets.isEmpty()) state.error else null,
+        onRetry = onRetry,
+        loadingText = if (state.isBuilding) "Preparing photos, please wait..." else null
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -139,7 +139,6 @@ fun PersonDetailContent(
                 onAvailableWidth(widthDp.value)
             }
 
-            // Load more when approaching the end of the list
             val shouldLoadMore by remember {
                 derivedStateOf {
                     val info = listState.layoutInfo
@@ -151,6 +150,8 @@ fun PersonDetailContent(
             LaunchedEffect(shouldLoadMore) {
                 if (shouldLoadMore) onLoadMore()
             }
+
+            val displayItems = state.displayItems
 
             ScrollbarOverlay(
                 listState = listState,
@@ -168,17 +169,21 @@ fun PersonDetailContent(
                     },
                     verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
                 ) {
-                    itemsIndexed(
-                        items = state.rows,
-                        key = { _, row -> row.gridKey }
-                    ) { _, row ->
-                        JustifiedPhotoRow(
-                            row = row,
-                            spacing = Dimens.gridSpacing,
-                            onPhotoClick = onPhotoClick,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope
-                        )
+                    items(
+                        count = displayItems.size,
+                        key = { displayItems[it].key },
+                        contentType = { displayItems[it]::class }
+                    ) { index ->
+                        when (val item = displayItems[index]) {
+                            is PersonHeaderItem -> SectionHeader(label = item.label)
+                            is PersonRowItem -> JustifiedPhotoRow(
+                                row = item.row,
+                                spacing = Dimens.gridSpacing,
+                                onPhotoClick = onPhotoClick,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope
+                            )
+                        }
                     }
 
                     if (state.isLoadingMore) {
@@ -195,42 +200,17 @@ fun PersonDetailContent(
                     }
                 }
             }
+
+            if (state.bannerError != null) {
+                ErrorBanner(
+                    message = state.bannerError,
+                    lastSyncedAt = state.lastSyncedAt,
+                    onDismiss = onDismissBanner,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = contentTopPadding)
+                )
+            }
         }
     }
-}
-
-@Preview
-@Composable
-private fun PersonDetailContentPreview() {
-    val sampleAsset = Asset(
-        id = "1", type = AssetType.IMAGE, fileName = "photo.jpg",
-        createdAt = "", thumbnailUrl = "", originalUrl = ""
-    )
-    val sampleRow = RowItem(
-        gridKey = "row_p_1",
-        bucketIndex = 0,
-        sectionLabel = "",
-        photos = listOf(
-            PhotoItem(
-                gridKey = "p_1",
-                bucketIndex = 0,
-                sectionLabel = "",
-                asset = sampleAsset
-            )
-        ),
-        rowHeight = 150f,
-        isComplete = false
-    )
-    PersonDetailContent(
-        state = PersonDetailState(
-            assets = listOf(sampleAsset),
-            rows = listOf(sampleRow)
-        ),
-        onPhotoClick = {},
-        onRetry = {},
-        onLoadMore = {},
-        onAvailableWidth = {},
-        contentTopPadding = 0.dp,
-        contentBottomPadding = 0.dp
-    )
 }

@@ -176,7 +176,7 @@ private fun AssetDetailContent(
             Spacer(Modifier.height(Dimens.largeSpacing))
             HorizontalDivider()
             Spacer(Modifier.height(Dimens.largeSpacing))
-            SectionHeader(stringResource(Res.string.detail_people))
+            SheetSectionHeader(stringResource(Res.string.detail_people))
             Spacer(Modifier.height(Dimens.mediumSpacing))
             PeopleRow(detail.people, onPersonClick)
         }
@@ -187,7 +187,7 @@ private fun AssetDetailContent(
             Spacer(Modifier.height(Dimens.largeSpacing))
             HorizontalDivider()
             Spacer(Modifier.height(Dimens.largeSpacing))
-            SectionHeader(stringResource(Res.string.detail_location))
+            SheetSectionHeader(stringResource(Res.string.detail_location))
             Spacer(Modifier.height(Dimens.smallSpacing))
             Text(
                 text = locationText,
@@ -208,7 +208,7 @@ private fun AssetDetailContent(
             Spacer(Modifier.height(Dimens.largeSpacing))
             HorizontalDivider()
             Spacer(Modifier.height(Dimens.largeSpacing))
-            SectionHeader(stringResource(Res.string.detail_camera))
+            SheetSectionHeader(stringResource(Res.string.detail_camera))
             Spacer(Modifier.height(Dimens.smallSpacing))
             cameraInfo.forEach { line ->
                 Text(
@@ -232,7 +232,7 @@ private fun AssetDetailContent(
 }
 
 @Composable
-private fun SectionHeader(title: String) {
+private fun SheetSectionHeader(title: String) {
     Text(
         text = title,
         style = MaterialTheme.typography.titleSmall,
@@ -356,7 +356,7 @@ private fun AssetDetailContentPreview() {
 @Preview
 @Composable
 private fun SectionHeaderPreview() {
-    SectionHeader(title = "People")
+    SheetSectionHeader(title = "People")
 }
 
 @Preview

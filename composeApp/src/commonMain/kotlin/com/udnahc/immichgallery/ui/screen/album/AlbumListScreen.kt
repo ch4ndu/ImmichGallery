@@ -22,6 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -36,7 +37,9 @@ import coil3.request.ImageRequest
 import coil3.size.Precision
 import coil3.size.Size
 import com.udnahc.immichgallery.LocalAppActive
+import androidx.compose.foundation.layout.statusBarsPadding
 import com.udnahc.immichgallery.domain.model.Album
+import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -50,14 +53,20 @@ private const val THUMBNAIL_DECODE_SIZE = 256
 @Composable
 fun AlbumListScreen(
     onAlbumClick: (String) -> Unit,
+    onRefreshCallback: ((() -> Unit)?) -> Unit = {},
+    onSyncingState: (Boolean) -> Unit = {},
     viewModel: AlbumListViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
 
+    LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
+    LaunchedEffect(state.isSyncing, state.isBuilding) { onSyncingState(state.isSyncing || state.isBuilding) }
+
     AlbumListContent(
         state = state,
         onAlbumClick = onAlbumClick,
-        onRetry = viewModel::loadAlbums
+        onRetry = viewModel::refreshAll,
+        onDismissBanner = viewModel::dismissBannerError
     )
 }
 
@@ -65,17 +74,20 @@ fun AlbumListScreen(
 fun AlbumListContent(
     state: AlbumListState,
     onAlbumClick: (String) -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onDismissBanner: () -> Unit = {}
 ) {
     LoadingErrorContent(
-        isLoading = state.isLoading && state.albums.isEmpty(),
+        isLoading = (state.isBuilding || state.isLoading) && state.albums.isEmpty(),
         error = if (state.albums.isEmpty()) state.error else null,
-        onRetry = onRetry
+        onRetry = onRetry,
+        loadingText = if (state.isBuilding) "Preparing albums, please wait..." else null
     ) {
-            val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-            val navBarPadding =
-                WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            val gridState = rememberLazyGridState()
+        val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navBarPadding =
+            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val gridState = rememberLazyGridState()
+        Box(modifier = Modifier.fillMaxSize()) {
             ScrollbarOverlay(
                 gridState = gridState,
                 topPadding = statusBarPadding + Dimens.topBarHeight,
@@ -100,6 +112,19 @@ fun AlbumListContent(
                     }
                 }
             }
+
+            if (state.bannerError != null) {
+                ErrorBanner(
+                    message = state.bannerError,
+                    lastSyncedAt = state.lastSyncedAt,
+                    onDismiss = onDismissBanner,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = Dimens.topBarHeight)
+                )
+            }
+        }
     }
 }
 

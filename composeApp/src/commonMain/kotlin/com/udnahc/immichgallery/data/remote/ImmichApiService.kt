@@ -16,7 +16,6 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.serialization.Serializable
@@ -61,11 +60,9 @@ class ImmichApiService(
     suspend fun getTimelineBuckets(): List<TimeBucketResponse> {
         val endpoint = "${baseUrl()}/api/timeline/buckets"
         log.d { "GET $endpoint" }
-        val response = httpClient.get(endpoint) {
+        return httpClient.get(endpoint) {
             header("x-api-key", apiKey())
-        }
-        log.d { "Timeline buckets response status: ${response.status}" }
-        return response.body()
+        }.body()
     }
 
     suspend fun getTimelineBucket(
@@ -73,15 +70,9 @@ class ImmichApiService(
     ): List<AssetResponse> {
         val endpoint = "${baseUrl()}/api/timeline/bucket?timeBucket=$timeBucket"
         log.d { "GET $endpoint" }
-        val response = httpClient.get(endpoint) {
+        val columnar = httpClient.get(endpoint) {
             header("x-api-key", apiKey())
-        }
-        if (response.status.value != 200) {
-            val body = response.bodyAsText()
-            log.e { "Timeline bucket error ${response.status}: $body" }
-            throw RuntimeException("Timeline bucket error: ${response.status}")
-        }
-        val columnar = response.body<TimelineBucketColumnarResponse>()
+        }.body<TimelineBucketColumnarResponse>()
         val videoCount = columnar.isImage.count { it == false }
         log.d { "Timeline bucket parsed ${columnar.id.size} assets ($videoCount videos)" }
         return columnar.toAssetResponses()

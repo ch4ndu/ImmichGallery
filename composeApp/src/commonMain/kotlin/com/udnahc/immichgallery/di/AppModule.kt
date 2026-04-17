@@ -9,6 +9,7 @@ import com.udnahc.immichgallery.data.repository.AuthRepository
 import com.udnahc.immichgallery.data.repository.PeopleRepository
 import com.udnahc.immichgallery.data.repository.SearchRepository
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
+import com.udnahc.immichgallery.data.repository.ServerStatusRepository
 import com.udnahc.immichgallery.data.repository.TimelineRepository
 import com.udnahc.immichgallery.domain.action.auth.ClearServerConfigAction
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
@@ -53,10 +54,11 @@ val sharedModule = module {
 
     // Repositories
     single { AuthRepository(get()) }
-    single { TimelineRepository(get(), get(), get()) }
-    single { AlbumRepository(get()) }
-    single { PeopleRepository(get()) }
+    single { TimelineRepository(get(), get(), get(), get(), get()) }
+    single { AlbumRepository(get(), get(), get(), get(), get()) }
+    single { PeopleRepository(get(), get(), get(), get(), get()) }
     single { SearchRepository(get()) }
+    single { ServerStatusRepository(get()) }
 
     // UseCases
     factory { ValidateServerUseCase(get()) }
@@ -66,11 +68,11 @@ val sharedModule = module {
     factory { GetBucketAssetsUseCase(get()) }
     factory { GetAssetFileNameUseCase(get()) }
     factory { GetAssetDetailUseCase(get(), get()) }
-    factory { GetAlbumsUseCase(get(), get()) }
-    factory { GetAlbumDetailUseCase(get(), get()) }
-    factory { GetPeopleUseCase(get(), get()) }
-    factory { GetPersonAssetsUseCase(get(), get()) }
-    factory { GetPersonAssetsPageUseCase(get(), get()) }
+    factory { GetAlbumsUseCase(get()) }
+    factory { GetAlbumDetailUseCase(get()) }
+    factory { GetPeopleUseCase(get()) }
+    factory { GetPersonAssetsUseCase(get()) }
+    factory { GetPersonAssetsPageUseCase(get()) }
     factory { SmartSearchUseCase(get(), get()) }
     factory { MetadataSearchUseCase(get(), get()) }
     factory { GetTimelineGroupSizeUseCase(get()) }
@@ -78,7 +80,7 @@ val sharedModule = module {
 
     // Actions
     factory { SaveServerConfigAction(get()) }
-    factory { ClearServerConfigAction(get()) }
+    factory { ClearServerConfigAction(get(), get(), get(), get(), get(), get()) }
     factory { LoadBucketAssetsAction(get()) }
     factory { SetTimelineGroupSizeAction(get()) }
     factory { SetTargetRowHeightAction(get()) }

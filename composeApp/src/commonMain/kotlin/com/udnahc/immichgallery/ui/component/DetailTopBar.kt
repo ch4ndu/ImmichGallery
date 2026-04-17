@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,7 +28,8 @@ private const val BAR_ALPHA = 0.8f
 @Composable
 fun DetailTopBar(
     title: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    trailingContent: @Composable (() -> Unit)? = null
 ) {
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
     Box(
@@ -55,6 +57,11 @@ fun DetailTopBar(
                 .align(Alignment.Center)
                 .padding(horizontal = Dimens.topBarHeight)
         )
+        if (trailingContent != null) {
+            Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                trailingContent()
+            }
+        }
     }
 }
 

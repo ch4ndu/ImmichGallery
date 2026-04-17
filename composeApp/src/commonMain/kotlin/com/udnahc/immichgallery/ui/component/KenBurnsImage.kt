@@ -62,6 +62,7 @@ private val presets = listOf(
 fun KenBurnsImage(
     url: String,
     isActive: Boolean,
+    durationMs: Int = KEN_BURNS_DURATION_MS,
     modifier: Modifier = Modifier
 ) {
     val progress = remember { Animatable(0f) }
@@ -71,13 +72,13 @@ fun KenBurnsImage(
     // Pick a random preset per URL
     val preset = remember(url) { presets[Random.nextInt(presets.size)] }
 
-    LaunchedEffect(isActive, url) {
+    LaunchedEffect(isActive, url, durationMs) {
         if (isActive) {
             progress.snapTo(0f)
             progress.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(
-                    durationMillis = KEN_BURNS_DURATION_MS,
+                    durationMillis = durationMs,
                     easing = LinearEasing
                 )
             )
