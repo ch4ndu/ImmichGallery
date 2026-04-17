@@ -114,15 +114,7 @@ class TimelineViewModel(
 
     val apiKey: String = getApiKeyUseCase()
 
-    var detailInitialIndex: Int = 0
-        private set
     var lastViewedAssetId: String? = null
-
-    suspend fun prepareForDetail(assetId: String) {
-        detailInitialIndex = withContext(Dispatchers.Default) {
-            getGlobalPhotoIndex(assetId)
-        } ?: 0
-    }
 
     suspend fun getAssetsForBucket(timeBucket: String): List<Asset> =
         getBucketAssetsUseCase(timeBucket)
@@ -298,7 +290,7 @@ class TimelineViewModel(
         }.takeIf { it >= 0 }
     }
 
-    private suspend fun getGlobalPhotoIndex(assetId: String): Int? {
+    suspend fun getGlobalPhotoIndex(assetId: String): Int? {
         val s = state.value
         var globalIndex = 0
         for (bucket in s.buckets) {

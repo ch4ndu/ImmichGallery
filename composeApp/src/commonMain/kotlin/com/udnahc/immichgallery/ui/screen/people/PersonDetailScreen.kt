@@ -1,8 +1,12 @@
 package com.udnahc.immichgallery.ui.screen.people
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,7 +27,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -35,7 +42,9 @@ import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
+import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.unknown
@@ -49,15 +58,19 @@ fun PersonDetailScreen(
     personId: String,
     personName: String,
     onBack: () -> Unit,
-    onPhotoClick: (assetId: String) -> Unit = {},
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     viewModel: PersonDetailViewModel = koinViewModel { parametersOf(personId) }
 ) {
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
     val listState = rememberLazyListState()
+
+    var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
+    val showOverlay = selectedAssetId != null
+
+    PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
 
     // Scroll back to last viewed asset when returning from detail
     LaunchedEffect(viewModel.lastViewedAssetId) {
@@ -79,31 +92,65 @@ fun PersonDetailScreen(
     val contentBottomPadding = navBarPadding
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PersonDetailContent(
-            state = state,
-            onPhotoClick = onPhotoClick,
-            onRetry = viewModel::refreshAll,
-            onDismissBanner = viewModel::dismissBannerError,
-            onLoadMore = viewModel::loadMore,
-            onAvailableWidth = viewModel::setAvailableWidth,
-            onTargetRowHeightChanged = viewModel::setTargetRowHeight,
-            contentTopPadding = contentTopPadding,
-            contentBottomPadding = contentBottomPadding,
-            listState = listState,
-            sharedTransitionScope = sharedTransitionScope,
-            animatedVisibilityScope = animatedVisibilityScope
-        )
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = !showOverlay,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    PersonDetailContent(
+                        state = state,
+                        onPhotoClick = remember { { id: String -> selectedAssetId = id } },
+                        onRetry = viewModel::refreshAll,
+                        onDismissBanner = viewModel::dismissBannerError,
+                        onLoadMore = viewModel::loadMore,
+                        onAvailableWidth = viewModel::setAvailableWidth,
+                        onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+                        contentTopPadding = contentTopPadding,
+                        contentBottomPadding = contentBottomPadding,
+                        listState = listState,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@AnimatedVisibility,
+                    )
+                    DetailTopBar(
+                        title = personName.ifBlank { unknownLabel },
+                        onBack = onBack,
+                        trailingContent = {
+                            GroupSizeDropdown(
+                                selected = state.groupSize,
+                                onSelected = viewModel::setGroupSize
+                            )
+                        }
+                    )
+                }
+            }
 
-        DetailTopBar(
-            title = personName.ifBlank { unknownLabel },
-            onBack = onBack,
-            trailingContent = {
-                GroupSizeDropdown(
-                    selected = state.groupSize,
-                    onSelected = viewModel::setGroupSize
+            AnimatedVisibility(
+                visible = showOverlay,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
+                val assets = state.assets
+                val initialIndex = remember(assetId, assets) {
+                    assets.indexOfFirst { it.id == assetId }.coerceAtLeast(0)
+                }
+                StaticPhotoOverlay(
+                    assets = assets,
+                    initialIndex = initialIndex,
+                    apiKey = viewModel.apiKey,
+                    getAssetDetail = viewModel::getAssetDetail,
+                    onPersonClick = onPersonClick,
+                    onDismiss = { currentAssetId ->
+                        viewModel.lastViewedAssetId = currentAssetId
+                        selectedAssetId = null
+                    },
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility,
                 )
             }
-        )
+        }
     }
 }
 

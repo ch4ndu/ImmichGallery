@@ -118,13 +118,13 @@ internal fun AssetPage(
 
     Box(modifier = Modifier.fillMaxSize().then(pageTransform)) {
         // Base layer: thumbnail with shared bounds modifier — always in composition
-        // so the exit animation can find it.
+        // so the exit animation can find it. sharedBounds target is stable fullscreen
+        // (no WindowInsets-dependent padding) so bounds don't shift mid-animation;
+        // padding is applied on an inner container for visual display only.
         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
             val sharedModifier = with(sharedTransitionScope) {
                 Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
                     .sharedBounds(
                         sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -134,12 +134,19 @@ internal fun AssetPage(
                     )
             }
             Box(modifier = sharedModifier) {
-                AsyncImage(
-                    model = asset.thumbnailUrl,
-                    contentDescription = asset.fileName,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                ) {
+                    AsyncImage(
+                        model = asset.thumbnailUrl,
+                        contentDescription = asset.fileName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
                 // Opaque cover to hide thumbnail from zoom-out, while keeping
                 // the shared bounds composable fully in the tree for exit animation
                 if (coverThumbnail) {

@@ -1,8 +1,6 @@
 package com.udnahc.immichgallery.ui.navigation
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -49,7 +47,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,10 +67,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.toRoute
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
-import com.udnahc.immichgallery.ui.screen.detail.PhotoDetailScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
@@ -92,7 +87,6 @@ import immichgallery.composeapp.generated.resources.tab_albums
 import immichgallery.composeapp.generated.resources.tab_people
 import immichgallery.composeapp.generated.resources.tab_search
 import immichgallery.composeapp.generated.resources.tab_timeline
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
@@ -107,7 +101,6 @@ data class BottomNavItem(
     val iconRes: DrawableResource
 )
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MainScreen(
     onAlbumClick: (albumId: String) -> Unit,
@@ -124,7 +117,6 @@ fun MainScreen(
     val tabNavController = rememberNavController()
     val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val coroutineScope = rememberCoroutineScope()
 
     val bottomNavItems = remember {
         listOf(
@@ -143,10 +135,8 @@ fun MainScreen(
     val currentTabTitle = bottomNavItems.getOrNull(selectedIndex)?.labelRes
         ?.let { stringResource(it) } ?: ""
 
-    // Derive overlay active from nav state — no callback needed
-    val overlayActive = remember(currentDestination) {
-        currentDestination?.hasRoute(PhotoDetailRoute::class) == true
-    }
+    // Overlay active reported up from Timeline / Search via callback
+    var overlayActive by remember { mutableStateOf(false) }
 
     var timelineGroupSize by remember { mutableStateOf(TimelineGroupSize.MONTH) }
 
@@ -164,61 +154,38 @@ fun MainScreen(
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-            NavHost(
-                navController = tabNavController,
-                startDestination = TimelineRoute
-            ) {
-                composable<TimelineRoute> {
-                    TimelineScreen(
-                        groupSize = timelineGroupSize,
-                        onPhotoClick = { assetId ->
-                            coroutineScope.launch {
-                                tabNavController.navigate(PhotoDetailRoute("timeline", assetId))
-                            }
-                        },
-                        onPersonClick = onPersonClick,
-                        onRefreshCallback = { callback -> tabRefreshCallback = callback },
-                        onSyncingState = { syncing -> tabIsSyncing = syncing },
-                        sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = this@composable
-                    )
-                }
-                composable<AlbumsRoute> {
-                    AlbumListScreen(
-                        onAlbumClick = onAlbumClick,
-                        onRefreshCallback = { callback -> tabRefreshCallback = callback },
-                        onSyncingState = { syncing -> tabIsSyncing = syncing }
-                    )
-                }
-                composable<PeopleRoute> {
-                    PeopleScreen(
-                        onPersonClick = onPersonClick,
-                        onRefreshCallback = { callback -> tabRefreshCallback = callback },
-                        onSyncingState = { syncing -> tabIsSyncing = syncing }
-                    )
-                }
-                composable<SearchRoute> {
-                    SearchScreen(
-                        onPhotoClick = { assetId ->
-                            tabNavController.navigate(PhotoDetailRoute("search", assetId))
-                        },
-                        onPersonClick = onPersonClick,
-                        sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = this@composable
-                    )
-                }
-                composable<PhotoDetailRoute> { backStackEntry ->
-                    val route = backStackEntry.toRoute<PhotoDetailRoute>()
-                    PhotoDetailScreen(
-                        route = route,
-                        tabNavController = tabNavController,
-                        onBack = { tabNavController.popBackStack() },
-                        onPersonClick = onPersonClick,
-                        sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = this@composable
-                    )
-                }
+        NavHost(
+            navController = tabNavController,
+            startDestination = TimelineRoute
+        ) {
+            composable<TimelineRoute> {
+                TimelineScreen(
+                    groupSize = timelineGroupSize,
+                    onPersonClick = onPersonClick,
+                    onRefreshCallback = { callback -> tabRefreshCallback = callback },
+                    onSyncingState = { syncing -> tabIsSyncing = syncing },
+                    onOverlayActiveChange = { active -> overlayActive = active },
+                )
+            }
+            composable<AlbumsRoute> {
+                AlbumListScreen(
+                    onAlbumClick = onAlbumClick,
+                    onRefreshCallback = { callback -> tabRefreshCallback = callback },
+                    onSyncingState = { syncing -> tabIsSyncing = syncing }
+                )
+            }
+            composable<PeopleRoute> {
+                PeopleScreen(
+                    onPersonClick = onPersonClick,
+                    onRefreshCallback = { callback -> tabRefreshCallback = callback },
+                    onSyncingState = { syncing -> tabIsSyncing = syncing }
+                )
+            }
+            composable<SearchRoute> {
+                SearchScreen(
+                    onPersonClick = onPersonClick,
+                    onOverlayActiveChange = { active -> overlayActive = active },
+                )
             }
         }
 

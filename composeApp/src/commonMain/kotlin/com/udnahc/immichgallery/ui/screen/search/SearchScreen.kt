@@ -1,8 +1,12 @@
 package com.udnahc.immichgallery.ui.screen.search
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,8 +39,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,7 +56,9 @@ import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
+import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
@@ -63,14 +72,20 @@ import org.koin.compose.viewmodel.koinViewModel
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun SearchScreen(
-    onPhotoClick: (assetId: String) -> Unit = {},
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    onOverlayActiveChange: (Boolean) -> Unit = {},
     viewModel: SearchViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
+
+    var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
+    val showOverlay = selectedAssetId != null
+
+    LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
+    PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
 
     // Scroll back to last viewed asset when returning from detail
     LaunchedEffect(viewModel.lastViewedAssetId) {
@@ -86,19 +101,54 @@ fun SearchScreen(
         }
     }
 
-    SearchContent(
-        state = state,
-        onQueryChange = viewModel::updateQuery,
-        onSearchTypeChange = viewModel::updateSearchType,
-        onSearch = viewModel::search,
-        onPhotoClick = onPhotoClick,
-        onSetAvailableWidth = viewModel::setAvailableWidth,
-        onSetTargetRowHeight = viewModel::setTargetRowHeight,
-        onLoadMore = viewModel::loadMore,
-        listState = listState,
-        sharedTransitionScope = sharedTransitionScope,
-        animatedVisibilityScope = animatedVisibilityScope
-    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = !showOverlay,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                SearchContent(
+                    state = state,
+                    onQueryChange = viewModel::updateQuery,
+                    onSearchTypeChange = viewModel::updateSearchType,
+                    onSearch = viewModel::search,
+                    onPhotoClick = remember { { id: String -> selectedAssetId = id } },
+                    onSetAvailableWidth = viewModel::setAvailableWidth,
+                    onSetTargetRowHeight = viewModel::setTargetRowHeight,
+                    onLoadMore = viewModel::loadMore,
+                    listState = listState,
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility,
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showOverlay,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
+                val assets = state.results
+                val initialIndex = remember(assetId, assets) {
+                    assets.indexOfFirst { it.id == assetId }.coerceAtLeast(0)
+                }
+                StaticPhotoOverlay(
+                    assets = assets,
+                    initialIndex = initialIndex,
+                    apiKey = viewModel.apiKey,
+                    getAssetDetail = viewModel::getAssetDetail,
+                    onPersonClick = onPersonClick,
+                    onDismiss = { currentAssetId ->
+                        viewModel.lastViewedAssetId = currentAssetId
+                        selectedAssetId = null
+                    },
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility,
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)

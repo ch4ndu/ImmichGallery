@@ -1,8 +1,12 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,8 +33,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +56,7 @@ import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
+import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -67,19 +75,30 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun TimelineScreen(
     groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
-    onPhotoClick: (assetId: String) -> Unit = {},
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
     onRefreshCallback: ((() -> Unit)?) -> Unit = {},
     onSyncingState: (Boolean) -> Unit = {},
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    onOverlayActiveChange: (Boolean) -> Unit = {},
     viewModel: TimelineViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
     val isBuilding by viewModel.isBuilding.collectAsState()
     val buildError by viewModel.buildError.collectAsState()
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
+
+    var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
+
+    var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(selectedAssetId) {
+        val id = selectedAssetId
+        overlayInitialIndex = if (id != null) viewModel.getGlobalPhotoIndex(id) ?: 0 else null
+    }
+    val showOverlay = selectedAssetId != null && overlayInitialIndex != null
+
+    LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
+    PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
 
     // Report refresh callback and syncing state to parent
     LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
@@ -120,31 +139,56 @@ fun TimelineScreen(
         return
     }
 
-    val stableOnPhotoClick = remember {
-        { assetId: String ->
-            coroutineScope.launch {
-                viewModel.prepareForDetail(assetId)
-                onPhotoClick(assetId)
+    Box(modifier = Modifier.fillMaxSize()) {
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = !showOverlay,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                TimelineContent(
+                    state = state,
+                    listState = listState,
+                    onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
+                    onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+                    onAvailableWidthChanged = viewModel::setAvailableWidth,
+                    onRetryBucket = viewModel::retryBucket,
+                    onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
+                    onRetry = viewModel::refreshAll,
+                    onDismissBannerError = viewModel::dismissBannerError,
+                    onDismissBannerSuccess = viewModel::dismissBannerSuccess,
+                    labelProvider = viewModel.labelProvider,
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility,
+                )
             }
-            Unit
+
+            AnimatedVisibility(
+                visible = showOverlay,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
+                val initialIndex = overlayInitialIndex ?: 0
+                TimelinePhotoOverlay(
+                    timelineState = viewModel.state,
+                    initialIndex = initialIndex,
+                    apiKey = viewModel.apiKey,
+                    getAssetFileName = viewModel::getAssetFileName,
+                    getAssetDetail = viewModel::getAssetDetail,
+                    getAssetsForBucket = viewModel::getAssetsForBucket,
+                    onBucketNeeded = viewModel::loadBucketAssets,
+                    onPersonClick = onPersonClick,
+                    onDismiss = { currentAssetId ->
+                        viewModel.lastViewedAssetId = currentAssetId
+                        selectedAssetId = null
+                    },
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedVisibility,
+                )
+            }
         }
     }
-
-    TimelineContent(
-        state = state,
-        listState = listState,
-        onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
-        onTargetRowHeightChanged = viewModel::setTargetRowHeight,
-        onAvailableWidthChanged = viewModel::setAvailableWidth,
-        onRetryBucket = viewModel::retryBucket,
-        onPhotoClick = stableOnPhotoClick,
-        onRetry = viewModel::refreshAll,
-        onDismissBannerError = viewModel::dismissBannerError,
-        onDismissBannerSuccess = viewModel::dismissBannerSuccess,
-        labelProvider = viewModel.labelProvider,
-        sharedTransitionScope = sharedTransitionScope,
-        animatedVisibilityScope = animatedVisibilityScope
-    )
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
