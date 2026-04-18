@@ -18,14 +18,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.dismiss
 import immichgallery.composeapp.generated.resources.ic_close
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun ErrorBanner(
@@ -82,10 +84,10 @@ private fun BannerRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .padding(horizontal = Dimens.bannerPaddingHorizontal)
+            .clip(RoundedCornerShape(Dimens.bannerCornerRadius))
             .background(backgroundColor)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = Dimens.bannerPaddingHorizontal, vertical = Dimens.mediumSpacing),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -94,13 +96,13 @@ private fun BannerRow(
             color = textColor,
             modifier = Modifier.weight(1f)
         )
-        Spacer(Modifier.width(8.dp))
-        IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+        Spacer(Modifier.width(Dimens.mediumSpacing))
+        IconButton(onClick = onDismiss, modifier = Modifier.size(Dimens.iconSize)) {
             Icon(
                 painterResource(Res.drawable.ic_close),
-                contentDescription = "Dismiss",
+                contentDescription = stringResource(Res.string.dismiss),
                 tint = textColor,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(Dimens.bannerIconSize)
             )
         }
     }

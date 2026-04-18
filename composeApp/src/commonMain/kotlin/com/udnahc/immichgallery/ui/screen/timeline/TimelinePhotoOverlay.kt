@@ -47,7 +47,7 @@ fun TimelinePhotoOverlay(
     getAssetsForBucket: suspend (timeBucket: String) -> List<Asset>,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onDismiss: (currentAssetId: String?) -> Unit,
+    onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
@@ -90,7 +90,7 @@ fun TimelinePhotoOverlay(
     )
 
     PlatformBackHandler(enabled = true, onBack = {
-        onDismiss(currentAsset?.id)
+        onDismiss(currentAsset?.id, currentBucketKey)
     })
 
     // Cache file names
@@ -145,7 +145,7 @@ fun TimelinePhotoOverlay(
                 isZoomed = { isCurrentPageZoomed },
                 dismissThresholdPx = dismissThresholdPx,
                 flickVelocityPx = flickVelocityPx,
-                onDismiss = { onDismiss(currentAsset?.id) },
+                onDismiss = { onDismiss(currentAsset?.id, currentBucketKey) },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
     ) {
@@ -204,7 +204,7 @@ fun TimelinePhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = displayFileName,
-            onBack = { onDismiss(currentAsset?.id) },
+            onBack = { onDismiss(currentAsset?.id, currentBucketKey) },
             onDownload = {},
             onShare = {},
             onInfo = { showDetailSheet = true }
@@ -223,7 +223,7 @@ fun TimelinePhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss(null)
+                    onDismiss(null, null)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }

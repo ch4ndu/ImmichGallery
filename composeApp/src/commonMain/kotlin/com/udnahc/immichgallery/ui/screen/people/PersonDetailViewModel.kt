@@ -1,6 +1,9 @@
 package com.udnahc.immichgallery.ui.screen.people
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Asset
@@ -66,7 +69,7 @@ class PersonDetailViewModel(
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
-    var lastViewedAssetId: String? = null
+    var lastViewedAssetId: String? by mutableStateOf(null)
 
     private val log = logging()
     private val _state = MutableStateFlow(PersonDetailState())

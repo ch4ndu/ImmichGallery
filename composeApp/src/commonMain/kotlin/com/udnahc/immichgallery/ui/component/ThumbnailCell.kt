@@ -63,7 +63,7 @@ fun ThumbnailCell(
                         sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                         animatedVisibilityScope = animatedVisibilityScope,
                         resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Fit
                         )
                     )
                 }
@@ -80,7 +80,7 @@ fun ThumbnailCell(
             Image(
                 painter = painter,
                 contentDescription = asset.fileName,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = imageModifier
             )
         } else {

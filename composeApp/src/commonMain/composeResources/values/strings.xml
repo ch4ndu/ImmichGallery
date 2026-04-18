@@ -18,9 +18,40 @@
     <string name="back">Back</string>
     <string name="unknown">Unknown</string>
     <string name="logout">Logout</string>
+    <string name="cancel">Cancel</string>
+    <string name="dismiss">Dismiss</string>
+    <string name="refresh">Refresh</string>
+    <string name="server_online">Server online</string>
+    <string name="server_offline">Server offline</string>
     <string name="scrollbar_thumb">Scroll position indicator</string>
     <string name="scrollbar_track">Scrollbar track</string>
     <string name="items_count">%1$d items</string>
+
+    <!-- Loading -->
+    <string name="loading_timeline">Preparing timeline, please wait…</string>
+    <string name="loading_albums">Preparing albums, please wait…</string>
+    <string name="loading_album">Preparing album, please wait…</string>
+    <string name="loading_people">Preparing people, please wait…</string>
+    <string name="loading_photos">Preparing photos, please wait…</string>
+
+    <!-- Refresh dialog -->
+    <string name="refresh_dialog_title">Refresh data</string>
+    <string name="refresh_dialog_message">Refresh all %1$s data from server?</string>
+
+    <!-- Group size -->
+    <string name="group_size_none">None</string>
+    <string name="group_size_month">Month</string>
+    <string name="group_size_day">Day</string>
+
+    <!-- Slideshow dialog -->
+    <string name="slideshow_order">Order</string>
+    <string name="slideshow_order_sequential">Sequential</string>
+    <string name="slideshow_order_random">Random</string>
+    <string name="slideshow_duration_seconds">Duration (seconds)</string>
+    <string name="slideshow_animations">Animations</string>
+    <string name="slideshow_animations_off">Off</string>
+    <string name="slideshow_animations_random">Random</string>
+    <string name="slideshow_start">Start</string>
 
     <!-- Errors -->
     <string name="error_load_timeline">Failed to load timeline</string>

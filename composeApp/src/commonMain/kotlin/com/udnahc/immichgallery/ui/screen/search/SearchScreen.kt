@@ -38,13 +38,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -236,16 +236,16 @@ fun SearchContent(
                 }
 
                 // Load-more detection
-                LaunchedEffect(listState) {
-                    snapshotFlow { listState.layoutInfo }
-                        .collect { layoutInfo ->
-                            val totalItems = layoutInfo.totalItemsCount
-                            val lastVisible =
-                                layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                            if (totalItems > 0 && lastVisible >= totalItems - 3) {
-                                onLoadMore()
-                            }
-                        }
+                val shouldLoadMore by remember {
+                    derivedStateOf {
+                        val info = listState.layoutInfo
+                        val total = info.totalItemsCount
+                        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        total > 0 && lastVisible >= total - 3
+                    }
+                }
+                LaunchedEffect(shouldLoadMore) {
+                    if (shouldLoadMore) onLoadMore()
                 }
 
                 BoxWithConstraints(

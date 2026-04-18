@@ -61,6 +61,7 @@ import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.loading_timeline
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
@@ -108,15 +109,15 @@ fun TimelineScreen(
         viewModel.setGroupSize(groupSize)
     }
 
-    // Scroll back to last viewed asset when returning from detail
-    LaunchedEffect(viewModel.lastViewedAssetId) {
-        val assetId = viewModel.lastViewedAssetId ?: return@LaunchedEffect
-        val displayIndex = viewModel.getDisplayItemIndex(assetId)
-        if (displayIndex != null) {
-            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == displayIndex }
-            if (!isVisible) {
-                listState.scrollToItem(displayIndex)
-            }
+    // Scroll back to last viewed asset (or its bucket placeholder) on return from detail
+    LaunchedEffect(viewModel.lastViewedAssetId, viewModel.lastViewedBucket) {
+        val displayIndex = viewModel.getDisplayItemIndexForReturn(
+            viewModel.lastViewedAssetId,
+            viewModel.lastViewedBucket
+        ) ?: return@LaunchedEffect
+        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == displayIndex }
+        if (!isVisible) {
+            listState.scrollToItem(displayIndex)
         }
     }
 
@@ -126,7 +127,7 @@ fun TimelineScreen(
             isLoading = true,
             error = null,
             onRetry = viewModel::refreshAll,
-            loadingText = "Preparing timeline, please wait..."
+            loadingText = stringResource(Res.string.loading_timeline)
         ) {}
         return
     }
@@ -179,8 +180,9 @@ fun TimelineScreen(
                     getAssetsForBucket = viewModel::getAssetsForBucket,
                     onBucketNeeded = viewModel::loadBucketAssets,
                     onPersonClick = onPersonClick,
-                    onDismiss = { currentAssetId ->
+                    onDismiss = { currentAssetId, currentBucket ->
                         viewModel.lastViewedAssetId = currentAssetId
+                        viewModel.lastViewedBucket = currentBucket
                         selectedAssetId = null
                     },
                     sharedTransitionScope = this@SharedTransitionLayout,

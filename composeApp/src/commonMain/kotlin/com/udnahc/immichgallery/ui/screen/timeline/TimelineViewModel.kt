@@ -1,6 +1,9 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
@@ -114,7 +117,8 @@ class TimelineViewModel(
 
     val apiKey: String = getApiKeyUseCase()
 
-    var lastViewedAssetId: String? = null
+    var lastViewedAssetId: String? by mutableStateOf(null)
+    var lastViewedBucket: String? by mutableStateOf(null)
 
     suspend fun getAssetsForBucket(timeBucket: String): List<Asset> =
         getBucketAssetsUseCase(timeBucket)
@@ -288,6 +292,35 @@ class TimelineViewModel(
                 else -> false
             }
         }.takeIf { it >= 0 }
+    }
+
+    /**
+     * Resolve a scroll-back target for the grid after returning from the pager.
+     * Prefers the exact asset if it's materialized in displayItems; otherwise
+     * falls back to the first displayItem (placeholder or row) of the asset's
+     * bucket, so the user lands in the right region even if the bucket hasn't
+     * rebuilt yet.
+     */
+    fun getDisplayItemIndexForReturn(assetId: String?, bucketTimeBucket: String?): Int? {
+        val s = state.value
+        if (assetId != null) {
+            val direct = s.displayItems.indexOfFirst { item ->
+                when (item) {
+                    is PhotoItem -> item.asset.id == assetId
+                    is RowItem -> item.photos.any { it.asset.id == assetId }
+                    else -> false
+                }
+            }
+            if (direct >= 0) return direct
+        }
+        if (bucketTimeBucket != null) {
+            val bucketIdx = s.buckets.indexOfFirst { it.timeBucket == bucketTimeBucket }
+            if (bucketIdx >= 0) {
+                val fallback = s.displayItems.indexOfFirst { it.bucketIndex == bucketIdx }
+                if (fallback >= 0) return fallback
+            }
+        }
+        return null
     }
 
     suspend fun getGlobalPhotoIndex(assetId: String): Int? {

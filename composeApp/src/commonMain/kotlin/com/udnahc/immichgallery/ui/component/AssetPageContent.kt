@@ -45,7 +45,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import coil3.compose.AsyncImage
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
@@ -118,9 +117,9 @@ internal fun AssetPage(
 
     Box(modifier = Modifier.fillMaxSize().then(pageTransform)) {
         // Base layer: thumbnail with shared bounds modifier — always in composition
-        // so the exit animation can find it. sharedBounds target is stable fullscreen
-        // (no WindowInsets-dependent padding) so bounds don't shift mid-animation;
-        // padding is applied on an inner container for visual display only.
+        // so the exit animation can find it. Grid + detail both render ContentScale.Fit
+        // so the sharedBounds cross-fade renders identical visuals on both sides,
+        // and the hand-off to CoilZoomAsyncImage (also Fit + padded) is invisible.
         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
             val sharedModifier = with(sharedTransitionScope) {
                 Modifier
@@ -330,9 +329,6 @@ internal fun DetailTopBarOverlay(
     }
 }
 
-private const val HANDLE_WIDTH = 32
-private const val HANDLE_HEIGHT = 4
-
 @Composable
 internal fun DetailBottomHandle(
     visible: Boolean,
@@ -354,8 +350,8 @@ internal fun DetailBottomHandle(
         ) {
             Box(
                 modifier = Modifier
-                    .width(HANDLE_WIDTH.dp)
-                    .height(HANDLE_HEIGHT.dp)
+                    .width(Dimens.detailHandleWidth)
+                    .height(Dimens.detailHandleHeight)
                     .clip(RoundedCornerShape(50))
                     .background(Color.White.copy(alpha = 0.6f))
             )

@@ -40,4 +40,10 @@ object Dimens {
     val stackBadgePaddingHorizontal = 6.dp
     val stackBadgePaddingVertical = 2.dp
     val scrollbarYearLabelPaddingVertical = 2.dp
+    val bannerPaddingHorizontal = 12.dp
+    val bannerCornerRadius = 8.dp
+    val bannerIconSize = 16.dp
+    val serverStatusIndicatorSize = 12.dp
+    val detailHandleWidth = 32.dp
+    val detailHandleHeight = 4.dp
 }

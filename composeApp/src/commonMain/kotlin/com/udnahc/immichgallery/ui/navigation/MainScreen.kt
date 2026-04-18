@@ -56,11 +56,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
-import com.udnahc.immichgallery.data.repository.ServerStatusRepository
 import kotlin.math.roundToInt
-import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -74,6 +74,7 @@ import com.udnahc.immichgallery.ui.screen.search.SearchScreen
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.cancel
 import immichgallery.composeapp.generated.resources.ic_albums
 import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.ic_refresh
@@ -83,6 +84,11 @@ import immichgallery.composeapp.generated.resources.ic_people
 import immichgallery.composeapp.generated.resources.ic_search
 import immichgallery.composeapp.generated.resources.ic_timeline
 import immichgallery.composeapp.generated.resources.logout
+import immichgallery.composeapp.generated.resources.refresh
+import immichgallery.composeapp.generated.resources.refresh_dialog_message
+import immichgallery.composeapp.generated.resources.refresh_dialog_title
+import immichgallery.composeapp.generated.resources.server_offline
+import immichgallery.composeapp.generated.resources.server_online
 import immichgallery.composeapp.generated.resources.tab_albums
 import immichgallery.composeapp.generated.resources.tab_people
 import immichgallery.composeapp.generated.resources.tab_search
@@ -105,14 +111,10 @@ data class BottomNavItem(
 fun MainScreen(
     onAlbumClick: (albumId: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    viewModel: MainScreenViewModel = koinViewModel()
 ) {
-    val serverStatusRepository: ServerStatusRepository = koinInject()
-    val isServerOnline by serverStatusRepository.isOnline.collectAsState()
-
-    LaunchedEffect(Unit) {
-        serverStatusRepository.startMonitoring(this)
-    }
+    val isServerOnline by viewModel.isServerOnline.collectAsState()
 
     val tabNavController = rememberNavController()
     val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
@@ -258,19 +260,19 @@ private fun TopBarOverlay(
     if (showRefreshDialog) {
         AlertDialog(
             onDismissRequest = { showRefreshDialog = false },
-            title = { Text("Refresh data") },
-            text = { Text("Refresh all $title data from server?") },
+            title = { Text(stringResource(Res.string.refresh_dialog_title)) },
+            text = { Text(stringResource(Res.string.refresh_dialog_message, title)) },
             confirmButton = {
                 TextButton(onClick = {
                     showRefreshDialog = false
                     onRefresh()
                 }) {
-                    Text("Refresh")
+                    Text(stringResource(Res.string.refresh))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRefreshDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(Res.string.cancel))
                 }
             }
         )
@@ -329,7 +331,7 @@ private fun TopBarOverlay(
                     ) {
                         Icon(
                             painterResource(Res.drawable.ic_refresh),
-                            contentDescription = "Refresh",
+                            contentDescription = stringResource(Res.string.refresh),
                             tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
@@ -337,14 +339,18 @@ private fun TopBarOverlay(
             }
 
             // Server status indicator
+            val statusDescription = stringResource(
+                if (isServerOnline) Res.string.server_online else Res.string.server_offline
+            )
             Box(
                 modifier = Modifier
-                    .size(12.dp)
+                    .size(Dimens.serverStatusIndicatorSize)
                     .clip(CircleShape)
                     .background(if (isServerOnline) Color(0xFF4CAF50) else Color(0xFFEF5350))
+                    .semantics { contentDescription = statusDescription }
             )
 
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(Dimens.smallSpacing))
 
             Box {
                 IconButton(onClick = { showMenu = true }, modifier = Modifier.size(Dimens.topBarHeight)) {

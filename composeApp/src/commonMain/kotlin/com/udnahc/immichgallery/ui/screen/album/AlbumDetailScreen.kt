@@ -44,6 +44,9 @@ import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
+import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.loading_album
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -165,7 +168,7 @@ fun AlbumDetailContent(
         isLoading = (state.isBuilding || state.isLoading) && state.assets.isEmpty(),
         error = if (state.assets.isEmpty()) state.error else null,
         onRetry = onRetry,
-        loadingText = if (state.isBuilding) "Preparing album, please wait..." else null
+        loadingText = if (state.isBuilding) stringResource(Res.string.loading_album) else null
     ) {
         BoxWithConstraints(
             modifier = Modifier

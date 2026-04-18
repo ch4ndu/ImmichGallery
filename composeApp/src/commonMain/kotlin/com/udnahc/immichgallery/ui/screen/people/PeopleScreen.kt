@@ -53,6 +53,7 @@ import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_close
+import immichgallery.composeapp.generated.resources.loading_people
 import immichgallery.composeapp.generated.resources.people_search_placeholder
 import immichgallery.composeapp.generated.resources.unknown
 import org.jetbrains.compose.resources.painterResource
@@ -94,7 +95,7 @@ fun PeopleContent(
         isLoading = (state.isBuilding || state.isLoading) && state.people.isEmpty(),
         error = if (state.people.isEmpty()) state.error else null,
         onRetry = onRetry,
-        loadingText = if (state.isBuilding) "Preparing people, please wait..." else null
+        loadingText = if (state.isBuilding) stringResource(Res.string.loading_people) else null
     ) {
         val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val navBarPadding =

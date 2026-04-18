@@ -45,6 +45,7 @@ import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.items_count
+import immichgallery.composeapp.generated.resources.loading_albums
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -81,7 +82,7 @@ fun AlbumListContent(
         isLoading = (state.isBuilding || state.isLoading) && state.albums.isEmpty(),
         error = if (state.albums.isEmpty()) state.error else null,
         onRetry = onRetry,
-        loadingText = if (state.isBuilding) "Preparing albums, please wait..." else null
+        loadingText = if (state.isBuilding) stringResource(Res.string.loading_albums) else null
     ) {
         val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val navBarPadding =

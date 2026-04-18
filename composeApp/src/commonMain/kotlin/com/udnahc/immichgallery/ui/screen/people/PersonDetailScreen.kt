@@ -47,6 +47,7 @@ import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.loading_photos
 import immichgallery.composeapp.generated.resources.unknown
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -174,7 +175,7 @@ fun PersonDetailContent(
         isLoading = (state.isBuilding || state.isLoading) && state.assets.isEmpty(),
         error = if (state.assets.isEmpty()) state.error else null,
         onRetry = onRetry,
-        loadingText = if (state.isBuilding) "Preparing photos, please wait..." else null
+        loadingText = if (state.isBuilding) stringResource(Res.string.loading_photos) else null
     ) {
         BoxWithConstraints(
             modifier = Modifier

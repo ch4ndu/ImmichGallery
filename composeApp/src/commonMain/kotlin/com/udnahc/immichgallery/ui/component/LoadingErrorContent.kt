@@ -12,7 +12,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.retry
 import org.jetbrains.compose.resources.stringResource
@@ -31,7 +31,7 @@ fun LoadingErrorContent(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
                     if (loadingText != null) {
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(Dimens.largeSpacing))
                         Text(
                             loadingText,
                             style = MaterialTheme.typography.bodyMedium,
