@@ -73,9 +73,19 @@ fun StaticPhotoOverlay(
         return
     }
 
+    val clampedInitial = initialIndex.coerceIn(0, (assets.size - 1).coerceAtLeast(0))
     val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, (assets.size - 1).coerceAtLeast(0))
+        initialPage = clampedInitial
     ) { assets.size }
+
+    // Force pager to snap to initialPage on first composition. In LookaheadScope
+    // from SharedTransitionLayout, the pager's scroll offset can transiently be 0
+    // before snapping, producing a visible slide-in from the right.
+    LaunchedEffect(Unit) {
+        if (pagerState.currentPage != clampedInitial) {
+            pagerState.scrollToPage(clampedInitial)
+        }
+    }
 
     // Auto-advance slideshow — keyed on config so it restarts on config change
     LaunchedEffect(slideshowConfig) {
@@ -164,7 +174,10 @@ fun StaticPhotoOverlay(
         ) { page ->
             val asset = assets[page]
             val isSettledPage = pagerState.settledPage == page
-            val transformForPage = if (isSettledPage) {
+            // Only apply graphicsLayer while a drag is actually in flight —
+            // an always-on identity layer adds a compositing boundary that
+            // interacts badly with sharedBounds promotion/demotion.
+            val transformForPage = if (isSettledPage && dragState.isActive) {
                 Modifier.graphicsLayer {
                     scaleX = dragState.scale
                     scaleY = dragState.scale

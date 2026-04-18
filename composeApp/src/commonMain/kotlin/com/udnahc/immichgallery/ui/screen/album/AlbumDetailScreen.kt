@@ -5,8 +5,6 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -43,6 +41,8 @@ import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
+import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_album
@@ -91,8 +91,8 @@ fun AlbumDetailScreen(
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = !showOverlay,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                enter = photoTransitionFadeIn,
+                exit = photoTransitionFadeOut,
             ) {
                 Box(Modifier.fillMaxSize()) {
                     AlbumDetailContent(
@@ -123,8 +123,8 @@ fun AlbumDetailScreen(
 
             AnimatedVisibility(
                 visible = showOverlay,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                enter = photoTransitionFadeIn,
+                exit = photoTransitionFadeOut,
             ) {
                 val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
                 val assets = state.assets

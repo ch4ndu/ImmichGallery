@@ -5,8 +5,6 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +55,8 @@ import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
+import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -144,8 +144,8 @@ fun TimelineScreen(
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = !showOverlay,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                enter = photoTransitionFadeIn,
+                exit = photoTransitionFadeOut,
             ) {
                 TimelineContent(
                     state = state,
@@ -166,8 +166,8 @@ fun TimelineScreen(
 
             AnimatedVisibility(
                 visible = showOverlay,
-                enter = fadeIn(),
-                exit = fadeOut(),
+                enter = photoTransitionFadeIn,
+                exit = photoTransitionFadeOut,
             ) {
                 val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
                 val initialIndex = overlayInitialIndex ?: 0

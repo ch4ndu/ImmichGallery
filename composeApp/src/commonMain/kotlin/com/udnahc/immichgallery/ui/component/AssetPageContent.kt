@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -55,6 +56,7 @@ import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.SlideshowAnimations
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.photoTransitionBoundsTransform
 import com.udnahc.immichgallery.ui.util.restoreEdgeToEdge
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.back
@@ -115,37 +117,42 @@ internal fun AssetPage(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().then(pageTransform)) {
+    Box(
+        modifier = Modifier.fillMaxSize().then(pageTransform),
+        contentAlignment = Alignment.Center
+    ) {
         // Base layer: thumbnail with shared bounds modifier — always in composition
-        // so the exit animation can find it. Grid + detail both render ContentScale.Fit
-        // so the sharedBounds cross-fade renders identical visuals on both sides,
-        // and the hand-off to CoilZoomAsyncImage (also Fit + padded) is invisible.
+        // so the exit animation can find it. The sharedBounds container is sized to
+        // the asset's aspect ratio (same as the grid cell), so both sides of the
+        // transition have identical layout shape and the cross-fade renders no
+        // visible difference.
         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
             val sharedModifier = with(sharedTransitionScope) {
+                // NOTE: DO NOT chain .fillMaxSize() before .aspectRatio() —
+                // fillMaxSize locks min=max=parent size, which forces aspectRatio
+                // to fall back to the fullscreen size and the sharedBounds ends up
+                // being the whole screen rather than the image-aspect rect. That
+                // produces a visible second animation where the detail thumbnail
+                // scales 0→1 in the center while the grid rect flies to center.
                 Modifier
-                    .fillMaxSize()
-                    .sharedBounds(
+                    .aspectRatio(asset.aspectRatio)
+                    .sharedElement(
                         sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                         animatedVisibilityScope = animatedVisibilityScope,
-                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(
-                            contentScale = ContentScale.Fit
-                        )
+                        boundsTransform = photoTransitionBoundsTransform,
                     )
             }
             Box(modifier = sharedModifier) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                ) {
-                    AsyncImage(
-                        model = asset.thumbnailUrl,
-                        contentDescription = asset.fileName,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                // No padding here — the content inside sharedBounds must match the
+                // grid-side thumbnail's layout exactly (same Fit, same fillMaxSize,
+                // no bar padding). Any layout mismatch makes the sharedBounds
+                // cross-fade visible as a "second animation".
+                AsyncImage(
+                    model = asset.thumbnailUrl,
+                    contentDescription = asset.fileName,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
                 // Opaque cover to hide thumbnail from zoom-out, while keeping
                 // the shared bounds composable fully in the tree for exit animation
                 if (coverThumbnail) {

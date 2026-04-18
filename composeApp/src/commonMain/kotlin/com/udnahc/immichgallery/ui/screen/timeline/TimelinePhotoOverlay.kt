@@ -69,9 +69,20 @@ fun TimelinePhotoOverlay(
         return
     }
 
+    val clampedInitial = initialIndex.coerceIn(0, totalPages - 1)
     val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, totalPages - 1)
+        initialPage = clampedInitial
     ) { totalPages }
+
+    // Force the pager to snap to the target page on first composition. Inside
+    // SharedTransitionLayout's LookaheadScope, the pager's scroll offset can
+    // briefly not reflect initialPage during the first measure pass, which makes
+    // the detail-side page X appear to slide in from the right.
+    LaunchedEffect(Unit) {
+        if (pagerState.currentPage != clampedInitial) {
+            pagerState.scrollToPage(clampedInitial)
+        }
+    }
 
     // Load bucket assets into local cache as needed
     val currentBucketKey = resolvePageBucket(pagerState.settledPage, state.buckets)
@@ -169,7 +180,10 @@ fun TimelinePhotoOverlay(
                 }
             }
 
-            val transformForPage = if (isSettledPage) {
+            // Only apply graphicsLayer while a drag is actually in flight —
+            // an always-on identity layer adds a compositing boundary that
+            // interacts badly with sharedBounds promotion/demotion.
+            val transformForPage = if (isSettledPage && dragState.isActive) {
                 Modifier.graphicsLayer {
                     scaleX = dragState.scale
                     scaleY = dragState.scale

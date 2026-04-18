@@ -31,6 +31,7 @@ import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.photoTransitionBoundsTransform
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.detail_video
 import immichgallery.composeapp.generated.resources.ic_play
@@ -59,12 +60,10 @@ fun ThumbnailCell(
         if (LocalAppActive.current) {
             val imageModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                 with(sharedTransitionScope) {
-                    Modifier.matchParentSize().sharedBounds(
+                    Modifier.matchParentSize().sharedElement(
                         sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                         animatedVisibilityScope = animatedVisibilityScope,
-                        resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(
-                            contentScale = ContentScale.Fit
-                        )
+                        boundsTransform = photoTransitionBoundsTransform,
                     )
                 }
             } else {
