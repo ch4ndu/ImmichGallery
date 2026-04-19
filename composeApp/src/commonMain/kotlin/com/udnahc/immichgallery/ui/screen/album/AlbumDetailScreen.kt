@@ -122,6 +122,7 @@ fun AlbumDetailScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
+        androidx.compose.runtime.key(lastSelectedAssetId) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             AlbumDetailContent(
                 state = state,
@@ -158,6 +159,7 @@ fun AlbumDetailScreen(
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )
             }
+        }
         }
         }
 

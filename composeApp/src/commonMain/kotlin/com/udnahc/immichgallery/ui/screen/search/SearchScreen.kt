@@ -134,6 +134,7 @@ fun SearchScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
+        androidx.compose.runtime.key(lastSelectedAssetId) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             SearchContent(
                 state = state,
@@ -171,6 +172,7 @@ fun SearchScreen(
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )
             }
+        }
         }
         }
     }

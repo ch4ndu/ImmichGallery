@@ -125,6 +125,7 @@ fun PersonDetailScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
+        androidx.compose.runtime.key(lastSelectedAssetId) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             PersonDetailContent(
                 state = state,
@@ -162,6 +163,7 @@ fun PersonDetailScreen(
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )
             }
+        }
         }
         }
 
