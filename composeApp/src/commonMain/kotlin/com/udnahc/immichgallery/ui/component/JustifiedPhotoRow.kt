@@ -1,6 +1,5 @@
 package com.udnahc.immichgallery.ui.component
 
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +22,7 @@ fun JustifiedPhotoRow(
     spacing: Dp,
     onPhotoClick: (assetId: String) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
+    hiddenAssetId: String? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().height(row.rowHeight.dp),
@@ -43,7 +42,7 @@ fun JustifiedPhotoRow(
                 onClick = onClick,
                 modifier = cellModifier,
                 sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope
+                hiddenAssetId = hiddenAssetId,
             )
         }
     }

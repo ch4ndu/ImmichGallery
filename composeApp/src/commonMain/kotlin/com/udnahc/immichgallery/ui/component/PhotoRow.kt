@@ -1,6 +1,5 @@
 package com.udnahc.immichgallery.ui.component
 
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
@@ -25,7 +24,7 @@ fun PhotoRow(
     onPhotoClick: (List<Asset>, Int) -> Unit,
     columns: Int = DEFAULT_COLUMNS,
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
+    hiddenAssetId: String? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -43,7 +42,7 @@ fun PhotoRow(
                 onClick = onClick,
                 modifier = Modifier.weight(1f),
                 sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope
+                hiddenAssetId = hiddenAssetId,
             )
         }
         repeat(columns - assets.size) {

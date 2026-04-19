@@ -1,7 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.search
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
@@ -34,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -57,9 +57,14 @@ import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
+import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
+import com.udnahc.immichgallery.ui.util.systemBarFadeIn
+import com.udnahc.immichgallery.ui.util.systemBarFadeOut
+import kotlinx.coroutines.delay
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
@@ -82,7 +87,29 @@ fun SearchScreen(
     var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
-    val showOverlay = selectedAssetId != null
+
+    var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
+
+    // Pre-compute the pager's starting index before showing the overlay so the
+    // grid cell's AV-exit and the overlay's AV-enter both commit in the same
+    // frame — avoids a one-frame stutter at the start of the shared-element
+    // transition (matches TimelineScreen's gating pattern).
+    var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(selectedAssetId, state.results) {
+        val id = selectedAssetId
+        overlayInitialIndex = if (id != null) {
+            state.results.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
+        } else null
+    }
+    val showOverlay = selectedAssetId != null && overlayInitialIndex != null
+
+    var overlayAnimActive by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedAssetId) {
+        overlayAnimActive = true
+        delay(PHOTO_TRANSITION_DURATION_MS.toLong())
+        overlayAnimActive = false
+    }
 
     LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
     PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
@@ -94,48 +121,44 @@ fun SearchScreen(
             row.photos.any { it.asset.id == assetId }
         }
         if (rowIndex >= 0) {
-            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == rowIndex }
-            if (!isVisible) {
+            val info = listState.layoutInfo
+            val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == rowIndex }
+            val fullyVisible = visibleItem != null &&
+                visibleItem.offset >= info.viewportStartOffset &&
+                (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
+            if (!fullyVisible) {
                 listState.scrollToItem(rowIndex)
             }
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                visible = !showOverlay,
-                enter = photoTransitionFadeIn,
-                exit = photoTransitionFadeOut,
-            ) {
-                SearchContent(
-                    state = state,
-                    onQueryChange = viewModel::updateQuery,
-                    onSearchTypeChange = viewModel::updateSearchType,
-                    onSearch = viewModel::search,
-                    onPhotoClick = remember { { id: String -> selectedAssetId = id } },
-                    onSetAvailableWidth = viewModel::setAvailableWidth,
-                    onSetTargetRowHeight = viewModel::setTargetRowHeight,
-                    onLoadMore = viewModel::loadMore,
-                    listState = listState,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedVisibilityScope = this@AnimatedVisibility,
-                )
-            }
+            SearchContent(
+                state = state,
+                showOverlay = showOverlay,
+                hiddenAssetId = currentViewedAssetId,
+                onQueryChange = viewModel::updateQuery,
+                onSearchTypeChange = viewModel::updateSearchType,
+                onSearch = viewModel::search,
+                onPhotoClick = remember { { id: String -> selectedAssetId = id } },
+                onSetAvailableWidth = viewModel::setAvailableWidth,
+                onSetTargetRowHeight = viewModel::setTargetRowHeight,
+                onLoadMore = viewModel::loadMore,
+                listState = listState,
+                sharedTransitionScope = this@SharedTransitionLayout,
+            )
 
             AnimatedVisibility(
                 visible = showOverlay,
                 enter = photoTransitionFadeIn,
                 exit = photoTransitionFadeOut,
             ) {
-                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
-                val assets = state.results
-                val initialIndex = remember(assetId, assets) {
-                    assets.indexOfFirst { it.id == assetId }.coerceAtLeast(0)
-                }
+                lastSelectedAssetId ?: return@AnimatedVisibility
                 StaticPhotoOverlay(
-                    assets = assets,
-                    initialIndex = initialIndex,
+                    assets = state.results,
+                    initialIndex = overlayInitialIndex ?: 0,
                     apiKey = viewModel.apiKey,
                     getAssetDetail = viewModel::getAssetDetail,
                     onPersonClick = onPersonClick,
@@ -143,10 +166,12 @@ fun SearchScreen(
                         viewModel.lastViewedAssetId = currentAssetId
                         selectedAssetId = null
                     },
+                    onCurrentAssetChanged = { id -> currentViewedAssetId = id },
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )
             }
+        }
         }
     }
 }
@@ -155,6 +180,8 @@ fun SearchScreen(
 @Composable
 fun SearchContent(
     state: SearchState,
+    showOverlay: Boolean = false,
+    hiddenAssetId: String? = null,
     onQueryChange: (String) -> Unit,
     onSearchTypeChange: (SearchType) -> Unit,
     onSearch: () -> Unit,
@@ -164,7 +191,6 @@ fun SearchContent(
     onLoadMore: () -> Unit,
     listState: LazyListState = rememberLazyListState(),
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val focusManager = LocalFocusManager.current
@@ -175,34 +201,44 @@ fun SearchContent(
             .padding(horizontal = Dimens.screenPadding)
             .padding(top = statusBarPadding + Dimens.topBarHeight)
     ) {
-        Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
+        // Search field + filter chips hide when the detail overlay is shown
+        // so they don't leak through the transparent scrim during drag-to-dismiss.
+        AnimatedVisibility(
+            visible = !showOverlay,
+            enter = systemBarFadeIn,
+            exit = systemBarFadeOut,
+        ) {
+            Column {
+                Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
 
-        OutlinedTextField(
-            value = state.query,
-            onValueChange = onQueryChange,
-            placeholder = { Text(stringResource(Res.string.search_placeholder)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-            modifier = Modifier.fillMaxWidth()
-        )
+                OutlinedTextField(
+                    value = state.query,
+                    onValueChange = onQueryChange,
+                    placeholder = { Text(stringResource(Res.string.search_placeholder)) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-        Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
+                Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
-            FilterChip(
-                selected = state.searchType == SearchType.SMART,
-                onClick = { onSearchTypeChange(SearchType.SMART) },
-                label = { Text(stringResource(Res.string.search_type_smart)) }
-            )
-            FilterChip(
-                selected = state.searchType == SearchType.METADATA,
-                onClick = { onSearchTypeChange(SearchType.METADATA) },
-                label = { Text(stringResource(Res.string.search_type_filename)) }
-            )
+                Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
+                    FilterChip(
+                        selected = state.searchType == SearchType.SMART,
+                        onClick = { onSearchTypeChange(SearchType.SMART) },
+                        label = { Text(stringResource(Res.string.search_type_smart)) }
+                    )
+                    FilterChip(
+                        selected = state.searchType == SearchType.METADATA,
+                        onClick = { onSearchTypeChange(SearchType.METADATA) },
+                        label = { Text(stringResource(Res.string.search_type_filename)) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
+            }
         }
-
-        Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
 
         when {
             state.isLoading -> {
@@ -280,7 +316,7 @@ fun SearchContent(
                                     spacing = Dimens.gridSpacing,
                                     onPhotoClick = onPhotoClick,
                                     sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = animatedVisibilityScope
+                                    hiddenAssetId = hiddenAssetId,
                                 )
                             }
                             if (state.isLoadingMore) {

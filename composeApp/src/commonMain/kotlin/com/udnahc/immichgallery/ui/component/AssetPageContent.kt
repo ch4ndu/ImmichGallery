@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +49,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.style.TextOverflow
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
 import com.github.panpf.zoomimage.rememberCoilZoomState
 import com.udnahc.immichgallery.LocalAppActive
@@ -56,7 +60,8 @@ import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.SlideshowAnimations
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import com.udnahc.immichgallery.ui.theme.Dimens
-import com.udnahc.immichgallery.ui.util.photoTransitionBoundsTransform
+import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
+import com.udnahc.immichgallery.ui.util.rememberPhotoBoundsTransform
 import com.udnahc.immichgallery.ui.util.restoreEdgeToEdge
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.back
@@ -86,6 +91,7 @@ private const val ERROR_ICON_ALPHA = 0.6f
 private val log = logging()
 
 private const val THUMBNAIL_HIDE_DELAY_MS = 500L
+private const val IMAGE_CROSSFADE_MS = 200
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -102,18 +108,34 @@ internal fun AssetPage(
     isDragging: Boolean = false,
     onZoomStateChanged: ((Boolean) -> Unit)? = null,
 ) {
-    val isTransitionActive = sharedTransitionScope?.isTransitionActive ?: false
+    // Only treat the shared-element scope as "actively transitioning" during
+    // genuine open/dismiss animations (LocalPhotoBoundsTween = true). Pager
+    // swipes re-fire a zero-duration sharedElement transition that would
+    // otherwise flip isTransitionActive for one frame — causing the layer
+    // switch to briefly render the blurry 256 px thumbnail instead of the
+    // sharp full image. Gating here keeps the full image mounted across
+    // mid-overlay sharedElement no-ops.
+    val useTween = LocalPhotoBoundsTween.current
+    val isTransitionActive =
+        useTween && (sharedTransitionScope?.isTransitionActive ?: false)
     var coverThumbnail by remember { mutableStateOf(false) }
 
-    // After a delay, cover the thumbnail so it doesn't peek through zoom-out.
-    // Reset when transition becomes active again (dismiss) or drag starts — during
-    // drag-to-dismiss the thumbnail must be visible as the sharedBounds target.
+    // - During open/dismiss: reveal thumbnail (sharedElement source).
+    // - During drag-before-dismiss: COVER thumbnail immediately — otherwise the
+    //   sharedBounds thumbnail and the full-res ImageContent both render under
+    //   the page's drag graphicsLayer at slightly different rects, producing a
+    //   visible "duplicate image" behind the one following the finger.
+    // - Steady state (not transitioning, not dragging): cover after a short
+    //   delay so the thumbnail acts as a placeholder while the full-res image
+    //   loads after pager swipes.
     LaunchedEffect(isTransitionActive, isDragging) {
-        if (isTransitionActive || isDragging) {
-            coverThumbnail = false
-        } else {
-            delay(THUMBNAIL_HIDE_DELAY_MS)
-            coverThumbnail = true
+        when {
+            isTransitionActive -> coverThumbnail = false
+            isDragging -> coverThumbnail = true
+            else -> {
+                delay(THUMBNAIL_HIDE_DELAY_MS)
+                coverThumbnail = true
+            }
         }
     }
 
@@ -127,6 +149,11 @@ internal fun AssetPage(
         // transition have identical layout shape and the cross-fade renders no
         // visible difference.
         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+            val boundsTransform = rememberPhotoBoundsTransform()
+            // Same hoist gating as ThumbnailCell: only hoist during real
+            // open/dismiss animations so mid-browse AV state changes don't
+            // render a ghost thumbnail over the detail image.
+            val hoistInOverlay = LocalPhotoBoundsTween.current
             val sharedModifier = with(sharedTransitionScope) {
                 // NOTE: DO NOT chain .fillMaxSize() before .aspectRatio() —
                 // fillMaxSize locks min=max=parent size, which forces aspectRatio
@@ -139,25 +166,52 @@ internal fun AssetPage(
                     .sharedElement(
                         sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                         animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = photoTransitionBoundsTransform,
+                        boundsTransform = boundsTransform,
+                        renderInOverlayDuringTransition = hoistInOverlay,
                     )
             }
-            Box(modifier = sharedModifier) {
+            // Pad the sharedBounds container with the same status/nav-bar
+            // insets as the (non-zoomed) full-image container below, so the
+            // thumbnail's aspect-fit rect matches the full image's aspect-fit
+            // rect exactly. Without this the thumbnail flies to a full-screen
+            // rect and then the full image loads in a smaller padded rect,
+            // producing a visible "jump" on load and a flash on pager swipe
+            // whenever isTransitionActive briefly toggles.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+                contentAlignment = Alignment.Center,
+            ) {
+            // alpha instead of a black cover Box: keeps the sharedElement
+            // modifier in the tree so bounds stay captured for the exit
+            // animation, but makes the thumbnail layer invisible during drag
+            // and steady-state viewing. The previous black cover drew its own
+            // rect and, under the page's drag graphicsLayer, didn't line up
+            // perfectly with the full-res ImageContent → visible as a duplicate.
+            Box(modifier = sharedModifier.alpha(if (coverThumbnail) 0f else 1f)) {
                 // No padding here — the content inside sharedBounds must match the
                 // grid-side thumbnail's layout exactly (same Fit, same fillMaxSize,
                 // no bar padding). Any layout mismatch makes the sharedBounds
                 // cross-fade visible as a "second animation".
+                // Explicit memoryCacheKey keeps this thumbnail entry aligned with
+                // the grid's ThumbnailCell cache key — the full-image request in
+                // ImageContent references it via placeholderMemoryCacheKey.
+                val thumbnailContext = LocalPlatformContext.current
+                val thumbnailRequest = remember(thumbnailContext, asset.thumbnailUrl) {
+                    ImageRequest.Builder(thumbnailContext)
+                        .data(asset.thumbnailUrl)
+                        .memoryCacheKey(asset.thumbnailUrl)
+                        .build()
+                }
                 AsyncImage(
-                    model = asset.thumbnailUrl,
+                    model = thumbnailRequest,
                     contentDescription = asset.fileName,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize()
                 )
-                // Opaque cover to hide thumbnail from zoom-out, while keeping
-                // the shared bounds composable fully in the tree for exit animation
-                if (coverThumbnail) {
-                    Box(Modifier.fillMaxSize().background(Color.Black))
-                }
+            }
             }
         }
 
@@ -217,7 +271,12 @@ internal fun AssetPage(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    ImageContent(url = asset.originalUrl, onTap = onTap, zoomState = zoomState)
+                    ImageContent(
+                        url = asset.originalUrl,
+                        thumbnailUrl = asset.thumbnailUrl,
+                        onTap = onTap,
+                        zoomState = zoomState
+                    )
                 }
             }
         }
@@ -369,12 +428,26 @@ internal fun DetailBottomHandle(
 @Composable
 private fun ImageContent(
     url: String,
+    thumbnailUrl: String,
     onTap: () -> Unit,
     zoomState: com.github.panpf.zoomimage.CoilZoomState
 ) {
     var hasError by remember { mutableStateOf(false) }
 
     log.d { "ImageContent: loading $url" }
+
+    // Use the cached thumbnail as a placeholder so a slow network doesn't
+    // leave a blank frame between the end of the shared-element transition
+    // and the full-resolution image arriving. The short crossfade smooths
+    // the thumbnail→original handoff.
+    val context = LocalPlatformContext.current
+    val imageRequest = remember(context, url, thumbnailUrl) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .placeholderMemoryCacheKey(thumbnailUrl)
+            .crossfade(IMAGE_CROSSFADE_MS)
+            .build()
+    }
 
     if (hasError) {
         ErrorState(
@@ -383,7 +456,7 @@ private fun ImageContent(
         )
     } else if (LocalAppActive.current) {
         CoilZoomAsyncImage(
-            model = url,
+            model = imageRequest,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             zoomState = zoomState,

@@ -1,7 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
@@ -27,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -55,9 +55,14 @@ import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
+import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
+import com.udnahc.immichgallery.ui.util.systemBarFadeIn
+import com.udnahc.immichgallery.ui.util.systemBarFadeOut
+import kotlinx.coroutines.delay
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
@@ -91,6 +96,19 @@ fun TimelineScreen(
     var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
 
+    // Follows the pager's current page; drives which grid cell is hidden.
+    var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
+
+    // True while an open/dismiss animation is in flight. Drives the dynamic
+    // BoundsTransform: tween for open/dismiss, snap for mid-overlay pager swipes.
+    var overlayAnimActive by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedAssetId) {
+        overlayAnimActive = true
+        delay(PHOTO_TRANSITION_DURATION_MS.toLong())
+        overlayAnimActive = false
+    }
+
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(selectedAssetId) {
         val id = selectedAssetId
@@ -109,14 +127,22 @@ fun TimelineScreen(
         viewModel.setGroupSize(groupSize)
     }
 
-    // Scroll back to last viewed asset (or its bucket placeholder) on return from detail
+    // Scroll back to last viewed asset (or its bucket placeholder) on return from detail.
+    // Uses fully-visible check (offset within viewport bounds) rather than a loose
+    // "any pixel peeking" test — otherwise rows partially clipped under the top bar
+    // or overscroll area count as visible and the scroll is skipped, leaving the
+    // user on a row that's mostly offscreen.
     LaunchedEffect(viewModel.lastViewedAssetId, viewModel.lastViewedBucket) {
         val displayIndex = viewModel.getDisplayItemIndexForReturn(
             viewModel.lastViewedAssetId,
             viewModel.lastViewedBucket
         ) ?: return@LaunchedEffect
-        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == displayIndex }
-        if (!isVisible) {
+        val info = listState.layoutInfo
+        val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == displayIndex }
+        val fullyVisible = visibleItem != null &&
+            visibleItem.offset >= info.viewportStartOffset &&
+            (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
+        if (!fullyVisible) {
             listState.scrollToItem(displayIndex)
         }
     }
@@ -141,28 +167,27 @@ fun TimelineScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                visible = !showOverlay,
-                enter = photoTransitionFadeIn,
-                exit = photoTransitionFadeOut,
-            ) {
-                TimelineContent(
-                    state = state,
-                    listState = listState,
-                    onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
-                    onTargetRowHeightChanged = viewModel::setTargetRowHeight,
-                    onAvailableWidthChanged = viewModel::setAvailableWidth,
-                    onRetryBucket = viewModel::retryBucket,
-                    onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
-                    onRetry = viewModel::refreshAll,
-                    onDismissBannerError = viewModel::dismissBannerError,
-                    onDismissBannerSuccess = viewModel::dismissBannerSuccess,
-                    labelProvider = viewModel.labelProvider,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedVisibilityScope = this@AnimatedVisibility,
-                )
-            }
+            // Grid is no longer wrapped in its own AnimatedVisibility — it stays
+            // composed behind the overlay so drag-to-dismiss reveals it.
+            // Per-cell AVs in ThumbnailCell drive the shared-element animation.
+            TimelineContent(
+                state = state,
+                listState = listState,
+                showOverlay = showOverlay,
+                hiddenAssetId = currentViewedAssetId,
+                onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
+                onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+                onAvailableWidthChanged = viewModel::setAvailableWidth,
+                onRetryBucket = viewModel::retryBucket,
+                onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
+                onRetry = viewModel::refreshAll,
+                onDismissBannerError = viewModel::dismissBannerError,
+                onDismissBannerSuccess = viewModel::dismissBannerSuccess,
+                labelProvider = viewModel.labelProvider,
+                sharedTransitionScope = this@SharedTransitionLayout,
+            )
 
             AnimatedVisibility(
                 visible = showOverlay,
@@ -185,10 +210,12 @@ fun TimelineScreen(
                         viewModel.lastViewedBucket = currentBucket
                         selectedAssetId = null
                     },
+                    onCurrentAssetChanged = { id -> currentViewedAssetId = id },
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )
             }
+        }
         }
     }
 }
@@ -198,6 +225,8 @@ fun TimelineScreen(
 fun TimelineContent(
     state: TimelineState,
     listState: LazyListState = rememberLazyListState(),
+    showOverlay: Boolean = false,
+    hiddenAssetId: String? = null,
     onFirstVisibleItemChanged: (Int) -> Unit,
     onTargetRowHeightChanged: (Float) -> Unit = {},
     onAvailableWidthChanged: (Float) -> Unit = {},
@@ -208,7 +237,6 @@ fun TimelineContent(
     onDismissBannerSuccess: () -> Unit = {},
     labelProvider: (Float) -> String?,
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val displayItems = state.displayItems
     val targetRowHeight = state.targetRowHeight
@@ -272,7 +300,7 @@ fun TimelineContent(
                                     spacing = Dimens.gridSpacing,
                                     onPhotoClick = onPhotoClick,
                                     sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = animatedVisibilityScope
+                                    hiddenAssetId = hiddenAssetId,
                                 )
                                 is PlaceholderItem -> PlaceholderRow(
                                     estimatedHeight = item.estimatedHeight
@@ -286,31 +314,45 @@ fun TimelineContent(
                     }
                 }
 
-                // Sticky header overlay
-                StickyHeaderOverlay(
-                    listState = listState,
-                    displayItems = displayItems,
-                    statusBarPadding = statusBarPadding
-                )
+                // Sticky header overlay — hidden when the detail overlay is
+                // shown so it doesn't peek through the transparent scrim
+                // during drag-to-dismiss or overlap the overlay's top bar.
+                AnimatedVisibility(
+                    visible = !showOverlay,
+                    enter = systemBarFadeIn,
+                    exit = systemBarFadeOut,
+                ) {
+                    StickyHeaderOverlay(
+                        listState = listState,
+                        displayItems = displayItems,
+                        statusBarPadding = statusBarPadding
+                    )
+                }
 
-                // Banner overlays
-                val bannerModifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = Dimens.topBarHeight + Dimens.sectionHeaderHeight)
-                if (state.bannerError != null) {
-                    ErrorBanner(
-                        message = state.bannerError,
-                        lastSyncedAt = state.lastSyncedAt,
-                        onDismiss = onDismissBannerError,
-                        modifier = bannerModifier
-                    )
-                } else if (state.bannerSuccess != null) {
-                    SuccessBanner(
-                        message = state.bannerSuccess,
-                        onDismiss = onDismissBannerSuccess,
-                        modifier = bannerModifier
-                    )
+                // Banner overlays — same gating as sticky header.
+                AnimatedVisibility(
+                    visible = !showOverlay,
+                    enter = systemBarFadeIn,
+                    exit = systemBarFadeOut,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                ) {
+                    val bannerModifier = Modifier
+                        .statusBarsPadding()
+                        .padding(top = Dimens.topBarHeight + Dimens.sectionHeaderHeight)
+                    if (state.bannerError != null) {
+                        ErrorBanner(
+                            message = state.bannerError,
+                            lastSyncedAt = state.lastSyncedAt,
+                            onDismiss = onDismissBannerError,
+                            modifier = bannerModifier
+                        )
+                    } else if (state.bannerSuccess != null) {
+                        SuccessBanner(
+                            message = state.bannerSuccess,
+                            onDismiss = onDismissBannerSuccess,
+                            modifier = bannerModifier
+                        )
+                    }
                 }
             }
         }

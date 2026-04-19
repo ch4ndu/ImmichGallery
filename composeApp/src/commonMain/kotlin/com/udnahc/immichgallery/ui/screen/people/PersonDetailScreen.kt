@@ -1,7 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.people
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
@@ -21,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -42,10 +42,15 @@ import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
+import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
+import com.udnahc.immichgallery.ui.util.systemBarFadeIn
+import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
+import kotlinx.coroutines.delay
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_photos
 import immichgallery.composeapp.generated.resources.unknown
@@ -69,7 +74,29 @@ fun PersonDetailScreen(
     var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
-    val showOverlay = selectedAssetId != null
+
+    var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
+
+    // Pre-compute the pager's starting index before showing the overlay so the
+    // grid cell's AV-exit and the overlay's AV-enter both commit in the same
+    // frame — avoids a one-frame stutter at the start of the shared-element
+    // transition (matches TimelineScreen's gating pattern).
+    var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(selectedAssetId, state.assets) {
+        val id = selectedAssetId
+        overlayInitialIndex = if (id != null) {
+            state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
+        } else null
+    }
+    val showOverlay = selectedAssetId != null && overlayInitialIndex != null
+
+    var overlayAnimActive by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedAssetId) {
+        overlayAnimActive = true
+        delay(PHOTO_TRANSITION_DURATION_MS.toLong())
+        overlayAnimActive = false
+    }
 
     PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
 
@@ -80,8 +107,12 @@ fun PersonDetailScreen(
             item is PersonRowItem && item.row.photos.any { it.asset.id == assetId }
         }
         if (itemIndex >= 0) {
-            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == itemIndex }
-            if (!isVisible) {
+            val info = listState.layoutInfo
+            val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == itemIndex }
+            val fullyVisible = visibleItem != null &&
+                visibleItem.offset >= info.viewportStartOffset &&
+                (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
+            if (!fullyVisible) {
                 listState.scrollToItem(itemIndex)
             }
         }
@@ -93,53 +124,32 @@ fun PersonDetailScreen(
     val contentBottomPadding = navBarPadding
 
     Box(modifier = Modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                visible = !showOverlay,
-                enter = photoTransitionFadeIn,
-                exit = photoTransitionFadeOut,
-            ) {
-                Box(Modifier.fillMaxSize()) {
-                    PersonDetailContent(
-                        state = state,
-                        onPhotoClick = remember { { id: String -> selectedAssetId = id } },
-                        onRetry = viewModel::refreshAll,
-                        onDismissBanner = viewModel::dismissBannerError,
-                        onLoadMore = viewModel::loadMore,
-                        onAvailableWidth = viewModel::setAvailableWidth,
-                        onTargetRowHeightChanged = viewModel::setTargetRowHeight,
-                        contentTopPadding = contentTopPadding,
-                        contentBottomPadding = contentBottomPadding,
-                        listState = listState,
-                        sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = this@AnimatedVisibility,
-                    )
-                    DetailTopBar(
-                        title = personName.ifBlank { unknownLabel },
-                        onBack = onBack,
-                        trailingContent = {
-                            GroupSizeDropdown(
-                                selected = state.groupSize,
-                                onSelected = viewModel::setGroupSize
-                            )
-                        }
-                    )
-                }
-            }
+            PersonDetailContent(
+                state = state,
+                hiddenAssetId = currentViewedAssetId,
+                onPhotoClick = remember { { id: String -> selectedAssetId = id } },
+                onRetry = viewModel::refreshAll,
+                onDismissBanner = viewModel::dismissBannerError,
+                onLoadMore = viewModel::loadMore,
+                onAvailableWidth = viewModel::setAvailableWidth,
+                onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+                contentTopPadding = contentTopPadding,
+                contentBottomPadding = contentBottomPadding,
+                listState = listState,
+                sharedTransitionScope = this@SharedTransitionLayout,
+            )
 
             AnimatedVisibility(
                 visible = showOverlay,
                 enter = photoTransitionFadeIn,
                 exit = photoTransitionFadeOut,
             ) {
-                val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
-                val assets = state.assets
-                val initialIndex = remember(assetId, assets) {
-                    assets.indexOfFirst { it.id == assetId }.coerceAtLeast(0)
-                }
+                lastSelectedAssetId ?: return@AnimatedVisibility
                 StaticPhotoOverlay(
-                    assets = assets,
-                    initialIndex = initialIndex,
+                    assets = state.assets,
+                    initialIndex = overlayInitialIndex ?: 0,
                     apiKey = viewModel.apiKey,
                     getAssetDetail = viewModel::getAssetDetail,
                     onPersonClick = onPersonClick,
@@ -147,10 +157,29 @@ fun PersonDetailScreen(
                         viewModel.lastViewedAssetId = currentAssetId
                         selectedAssetId = null
                     },
+                    onCurrentAssetChanged = { id -> currentViewedAssetId = id },
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )
             }
+        }
+        }
+
+        AnimatedVisibility(
+            visible = !showOverlay,
+            enter = systemBarFadeIn,
+            exit = systemBarFadeOut,
+        ) {
+            DetailTopBar(
+                title = personName.ifBlank { unknownLabel },
+                onBack = onBack,
+                trailingContent = {
+                    GroupSizeDropdown(
+                        selected = state.groupSize,
+                        onSelected = viewModel::setGroupSize
+                    )
+                }
+            )
         }
     }
 }
@@ -159,6 +188,7 @@ fun PersonDetailScreen(
 @Composable
 fun PersonDetailContent(
     state: PersonDetailState,
+    hiddenAssetId: String? = null,
     onPhotoClick: (String) -> Unit,
     onRetry: () -> Unit,
     onDismissBanner: () -> Unit = {},
@@ -169,7 +199,6 @@ fun PersonDetailContent(
     contentBottomPadding: Dp = 0.dp,
     listState: LazyListState = rememberLazyListState(),
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     LoadingErrorContent(
         isLoading = (state.isBuilding || state.isLoading) && state.assets.isEmpty(),
@@ -229,7 +258,7 @@ fun PersonDetailContent(
                                 spacing = Dimens.gridSpacing,
                                 onPhotoClick = onPhotoClick,
                                 sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope
+                                hiddenAssetId = hiddenAssetId,
                             )
                         }
                     }

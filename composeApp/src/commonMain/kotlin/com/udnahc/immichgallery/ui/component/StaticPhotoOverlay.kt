@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -16,6 +17,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapNotNull
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +48,7 @@ fun StaticPhotoOverlay(
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?) -> Unit,
+    onCurrentAssetChanged: (String) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
@@ -85,6 +94,33 @@ fun StaticPhotoOverlay(
         if (pagerState.currentPage != clampedInitial) {
             pagerState.scrollToPage(clampedInitial)
         }
+    }
+
+    // Report the currently-viewed asset to the parent so the grid can hide it.
+    LaunchedEffect(pagerState, assets) {
+        snapshotFlow { pagerState.settledPage }
+            .mapNotNull { assets.getOrNull(it)?.id }
+            .distinctUntilChanged()
+            .collect(onCurrentAssetChanged)
+    }
+
+    // Prefetch the current asset's full image plus its neighbors into Coil's
+    // cache so pager swipes and the first tap don't show a loading gap between
+    // the end of the shared-element transition and the full image arriving.
+    val prefetchContext = LocalPlatformContext.current
+    val imageLoader = remember(prefetchContext) { SingletonImageLoader.get(prefetchContext) }
+    LaunchedEffect(pagerState, assets) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page ->
+                listOf(page - 1, page, page + 1).forEach { idx ->
+                    val asset = assets.getOrNull(idx) ?: return@forEach
+                    imageLoader.enqueue(
+                        ImageRequest.Builder(prefetchContext)
+                            .data(asset.originalUrl)
+                            .build()
+                    )
+                }
+            }
     }
 
     // Auto-advance slideshow — keyed on config so it restarts on config change
@@ -166,6 +202,9 @@ fun StaticPhotoOverlay(
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
+            // Swallow taps that fall in letterbox dead zones so they don't
+            // reach the grid composed beneath the overlay.
+            .pointerInput(Unit) { detectTapGestures { } }
     ) {
         HorizontalPager(
             state = pagerState,

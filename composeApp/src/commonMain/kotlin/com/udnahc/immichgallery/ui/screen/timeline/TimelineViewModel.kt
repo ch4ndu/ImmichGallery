@@ -325,9 +325,26 @@ class TimelineViewModel(
 
     suspend fun getGlobalPhotoIndex(assetId: String): Int? {
         val s = state.value
+        // Fast path: in-memory cache. The clicked photo's bucket must already
+        // be loaded (it's visible on screen), so this hits immediately and
+        // avoids a Room round-trip that delayed the shared-element transition.
+        val cached = withContext(Dispatchers.Default) {
+            var globalIndex = 0
+            for (bucket in s.buckets) {
+                val assets = cachedAssets[bucket.timeBucket]
+                if (assets != null) {
+                    val localIndex = assets.indexOfFirst { it.id == assetId }
+                    if (localIndex >= 0) return@withContext globalIndex + localIndex
+                }
+                globalIndex += bucket.count
+            }
+            null
+        }
+        if (cached != null) return cached
+        // Fallback: query Room for any buckets not in the cache (e.g. user
+        // deep-scrolled and we evicted old buckets).
         var globalIndex = 0
         for (bucket in s.buckets) {
-            // Always query Room — avoids touching cachedAssets from a different thread context
             val assets = withContext(Dispatchers.IO) {
                 getBucketAssetsUseCase(bucket.timeBucket)
             }

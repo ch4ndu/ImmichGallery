@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -18,6 +19,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapNotNull
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +56,7 @@ fun TimelinePhotoOverlay(
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
+    onCurrentAssetChanged: (String) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
@@ -84,6 +93,36 @@ fun TimelinePhotoOverlay(
         }
     }
 
+    // Report the currently-viewed asset to the parent so the grid can hide it.
+    // mapNotNull filters out settled pages whose bucket hasn't loaded yet —
+    // otherwise we'd briefly signal null and the grid would flash every cell in.
+    LaunchedEffect(pagerState, state.buckets, bucketAssetsCache) {
+        snapshotFlow { pagerState.settledPage }
+            .mapNotNull { resolvePageAsset(it, state.buckets, bucketAssetsCache)?.id }
+            .distinctUntilChanged()
+            .collect(onCurrentAssetChanged)
+    }
+
+    // Prefetch current ±1 full images into Coil's cache. Neighboring pages
+    // whose bucket hasn't loaded yet are silently skipped — they'll prefetch
+    // whenever their bucket arrives and the pager settles near them.
+    val prefetchContext = LocalPlatformContext.current
+    val imageLoader = remember(prefetchContext) { SingletonImageLoader.get(prefetchContext) }
+    LaunchedEffect(pagerState, state.buckets, bucketAssetsCache) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page ->
+                listOf(page - 1, page, page + 1).forEach { idx ->
+                    val asset = resolvePageAsset(idx, state.buckets, bucketAssetsCache)
+                        ?: return@forEach
+                    imageLoader.enqueue(
+                        ImageRequest.Builder(prefetchContext)
+                            .data(asset.originalUrl)
+                            .build()
+                    )
+                }
+            }
+    }
+
     // Load bucket assets into local cache as needed
     val currentBucketKey = resolvePageBucket(pagerState.settledPage, state.buckets)
     LaunchedEffect(currentBucketKey) {
@@ -117,9 +156,16 @@ fun TimelinePhotoOverlay(
         }
     }
 
-    val displayFileName = currentAsset?.let {
+    val resolvedFileName = currentAsset?.let {
         it.fileName.ifEmpty { fileNameCache[it.id] ?: "" }
     } ?: ""
+    // Keep the last non-empty title visible while an async filename fetch is
+    // in flight — avoids the top bar blanking out between pager pages.
+    var lastDisplayedFileName by remember { mutableStateOf("") }
+    LaunchedEffect(resolvedFileName) {
+        if (resolvedFileName.isNotEmpty()) lastDisplayedFileName = resolvedFileName
+    }
+    val displayFileName = resolvedFileName.ifEmpty { lastDisplayedFileName }
 
     val density = LocalDensity.current
     val dismissThresholdPx = remember(density) {
@@ -159,6 +205,9 @@ fun TimelinePhotoOverlay(
                 onDismiss = { onDismiss(currentAsset?.id, currentBucketKey) },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
+            // Swallow taps that fall in letterbox dead zones so they don't
+            // reach the grid composed beneath the overlay.
+            .pointerInput(Unit) { detectTapGestures { } }
     ) {
         HorizontalPager(
             state = pagerState,

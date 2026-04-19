@@ -11,10 +11,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -68,6 +64,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.ui.util.systemBarFadeIn
+import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
@@ -191,11 +189,12 @@ fun MainScreen(
             }
         }
 
-        // Top bar overlay — animated hide/show
+        // Top bar overlay — animated hide/show. Exit is delayed so the bar
+        // stays visible across the shared-element flight into the detail view.
         AnimatedVisibility(
             visible = !overlayActive,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = systemBarFadeIn,
+            exit = systemBarFadeOut
         ) {
             TopBarOverlay(
                 title = currentTabTitle,
@@ -218,11 +217,12 @@ fun MainScreen(
             )
         }
 
-        // Bottom bar overlay — animated hide/show with slide
+        // Bottom bar overlay — animated hide/show. Exit is delayed so the bar
+        // stays visible across the shared-element flight into the detail view.
         AnimatedVisibility(
             visible = !overlayActive,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it },
+            enter = systemBarFadeIn,
+            exit = systemBarFadeOut,
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             BottomBarOverlay(
