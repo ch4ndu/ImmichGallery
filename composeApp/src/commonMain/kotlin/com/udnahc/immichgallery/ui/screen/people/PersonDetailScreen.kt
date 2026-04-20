@@ -75,6 +75,20 @@ fun PersonDetailScreen(
     var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
 
+    // Bumped on every open so key() below forces a fresh STL mount — fixes the
+    // same-asset re-tap Y-doubling that the lastSelectedAssetId key missed.
+    // MUST update synchronously in the composition body (not in a
+    // LaunchedEffect); otherwise the epoch increment lands in the same frame
+    // as overlayInitialIndex, so the STL remount coincides with showOverlay
+    // flipping true — AnimatedVisibility mounts already-visible and the enter
+    // animation snaps instead of running.
+    var selectionEpoch by rememberSaveable { mutableStateOf(0) }
+    var prevSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    if (prevSelectedAssetId == null && selectedAssetId != null) {
+        selectionEpoch++
+    }
+    prevSelectedAssetId = selectedAssetId
+
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
 
@@ -125,7 +139,7 @@ fun PersonDetailScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
-        androidx.compose.runtime.key(lastSelectedAssetId) {
+        androidx.compose.runtime.key(selectionEpoch) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             PersonDetailContent(
                 state = state,

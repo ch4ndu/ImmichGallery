@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import coil3.SingletonImageLoader
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -52,7 +53,8 @@ fun TimelinePhotoOverlay(
     apiKey: String,
     getAssetFileName: suspend (assetId: String, fallback: String) -> Result<String>,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
-    getAssetsForBucket: suspend (timeBucket: String) -> List<Asset>,
+    assetCache: SnapshotStateMap<String, List<Asset>>,
+    loadBucket: suspend (timeBucket: String) -> Unit,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
@@ -66,9 +68,6 @@ fun TimelinePhotoOverlay(
     var showDetailSheet by remember { mutableStateOf(false) }
     val fileNameCache = remember { mutableStateMapOf<String, String>() }
 
-    // Cache loaded bucket assets for the pager
-    val bucketAssetsCache = remember { mutableStateMapOf<String, List<Asset>>() }
-
     val totalPages = remember(state.buckets) {
         state.buckets.sumOf { it.count }
     }
@@ -79,6 +78,7 @@ fun TimelinePhotoOverlay(
     }
 
     val clampedInitial = initialIndex.coerceIn(0, totalPages - 1)
+
     val pagerState = rememberPagerState(
         initialPage = clampedInitial
     ) { totalPages }
@@ -96,9 +96,9 @@ fun TimelinePhotoOverlay(
     // Report the currently-viewed asset to the parent so the grid can hide it.
     // mapNotNull filters out settled pages whose bucket hasn't loaded yet —
     // otherwise we'd briefly signal null and the grid would flash every cell in.
-    LaunchedEffect(pagerState, state.buckets, bucketAssetsCache) {
+    LaunchedEffect(pagerState, state.buckets, assetCache) {
         snapshotFlow { pagerState.settledPage }
-            .mapNotNull { resolvePageAsset(it, state.buckets, bucketAssetsCache)?.id }
+            .mapNotNull { resolvePageAsset(it, state.buckets, assetCache)?.id }
             .distinctUntilChanged()
             .collect(onCurrentAssetChanged)
     }
@@ -108,11 +108,11 @@ fun TimelinePhotoOverlay(
     // whenever their bucket arrives and the pager settles near them.
     val prefetchContext = LocalPlatformContext.current
     val imageLoader = remember(prefetchContext) { SingletonImageLoader.get(prefetchContext) }
-    LaunchedEffect(pagerState, state.buckets, bucketAssetsCache) {
+    LaunchedEffect(pagerState, state.buckets, assetCache) {
         snapshotFlow { pagerState.settledPage }
             .collect { page ->
                 listOf(page - 1, page, page + 1).forEach { idx ->
-                    val asset = resolvePageAsset(idx, state.buckets, bucketAssetsCache)
+                    val asset = resolvePageAsset(idx, state.buckets, assetCache)
                         ?: return@forEach
                     imageLoader.enqueue(
                         ImageRequest.Builder(prefetchContext)
@@ -123,20 +123,17 @@ fun TimelinePhotoOverlay(
             }
     }
 
-    // Load bucket assets into local cache as needed
+    // Load bucket assets into the shared cache as needed
     val currentBucketKey = resolvePageBucket(pagerState.settledPage, state.buckets)
     LaunchedEffect(currentBucketKey) {
-        if (currentBucketKey != null && !bucketAssetsCache.containsKey(currentBucketKey)) {
+        if (currentBucketKey != null && !assetCache.containsKey(currentBucketKey)) {
             onBucketNeeded(currentBucketKey)
-            val assets = getAssetsForBucket(currentBucketKey)
-            if (assets.isNotEmpty()) {
-                bucketAssetsCache[currentBucketKey] = assets
-            }
+            loadBucket(currentBucketKey)
         }
     }
 
     val currentAsset = resolvePageAsset(
-        pagerState.settledPage, state.buckets, bucketAssetsCache
+        pagerState.settledPage, state.buckets, assetCache
     )
 
     PlatformBackHandler(enabled = true, onBack = {
@@ -214,18 +211,15 @@ fun TimelinePhotoOverlay(
             modifier = Modifier.fillMaxSize(),
             key = { page -> page }
         ) { page ->
-            val asset = resolvePageAsset(page, state.buckets, bucketAssetsCache)
+            val asset = resolvePageAsset(page, state.buckets, assetCache)
             val isSettledPage = pagerState.settledPage == page
 
             // Trigger loading for this page's bucket
             LaunchedEffect(page) {
                 val bucket = resolvePageBucket(page, state.buckets)
-                if (bucket != null && !bucketAssetsCache.containsKey(bucket)) {
+                if (bucket != null && !assetCache.containsKey(bucket)) {
                     onBucketNeeded(bucket)
-                    val assets = getAssetsForBucket(bucket)
-                    if (assets.isNotEmpty()) {
-                        bucketAssetsCache[bucket] = assets
-                    }
+                    loadBucket(bucket)
                 }
             }
 

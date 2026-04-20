@@ -2,8 +2,10 @@ package com.udnahc.immichgallery.ui.screen.timeline
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
@@ -120,8 +122,36 @@ class TimelineViewModel(
     var lastViewedAssetId: String? by mutableStateOf(null)
     var lastViewedBucket: String? by mutableStateOf(null)
 
-    suspend fun getAssetsForBucket(timeBucket: String): List<Asset> =
-        getBucketAssetsUseCase(timeBucket)
+    // Observable, view-scoped cache of asset lists, keyed by timeBucket. Owned
+    // here (not inside TimelinePhotoOverlay) so the screen can synchronously
+    // pre-populate the initial bucket from `cachedAssets` before the overlay's
+    // first composition — otherwise the enter shared-element transition has no
+    // sharedBounds destination while the async Room query completes.
+    val overlayAssetCache: SnapshotStateMap<String, List<Asset>> = mutableStateMapOf()
+
+    // Synchronously copy the bucket containing `assetId` from `cachedAssets`
+    // into `overlayAssetCache`. Called before the overlay is shown so the pager
+    // can render AssetPage (with its sharedBounds) on frame one. No-op if the
+    // bucket isn't in `cachedAssets` — the overlay will fall back to the async
+    // load path via `loadBucketForOverlay`.
+    fun prepareOverlayForAsset(assetId: String) {
+        for ((bucket, assets) in cachedAssets) {
+            if (assets.any { it.id == assetId }) {
+                overlayAssetCache[bucket] = assets
+                return
+            }
+        }
+    }
+
+    // Load a bucket's assets into `overlayAssetCache` if not already present.
+    // Used by the overlay when the user swipes into an unloaded bucket.
+    suspend fun loadBucketForOverlay(timeBucket: String) {
+        if (overlayAssetCache.containsKey(timeBucket)) return
+        val assets = getBucketAssetsUseCase(timeBucket)
+        if (assets.isNotEmpty()) {
+            overlayAssetCache[timeBucket] = assets
+        }
+    }
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
         getAssetDetailUseCase(assetId)

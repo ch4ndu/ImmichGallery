@@ -96,6 +96,23 @@ fun TimelineScreen(
     var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
 
+    // Monotonic counter bumped on every overlay open (including same-asset
+    // re-taps). Used as the key() for SharedTransitionLayout so STL's internal
+    // sharedElements map is disposed+remounted on every open — without this the
+    // `initialMfrOffset` carries drift between transitions and the shared
+    // element flies to `2 × grid_Y` instead of the real cell position.
+    // MUST update synchronously in the composition body (not in a
+    // LaunchedEffect); otherwise the epoch increment lands in the same frame
+    // as overlayInitialIndex, so the STL remount coincides with showOverlay
+    // flipping true — AnimatedVisibility mounts already-visible and the enter
+    // animation snaps instead of running.
+    var selectionEpoch by rememberSaveable { mutableStateOf(0) }
+    var prevSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    if (prevSelectedAssetId == null && selectedAssetId != null) {
+        selectionEpoch++
+    }
+    prevSelectedAssetId = selectedAssetId
+
     // Follows the pager's current page; drives which grid cell is hidden.
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
@@ -112,7 +129,15 @@ fun TimelineScreen(
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(selectedAssetId) {
         val id = selectedAssetId
-        overlayInitialIndex = if (id != null) viewModel.getGlobalPhotoIndex(id) ?: 0 else null
+        if (id != null) {
+            // Sync pre-populate: copy the bucket containing this asset from the
+            // VM's in-memory cache to the overlay cache, so AssetPage (with its
+            // sharedBounds destination) renders on frame one of the overlay.
+            viewModel.prepareOverlayForAsset(id)
+            overlayInitialIndex = viewModel.getGlobalPhotoIndex(id) ?: 0
+        } else {
+            overlayInitialIndex = null
+        }
     }
     val showOverlay = selectedAssetId != null && overlayInitialIndex != null
 
@@ -168,6 +193,7 @@ fun TimelineScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
+        androidx.compose.runtime.key(selectionEpoch) {
         SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
             // Grid is no longer wrapped in its own AnimatedVisibility — it stays
             // composed behind the overlay so drag-to-dismiss reveals it.
@@ -202,7 +228,8 @@ fun TimelineScreen(
                     apiKey = viewModel.apiKey,
                     getAssetFileName = viewModel::getAssetFileName,
                     getAssetDetail = viewModel::getAssetDetail,
-                    getAssetsForBucket = viewModel::getAssetsForBucket,
+                    assetCache = viewModel.overlayAssetCache,
+                    loadBucket = viewModel::loadBucketForOverlay,
                     onBucketNeeded = viewModel::loadBucketAssets,
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId, currentBucket ->
@@ -215,6 +242,7 @@ fun TimelineScreen(
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )
             }
+        }
         }
         }
     }

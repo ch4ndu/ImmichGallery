@@ -249,7 +249,13 @@ internal fun AssetPage(
                         .navigationBarsPadding(),
                     contentAlignment = Alignment.Center
                 ) {
-                    VideoContent(url = asset.videoPlaybackUrl, apiKey = apiKey, isCurrentPage = isCurrentPage)
+                    VideoContent(
+                        playbackUrl = asset.videoPlaybackUrl,
+                        originalUrl = asset.originalUrl,
+                        apiKey = apiKey,
+                        isCurrentPage = isCurrentPage,
+                        onTap = onTap
+                    )
                 }
             } else {
                 // Image with zoom — draw under system bars when zoomed/panned
@@ -473,11 +479,13 @@ private fun ImageContent(
 
 @Composable
 private fun VideoContent(
-    url: String,
+    playbackUrl: String,
+    originalUrl: String,
     apiKey: String,
-    isCurrentPage: Boolean
+    isCurrentPage: Boolean,
+    onTap: () -> Unit
 ) {
-    log.d { "VideoContent: loading video from $url" }
+    log.d { "VideoContent: loading video from $playbackUrl" }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -487,9 +495,11 @@ private fun VideoContent(
     }
 
     PlatformVideoPlayer(
-        url = url,
+        playbackUrl = playbackUrl,
+        originalUrl = originalUrl,
         apiKey = apiKey,
         isCurrentPage = isCurrentPage,
+        onTap = onTap,
         modifier = Modifier.fillMaxSize()
     )
 }

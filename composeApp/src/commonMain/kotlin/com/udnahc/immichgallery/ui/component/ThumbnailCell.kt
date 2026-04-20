@@ -1,6 +1,8 @@
 package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
@@ -33,8 +35,6 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
-import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
-import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.rememberPhotoBoundsTransform
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.detail_video
@@ -62,8 +62,13 @@ fun ThumbnailCell(
     // the grid stays composed and visible behind the detail overlay.
     AnimatedVisibility(
         visible = hiddenAssetId != asset.id,
-        enter = photoTransitionFadeIn,
-        exit = photoTransitionFadeOut,
+        // Snap on both enter and exit. The shared element hoists the cell's
+        // content into the overlay during transitions, so the in-place cell
+        // can appear/disappear instantly without a visible fade. Fading here
+        // (especially on exit during pager swipes) leaves cells mid-animation
+        // when dismiss fires, producing visible "flashes" on the grid.
+        enter = EnterTransition.None,
+        exit = ExitTransition.None,
         modifier = modifier,
     ) {
         // sharedElement is attached to the Box (with fillMaxSize) rather than

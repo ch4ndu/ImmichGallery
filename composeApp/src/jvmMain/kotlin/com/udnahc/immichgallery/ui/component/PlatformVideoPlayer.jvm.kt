@@ -17,14 +17,16 @@ import com.udnahc.immichgallery.ui.theme.Dimens
 
 @Composable
 actual fun PlatformVideoPlayer(
-    url: String,
+    playbackUrl: String,
+    originalUrl: String,
     apiKey: String,
     isCurrentPage: Boolean,
+    onTap: () -> Unit,
     modifier: Modifier
 ) {
-    val host = remember(url) {
+    val host = remember(playbackUrl) {
         MediaPlayerHost(
-            url,
+            playbackUrl,
             autoPlay = false,
             headers = mapOf(API_KEY_HEADER to apiKey),
             initialVideoFitMode = ScreenResize.FIT
