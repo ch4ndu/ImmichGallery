@@ -24,11 +24,18 @@ actual fun PlatformVideoPlayer(
     onTap: () -> Unit,
     modifier: Modifier
 ) {
-    val host = remember(playbackUrl) {
+    // VLC's `:http-header-fields=` option (used by chaintech to pass custom headers)
+    // is not reliably honored by libvlc on desktop, so the x-api-key header never
+    // reaches Immich and the stream returns 401 (black screen + spinner). Immich
+    // accepts apiKey as a query param, which VLC passes through unchanged.
+    val authedUrl = remember(playbackUrl, apiKey) {
+        val separator = if (playbackUrl.contains('?')) '&' else '?'
+        "$playbackUrl${separator}apiKey=$apiKey"
+    }
+    val host = remember(authedUrl) {
         MediaPlayerHost(
-            playbackUrl,
+            authedUrl,
             autoPlay = false,
-            headers = mapOf(API_KEY_HEADER to apiKey),
             initialVideoFitMode = ScreenResize.FIT
         )
     }

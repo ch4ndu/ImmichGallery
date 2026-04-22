@@ -71,8 +71,13 @@ kotlin {
             // ZoomImage
             implementation(libs.zoomimage.compose.coil3)
 
-            // Media Player
-            implementation(libs.compose.media.player)
+            // Media Player — exclude unused webview/kcef chain (pulls jogamp deps not on Maven Central)
+            implementation(libs.compose.media.player.get().toString()) {
+                exclude(group = "io.github.kevinnzou")
+                exclude(group = "dev.datlag")
+                exclude(group = "org.jogamp.gluegen")
+                exclude(group = "org.jogamp.jogl")
+            }
 
             // Navigation
             implementation(libs.navigation.compose)
