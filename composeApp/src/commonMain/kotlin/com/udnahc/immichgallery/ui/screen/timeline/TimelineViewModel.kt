@@ -122,37 +122,6 @@ class TimelineViewModel(
     var lastViewedAssetId: String? by mutableStateOf(null)
     var lastViewedBucket: String? by mutableStateOf(null)
 
-    // Observable, view-scoped cache of asset lists, keyed by timeBucket. Owned
-    // here (not inside TimelinePhotoOverlay) so the screen can synchronously
-    // pre-populate the initial bucket from `cachedAssets` before the overlay's
-    // first composition — otherwise the enter shared-element transition has no
-    // sharedBounds destination while the async Room query completes.
-    val overlayAssetCache: SnapshotStateMap<String, List<Asset>> = mutableStateMapOf()
-
-    // Synchronously copy the bucket containing `assetId` from `cachedAssets`
-    // into `overlayAssetCache`. Called before the overlay is shown so the pager
-    // can render AssetPage (with its sharedBounds) on frame one. No-op if the
-    // bucket isn't in `cachedAssets` — the overlay will fall back to the async
-    // load path via `loadBucketForOverlay`.
-    fun prepareOverlayForAsset(assetId: String) {
-        for ((bucket, assets) in cachedAssets) {
-            if (assets.any { it.id == assetId }) {
-                overlayAssetCache[bucket] = assets
-                return
-            }
-        }
-    }
-
-    // Load a bucket's assets into `overlayAssetCache` if not already present.
-    // Used by the overlay when the user swipes into an unloaded bucket.
-    suspend fun loadBucketForOverlay(timeBucket: String) {
-        if (overlayAssetCache.containsKey(timeBucket)) return
-        val assets = getBucketAssetsUseCase(timeBucket)
-        if (assets.isNotEmpty()) {
-            overlayAssetCache[timeBucket] = assets
-        }
-    }
-
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
         getAssetDetailUseCase(assetId)
 
@@ -171,9 +140,23 @@ class TimelineViewModel(
     private val _buildError = MutableStateFlow<String?>(null)
     val buildError: StateFlow<String?> = _buildError.asStateFlow()
 
-    // All cache fields are ONLY read/written from buildDisplayItems on Dispatchers.Default
-    // Invalidation signals flow through BucketData.pendingInvalidations (thread-safe via StateFlow)
-    private val cachedAssets: MutableMap<String, List<Asset>> = mutableMapOf()
+    // Single source of truth for `timeBucket -> assets`, shared between the
+    // grid's buildDisplayItems pipeline AND the overlay's pager. Using
+    // SnapshotStateMap so the overlay reads it reactively — when a bucket is
+    // loaded, the pager re-renders on the same frame buildDisplayItems sees
+    // the new data. This prevents the exit shared-element animation from
+    // failing after the user pages into an unloaded bucket and dismisses:
+    // previously the overlay had the asset (in its private cache) but the
+    // grid's displayItems still showed a PlaceholderItem with no ThumbnailCell
+    // to land on.
+    //
+    // Thread-safety: SnapshotStateMap is safe for concurrent access. Writes
+    // happen from Dispatchers.IO (loadBucketAssetsInternal on action success)
+    // and Dispatchers.Default (lazy getOrPut inside buildBucketItems); reads
+    // happen from Default (build pipeline) and the UI thread (overlay pager).
+    val bucketAssetsCache: SnapshotStateMap<String, List<Asset>> = mutableStateMapOf()
+
+    // Derived-item caches are layout-dependent, still single-threaded on Default.
     private var cachedBucketItems: Map<String, List<TimelineDisplayItem>> = emptyMap()
     private var cachedFlatItems: List<TimelineDisplayItem> = emptyList()
     private var cachedGroupSize: TimelineGroupSize? = null
@@ -206,11 +189,16 @@ class TimelineViewModel(
 
         _uiConfig = MutableStateFlow(UiConfig(groupSize = initialSize, targetRowHeight = initialTargetRowHeight))
 
+        // Bucket-load signals must propagate to displayItems IMMEDIATELY so
+        // the grid has the dismissed asset's RowItem composed before the
+        // shared-element exit animation starts. Layout changes (pinch-to-zoom
+        // spamming targetRowHeight updates) stay debounced so we don't rebuild
+        // on every intermediate frame. Combining them at the StateFlow level
+        // means _bucketData updates bypass the debounce.
         @OptIn(FlowPreview::class)
-        state = combine(_bucketData, _uiConfig) { data, config ->
+        state = combine(_bucketData, _uiConfig.debounce(200)) { data, config ->
             buildTimelineState(data, config)
         }
-            .debounce(200)
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TimelineState(
                 groupSize = initialSize,
@@ -361,7 +349,7 @@ class TimelineViewModel(
         val cached = withContext(Dispatchers.Default) {
             var globalIndex = 0
             for (bucket in s.buckets) {
-                val assets = cachedAssets[bucket.timeBucket]
+                val assets = bucketAssetsCache[bucket.timeBucket]
                 if (assets != null) {
                     val localIndex = assets.indexOfFirst { it.id == assetId }
                     if (localIndex >= 0) return@withContext globalIndex + localIndex
@@ -484,6 +472,16 @@ class TimelineViewModel(
         loadBucketAssetsAction(timeBucket).fold(
             onSuccess = {
                 log.d { "Synced assets for bucket: $timeBucket" }
+                // Publish fresh assets into the unified cache BEFORE signaling
+                // loadedBuckets. The overlay pager observes bucketAssetsCache
+                // reactively, and buildDisplayItems (triggered by the
+                // _bucketData change) will read the same entry — so the grid's
+                // RowItem and the overlay's rendered page are materialized
+                // from the same data at the same moment. pendingInvalidations
+                // ensures the derived item cache rebuilds this bucket's items
+                // even if its `(timeBucket, "loaded")` key already existed.
+                val assets = getBucketAssetsUseCase(timeBucket)
+                bucketAssetsCache[timeBucket] = assets
                 _bucketData.update { data ->
                     data.copy(
                         loadingBuckets = data.loadingBuckets - timeBucket,
@@ -536,12 +534,14 @@ class TimelineViewModel(
         availableWidth: Float,
         targetRowHeight: Float
     ): List<TimelineDisplayItem> {
-        // Full cache invalidation if layout parameters changed
+        // Layout change invalidates only the DERIVED display items (which are
+        // sized against width/rowHeight/groupSize). The raw bucket assets in
+        // bucketAssetsCache are layout-independent and must survive pinch-to-
+        // zoom without forcing a Room re-query for every bucket.
         if (groupSize != cachedGroupSize ||
             availableWidth != cachedAvailableWidth ||
             targetRowHeight != cachedTargetRowHeight
         ) {
-            cachedAssets.clear()
             cachedBucketItems = emptyMap()
             cachedFlatItems = emptyList()
             cachedGroupSize = groupSize
@@ -549,10 +549,12 @@ class TimelineViewModel(
             cachedTargetRowHeight = targetRowHeight
         }
 
-        // Process pending bucket invalidations (delivered via BucketData, thread-safe)
+        // Process pending bucket invalidations. Raw assets in bucketAssetsCache
+        // were refreshed in-place by loadBucketAssetsInternal — we only need
+        // to clear the derived item cache so buildBucketItems re-renders with
+        // the fresh assets.
         if (data.pendingInvalidations.isNotEmpty()) {
             for (bucket in data.pendingInvalidations) {
-                cachedAssets.remove(bucket)
                 cachedBucketItems = cachedBucketItems.filterKeys { key ->
                     !key.startsWith("${bucket}_")
                 }
@@ -664,8 +666,14 @@ class TimelineViewModel(
                 }
             }
             else -> {
-                val assets = cachedAssets.getOrPut(timeBucket) {
-                    getBucketAssetsUseCase(timeBucket)
+                // Fast path: overlay or a prior buildBucketItems already
+                // populated the unified cache. Slow path: first time this
+                // bucket is rendered in the grid, fetch from Room and publish
+                // into the cache so the overlay can also read it reactively.
+                val assets = bucketAssetsCache[timeBucket] ?: run {
+                    val fetched = getBucketAssetsUseCase(timeBucket)
+                    bucketAssetsCache[timeBucket] = fetched
+                    fetched
                 }
                 if (assets.isNotEmpty()) {
                     val dayGroupList = if (groupSize == TimelineGroupSize.DAY) {

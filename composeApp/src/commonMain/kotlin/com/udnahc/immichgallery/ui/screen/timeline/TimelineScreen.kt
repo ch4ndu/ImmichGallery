@@ -153,15 +153,15 @@ fun TimelineScreen(
     LaunchedEffect(selectedAssetId) {
         val id = selectedAssetId
         if (id != null) {
-            // Sync pre-populate: copy the bucket containing this asset from the
-            // VM's in-memory cache to the overlay cache, so AssetPage (with its
-            // sharedBounds destination) renders on frame one of the overlay.
-            viewModel.prepareOverlayForAsset(id)
             // Set overlayInitialIndex FIRST, then currentViewedAssetId, all in
             // the same coroutine body. Both writes commit in the same snapshot,
             // so the next recomposition sees both values at once — the overlay
             // mounts in the same frame that the grid cell's AV flips hidden.
             // Source and target sharedElements both exist at transition time.
+            // The bucket containing this asset is guaranteed to be in
+            // bucketAssetsCache (otherwise the clicked thumbnail wouldn't have
+            // rendered), so the overlay's AssetPage has its sharedBounds
+            // destination on frame one without any extra pre-population step.
             overlayInitialIndex = viewModel.getGlobalPhotoIndex(id) ?: 0
             currentViewedAssetId = id
         } else {
@@ -258,8 +258,7 @@ fun TimelineScreen(
                     apiKey = viewModel.apiKey,
                     getAssetFileName = viewModel::getAssetFileName,
                     getAssetDetail = viewModel::getAssetDetail,
-                    assetCache = viewModel.overlayAssetCache,
-                    loadBucket = viewModel::loadBucketForOverlay,
+                    assetCache = viewModel.bucketAssetsCache,
                     onBucketNeeded = viewModel::loadBucketAssets,
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId, currentBucket ->

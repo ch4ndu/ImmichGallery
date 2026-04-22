@@ -63,7 +63,6 @@ fun TimelinePhotoOverlay(
     getAssetFileName: suspend (assetId: String, fallback: String) -> Result<String>,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     assetCache: SnapshotStateMap<String, List<Asset>>,
-    loadBucket: suspend (timeBucket: String) -> Unit,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
@@ -172,18 +171,31 @@ fun TimelinePhotoOverlay(
             }
     }
 
-    // Load bucket assets into the shared cache as needed
+    // Kick a load for the settled-page bucket if it isn't cached yet. Both the
+    // overlay and the grid now read from the same SnapshotStateMap — once the
+    // main load path populates it, the pager re-renders reactively.
     val currentBucketKey = resolvePageBucket(pagerState.settledPage, state.buckets)
     LaunchedEffect(currentBucketKey) {
         if (currentBucketKey != null && !assetCache.containsKey(currentBucketKey)) {
             onBucketNeeded(currentBucketKey)
-            loadBucket(currentBucketKey)
         }
     }
 
     val currentAsset = resolvePageAsset(
         pagerState.settledPage, state.buckets, assetCache
     )
+
+    // `Modifier.pointerInput(enabled)` caches its block — any lambda captured
+    // there freezes `currentAsset`/`currentBucketKey` at the recomposition
+    // when the block was last launched (when `enabled` last flipped). On a
+    // drag-to-dismiss after the user has paged deep into the overlay, that
+    // stale capture reports the CLICKED photo's id and bucket instead of the
+    // currently-viewed one — so `lastViewedAssetId` lands on the wrong cell
+    // and the shared-element exit has no source bounds. BackHandler wraps
+    // its onBack in rememberUpdatedState internally, which is why back-button
+    // dismiss works fine; we apply the same pattern here for parity.
+    val latestCurrentAssetId by rememberUpdatedState(currentAsset?.id)
+    val latestCurrentBucketKey by rememberUpdatedState(currentBucketKey)
 
     // Auto-advance slideshow. Keyed on settledPage so the timer resets whenever
     // the page changes — including manual left/right arrow advances.
@@ -280,7 +292,7 @@ fun TimelinePhotoOverlay(
                 flickVelocityPx = flickVelocityPx,
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(currentAsset?.id, currentBucketKey)
+                    onDismiss(latestCurrentAssetId, latestCurrentBucketKey)
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
@@ -313,7 +325,7 @@ fun TimelinePhotoOverlay(
                 },
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(currentAsset?.id, currentBucketKey)
+                    onDismiss(latestCurrentAssetId, latestCurrentBucketKey)
                 },
                 onToggleSlideshow = {
                     if (isSlideshow) slideshowConfig = null
@@ -335,7 +347,6 @@ fun TimelinePhotoOverlay(
                 val bucket = resolvePageBucket(page, state.buckets)
                 if (bucket != null && !assetCache.containsKey(bucket)) {
                     onBucketNeeded(bucket)
-                    loadBucket(bucket)
                 }
             }
 
