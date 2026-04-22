@@ -19,8 +19,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import org.lighthousegames.logging.logging
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
@@ -47,6 +49,11 @@ import org.jetbrains.compose.resources.stringResource
 private const val THUMBNAIL_DECODE_SIZE = 256
 private const val VIDEO_OVERLAY_ALPHA = 0.5f
 private const val STACK_BADGE_ALPHA = 0.6f
+
+// TODO(diagnostic): logging for enter-animation-breaks-after-deep-scroll bug.
+// Remove once mechanism confirmed.
+private val diagLog = logging("TimelineEnterDiag")
+private fun diagNow(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -84,8 +91,21 @@ fun ThumbnailCell(
         val hoistInOverlay = LocalPhotoBoundsTween.current
         val boxModifier = if (sharedTransitionScope != null) {
             with(sharedTransitionScope) {
+                val sharedState = sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}")
+                // DIAGNOSTIC: for the tapped cell (identified by hiddenAssetId ==
+                // asset.id), report when this composition runs and what the
+                // STL match state looks like. We'll correlate these timestamps
+                // with OVERLAY_MOUNT / SHOW_OVERLAY from TimelineScreen.
+                if (hiddenAssetId == asset.id) {
+                    diagLog.d {
+                        "t=${diagNow()} CELL_TAPPED_COMPOSE id=${asset.id} isMatchFound=${sharedState.isMatchFound}"
+                    }
+                    LaunchedEffect(asset.id) {
+                        diagLog.d { "t=${diagNow()} CELL_TAPPED_LAUNCHED id=${asset.id} isMatchFound=${sharedState.isMatchFound}" }
+                    }
+                }
                 Modifier.fillMaxSize().sharedElement(
-                    sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
+                    sharedState,
                     animatedVisibilityScope = this@AnimatedVisibility,
                     boundsTransform = boundsTransform,
                     renderInOverlayDuringTransition = hoistInOverlay,

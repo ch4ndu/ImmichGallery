@@ -13,18 +13,40 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
-private const val MIN_ASPECT_RATIO = 0.5f
-private const val MAX_ASPECT_RATIO = 2.0f
-
 private fun AssetResponse.computeAspectRatio(): Float {
-    val computed = ratio?.takeIf { it > 0f }
-        ?: exifInfo?.let { exif ->
-            val w = exif.exifImageWidth
-            val h = exif.exifImageHeight
-            if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
-        }
-        ?: thumbhash?.let { thumbhashToAspectRatio(it) }
-    return (computed ?: 1f).coerceIn(MIN_ASPECT_RATIO, MAX_ASPECT_RATIO)
+    // For edited assets, the server does NOT update width/height/ratio after
+    // a non-destructive edit — those reflect the original. Only the thumbnail
+    // (and its thumbhash) is regenerated. Prefer thumbhash when edited so the
+    // grid cell at least matches the displayed thumbnail's orientation; a
+    // background enrichment pass fetches /edits and replaces this with the
+    // precise cropped aspect.
+    val sources: List<() -> Float?> = if (isEdited) {
+        listOf(
+            { thumbhash?.let { thumbhashToAspectRatio(it) } },
+            { aspectFromWidthHeight() },
+            { ratio?.takeIf { it > 0f } },
+            { aspectFromExif() },
+        )
+    } else {
+        listOf(
+            { aspectFromWidthHeight() },
+            { ratio?.takeIf { it > 0f } },
+            { aspectFromExif() },
+            { thumbhash?.let { thumbhashToAspectRatio(it) } },
+        )
+    }
+    return sources.firstNotNullOfOrNull { it() } ?: 1f
+}
+
+private fun AssetResponse.aspectFromWidthHeight(): Float? {
+    val w = width; val h = height
+    return if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
+}
+
+private fun AssetResponse.aspectFromExif(): Float? = exifInfo?.let { exif ->
+    val w = exif.exifImageWidth
+    val h = exif.exifImageHeight
+    if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
 }
 
 // --- AssetResponse -> Domain ---
@@ -86,7 +108,9 @@ fun AssetResponse.toAssetEntity(): AssetEntity {
         createdAt = fileCreatedAt,
         isFavorite = isFavorite,
         stackCount = stackCount,
-        aspectRatio = computeAspectRatio()
+        aspectRatio = computeAspectRatio(),
+        isEdited = isEdited,
+        editsResolved = false
     )
 }
 

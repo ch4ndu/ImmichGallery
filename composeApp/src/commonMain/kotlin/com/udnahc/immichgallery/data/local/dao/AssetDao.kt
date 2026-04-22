@@ -42,4 +42,16 @@ interface AssetDao {
 
     @Query("DELETE FROM assets")
     suspend fun clearAll()
+
+    /** Returns asset ids that still need an `/edits` fetch to fix their aspect. */
+    @Query("SELECT id FROM assets WHERE id IN (:ids) AND isEdited = 1 AND editsResolved = 0")
+    suspend fun getUnresolvedEditedAssetIds(ids: List<String>): List<String>
+
+    /** Full rows for the given ids — used by the enrichment pass to read
+     *  original dimensions before simulating edits. */
+    @Query("SELECT * FROM assets WHERE id IN (:ids)")
+    suspend fun getAssetsByIds(ids: List<String>): List<AssetEntity>
+
+    @Query("UPDATE assets SET aspectRatio = :aspectRatio, editsResolved = 1 WHERE id = :id")
+    suspend fun updateAspectRatioResolved(id: String, aspectRatio: Float)
 }

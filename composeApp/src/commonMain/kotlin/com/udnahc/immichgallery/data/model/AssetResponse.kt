@@ -13,10 +13,13 @@ data class AssetResponse(
     val thumbhash: String? = null,
     val isFavorite: Boolean = false,
     val isArchived: Boolean = false,
+    val isEdited: Boolean = false,
     val stackId: String? = null,
     val stackCount: Int = 0,
     val visibility: String = "timeline",
     val ratio: Float? = null,
+    val width: Int? = null,
+    val height: Int? = null,
     val exifInfo: ExifInfo? = null,
     val people: List<AssetPersonResponse> = emptyList()
 )

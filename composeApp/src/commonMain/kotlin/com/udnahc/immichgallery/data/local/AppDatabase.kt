@@ -29,7 +29,7 @@ import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
         PersonEntity::class,
         PersonAssetCrossRef::class
     ],
-    version = 5
+    version = 6
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {

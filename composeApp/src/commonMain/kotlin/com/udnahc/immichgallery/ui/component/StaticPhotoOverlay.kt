@@ -49,9 +49,17 @@ fun StaticPhotoOverlay(
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
+    onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
+    // Forward the STL's actual animation-active state to the screen so the
+    // screen can flip `overlayAnimActive` false only when the bounds animation
+    // has truly completed — instead of after a fixed delay that can truncate
+    // really-tall-image animations.
+    val stlActive = sharedTransitionScope?.isTransitionActive ?: false
+    LaunchedEffect(stlActive) { onStlTransitionActiveChanged(stlActive) }
+
     var showTopBar by remember { mutableStateOf(true) }
     var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
     var showSlideshowDialog by remember { mutableStateOf(false) }

@@ -11,5 +11,9 @@ data class AssetEntity(
     val createdAt: String,
     val isFavorite: Boolean,
     val stackCount: Int,
-    val aspectRatio: Float
+    val aspectRatio: Float,
+    val isEdited: Boolean = false,
+    // True once /edits has been fetched and aspectRatio corrected. Lets the
+    // background enrichment pass skip already-processed rows across syncs.
+    val editsResolved: Boolean = false
 )

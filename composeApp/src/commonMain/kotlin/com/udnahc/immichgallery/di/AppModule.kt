@@ -5,6 +5,7 @@ import com.udnahc.immichgallery.data.remote.HttpClientFactory
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.data.remote.createHttpClientEngine
 import com.udnahc.immichgallery.data.repository.AlbumRepository
+import com.udnahc.immichgallery.data.repository.AssetEditsEnricher
 import com.udnahc.immichgallery.data.repository.AuthRepository
 import com.udnahc.immichgallery.data.repository.PeopleRepository
 import com.udnahc.immichgallery.data.repository.SearchRepository
@@ -57,9 +58,10 @@ val sharedModule = module {
 
     // Repositories
     single { AuthRepository(get()) }
+    single { AssetEditsEnricher(get(), get()) }
     single { TimelineRepository(get(), get(), get(), get(), get()) }
-    single { AlbumRepository(get(), get(), get(), get(), get()) }
-    single { PeopleRepository(get(), get(), get(), get(), get()) }
+    single { AlbumRepository(get(), get(), get(), get(), get(), get()) }
+    single { PeopleRepository(get(), get(), get(), get(), get(), get()) }
     single { SearchRepository(get()) }
     single { ServerStatusRepository(get()) }
 

@@ -24,7 +24,8 @@ class AlbumRepository(
     private val albumDao: AlbumDao,
     private val assetDao: AssetDao,
     private val syncMetadataDao: SyncMetadataDao,
-    private val serverConfigRepository: ServerConfigRepository
+    private val serverConfigRepository: ServerConfigRepository,
+    private val editsEnricher: AssetEditsEnricher
 ) {
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -105,6 +106,12 @@ class AlbumRepository(
                     SyncMetadataEntity("$SYNC_SCOPE_ALBUM_PREFIX$albumId", currentEpochMillis())
                 )
             }
+            // Precise aspect for edited assets: fetch /edits in parallel and
+            // replace the sync-time approximation with the simulated
+            // post-edit aspect. Runs after the main upsert so the grid
+            // renders immediately; updates land via Room's Flow as they
+            // resolve.
+            editsEnricher.enrich(response.assets)
             Result.success(response.albumName)
         } catch (e: Exception) {
             Result.failure(e)

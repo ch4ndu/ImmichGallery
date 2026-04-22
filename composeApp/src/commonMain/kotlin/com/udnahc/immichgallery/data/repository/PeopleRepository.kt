@@ -24,7 +24,8 @@ class PeopleRepository(
     private val personDao: PersonDao,
     private val assetDao: AssetDao,
     private val syncMetadataDao: SyncMetadataDao,
-    private val serverConfigRepository: ServerConfigRepository
+    private val serverConfigRepository: ServerConfigRepository,
+    private val editsEnricher: AssetEditsEnricher
 ) {
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -115,6 +116,7 @@ class PeopleRepository(
                     )
                 }
             }
+            editsEnricher.enrich(items)
             Result.success(hasMore)
         } catch (e: Exception) {
             Result.failure(e)

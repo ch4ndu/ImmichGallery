@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.data.remote
 
 import com.udnahc.immichgallery.data.model.AlbumDetailResponse
 import com.udnahc.immichgallery.data.model.AlbumResponse
+import com.udnahc.immichgallery.data.model.AssetEditsResponse
 import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.model.PeopleResponse
 import com.udnahc.immichgallery.data.model.SearchResponse
@@ -141,6 +142,13 @@ class ImmichApiService(
     suspend fun getAssetInfo(id: String): AssetResponse {
         log.d { "GET ${baseUrl()}/api/assets/$id" }
         return httpClient.get("${baseUrl()}/api/assets/$id") {
+            header("x-api-key", apiKey())
+        }.body()
+    }
+
+    suspend fun getAssetEdits(id: String): AssetEditsResponse {
+        log.d { "GET ${baseUrl()}/api/assets/$id/edits" }
+        return httpClient.get("${baseUrl()}/api/assets/$id/edits") {
             header("x-api-key", apiKey())
         }.body()
     }

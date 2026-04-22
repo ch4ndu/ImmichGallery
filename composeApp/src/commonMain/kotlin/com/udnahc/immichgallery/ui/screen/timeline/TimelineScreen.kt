@@ -72,9 +72,16 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
+import org.lighthousegames.logging.logging
 import org.koin.compose.viewmodel.koinViewModel
+
+// TODO(diagnostic): logging for enter-animation-breaks-after-deep-scroll bug.
+// Remove once mechanism confirmed.
+private val diagLog = logging("TimelineEnterDiag")
+private fun diagNow(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
 
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -110,6 +117,8 @@ fun TimelineScreen(
     var prevSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     if (prevSelectedAssetId == null && selectedAssetId != null) {
         selectionEpoch++
+        // DIAGNOSTIC: mark the instant of the tap-induced STL remount key bump.
+        diagLog.d { "t=${diagNow()} TAP selectedAssetId=$selectedAssetId selectionEpoch=$selectionEpoch" }
     }
     prevSelectedAssetId = selectedAssetId
 
@@ -117,12 +126,22 @@ fun TimelineScreen(
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
 
+    // Forwarded from the overlay: STL reports whether its bounds animation is
+    // actually running. Used below to flip `overlayAnimActive` false only when
+    // the animation has truly settled — instead of a fixed delay that can
+    // truncate long/large animations.
+    var stlTransitionActive by remember { mutableStateOf(false) }
+
     // True while an open/dismiss animation is in flight. Drives the dynamic
     // BoundsTransform: tween for open/dismiss, snap for mid-overlay pager swipes.
     var overlayAnimActive by remember { mutableStateOf(false) }
     LaunchedEffect(selectedAssetId) {
         overlayAnimActive = true
+        // Minimum window: give the animation time to actually start so
+        // `stlTransitionActive` has had a chance to go true.
         delay(PHOTO_TRANSITION_DURATION_MS.toLong())
+        // Then wait for the STL to report the animation is truly done.
+        snapshotFlow { stlTransitionActive }.first { !it }
         overlayAnimActive = false
     }
 
@@ -130,16 +149,25 @@ fun TimelineScreen(
     LaunchedEffect(selectedAssetId) {
         val id = selectedAssetId
         if (id != null) {
+            val t0 = diagNow()
+            diagLog.d { "t=$t0 INDEX_FETCH_START id=$id" }
             // Sync pre-populate: copy the bucket containing this asset from the
             // VM's in-memory cache to the overlay cache, so AssetPage (with its
             // sharedBounds destination) renders on frame one of the overlay.
             viewModel.prepareOverlayForAsset(id)
-            overlayInitialIndex = viewModel.getGlobalPhotoIndex(id) ?: 0
+            val idx = viewModel.getGlobalPhotoIndex(id) ?: 0
+            overlayInitialIndex = idx
+            diagLog.d { "t=${diagNow()} INDEX_FETCH_DONE id=$id idx=$idx elapsed=${diagNow() - t0}ms" }
         } else {
             overlayInitialIndex = null
         }
     }
     val showOverlay = selectedAssetId != null && overlayInitialIndex != null
+    LaunchedEffect(showOverlay) {
+        // DIAGNOSTIC: shows when the gate that flips AV.visible true actually
+        // flips — useful as a T0 marker for the pager-settle race.
+        diagLog.d { "t=${diagNow()} SHOW_OVERLAY=$showOverlay" }
+    }
 
     LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
     PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
@@ -238,6 +266,7 @@ fun TimelineScreen(
                         selectedAssetId = null
                     },
                     onCurrentAssetChanged = { id -> currentViewedAssetId = id },
+                    onStlTransitionActiveChanged = { stlTransitionActive = it },
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )

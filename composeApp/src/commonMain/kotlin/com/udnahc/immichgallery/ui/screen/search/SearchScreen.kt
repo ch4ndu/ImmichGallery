@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -65,6 +66,7 @@ import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
@@ -118,10 +120,16 @@ fun SearchScreen(
     }
     val showOverlay = selectedAssetId != null && overlayInitialIndex != null
 
+    // Forwarded from the overlay: STL reports whether its bounds animation is
+    // actually running. Used below to flip `overlayAnimActive` false only when
+    // the animation has truly settled.
+    var stlTransitionActive by remember { mutableStateOf(false) }
+
     var overlayAnimActive by remember { mutableStateOf(false) }
     LaunchedEffect(selectedAssetId) {
         overlayAnimActive = true
         delay(PHOTO_TRANSITION_DURATION_MS.toLong())
+        snapshotFlow { stlTransitionActive }.first { !it }
         overlayAnimActive = false
     }
 
@@ -182,6 +190,7 @@ fun SearchScreen(
                         selectedAssetId = null
                     },
                     onCurrentAssetChanged = { id -> currentViewedAssetId = id },
+                    onStlTransitionActiveChanged = { stlTransitionActive = it },
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedVisibility,
                 )
