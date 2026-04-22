@@ -75,13 +75,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
-import org.lighthousegames.logging.logging
 import org.koin.compose.viewmodel.koinViewModel
-
-// TODO(diagnostic): logging for enter-animation-breaks-after-deep-scroll bug.
-// Remove once mechanism confirmed.
-private val diagLog = logging("TimelineEnterDiag")
-private fun diagNow(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
 
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -117,14 +111,20 @@ fun TimelineScreen(
     var prevSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     if (prevSelectedAssetId == null && selectedAssetId != null) {
         selectionEpoch++
-        // DIAGNOSTIC: mark the instant of the tap-induced STL remount key bump.
-        diagLog.d { "t=${diagNow()} TAP selectedAssetId=$selectedAssetId selectionEpoch=$selectionEpoch" }
     }
     prevSelectedAssetId = selectedAssetId
 
     // Follows the pager's current page; drives which grid cell is hidden.
+    // NOTE: updated inside the same LaunchedEffect as `overlayInitialIndex`
+    // below — AFTER `overlayInitialIndex` — so both state writes land in the
+    // same snapshot commit and the next recomposition sees both new values
+    // together: the overlay mounts AND the grid cell's AV flips visible=false
+    // in the same frame. With two separate LaunchedEffects here, this one
+    // would often win the race, the cell's AV would flip first (ExitTransition
+    // is None, so the cell unmounts instantly), the sharedElement source
+    // would be disposed before the overlay's target registered, and the
+    // enter animation would fall back to just the alpha crossfade.
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
 
     // Forwarded from the overlay: STL reports whether its bounds animation is
     // actually running. Used below to flip `overlayAnimActive` false only when
@@ -149,25 +149,23 @@ fun TimelineScreen(
     LaunchedEffect(selectedAssetId) {
         val id = selectedAssetId
         if (id != null) {
-            val t0 = diagNow()
-            diagLog.d { "t=$t0 INDEX_FETCH_START id=$id" }
             // Sync pre-populate: copy the bucket containing this asset from the
             // VM's in-memory cache to the overlay cache, so AssetPage (with its
             // sharedBounds destination) renders on frame one of the overlay.
             viewModel.prepareOverlayForAsset(id)
-            val idx = viewModel.getGlobalPhotoIndex(id) ?: 0
-            overlayInitialIndex = idx
-            diagLog.d { "t=${diagNow()} INDEX_FETCH_DONE id=$id idx=$idx elapsed=${diagNow() - t0}ms" }
+            // Set overlayInitialIndex FIRST, then currentViewedAssetId, all in
+            // the same coroutine body. Both writes commit in the same snapshot,
+            // so the next recomposition sees both values at once — the overlay
+            // mounts in the same frame that the grid cell's AV flips hidden.
+            // Source and target sharedElements both exist at transition time.
+            overlayInitialIndex = viewModel.getGlobalPhotoIndex(id) ?: 0
+            currentViewedAssetId = id
         } else {
+            currentViewedAssetId = null
             overlayInitialIndex = null
         }
     }
     val showOverlay = selectedAssetId != null && overlayInitialIndex != null
-    LaunchedEffect(showOverlay) {
-        // DIAGNOSTIC: shows when the gate that flips AV.visible true actually
-        // flips — useful as a T0 marker for the pager-settle race.
-        diagLog.d { "t=${diagNow()} SHOW_OVERLAY=$showOverlay" }
-    }
 
     LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
     PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }

@@ -26,8 +26,6 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.take
-import org.lighthousegames.logging.logging
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
@@ -46,11 +44,6 @@ import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.dragToDismiss
 import kotlinx.coroutines.flow.StateFlow
-
-// TODO(diagnostic): logging for enter-animation-breaks-after-deep-scroll bug.
-// Remove once mechanism confirmed.
-private val diagLog = logging("TimelineEnterDiag")
-private fun diagNow(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -75,11 +68,7 @@ fun TimelinePhotoOverlay(
     // has truly completed — instead of after a fixed delay that can truncate
     // really-tall-image animations.
     val stlActive = sharedTransitionScope?.isTransitionActive ?: false
-    LaunchedEffect(stlActive) {
-        // DIAGNOSTIC
-        diagLog.d { "t=${diagNow()} stlActive=$stlActive" }
-        onStlTransitionActiveChanged(stlActive)
-    }
+    LaunchedEffect(stlActive) { onStlTransitionActiveChanged(stlActive) }
 
     val state by timelineState.collectAsState()
     var showTopBar by remember { mutableStateOf(true) }
@@ -98,44 +87,18 @@ fun TimelinePhotoOverlay(
 
     val clampedInitial = initialIndex.coerceIn(0, totalPages - 1)
 
-    // DIAGNOSTIC: log the moment the overlay first composes and its pager config.
-    val overlayMountTime = remember { diagNow() }
-    LaunchedEffect(Unit) {
-        diagLog.d {
-            "t=${diagNow()} OVERLAY_MOUNT clampedInitial=$clampedInitial totalPages=$totalPages"
-        }
-    }
-
     val pagerState = rememberPagerState(
         initialPage = clampedInitial
     ) { totalPages }
-
-    // DIAGNOSTIC: stream pager settledPage + currentPage over the first 40
-    // emissions to see how long the pager takes to arrive at clampedInitial
-    // (and whether settledPage ever goes through intermediate wrong values).
-    LaunchedEffect(pagerState, clampedInitial) {
-        snapshotFlow { pagerState.settledPage to pagerState.currentPage }
-            .take(40)
-            .collect { (settled, current) ->
-                val elapsed = diagNow() - overlayMountTime
-                diagLog.d {
-                    "t=${diagNow()} +${elapsed}ms PAGER settled=$settled current=$current target=$clampedInitial match=${settled == clampedInitial}"
-                }
-            }
-    }
 
     // Force the pager to snap to the target page on first composition. Inside
     // SharedTransitionLayout's LookaheadScope, the pager's scroll offset can
     // briefly not reflect initialPage during the first measure pass, which makes
     // the detail-side page X appear to slide in from the right.
     LaunchedEffect(Unit) {
-        val elapsed = diagNow() - overlayMountTime
-        diagLog.d { "t=${diagNow()} +${elapsed}ms SCROLL_TO_PAGE_FIRE current=${pagerState.currentPage} target=$clampedInitial" }
         if (pagerState.currentPage != clampedInitial) {
             pagerState.scrollToPage(clampedInitial)
         }
-        val afterElapsed = diagNow() - overlayMountTime
-        diagLog.d { "t=${diagNow()} +${afterElapsed}ms SCROLL_TO_PAGE_DONE settled=${pagerState.settledPage} current=${pagerState.currentPage}" }
     }
 
     // Report the currently-viewed asset to the parent so the grid can hide it.

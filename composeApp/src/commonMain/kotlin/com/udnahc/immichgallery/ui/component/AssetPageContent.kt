@@ -90,11 +90,6 @@ private const val ERROR_ICON_ALPHA = 0.6f
 
 private val log = logging()
 
-// TODO(diagnostic): logging for enter-animation-breaks-after-deep-scroll bug.
-// Remove once mechanism confirmed.
-private val diagLog = logging("TimelineEnterDiag")
-private fun diagNow(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
-
 private const val THUMBNAIL_HIDE_DELAY_MS = 500L
 private const val IMAGE_CROSSFADE_MS = 200
 
@@ -166,18 +161,10 @@ internal fun AssetPage(
                 // being the whole screen rather than the image-aspect rect. That
                 // produces a visible second animation where the detail thumbnail
                 // scales 0→1 in the center while the grid rect flies to center.
-                val sharedState = sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}")
-                // DIAGNOSTIC: log every composition of the detail-side
-                // sharedBounds. If isMatchFound is false while the AV is
-                // entering, the grid-side source wasn't registered in the STL
-                // scope — confirms the source-race theory for deep-scroll.
-                diagLog.d {
-                    "t=${diagNow()} DETAIL_COMPOSE id=${asset.id} isMatchFound=${sharedState.isMatchFound}"
-                }
                 Modifier
                     .aspectRatio(asset.aspectRatio)
                     .sharedElement(
-                        sharedState,
+                        sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                         animatedVisibilityScope = animatedVisibilityScope,
                         boundsTransform = boundsTransform,
                         renderInOverlayDuringTransition = hoistInOverlay,

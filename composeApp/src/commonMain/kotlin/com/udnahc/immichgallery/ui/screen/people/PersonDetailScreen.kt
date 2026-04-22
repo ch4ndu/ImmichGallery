@@ -91,19 +91,24 @@ fun PersonDetailScreen(
     }
     prevSelectedAssetId = selectedAssetId
 
+    // Follows the pager's current page; drives which grid cell is hidden.
+    // NOTE: updated inside the same LaunchedEffect as `overlayInitialIndex`
+    // below — AFTER `overlayInitialIndex` — so both writes commit in the
+    // same snapshot. Otherwise the grid cell's AV can flip hidden before
+    // the overlay mounts, the source sharedElement disposes (ExitTransition
+    // is None), and the enter animation degrades to a plain alpha crossfade.
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
 
-    // Pre-compute the pager's starting index before showing the overlay so the
-    // grid cell's AV-exit and the overlay's AV-enter both commit in the same
-    // frame — avoids a one-frame stutter at the start of the shared-element
-    // transition (matches TimelineScreen's gating pattern).
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(selectedAssetId, state.assets) {
         val id = selectedAssetId
-        overlayInitialIndex = if (id != null) {
-            state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
-        } else null
+        if (id != null) {
+            overlayInitialIndex = state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
+            currentViewedAssetId = id
+        } else {
+            currentViewedAssetId = null
+            overlayInitialIndex = null
+        }
     }
     val showOverlay = selectedAssetId != null && overlayInitialIndex != null
 

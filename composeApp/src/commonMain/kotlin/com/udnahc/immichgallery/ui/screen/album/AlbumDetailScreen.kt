@@ -86,21 +86,26 @@ fun AlbumDetailScreen(
     }
     prevSelectedAssetId = selectedAssetId
 
+    // Follows the pager's current page; drives which grid cell is hidden.
+    // NOTE: updated inside the same LaunchedEffect as `overlayInitialIndex`
+    // below — AFTER `overlayInitialIndex` — so both writes commit in the
+    // same snapshot. Otherwise the grid cell's AV can flip hidden in one
+    // frame while the overlay mounts in a later frame; with
+    // `ExitTransition.None` on the cell's per-cell AV, the source
+    // sharedElement disposes before the target registers and the enter
+    // animation degrades to a plain alpha crossfade.
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(selectedAssetId) { currentViewedAssetId = selectedAssetId }
 
-    // Pre-compute the pager's starting index before showing the overlay so the
-    // grid cell's AV-exit and the overlay's AV-enter both commit in the same
-    // frame. If we flipped showOverlay synchronously on selection, the overlay
-    // AV would start entering one frame before currentViewedAssetId propagated
-    // to the grid — leaving the shared-element match briefly out of sync and
-    // producing a visible stutter at the start of the enter animation.
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(selectedAssetId, state.assets) {
         val id = selectedAssetId
-        overlayInitialIndex = if (id != null) {
-            state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
-        } else null
+        if (id != null) {
+            overlayInitialIndex = state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
+            currentViewedAssetId = id
+        } else {
+            currentViewedAssetId = null
+            overlayInitialIndex = null
+        }
     }
     val showOverlay = selectedAssetId != null && overlayInitialIndex != null
 
