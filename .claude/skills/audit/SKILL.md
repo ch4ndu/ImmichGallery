@@ -51,6 +51,17 @@ Files: `viewmodel/`, `domain/`, `di/AppModule.kt`, `App.kt`
 - **Shared element transitions**: `lastSelectedAssetId` pattern for exit animation content. `DetailTopBar` hidden during overlay via `AnimatedVisibility`
 - **Thumbnail loading**: Uses `rememberAsyncImagePainter` (not `AsyncImage`) with `Precision.EXACT` and `Size(256, 256)` to control decode size
 - **Slideshow**: `StaticPhotoOverlay` supports slideshow via menu item. `KenBurnsImage` for animation. Wake lock for screen-on.
+- **LaunchedEffect race conditions**: Verify every `LaunchedEffect` in composables for race conditions. Check for:
+  - **Missing keys**: `LaunchedEffect(Unit)` or `LaunchedEffect(true)` when the block reads mutable state — effect won't re-run on state change, captures stale values. Use the actual dependencies as keys.
+  - **Stale reads after suspend**: Reading state after `delay()`, `animateScrollToPage()`, `awaitPointerEventScope()` or other suspend calls without re-checking conditions. Post-suspend state may have changed (e.g., pager moved, user navigated away, flag flipped). Re-read state after each suspend.
+  - **Callbacks captured as keys**: Passing an unstable lambda (`onComplete`, `onTick`) as a key causes the effect to restart every recomposition. Use `rememberUpdatedState(callback)` and reference the `.value` inside the effect instead.
+  - **Competing effects on same state**: Two `LaunchedEffect` blocks that mutate the same `MutableState`/`StateFlow` without coordination — last-writer-wins, order non-deterministic. Merge into one effect or gate with a single source of truth.
+  - **Missing cancellation of collectors**: `launch { flow.collect { ... } }` inside `LaunchedEffect` without structured cancellation — when key changes, the outer effect restarts but the child job leaks if it escapes the effect scope (e.g., stored in a class field or `rememberCoroutineScope`). Use the effect's own `CoroutineScope`.
+  - **Auto-advance loops without pause gating**: `while(condition) { delay(); advance() }` where `condition` is captured by value at launch, not re-read each iteration. Re-read state inside the loop so pause/stop takes effect.
+  - **State reads outside snapshotFlow**: `LaunchedEffect(key1) { if (someState) ... }` reads `someState` once at launch. If `someState` should drive the effect, either include it in keys or wrap in `snapshotFlow { someState }.collect { ... }`.
+  - **Debounce swallowing final emission**: `snapshotFlow {}.debounce(300).collect {}` where the last emission before cancellation may be dropped. For prefetch/save on leave, ensure the effect survives long enough or use a final flush.
+  - **Navigation/lifecycle races**: Triggering nav or async ViewModel calls from `LaunchedEffect(Unit)` without guarding against re-entry when screen is popped and re-pushed — produces duplicate requests or double-navigation.
+  - **Paging/loadMore races**: Near-end detection launching loadMore without `isLoadingMore` guard, or guard flipped before request completes — see SearchState pattern. Verify `isLoadingMore` is set before launch and cleared in `finally`.
 
 Files: `ui/screen/`, `ui/component/`, `ui/navigation/`, `App.kt`
 

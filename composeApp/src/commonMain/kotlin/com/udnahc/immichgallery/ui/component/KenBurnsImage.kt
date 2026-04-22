@@ -17,6 +17,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import kotlin.random.Random
 
 private const val KEN_BURNS_DURATION_MS = 5000
@@ -63,6 +66,7 @@ fun KenBurnsImage(
     url: String,
     isActive: Boolean,
     durationMs: Int = KEN_BURNS_DURATION_MS,
+    thumbnailUrl: String? = null,
     modifier: Modifier = Modifier
 ) {
     val progress = remember { Animatable(0f) }
@@ -85,6 +89,18 @@ fun KenBurnsImage(
         }
     }
 
+    // Pull the grid-side thumbnail out of Coil's memory cache as an instant
+    // placeholder so page advances during slideshow don't flash empty while the
+    // high-res image decodes. Same pattern as ImageContent in AssetPageContent.
+    val context = LocalPlatformContext.current
+    val imageRequest = remember(context, url, thumbnailUrl) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .apply { if (thumbnailUrl != null) placeholderMemoryCacheKey(thumbnailUrl) }
+            .crossfade(200)
+            .build()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -100,7 +116,7 @@ fun KenBurnsImage(
         val panY = heightPx * (preset.startPanY + (preset.endPanY - preset.startPanY) * p)
 
         AsyncImage(
-            model = url,
+            model = imageRequest,
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier

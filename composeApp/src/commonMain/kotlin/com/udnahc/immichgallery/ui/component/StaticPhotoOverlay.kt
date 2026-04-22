@@ -32,12 +32,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
-import com.udnahc.immichgallery.domain.model.SlideshowOrder
+import com.udnahc.immichgallery.domain.model.nextSlideshowPage
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.desktopDetailShortcuts
 import com.udnahc.immichgallery.ui.util.dragToDismiss
 import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -131,26 +133,19 @@ fun StaticPhotoOverlay(
             }
     }
 
-    // Auto-advance slideshow — keyed on config so it restarts on config change
-    LaunchedEffect(slideshowConfig) {
+    // Auto-advance slideshow. Keyed on settledPage so the timer resets whenever
+    // the page changes — including manual left/right arrow advances.
+    LaunchedEffect(slideshowConfig, pagerState.settledPage) {
         val config = slideshowConfig ?: return@LaunchedEffect
         if (assets.size <= 1) return@LaunchedEffect
-        val delayMs = config.durationSeconds * 1000L
-        while (true) {
-            kotlinx.coroutines.delay(delayMs)
-            if (slideshowConfig == null) break
-            val next = if (config.order == SlideshowOrder.RANDOM) {
-                var target = (0 until assets.size).random()
-                // Avoid staying on the same page
-                while (target == pagerState.settledPage && assets.size > 1) {
-                    target = (0 until assets.size).random()
-                }
-                target
-            } else {
-                (pagerState.settledPage + 1) % assets.size
-            }
-            pagerState.animateScrollToPage(next)
-        }
+        kotlinx.coroutines.delay(config.durationSeconds * 1000L)
+        val next = nextSlideshowPage(
+            order = config.order,
+            current = pagerState.settledPage,
+            total = assets.size,
+            forward = true,
+        )
+        pagerState.animateScrollToPage(next)
     }
 
     PlatformBackHandler(enabled = true, onBack = {
@@ -213,6 +208,40 @@ fun StaticPhotoOverlay(
             // Swallow taps that fall in letterbox dead zones so they don't
             // reach the grid composed beneath the overlay.
             .pointerInput(Unit) { detectTapGestures { } }
+            .desktopDetailShortcuts(
+                enabled = !showDetailSheet && !showSlideshowDialog,
+                onPrev = {
+                    if (!pagerState.isScrollInProgress) {
+                        val config = slideshowConfig
+                        val target = if (config != null) {
+                            nextSlideshowPage(config.order, pagerState.currentPage, assets.size, forward = false)
+                        } else {
+                            (pagerState.currentPage - 1).coerceAtLeast(0)
+                        }
+                        scope.launch { pagerState.animateScrollToPage(target) }
+                    }
+                },
+                onNext = {
+                    if (!pagerState.isScrollInProgress) {
+                        val config = slideshowConfig
+                        val target = if (config != null) {
+                            nextSlideshowPage(config.order, pagerState.currentPage, assets.size, forward = true)
+                        } else {
+                            (pagerState.currentPage + 1).coerceAtMost(assets.lastIndex)
+                        }
+                        scope.launch { pagerState.animateScrollToPage(target) }
+                    }
+                },
+                onDismiss = {
+                    slideshowConfig = null
+                    onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+                },
+                onToggleSlideshow = {
+                    if (isSlideshow) slideshowConfig = null
+                    else if (assets.size > 1) showSlideshowDialog = true
+                },
+                onInfo = { showDetailSheet = true },
+            )
     ) {
         HorizontalPager(
             state = pagerState,

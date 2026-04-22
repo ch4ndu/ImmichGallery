@@ -125,13 +125,18 @@ internal fun AssetPage(
     //   sharedBounds thumbnail and the full-res ImageContent both render under
     //   the page's drag graphicsLayer at slightly different rects, producing a
     //   visible "duplicate image" behind the one following the finger.
-    // - Steady state (not transitioning, not dragging): cover after a short
-    //   delay so the thumbnail acts as a placeholder while the full-res image
-    //   loads after pager swipes.
-    LaunchedEffect(isTransitionActive, isDragging) {
+    // - Slideshow: cover immediately — KenBurnsImage uses the cached thumbnail
+    //   as its own placeholder via placeholderMemoryCacheKey, so the separate
+    //   thumbnail layer would only introduce a 1→0 alpha snap at the 500ms
+    //   mark and a layout mismatch (padded aspect-fit vs fullscreen scaled).
+    // - Steady state (not transitioning, not dragging, not slideshow): cover
+    //   after a short delay so the thumbnail acts as a placeholder while the
+    //   full-res image loads after pager swipes.
+    LaunchedEffect(isTransitionActive, isDragging, isSlideshow) {
         when {
             isTransitionActive -> coverThumbnail = false
             isDragging -> coverThumbnail = true
+            isSlideshow -> coverThumbnail = true
             else -> {
                 delay(THUMBNAIL_HIDE_DELAY_MS)
                 coverThumbnail = true
@@ -237,6 +242,7 @@ internal fun AssetPage(
                             url = imageUrl,
                             isActive = isCurrentPage,
                             durationMs = durationMs,
+                            thumbnailUrl = asset.thumbnailUrl,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

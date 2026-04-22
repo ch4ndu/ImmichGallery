@@ -59,6 +59,7 @@ import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
 import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
+import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
@@ -319,6 +320,7 @@ fun TimelineContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .pinchToZoomRowHeight(targetRowHeight, onTargetRowHeightChanged)
+                    .desktopGridZoom(targetRowHeight, onTargetRowHeightChanged)
             ) {
                 // Report available width to ViewModel for row packing
                 LaunchedEffect(maxWidth) {

@@ -50,6 +50,7 @@ import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
+import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -240,6 +241,7 @@ fun PersonDetailContent(
             modifier = Modifier
                 .fillMaxSize()
                 .pinchToZoomRowHeight(state.targetRowHeight, onTargetRowHeightChanged)
+                .desktopGridZoom(state.targetRowHeight, onTargetRowHeightChanged)
         ) {
             val widthDp = maxWidth
             LaunchedEffect(widthDp) {

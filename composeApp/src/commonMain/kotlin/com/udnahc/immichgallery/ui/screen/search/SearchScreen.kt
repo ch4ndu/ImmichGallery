@@ -62,6 +62,7 @@ import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
 import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
+import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
@@ -318,6 +319,7 @@ fun SearchContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .pinchToZoomRowHeight(state.targetRowHeight, onSetTargetRowHeight)
+                        .desktopGridZoom(state.targetRowHeight, onSetTargetRowHeight)
                 ) {
                     val widthDp = with(density) { constraints.maxWidth.toDp() }
                     LaunchedEffect(widthDp) {

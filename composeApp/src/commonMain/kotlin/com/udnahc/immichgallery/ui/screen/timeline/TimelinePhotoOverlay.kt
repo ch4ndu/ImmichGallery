@@ -11,6 +11,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,16 +35,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.model.nextSlideshowPage
 import com.udnahc.immichgallery.ui.component.AssetDetailSheet
 import com.udnahc.immichgallery.ui.component.AssetPage
 import com.udnahc.immichgallery.ui.component.DetailBottomHandle
 import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
+import com.udnahc.immichgallery.ui.component.SlideshowOptionsDialog
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.desktopDetailShortcuts
 import com.udnahc.immichgallery.ui.util.dragToDismiss
+import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -72,9 +80,29 @@ fun TimelinePhotoOverlay(
 
     val state by timelineState.collectAsState()
     var showTopBar by remember { mutableStateOf(true) }
-    val onTap = remember { { showTopBar = !showTopBar } }
+    var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
+    var showSlideshowDialog by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
     val fileNameCache = remember { mutableStateMapOf<String, String>() }
+
+    val isSlideshow = slideshowConfig != null
+
+    val onTap: () -> Unit = remember {
+        {
+            if (slideshowConfig != null) {
+                slideshowConfig = null
+                showTopBar = true
+            } else {
+                showTopBar = !showTopBar
+            }
+        }
+    }
+
+    val wakeLock = rememberScreenWakeLock()
+    LaunchedEffect(isSlideshow) {
+        if (isSlideshow) wakeLock.acquire() else wakeLock.release()
+    }
+    DisposableEffect(Unit) { onDispose { wakeLock.release() } }
 
     val totalPages = remember(state.buckets) {
         state.buckets.sumOf { it.count }
@@ -144,9 +172,35 @@ fun TimelinePhotoOverlay(
         pagerState.settledPage, state.buckets, assetCache
     )
 
+    // Auto-advance slideshow. Keyed on settledPage so the timer resets whenever
+    // the page changes — including manual left/right arrow advances.
+    LaunchedEffect(slideshowConfig, pagerState.settledPage, totalPages) {
+        val config = slideshowConfig ?: return@LaunchedEffect
+        if (totalPages <= 1) return@LaunchedEffect
+        delay(config.durationSeconds * 1000L)
+        val next = nextSlideshowPage(
+            order = config.order,
+            current = pagerState.settledPage,
+            total = totalPages,
+            forward = true,
+        )
+        pagerState.animateScrollToPage(next)
+    }
+
     PlatformBackHandler(enabled = true, onBack = {
         onDismiss(currentAsset?.id, currentBucketKey)
     })
+
+    if (showSlideshowDialog) {
+        SlideshowOptionsDialog(
+            onConfirm = { config ->
+                showSlideshowDialog = false
+                slideshowConfig = config
+                showTopBar = false
+            },
+            onDismiss = { showSlideshowDialog = false }
+        )
+    }
 
     // Cache file names
     LaunchedEffect(currentAsset?.id) {
@@ -192,7 +246,7 @@ fun TimelinePhotoOverlay(
     var isCurrentPageZoomed by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.settledPage) { isCurrentPageZoomed = false }
 
-    val gestureEnabled = !showDetailSheet
+    val gestureEnabled = !showDetailSheet && !isSlideshow
     LaunchedEffect(gestureEnabled) {
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
     }
@@ -207,12 +261,49 @@ fun TimelinePhotoOverlay(
                 isZoomed = { isCurrentPageZoomed },
                 dismissThresholdPx = dismissThresholdPx,
                 flickVelocityPx = flickVelocityPx,
-                onDismiss = { onDismiss(currentAsset?.id, currentBucketKey) },
+                onDismiss = {
+                    slideshowConfig = null
+                    onDismiss(currentAsset?.id, currentBucketKey)
+                },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
             // Swallow taps that fall in letterbox dead zones so they don't
             // reach the grid composed beneath the overlay.
             .pointerInput(Unit) { detectTapGestures { } }
+            .desktopDetailShortcuts(
+                enabled = !showDetailSheet && !showSlideshowDialog,
+                onPrev = {
+                    if (!pagerState.isScrollInProgress) {
+                        val config = slideshowConfig
+                        val target = if (config != null) {
+                            nextSlideshowPage(config.order, pagerState.currentPage, totalPages, forward = false)
+                        } else {
+                            (pagerState.currentPage - 1).coerceAtLeast(0)
+                        }
+                        scope.launch { pagerState.animateScrollToPage(target) }
+                    }
+                },
+                onNext = {
+                    if (!pagerState.isScrollInProgress) {
+                        val config = slideshowConfig
+                        val target = if (config != null) {
+                            nextSlideshowPage(config.order, pagerState.currentPage, totalPages, forward = true)
+                        } else {
+                            (pagerState.currentPage + 1).coerceAtMost(totalPages - 1)
+                        }
+                        scope.launch { pagerState.animateScrollToPage(target) }
+                    }
+                },
+                onDismiss = {
+                    slideshowConfig = null
+                    onDismiss(currentAsset?.id, currentBucketKey)
+                },
+                onToggleSlideshow = {
+                    if (isSlideshow) slideshowConfig = null
+                    else if (totalPages > 1) showSlideshowDialog = true
+                },
+                onInfo = { showDetailSheet = true },
+            )
     ) {
         HorizontalPager(
             state = pagerState,
@@ -253,6 +344,8 @@ fun TimelinePhotoOverlay(
                         asset = asset,
                         apiKey = apiKey,
                         isCurrentPage = isSettledPage,
+                        isSlideshow = isSlideshow,
+                        slideshowConfig = slideshowConfig,
                         onTap = onTap,
                         sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
                         animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
@@ -272,7 +365,10 @@ fun TimelinePhotoOverlay(
             onBack = { onDismiss(currentAsset?.id, currentBucketKey) },
             onDownload = {},
             onShare = {},
-            onInfo = { showDetailSheet = true }
+            onInfo = { showDetailSheet = true },
+            onSlideshow = if (totalPages > 1) {
+                { showSlideshowDialog = true }
+            } else null
         )
 
         Box(modifier = Modifier.align(Alignment.BottomCenter)) {

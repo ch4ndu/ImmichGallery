@@ -13,8 +13,8 @@ import com.udnahc.immichgallery.ui.screen.timeline.MAX_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.ui.screen.timeline.MIN_TARGET_ROW_HEIGHT
 
 private const val ZOOM_STEP_THRESHOLD = 1.3f
-private const val ZOOM_IN_FACTOR = 1.25f
-private const val ZOOM_OUT_FACTOR = 0.8f
+internal const val ZOOM_IN_FACTOR = 1.25f
+internal const val ZOOM_OUT_FACTOR = 0.8f
 
 fun Modifier.pinchToZoomRowHeight(
     currentHeight: Float,
