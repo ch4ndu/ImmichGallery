@@ -135,8 +135,11 @@ fun TimelineScreen(
 
     // True while an open/dismiss animation is in flight. Drives the dynamic
     // BoundsTransform: tween for open/dismiss, snap for mid-overlay pager swipes.
+    // Keyed on selectionEpoch as well so rapid open/close cycles don't let a
+    // previous effect's snapshotFlow resolve on a stale `stlTransitionActive`
+    // idle state from the prior transition.
     var overlayAnimActive by remember { mutableStateOf(false) }
-    LaunchedEffect(selectedAssetId) {
+    LaunchedEffect(selectedAssetId, selectionEpoch) {
         overlayAnimActive = true
         // Minimum window: give the animation time to actually start so
         // `stlTransitionActive` has had a chance to go true.

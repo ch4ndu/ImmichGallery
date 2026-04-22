@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.lighthousegames.logging.logging
 
 enum class SearchType { SMART, METADATA }
@@ -73,21 +74,25 @@ class SearchViewModel(
 
     fun setAvailableWidth(widthDp: Float) {
         if (widthDp == _state.value.availableWidth) return
-        _state.update { current ->
-            val rows = if (current.results.isNotEmpty() && widthDp > 0f) {
-                packIntoRows(current.results, availableWidth = widthDp, targetRowHeight = current.targetRowHeight, spacing = GRID_SPACING_DP)
-            } else current.rows
-            current.copy(availableWidth = widthDp, rows = rows)
+        viewModelScope.launch(Dispatchers.Default) {
+            _state.update { current ->
+                val rows = if (current.results.isNotEmpty() && widthDp > 0f) {
+                    packIntoRows(current.results, availableWidth = widthDp, targetRowHeight = current.targetRowHeight, spacing = GRID_SPACING_DP)
+                } else current.rows
+                current.copy(availableWidth = widthDp, rows = rows)
+            }
         }
     }
 
     fun setTargetRowHeight(height: Float) {
         if (height == _state.value.targetRowHeight) return
-        _state.update { current ->
-            val rows = if (current.results.isNotEmpty() && current.availableWidth > 0f) {
-                packIntoRows(current.results, availableWidth = current.availableWidth, targetRowHeight = height, spacing = GRID_SPACING_DP)
-            } else current.rows
-            current.copy(targetRowHeight = height, rows = rows)
+        viewModelScope.launch(Dispatchers.Default) {
+            _state.update { current ->
+                val rows = if (current.results.isNotEmpty() && current.availableWidth > 0f) {
+                    packIntoRows(current.results, availableWidth = current.availableWidth, targetRowHeight = height, spacing = GRID_SPACING_DP)
+                } else current.rows
+                current.copy(targetRowHeight = height, rows = rows)
+            }
         }
     }
 
@@ -119,7 +124,9 @@ class SearchViewModel(
                     val width = _state.value.availableWidth
                     val height = _state.value.targetRowHeight
                     val rows = if (width > 0f && searchResult.assets.isNotEmpty()) {
-                        packIntoRows(searchResult.assets, availableWidth = width, targetRowHeight = height, spacing = GRID_SPACING_DP)
+                        withContext(Dispatchers.Default) {
+                            packIntoRows(searchResult.assets, availableWidth = width, targetRowHeight = height, spacing = GRID_SPACING_DP)
+                        }
                     } else emptyList()
                     _state.update {
                         it.copy(
@@ -145,14 +152,18 @@ class SearchViewModel(
     }
 
     fun loadMore() {
-        val current = _state.value
-        if (current.isLoadingMore || !current.hasMore || current.query.isBlank()) return
+        // Atomic claim: only the caller that flips isLoadingMore from false to
+        // true proceeds. Without compareAndSet, two near-simultaneous near-end
+        // triggers could both observe isLoadingMore=false before either wrote
+        // it, and both would launch duplicate requests.
+        val prev = _state.value
+        if (prev.isLoadingMore || !prev.hasMore || prev.query.isBlank()) return
+        if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
 
         viewModelScope.launch(Dispatchers.IO) {
             val state = _state.value
             val nextPage = state.currentPage + 1
             log.d { "Loading more page=$nextPage for '${state.query}'" }
-            _state.update { it.copy(isLoadingMore = true) }
 
             val result = when (state.searchType) {
                 SearchType.SMART -> smartSearchUseCase(state.query, page = nextPage)
@@ -165,7 +176,9 @@ class SearchViewModel(
                     val width = _state.value.availableWidth
                     val height = _state.value.targetRowHeight
                     val rows = if (width > 0f && allAssets.isNotEmpty()) {
-                        packIntoRows(allAssets, availableWidth = width, targetRowHeight = height, spacing = GRID_SPACING_DP)
+                        withContext(Dispatchers.Default) {
+                            packIntoRows(allAssets, availableWidth = width, targetRowHeight = height, spacing = GRID_SPACING_DP)
+                        }
                     } else emptyList()
                     _state.update {
                         it.copy(

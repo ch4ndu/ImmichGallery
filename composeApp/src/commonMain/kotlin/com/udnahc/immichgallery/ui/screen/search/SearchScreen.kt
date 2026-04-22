@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -67,6 +68,8 @@ import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
@@ -132,7 +135,10 @@ fun SearchScreen(
     var stlTransitionActive by remember { mutableStateOf(false) }
 
     var overlayAnimActive by remember { mutableStateOf(false) }
-    LaunchedEffect(selectedAssetId) {
+    // Keyed on selectionEpoch as well so rapid open/close cycles don't let a
+    // previous effect's snapshotFlow resolve on a stale `stlTransitionActive`
+    // idle state from the prior transition.
+    LaunchedEffect(selectedAssetId, selectionEpoch) {
         overlayAnimActive = true
         delay(PHOTO_TRANSITION_DURATION_MS.toLong())
         snapshotFlow { stlTransitionActive }.first { !it }
@@ -298,8 +304,11 @@ fun SearchContent(
                     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 val density = LocalDensity.current
 
-                LaunchedEffect(listState.isScrollInProgress) {
-                    if (listState.isScrollInProgress) focusManager.clearFocus()
+                LaunchedEffect(listState, focusManager) {
+                    snapshotFlow { listState.isScrollInProgress }
+                        .distinctUntilChanged()
+                        .filter { it }
+                        .collect { focusManager.clearFocus() }
                 }
 
                 // Load-more detection
@@ -311,8 +320,9 @@ fun SearchContent(
                         total > 0 && lastVisible >= total - 3
                     }
                 }
+                val latestOnLoadMore by rememberUpdatedState(onLoadMore)
                 LaunchedEffect(shouldLoadMore) {
-                    if (shouldLoadMore) onLoadMore()
+                    if (shouldLoadMore) latestOnLoadMore()
                 }
 
                 BoxWithConstraints(

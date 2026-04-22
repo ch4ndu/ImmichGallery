@@ -27,6 +27,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -52,6 +53,7 @@ import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
+import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
@@ -119,7 +121,10 @@ fun PersonDetailScreen(
     var stlTransitionActive by remember { mutableStateOf(false) }
 
     var overlayAnimActive by remember { mutableStateOf(false) }
-    LaunchedEffect(selectedAssetId) {
+    // Keyed on selectionEpoch as well so rapid open/close cycles don't let a
+    // previous effect's snapshotFlow resolve on a stale `stlTransitionActive`
+    // idle state from the prior transition.
+    LaunchedEffect(selectedAssetId, selectionEpoch) {
         overlayAnimActive = true
         delay(PHOTO_TRANSITION_DURATION_MS.toLong())
         snapshotFlow { stlTransitionActive }.first { !it }
@@ -256,8 +261,9 @@ fun PersonDetailContent(
                     totalItems > 0 && lastVisible >= totalItems - 3
                 }
             }
+            val latestOnLoadMore by rememberUpdatedState(onLoadMore)
             LaunchedEffect(shouldLoadMore) {
-                if (shouldLoadMore) onLoadMore()
+                if (shouldLoadMore) latestOnLoadMore()
             }
 
             val displayItems = state.displayItems
@@ -322,4 +328,16 @@ fun PersonDetailContent(
             }
         }
     }
+}
+
+@Preview
+@Composable
+private fun PersonDetailContentPreview() {
+    PersonDetailContent(
+        state = PersonDetailState(isLoading = true),
+        onPhotoClick = {},
+        onRetry = {},
+        onLoadMore = {},
+        onAvailableWidth = {},
+    )
 }

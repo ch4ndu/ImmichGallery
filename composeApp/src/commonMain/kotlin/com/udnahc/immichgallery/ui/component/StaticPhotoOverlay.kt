@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import coil3.SingletonImageLoader
@@ -58,9 +59,14 @@ fun StaticPhotoOverlay(
     // Forward the STL's actual animation-active state to the screen so the
     // screen can flip `overlayAnimActive` false only when the bounds animation
     // has truly completed — instead of after a fixed delay that can truncate
-    // really-tall-image animations.
-    val stlActive = sharedTransitionScope?.isTransitionActive ?: false
-    LaunchedEffect(stlActive) { onStlTransitionActiveChanged(stlActive) }
+    // really-tall-image animations. distinctUntilChanged prevents duplicate
+    // callback fires when snapshot observers emit the same value.
+    val latestStlCallback by rememberUpdatedState(onStlTransitionActiveChanged)
+    LaunchedEffect(sharedTransitionScope) {
+        snapshotFlow { sharedTransitionScope?.isTransitionActive ?: false }
+            .distinctUntilChanged()
+            .collect { latestStlCallback(it) }
+    }
 
     var showTopBar by remember { mutableStateOf(true) }
     var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
@@ -107,11 +113,14 @@ fun StaticPhotoOverlay(
     }
 
     // Report the currently-viewed asset to the parent so the grid can hide it.
-    LaunchedEffect(pagerState, assets) {
-        snapshotFlow { pagerState.settledPage }
-            .mapNotNull { assets.getOrNull(it)?.id }
+    // Unit key + snapshotFlow so new `assets` references don't restart the
+    // collector mid-stream.
+    val latestAssetChangedCallback by rememberUpdatedState(onCurrentAssetChanged)
+    LaunchedEffect(Unit) {
+        snapshotFlow { assets.getOrNull(pagerState.settledPage)?.id }
+            .mapNotNull { it }
             .distinctUntilChanged()
-            .collect(onCurrentAssetChanged)
+            .collect { latestAssetChangedCallback(it) }
     }
 
     // Prefetch the current asset's full image plus its neighbors into Coil's
@@ -119,8 +128,9 @@ fun StaticPhotoOverlay(
     // the end of the shared-element transition and the full image arriving.
     val prefetchContext = LocalPlatformContext.current
     val imageLoader = remember(prefetchContext) { SingletonImageLoader.get(prefetchContext) }
-    LaunchedEffect(pagerState, assets) {
+    LaunchedEffect(Unit) {
         snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
             .collect { page ->
                 listOf(page - 1, page, page + 1).forEach { idx ->
                     val asset = assets.getOrNull(idx) ?: return@forEach
@@ -133,9 +143,10 @@ fun StaticPhotoOverlay(
             }
     }
 
-    // Auto-advance slideshow. Keyed on settledPage so the timer resets whenever
-    // the page changes — including manual left/right arrow advances.
-    LaunchedEffect(slideshowConfig, pagerState.settledPage) {
+    // Auto-advance slideshow. Keyed on settledPage + assets.size so the timer
+    // resets whenever the page changes or the asset list grows/shrinks mid-
+    // slideshow (e.g., from sync).
+    LaunchedEffect(slideshowConfig, pagerState.settledPage, assets.size) {
         val config = slideshowConfig ?: return@LaunchedEffect
         if (assets.size <= 1) return@LaunchedEffect
         kotlinx.coroutines.delay(config.durationSeconds * 1000L)

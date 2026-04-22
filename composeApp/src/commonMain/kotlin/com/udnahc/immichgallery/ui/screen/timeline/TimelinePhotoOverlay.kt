@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -74,9 +75,14 @@ fun TimelinePhotoOverlay(
     // Forward the STL's actual animation-active state to the screen so the
     // screen can flip `overlayAnimActive` false only when the bounds animation
     // has truly completed — instead of after a fixed delay that can truncate
-    // really-tall-image animations.
-    val stlActive = sharedTransitionScope?.isTransitionActive ?: false
-    LaunchedEffect(stlActive) { onStlTransitionActiveChanged(stlActive) }
+    // really-tall-image animations. distinctUntilChanged prevents duplicate
+    // callback fires when snapshot observers emit the same value.
+    val latestStlCallback by rememberUpdatedState(onStlTransitionActiveChanged)
+    LaunchedEffect(sharedTransitionScope) {
+        snapshotFlow { sharedTransitionScope?.isTransitionActive ?: false }
+            .distinctUntilChanged()
+            .collect { latestStlCallback(it) }
+    }
 
     val state by timelineState.collectAsState()
     var showTopBar by remember { mutableStateOf(true) }
@@ -132,11 +138,17 @@ fun TimelinePhotoOverlay(
     // Report the currently-viewed asset to the parent so the grid can hide it.
     // mapNotNull filters out settled pages whose bucket hasn't loaded yet —
     // otherwise we'd briefly signal null and the grid would flash every cell in.
-    LaunchedEffect(pagerState, state.buckets, assetCache) {
-        snapshotFlow { pagerState.settledPage }
-            .mapNotNull { resolvePageAsset(it, state.buckets, assetCache)?.id }
+    // Keyed on Unit with snapshotFlow so the effect doesn't restart every time
+    // `state.buckets` or `assetCache` gets a new reference — restart would
+    // drop the flow collection mid-stream on every data update.
+    val latestAssetChangedCallback by rememberUpdatedState(onCurrentAssetChanged)
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            resolvePageAsset(pagerState.settledPage, state.buckets, assetCache)?.id
+        }
+            .mapNotNull { it }
             .distinctUntilChanged()
-            .collect(onCurrentAssetChanged)
+            .collect { latestAssetChangedCallback(it) }
     }
 
     // Prefetch current ±1 full images into Coil's cache. Neighboring pages
@@ -144,8 +156,9 @@ fun TimelinePhotoOverlay(
     // whenever their bucket arrives and the pager settles near them.
     val prefetchContext = LocalPlatformContext.current
     val imageLoader = remember(prefetchContext) { SingletonImageLoader.get(prefetchContext) }
-    LaunchedEffect(pagerState, state.buckets, assetCache) {
+    LaunchedEffect(Unit) {
         snapshotFlow { pagerState.settledPage }
+            .distinctUntilChanged()
             .collect { page ->
                 listOf(page - 1, page, page + 1).forEach { idx ->
                     val asset = resolvePageAsset(idx, state.buckets, assetCache)
@@ -202,16 +215,20 @@ fun TimelinePhotoOverlay(
         )
     }
 
-    // Cache file names
+    // Cache file names. Capture the asset id at launch so after the suspending
+    // fetch returns, the cache write is keyed by the fetched id even if the
+    // pager has advanced — structured cancellation makes the suspend throw on
+    // key change anyway, but the explicit capture makes the invariant obvious.
     LaunchedEffect(currentAsset?.id) {
         val asset = currentAsset ?: return@LaunchedEffect
+        val assetId = asset.id
         if (asset.fileName.isNotEmpty()) {
-            fileNameCache[asset.id] = asset.fileName
+            fileNameCache[assetId] = asset.fileName
             return@LaunchedEffect
         }
-        if (fileNameCache.containsKey(asset.id)) return@LaunchedEffect
-        getAssetFileName(asset.id, asset.fileName).onSuccess { name ->
-            fileNameCache[asset.id] = name
+        if (fileNameCache.containsKey(assetId)) return@LaunchedEffect
+        getAssetFileName(assetId, asset.fileName).onSuccess { name ->
+            fileNameCache[assetId] = name
         }
     }
 

@@ -132,14 +132,20 @@ internal fun AssetPage(
     // - Steady state (not transitioning, not dragging, not slideshow): cover
     //   after a short delay so the thumbnail acts as a placeholder while the
     //   full-res image loads after pager swipes.
-    LaunchedEffect(isTransitionActive, isDragging, isSlideshow) {
+    LaunchedEffect(isTransitionActive, isDragging, isSlideshow, isCurrentPage) {
         when {
             isTransitionActive -> coverThumbnail = false
             isDragging -> coverThumbnail = true
             isSlideshow -> coverThumbnail = true
             else -> {
                 delay(THUMBNAIL_HIDE_DELAY_MS)
-                coverThumbnail = true
+                // Re-check after suspend: LaunchedEffect auto-cancels on key
+                // changes, but this guard makes the invariant explicit — the
+                // thumbnail should only hide while the page is settled on a
+                // steady-state, non-transitioning, non-dragging view.
+                if (isCurrentPage && !isTransitionActive && !isDragging && !isSlideshow) {
+                    coverThumbnail = true
+                }
             }
         }
     }

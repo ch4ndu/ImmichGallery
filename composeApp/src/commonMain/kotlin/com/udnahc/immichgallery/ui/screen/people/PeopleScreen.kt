@@ -31,6 +31,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -104,8 +107,11 @@ fun PeopleContent(
         val topContentPadding = statusBarPadding + Dimens.topBarHeight + Dimens.screenPadding
 
         val focusManager = LocalFocusManager.current
-        LaunchedEffect(gridState.isScrollInProgress) {
-            if (gridState.isScrollInProgress) focusManager.clearFocus()
+        LaunchedEffect(gridState, focusManager) {
+            snapshotFlow { gridState.isScrollInProgress }
+                .distinctUntilChanged()
+                .filter { it }
+                .collect { focusManager.clearFocus() }
         }
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -135,8 +141,11 @@ fun PeopleContent(
                         )
                 )
 
+                // Scroll back to the top when the filtered list changes, but
+                // only when the user isn't mid-scroll — otherwise re-firing
+                // the animation from a running scroll causes jank.
                 LaunchedEffect(state.filteredPeople) {
-                    gridState.scrollToItem(0)
+                    if (!gridState.isScrollInProgress) gridState.scrollToItem(0)
                 }
                 ScrollbarOverlay(
                     gridState = gridState,
@@ -157,7 +166,9 @@ fun PeopleContent(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(state.filteredPeople, key = { it.id }) { person ->
-                            val onClick = remember(person.id) { { onPersonClick(person.id, person.name) } }
+                            val onClick = remember(person, onPersonClick) {
+                                { onPersonClick(person.id, person.name) }
+                            }
                             PersonItem(
                                 person = person,
                                 onClick = onClick)

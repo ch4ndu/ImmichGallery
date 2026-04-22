@@ -116,7 +116,10 @@ fun AlbumDetailScreen(
     var stlTransitionActive by remember { mutableStateOf(false) }
 
     var overlayAnimActive by remember { mutableStateOf(false) }
-    LaunchedEffect(selectedAssetId) {
+    // Keyed on selectionEpoch as well so rapid open/close cycles don't let a
+    // previous effect's snapshotFlow resolve on a stale `stlTransitionActive`
+    // idle state from the prior transition.
+    LaunchedEffect(selectedAssetId, selectionEpoch) {
         overlayAnimActive = true
         delay(PHOTO_TRANSITION_DURATION_MS.toLong())
         snapshotFlow { stlTransitionActive }.first { !it }

@@ -14,6 +14,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,9 +61,12 @@ fun SuccessBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Hold the latest onDismiss so the delayed auto-dismiss can't fire a
+    // stale callback reference captured at LaunchedEffect launch time.
+    val latestOnDismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(message) {
         delay(autoDismissMillis)
-        onDismiss()
+        latestOnDismiss()
     }
 
     BannerRow(

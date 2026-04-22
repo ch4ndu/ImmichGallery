@@ -483,7 +483,7 @@ private fun BottomBarOverlay(
                         MaterialTheme.colorScheme.onBackground.copy(alpha = UNSELECTED_ALPHA)
                     }
                 )
-                val onClick = remember(index) { { onItemClick(item) } }
+                val onClick = remember(item, onItemClick) { { onItemClick(item) } }
                 Box(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center

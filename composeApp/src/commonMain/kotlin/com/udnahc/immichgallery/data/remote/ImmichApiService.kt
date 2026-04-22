@@ -153,24 +153,6 @@ class ImmichApiService(
         }.body()
     }
 
-    fun thumbnailUrl(
-        assetId: String,
-        size: String = "preview"
-    ): String {
-        return "${baseUrl()}/api/assets/$assetId/thumbnail?size=$size"
-    }
-
-    fun originalUrl(assetId: String): String {
-        return "${baseUrl()}/api/assets/$assetId/original"
-    }
-
-    fun personThumbnailUrl(personId: String): String {
-        return "${baseUrl()}/api/people/$personId/thumbnail"
-    }
-
-    fun albumThumbnailUrl(albumThumbnailAssetId: String): String {
-        return thumbnailUrl(albumThumbnailAssetId)
-    }
 }
 
 @Serializable

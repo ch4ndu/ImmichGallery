@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.lighthousegames.logging.logging
 
 /** Display item: either a section header label or a photo row. */
@@ -84,10 +85,11 @@ class AlbumDetailViewModel(
 
             getAlbumDetailUseCase.observeAssets(albumId).collect { assets ->
                 log.d { "Room emitted ${assets.size} assets for album $albumId" }
-                _state.update { current ->
-                    val items = buildDisplayItems(assets, current.groupSize, current.availableWidth, current.targetRowHeight)
-                    current.copy(assets = assets, displayItems = items)
+                val snapshot = _state.value
+                val items = withContext(Dispatchers.Default) {
+                    buildDisplayItems(assets, snapshot.groupSize, snapshot.availableWidth, snapshot.targetRowHeight)
                 }
+                _state.update { it.copy(assets = assets, displayItems = items) }
             }
         }
 
@@ -96,25 +98,31 @@ class AlbumDetailViewModel(
 
     fun setAvailableWidth(widthDp: Float) {
         if (widthDp == _state.value.availableWidth) return
-        _state.update { current ->
-            val items = buildDisplayItems(current.assets, current.groupSize, widthDp, current.targetRowHeight)
-            current.copy(availableWidth = widthDp, displayItems = items)
+        viewModelScope.launch(Dispatchers.Default) {
+            _state.update { current ->
+                val items = buildDisplayItems(current.assets, current.groupSize, widthDp, current.targetRowHeight)
+                current.copy(availableWidth = widthDp, displayItems = items)
+            }
         }
     }
 
     fun setTargetRowHeight(height: Float) {
         if (height == _state.value.targetRowHeight) return
-        _state.update { current ->
-            val items = buildDisplayItems(current.assets, current.groupSize, current.availableWidth, height)
-            current.copy(targetRowHeight = height, displayItems = items)
+        viewModelScope.launch(Dispatchers.Default) {
+            _state.update { current ->
+                val items = buildDisplayItems(current.assets, current.groupSize, current.availableWidth, height)
+                current.copy(targetRowHeight = height, displayItems = items)
+            }
         }
     }
 
     fun setGroupSize(size: GroupSize) {
         if (size == _state.value.groupSize) return
-        _state.update { current ->
-            val items = buildDisplayItems(current.assets, size, current.availableWidth, current.targetRowHeight)
-            current.copy(groupSize = size, displayItems = items)
+        viewModelScope.launch(Dispatchers.Default) {
+            _state.update { current ->
+                val items = buildDisplayItems(current.assets, size, current.availableWidth, current.targetRowHeight)
+                current.copy(groupSize = size, displayItems = items)
+            }
         }
     }
 

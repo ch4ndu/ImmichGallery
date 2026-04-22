@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.navigation
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -20,9 +21,11 @@ object PeopleRoute
 @Serializable
 object SearchRoute
 
+@Immutable
 @Serializable
 data class AlbumDetailRoute(val albumId: String)
 
+@Immutable
 @Serializable
 data class PersonDetailRoute(
     val personId: String,
