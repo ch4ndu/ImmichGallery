@@ -118,6 +118,13 @@ class AlbumRepository(
         }
     }
 
+    suspend fun clearCache() {
+        withContext(Dispatchers.IO) {
+            albumDao.clearAlbums()
+            albumDao.clearAllAlbumRefs()
+        }
+    }
+
     private fun currentEpochMillis(): Long =
         kotlin.time.Clock.System.now().toEpochMilliseconds()
 

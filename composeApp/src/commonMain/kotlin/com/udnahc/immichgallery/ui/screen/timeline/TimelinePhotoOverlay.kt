@@ -171,15 +171,11 @@ fun TimelinePhotoOverlay(
             }
     }
 
-    // Kick a load for the settled-page bucket if it isn't cached yet. Both the
-    // overlay and the grid now read from the same SnapshotStateMap — once the
-    // main load path populates it, the pager re-renders reactively.
+    // Bucket of the settled page — used by the dismiss callbacks to report
+    // where the user landed. The bucket-load kick itself lives in the per-page
+    // LaunchedEffect inside the pager body (covers pre-composed neighbor pages
+    // too); no separate kick needed here.
     val currentBucketKey = resolvePageBucket(pagerState.settledPage, state.buckets)
-    LaunchedEffect(currentBucketKey) {
-        if (currentBucketKey != null && !assetCache.containsKey(currentBucketKey)) {
-            onBucketNeeded(currentBucketKey)
-        }
-    }
 
     val currentAsset = resolvePageAsset(
         pagerState.settledPage, state.buckets, assetCache
@@ -391,8 +387,6 @@ fun TimelinePhotoOverlay(
             showTopBar = showTopBar,
             title = displayFileName,
             onBack = { onDismiss(currentAsset?.id, currentBucketKey) },
-            onDownload = {},
-            onShare = {},
             onInfo = { showDetailSheet = true },
             onSlideshow = if (totalPages > 1) {
                 { showSlideshowDialog = true }

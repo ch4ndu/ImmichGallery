@@ -63,6 +63,7 @@ class SearchViewModel(
         getAssetDetailUseCase(assetId)
 
     private var searchJob: Job? = null
+    private var loadMoreJob: Job? = null
 
     fun updateQuery(query: String) {
         _state.update { it.copy(query = query) }
@@ -97,7 +98,11 @@ class SearchViewModel(
     }
 
     fun search() {
+        // Cancel both searchJob AND any in-flight loadMore. Otherwise an
+        // old-query page-2 fetch that completes after the new search resets
+        // state would append stale results via `_state.value.results + ...`.
         searchJob?.cancel()
+        loadMoreJob?.cancel()
         searchJob = viewModelScope.launch(Dispatchers.IO) {
             val currentState = _state.value
             if (currentState.query.isBlank()) return@launch
@@ -106,6 +111,7 @@ class SearchViewModel(
             _state.update {
                 it.copy(
                     isLoading = true,
+                    isLoadingMore = false,
                     error = null,
                     hasSearched = true,
                     results = emptyList(),
@@ -160,7 +166,7 @@ class SearchViewModel(
         if (prev.isLoadingMore || !prev.hasMore || prev.query.isBlank()) return
         if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
 
-        viewModelScope.launch(Dispatchers.IO) {
+        loadMoreJob = viewModelScope.launch(Dispatchers.IO) {
             val state = _state.value
             val nextPage = state.currentPage + 1
             log.d { "Loading more page=$nextPage for '${state.query}'" }

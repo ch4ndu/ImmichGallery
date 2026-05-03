@@ -18,7 +18,9 @@ class ServerStatusRepository(
     private var monitoringJob: Job? = null
 
     fun startMonitoring(scope: CoroutineScope) {
-        monitoringJob?.cancel()
+        // Idempotent: a previous call's job is still running, don't start a
+        // second one. Must be called from a single thread (DI / app init).
+        if (monitoringJob?.isActive == true) return
         monitoringJob = scope.launch {
             while (true) {
                 _isOnline.value = try {

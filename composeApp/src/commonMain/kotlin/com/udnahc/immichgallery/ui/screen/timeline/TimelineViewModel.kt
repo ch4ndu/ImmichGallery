@@ -86,9 +86,7 @@ private data class BucketData(
     val buckets: List<TimelineBucket> = emptyList(),
     val loadedBuckets: Set<String> = emptySet(),
     val loadingBuckets: Set<String> = emptySet(),
-    val failedBuckets: Set<String> = emptySet(),
-    // Buckets whose caches need invalidation — consumed by buildDisplayItems
-    val pendingInvalidations: Set<String> = emptySet()
+    val failedBuckets: Set<String> = emptySet()
 )
 
 @Immutable
@@ -256,12 +254,6 @@ class TimelineViewModel(
     }
 
     fun loadBucketAssets(timeBucket: String) {
-        val current = _bucketData.value
-        if (timeBucket in current.loadedBuckets ||
-            timeBucket in current.loadingBuckets ||
-            timeBucket in current.failedBuckets
-        ) return
-
         viewModelScope.launch(Dispatchers.IO) {
             var shouldLoad = false
             _bucketData.update { data ->
@@ -300,16 +292,6 @@ class TimelineViewModel(
             _bucketData.update { it.copy(failedBuckets = it.failedBuckets - timeBucket) }
             loadBucketAssetsInternal(timeBucket)
         }
-    }
-
-    fun getDisplayItemIndex(assetId: String): Int? {
-        return state.value.displayItems.indexOfFirst { item ->
-            when (item) {
-                is PhotoItem -> item.asset.id == assetId
-                is RowItem -> item.photos.any { it.asset.id == assetId }
-                else -> false
-            }
-        }.takeIf { it >= 0 }
     }
 
     /**
@@ -404,8 +386,7 @@ class TimelineViewModel(
                                 onSuccess = {
                                     _bucketData.update { data ->
                                         data.copy(
-                                            loadedBuckets = data.loadedBuckets + bucket.timeBucket,
-                                            pendingInvalidations = data.pendingInvalidations + bucket.timeBucket
+                                            loadedBuckets = data.loadedBuckets + bucket.timeBucket
                                         )
                                     }
                                 },
@@ -419,7 +400,12 @@ class TimelineViewModel(
                         }
                         _isBuilding.value = false
                     } else if (isFullRefresh) {
-                        // Manual refresh: clear tracking so buckets re-sync on scroll
+                        // Manual refresh: clear tracking so buckets re-sync on scroll.
+                        // Also clear the in-memory asset cache — the grid renders
+                        // placeholders from loadedBuckets=∅ during the reload window,
+                        // but the overlay reads bucketAssetsCache directly and would
+                        // otherwise show stale photos if opened mid-refresh.
+                        bucketAssetsCache.clear()
                         _bucketData.update {
                             it.copy(
                                 loadedBuckets = emptySet(),
@@ -477,16 +463,16 @@ class TimelineViewModel(
                 // reactively, and buildDisplayItems (triggered by the
                 // _bucketData change) will read the same entry — so the grid's
                 // RowItem and the overlay's rendered page are materialized
-                // from the same data at the same moment. pendingInvalidations
-                // ensures the derived item cache rebuilds this bucket's items
-                // even if its `(timeBucket, "loaded")` key already existed.
+                // from the same data at the same moment. The stateKey
+                // transition (placeholder → loaded) causes the derived-item
+                // cache to miss this bucket naturally, so no separate
+                // invalidation signal is needed.
                 val assets = getBucketAssetsUseCase(timeBucket)
                 bucketAssetsCache[timeBucket] = assets
                 _bucketData.update { data ->
                     data.copy(
                         loadingBuckets = data.loadingBuckets - timeBucket,
-                        loadedBuckets = data.loadedBuckets + timeBucket,
-                        pendingInvalidations = data.pendingInvalidations + timeBucket
+                        loadedBuckets = data.loadedBuckets + timeBucket
                     )
                 }
             },
@@ -547,21 +533,6 @@ class TimelineViewModel(
             cachedGroupSize = groupSize
             cachedAvailableWidth = availableWidth
             cachedTargetRowHeight = targetRowHeight
-        }
-
-        // Process pending bucket invalidations. Raw assets in bucketAssetsCache
-        // were refreshed in-place by loadBucketAssetsInternal — we only need
-        // to clear the derived item cache so buildBucketItems re-renders with
-        // the fresh assets.
-        if (data.pendingInvalidations.isNotEmpty()) {
-            for (bucket in data.pendingInvalidations) {
-                cachedBucketItems = cachedBucketItems.filterKeys { key ->
-                    !key.startsWith("${bucket}_")
-                }
-            }
-            cachedFlatItems = emptyList()
-            // Clear consumed invalidations
-            _bucketData.update { it.copy(pendingInvalidations = emptySet()) }
         }
 
         var anyChanged = false

@@ -14,9 +14,6 @@ interface TimelineDao {
     suspend fun upsertBuckets(buckets: List<TimelineBucketEntity>)
 
     @Query("SELECT * FROM timeline_buckets ORDER BY sortOrder ASC")
-    suspend fun getAllBuckets(): List<TimelineBucketEntity>
-
-    @Query("SELECT * FROM timeline_buckets ORDER BY sortOrder ASC")
     fun observeBuckets(): Flow<List<TimelineBucketEntity>>
 
     @Upsert

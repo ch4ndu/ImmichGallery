@@ -36,20 +36,7 @@ class TimelineRepository(
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
 
-    fun observeBucketAssets(timeBucket: String): Flow<List<Asset>> =
-        assetDao.observeTimelineAssets(timeBucket)
-            .map { entities ->
-                val base = baseUrl()
-                entities.map { it.toDomain(base) }
-            }
-            .distinctUntilChanged()
-            .flowOn(Dispatchers.Default)
-
     // --- Suspend reads (for imperative access) ---
-
-    suspend fun getCachedBuckets(): List<TimelineBucket> {
-        return timelineDao.getAllBuckets().map { it.toDomain() }
-    }
 
     suspend fun getAssetsForBucket(timeBucket: String): List<Asset> {
         val base = baseUrl()
@@ -61,10 +48,6 @@ class TimelineRepository(
 
     suspend fun getLoadedBucketIds(): Set<String> =
         assetDao.getLoadedTimelineBuckets().toSet()
-
-    suspend fun isBucketLoaded(timeBucket: String): Boolean {
-        return assetDao.getTimelineAssetCount(timeBucket) > 0
-    }
 
     suspend fun getLastSyncedAt(): Long? {
         return syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_TIMELINE_BUCKETS)
@@ -114,6 +97,13 @@ class TimelineRepository(
     suspend fun getAssetFileName(id: String): String {
         val response = apiService.getAssetInfo(id)
         return response.originalFileName
+    }
+
+    suspend fun clearCache() {
+        withContext(Dispatchers.IO) {
+            timelineDao.clearBuckets()
+            timelineDao.clearAllTimelineRefs()
+        }
     }
 
     private fun currentEpochMillis(): Long =

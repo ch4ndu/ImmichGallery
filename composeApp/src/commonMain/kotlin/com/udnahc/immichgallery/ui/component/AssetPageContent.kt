@@ -65,17 +65,13 @@ import com.udnahc.immichgallery.ui.util.rememberPhotoBoundsTransform
 import com.udnahc.immichgallery.ui.util.restoreEdgeToEdge
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.back
-import immichgallery.composeapp.generated.resources.detail_download
 import immichgallery.composeapp.generated.resources.detail_slideshow
 import immichgallery.composeapp.generated.resources.detail_failed_image
 import immichgallery.composeapp.generated.resources.detail_info
-import immichgallery.composeapp.generated.resources.detail_share
 import immichgallery.composeapp.generated.resources.ic_back
 import immichgallery.composeapp.generated.resources.ic_play
-import immichgallery.composeapp.generated.resources.ic_download
 import immichgallery.composeapp.generated.resources.ic_info
 import immichgallery.composeapp.generated.resources.ic_more_vert
-import immichgallery.composeapp.generated.resources.ic_share
 import immichgallery.composeapp.generated.resources.retry
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.painterResource
@@ -306,8 +302,6 @@ internal fun DetailTopBarOverlay(
     showTopBar: Boolean,
     title: String,
     onBack: () -> Unit,
-    onDownload: () -> Unit,
-    onShare: () -> Unit,
     onInfo: () -> Unit,
     onSlideshow: (() -> Unit)? = null
 ) {
@@ -373,28 +367,6 @@ internal fun DetailTopBarOverlay(
                                 }
                             )
                         }
-                        DropdownMenuItem(
-                            modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
-                            text = { Text(stringResource(Res.string.detail_download)) },
-                            onClick = { menuExpanded = false; onDownload() },
-                            leadingIcon = {
-                                Icon(
-                                    painterResource(Res.drawable.ic_download),
-                                    contentDescription = null
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
-                            text = { Text(stringResource(Res.string.detail_share)) },
-                            onClick = { menuExpanded = false; onShare() },
-                            leadingIcon = {
-                                Icon(
-                                    painterResource(Res.drawable.ic_share),
-                                    contentDescription = null
-                                )
-                            }
-                        )
                         DropdownMenuItem(
                             modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
                             text = { Text(stringResource(Res.string.detail_info)) },
@@ -548,8 +520,6 @@ private fun DetailTopBarOverlayPreview() {
         showTopBar = true,
         title = "IMG_2024.jpg",
         onBack = {},
-        onDownload = {},
-        onShare = {},
         onInfo = {}
     )
 }

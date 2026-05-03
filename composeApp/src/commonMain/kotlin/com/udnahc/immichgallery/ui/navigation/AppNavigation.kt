@@ -32,10 +32,10 @@ fun AppNavigation() {
     NavHost(
         navController = navController,
         startDestination = startDestination,
-        enterTransition = { fadeIn() },
-        exitTransition = { fadeOut() },
-        popEnterTransition = { fadeIn() },
-        popExitTransition = { fadeOut() }
+//        enterTransition = { fadeIn() },
+//        exitTransition = { fadeOut() },
+//        popEnterTransition = { fadeIn() },
+//        popExitTransition = { fadeOut() }
     ) {
         composable<LoginRoute> {
             LoginScreen(

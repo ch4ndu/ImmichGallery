@@ -298,8 +298,6 @@ fun StaticPhotoOverlay(
             showTopBar = showTopBar,
             title = currentAsset.fileName,
             onBack = { onDismiss(currentAsset.id) },
-            onDownload = {},
-            onShare = {},
             onInfo = { showDetailSheet = true },
             onSlideshow = if (assets.size > 1) {
                 { showSlideshowDialog = true }

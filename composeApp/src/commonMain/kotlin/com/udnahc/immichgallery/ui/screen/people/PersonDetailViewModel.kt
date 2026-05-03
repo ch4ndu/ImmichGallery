@@ -51,6 +51,7 @@ data class PersonDetailState(
     val availableWidth: Float = 0f,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
     val groupSize: GroupSize = GroupSize.MONTH,
+    val nextPage: Int = 1,
     val hasMore: Boolean = true,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
@@ -75,8 +76,6 @@ class PersonDetailViewModel(
     private val log = logging()
     private val _state = MutableStateFlow(PersonDetailState())
     val state: StateFlow<PersonDetailState> = _state.asStateFlow()
-
-    private var currentPage = 1
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
         getAssetDetailUseCase(assetId)
@@ -127,14 +126,26 @@ class PersonDetailViewModel(
     }
 
     fun loadMore() {
-        val current = _state.value
-        if (current.isLoadingMore || !current.hasMore) return
+        // Atomic claim: only the caller that flips isLoadingMore from false to
+        // true proceeds. Without compareAndSet, two near-simultaneous near-end
+        // triggers could both observe isLoadingMore=false before either wrote
+        // it, and both would launch duplicate requests — and both would try
+        // to advance nextPage, skipping or refetching pages.
+        val prev = _state.value
+        if (prev.isLoadingMore || !prev.hasMore) return
+        if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
+
         viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(isLoadingMore = true) }
-            getPersonAssetsPageUseCase(personId, page = currentPage).fold(
+            val page = _state.value.nextPage
+            getPersonAssetsPageUseCase(personId, page = page).fold(
                 onSuccess = { hasMore ->
-                    currentPage++
-                    _state.update { it.copy(hasMore = hasMore, isLoadingMore = false) }
+                    _state.update {
+                        it.copy(
+                            hasMore = hasMore,
+                            nextPage = page + 1,
+                            isLoadingMore = false
+                        )
+                    }
                 },
                 onFailure = {
                     _state.update { it.copy(isLoadingMore = false) }
@@ -173,7 +184,7 @@ class PersonDetailViewModel(
     }
 
     private fun syncFromServer() {
-        currentPage = 1
+        _state.update { it.copy(nextPage = 1) }
         viewModelScope.launch(Dispatchers.IO) {
             val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
 
@@ -213,10 +224,10 @@ class PersonDetailViewModel(
             } else {
                 getPersonAssetsPageUseCase(personId, page = 1).fold(
                     onSuccess = { hasMore ->
-                        currentPage = 2
                         _state.update {
                             it.copy(
                                 hasMore = hasMore,
+                                nextPage = 2,
                                 isSyncing = false,
                                 error = null
                             )

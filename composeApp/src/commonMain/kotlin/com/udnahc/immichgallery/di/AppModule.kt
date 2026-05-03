@@ -6,6 +6,7 @@ import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.data.remote.createHttpClientEngine
 import com.udnahc.immichgallery.data.repository.AlbumRepository
 import com.udnahc.immichgallery.data.repository.AssetEditsEnricher
+import com.udnahc.immichgallery.data.repository.AssetRepository
 import com.udnahc.immichgallery.data.repository.AuthRepository
 import com.udnahc.immichgallery.data.repository.PeopleRepository
 import com.udnahc.immichgallery.data.repository.SearchRepository
@@ -64,6 +65,7 @@ val sharedModule = module {
     single { PeopleRepository(get(), get(), get(), get(), get(), get()) }
     single { SearchRepository(get()) }
     single { ServerStatusRepository(get()) }
+    single { AssetRepository(get(), get(), get(), get()) }
 
     // UseCases
     factory { ValidateServerUseCase(get()) }
@@ -73,7 +75,7 @@ val sharedModule = module {
     factory { GetTimelineBucketsUseCase(get()) }
     factory { GetBucketAssetsUseCase(get()) }
     factory { GetAssetFileNameUseCase(get()) }
-    factory { GetAssetDetailUseCase(get(), get()) }
+    factory { GetAssetDetailUseCase(get()) }
     factory { GetAlbumsUseCase(get()) }
     factory { GetAlbumDetailUseCase(get()) }
     factory { GetPeopleUseCase(get()) }
@@ -86,7 +88,7 @@ val sharedModule = module {
 
     // Actions
     factory { SaveServerConfigAction(get()) }
-    factory { ClearServerConfigAction(get(), get(), get(), get(), get(), get()) }
+    factory { ClearServerConfigAction(get(), get(), get(), get(), get()) }
     factory { MonitorServerStatusAction(get()) }
     factory { LoadBucketAssetsAction(get()) }
     factory { SetTimelineGroupSizeAction(get()) }

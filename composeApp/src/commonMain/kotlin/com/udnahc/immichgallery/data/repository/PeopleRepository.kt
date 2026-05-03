@@ -5,6 +5,7 @@ import com.udnahc.immichgallery.data.local.dao.PersonDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.entity.PersonAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
+import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.Person
@@ -124,22 +125,47 @@ class PeopleRepository(
     }
 
     /**
-     * Full refresh: clears existing refs and re-fetches from page 1.
+     * Full refresh: fetch all pages over the network into memory first, then
+     * atomically swap Room state. Phase-ordered so Room Flow observers never
+     * see an intermediate "cleared" state — otherwise the person grid would
+     * flash empty and fill back in page-by-page.
+     *
+     * Memory cost: ~all items for the person held in RAM during the sync.
+     * At 250 items/page and a few pages per person, this is a few hundred KB.
      */
     suspend fun syncAllPersonAssets(personId: String): Result<Unit> {
         return try {
-            withContext(Dispatchers.IO) {
-                personDao.clearPersonRefs(personId)
-            }
+            val pageSize = 250
+            val allItems = mutableListOf<AssetResponse>()
             var page = 1
             while (true) {
-                val hasMore = syncPersonAssetsPage(personId, page).getOrThrow()
-                if (!hasMore) break
+                val response = apiService.getPersonAssets(personId, page, pageSize)
+                allItems += response.assets.items
+                if (response.assets.nextPage == null) break
                 page++
             }
+            val assetEntities = allItems.map { it.toAssetEntity() }
+            val crossRefs = allItems.mapIndexed { index, asset ->
+                PersonAssetCrossRef(personId, asset.id, index)
+            }
+            withContext(Dispatchers.IO) {
+                assetDao.upsertAssets(assetEntities)
+                personDao.replacePersonRefs(personId, crossRefs)
+                syncMetadataDao.upsert(
+                    SyncMetadataEntity("$SYNC_SCOPE_PERSON_PREFIX$personId", currentEpochMillis())
+                )
+            }
+            editsEnricher.enrich(allItems)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    suspend fun clearCache() {
+        withContext(Dispatchers.IO) {
+            personDao.clearPeople()
+            personDao.clearAllPersonRefs()
         }
     }
 

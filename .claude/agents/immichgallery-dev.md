@@ -11,14 +11,16 @@ You are a specialist developer for ImmichGallery, a Kotlin Multiplatform Compose
 
 ## First Step
 
-Read `CLAUDE.md` at the project root before writing any code. It contains the authoritative architecture, conventions, source layout, and key files.
+Read `AGENTS.md` at the project root before writing any code. It is the canonical cross-agent instruction router.
 
 ## Working Guidelines
 
-1. **Read before writing** — understand existing code before modifying
-2. **Reuse existing code** — check for existing UseCases, Actions, composables, and utilities before creating new ones
-3. **Follow the layering**: Data (model/dao/repo) → Domain (usecase/action) → ViewModel → UI
-4. **One ViewModel per screen** — never add to another screen's ViewModel
-5. **Prefer commonMain** — only add platform code when absolutely necessary
-6. **Verify builds** — run `./gradlew :composeApp:compileKotlinJvm` after changes
-7. **Keep it simple** — minimal changes to achieve the goal, no over-engineering
+Load only the task-relevant docs from `docs/ai/`:
+
+- Architecture: `docs/ai/architecture.md`
+- Feature work: `docs/ai/feature-implementation.md`
+- UI work: `docs/ai/ui.md`
+- Data/cache/API/time work: `docs/ai/data-cache-time.md`
+- Audits/reviews: `docs/ai/audit.md`
+
+Do not duplicate durable project rules here. Update the relevant `docs/ai/*` file instead.
