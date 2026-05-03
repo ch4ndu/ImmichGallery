@@ -31,7 +31,7 @@ class AssetEditsEnricher(
     private val apiService: ImmichApiService,
     private val assetDao: AssetDao
 ) {
-    private val log = logging()
+    private val log = logging("AssetEditsEnricher")
 
     suspend fun enrich(assets: List<AssetResponse>) {
         val edited = assets.filter { it.isEdited && it.width != null && it.height != null }

@@ -8,4 +8,7 @@ class GetTargetRowHeightUseCase(
 ) {
     operator fun invoke(scope: RowHeightScope): Float =
         serverConfigRepository.getTargetRowHeight(scope)
+
+    fun hasSavedValue(scope: RowHeightScope): Boolean =
+        serverConfigRepository.hasTargetRowHeight(scope)
 }

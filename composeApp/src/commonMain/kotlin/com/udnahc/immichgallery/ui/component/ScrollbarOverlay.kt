@@ -87,6 +87,8 @@ fun ScrollbarOverlay(
     estimatedItemCount: Int? = null,
     scrollFractionProvider: (() -> Float)? = null,
     onScrollToFraction: ((Float) -> Unit)? = null,
+    onDragStarted: () -> Unit = {},
+    onDragStopped: (Float) -> Unit = {},
     labelProvider: ((Float) -> String?)? = null,
     yearMarkers: List<YearMarker> = emptyList(),
     content: @Composable () -> Unit
@@ -122,6 +124,8 @@ fun ScrollbarOverlay(
             scrollJob = coroutineScope.launch { listState.scrollToItem(targetIndex) }
             Unit
         },
+        onDragStarted = onDragStarted,
+        onDragStopped = onDragStopped,
         modifier = modifier,
         content = content
     )
@@ -162,6 +166,8 @@ fun ScrollbarOverlay(
             scrollJob?.cancel()
             scrollJob = coroutineScope.launch { gridState.scrollToItem(targetIndex) }
         },
+        onDragStarted = {},
+        onDragStopped = {},
         modifier = modifier,
         content = content
     )
@@ -202,6 +208,8 @@ fun ScrollbarOverlay(
             scrollJob?.cancel()
             scrollJob = coroutineScope.launch { staggeredGridState.scrollToItem(targetIndex) }
         },
+        onDragStarted = {},
+        onDragStopped = {},
         modifier = modifier,
         content = content
     )
@@ -216,6 +224,8 @@ private fun ScrollbarLayout(
     labelProvider: ((Float) -> String?)?,
     yearMarkers: List<YearMarker>,
     onDragFraction: (Float) -> Unit,
+    onDragStarted: () -> Unit,
+    onDragStopped: (Float) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -230,6 +240,8 @@ private fun ScrollbarLayout(
                 labelProvider = labelProvider,
                 yearMarkers = yearMarkers,
                 onDragFraction = onDragFraction,
+                onDragStarted = onDragStarted,
+                onDragStopped = onDragStopped,
                 modifier = Modifier.align(Alignment.CenterEnd)
             )
         }
@@ -244,6 +256,8 @@ private fun ScrollbarHandle(
     labelProvider: ((Float) -> String?)?,
     yearMarkers: List<YearMarker>,
     onDragFraction: (Float) -> Unit,
+    onDragStarted: () -> Unit,
+    onDragStopped: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -421,8 +435,14 @@ private fun ScrollbarHandle(
                     state = draggableState,
                     orientation = Orientation.Vertical,
                     startDragImmediately = true,
-                    onDragStarted = { isDragging = true },
-                    onDragStopped = { isDragging = false }
+                    onDragStarted = {
+                        isDragging = true
+                        onDragStarted()
+                    },
+                    onDragStopped = {
+                        isDragging = false
+                        onDragStopped(dragFraction)
+                    }
                 )
         ) {
             Box(

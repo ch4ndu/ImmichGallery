@@ -29,7 +29,7 @@ class AlbumListViewModel(
     private val getAlbumsUseCase: GetAlbumsUseCase
 ) : ViewModel() {
 
-    private val log = logging()
+    private val log = logging("AlbumListViewModel")
     private val _state = MutableStateFlow(AlbumListState())
     val state: StateFlow<AlbumListState> = _state.asStateFlow()
 

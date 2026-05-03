@@ -50,6 +50,7 @@ import coil3.size.Precision
 import coil3.size.Size
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Person
+import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -153,7 +154,7 @@ fun PeopleContent(
                     bottomPadding = Dimens.bottomBarHeight + navBarPadding
                 ) {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
+                        columns = GridCells.Fixed(DEFAULT_GRID_COLUMN_COUNT),
                         state = gridState,
                         contentPadding = PaddingValues(
                             start = Dimens.screenPadding,

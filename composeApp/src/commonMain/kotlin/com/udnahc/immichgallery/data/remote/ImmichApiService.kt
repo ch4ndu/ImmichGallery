@@ -26,7 +26,7 @@ class ImmichApiService(
     private val httpClient: HttpClient,
     private val serverConfigRepository: ServerConfigRepository
 ) {
-    private val log = logging()
+    private val log = logging("ImmichApiService")
 
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
     private fun apiKey(): String = serverConfigRepository.getApiKey()

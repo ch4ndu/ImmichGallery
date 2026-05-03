@@ -31,7 +31,7 @@ class PeopleViewModel(
     private val getPeopleUseCase: GetPeopleUseCase
 ) : ViewModel() {
 
-    private val log = logging()
+    private val log = logging("PeopleViewModel")
     private val _state = MutableStateFlow(PeopleState())
     val state: StateFlow<PeopleState> = _state.asStateFlow()
 

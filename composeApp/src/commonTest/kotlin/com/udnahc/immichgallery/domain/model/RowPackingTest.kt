@@ -7,6 +7,11 @@ import kotlin.test.assertTrue
 
 class RowPackingTest {
     @Test
+    fun defaultTargetRowHeightUsesThreeColumnsWhenWidthIsMeasured() {
+        assertEquals(120f, defaultTargetRowHeightForWidth(360f))
+    }
+
+    @Test
     fun unmeasuredViewportBoundsDoNotClampSavedRowHeight() {
         val savedHeight = 220f
         val bounds = rowHeightBoundsForViewport(0f)
@@ -76,6 +81,76 @@ class RowPackingTest {
         assertTrue(rows.single().isComplete)
         assertEquals(listOf("wide", "regular"), rows.single().assetIds())
         assertEquals((300f - 2f) / 3f, rows.single().rowHeight)
+    }
+
+    @Test
+    fun wideImagePromotionCanBeDisabledForMosaicFallbackRows() {
+        val rows = packIntoRows(
+            assets = listOf(asset("wide", aspectRatio = 2f), asset("regular", aspectRatio = 1f)),
+            availableWidth = 300f,
+            targetRowHeight = 120f,
+            spacing = 2f,
+            maxRowHeight = 220f,
+            promoteWideImages = false
+        )
+
+        assertEquals(1, rows.size)
+        assertTrue(rows.single().isComplete)
+        assertEquals(listOf("wide", "regular"), rows.single().assetIds())
+        assertEquals((300f - 2f) / 3f, rows.single().rowHeight)
+    }
+
+    @Test
+    fun omittedMinimumCompletePhotosStillAllowsSinglePhotoJustifiedRow() {
+        val rows = packIntoRows(
+            assets = listOf(asset("wide", aspectRatio = 4f)),
+            availableWidth = 300f,
+            targetRowHeight = 100f,
+            spacing = 0f,
+            maxRowHeight = 220f,
+            promoteWideImages = false
+        )
+
+        assertEquals(1, rows.size)
+        assertTrue(rows.single().isComplete)
+        assertEquals(listOf("wide"), rows.single().assetIds())
+        assertEquals(75f, rows.single().rowHeight)
+    }
+
+    @Test
+    fun minimumCompletePhotosRequiresSecondPhotoBeforeCompletingWideRow() {
+        val rows = packIntoRows(
+            assets = listOf(asset("wide", aspectRatio = 4f), asset("regular", aspectRatio = 1f)),
+            availableWidth = 300f,
+            targetRowHeight = 100f,
+            spacing = 0f,
+            maxRowHeight = 220f,
+            promoteWideImages = false,
+            minCompleteRowPhotos = 2
+        )
+
+        assertEquals(1, rows.size)
+        assertTrue(rows.single().isComplete)
+        assertEquals(listOf("wide", "regular"), rows.single().assetIds())
+        assertEquals(60f, rows.single().rowHeight)
+    }
+
+    @Test
+    fun minimumCompletePhotosAllowsFinalSinglePhotoIncompleteRow() {
+        val rows = packIntoRows(
+            assets = listOf(asset("wide", aspectRatio = 4f)),
+            availableWidth = 300f,
+            targetRowHeight = 100f,
+            spacing = 0f,
+            maxRowHeight = 220f,
+            promoteWideImages = false,
+            minCompleteRowPhotos = 2
+        )
+
+        assertEquals(1, rows.size)
+        assertFalse(rows.single().isComplete)
+        assertEquals(listOf("wide"), rows.single().assetIds())
+        assertEquals(100f, rows.single().rowHeight)
     }
 
     @Test

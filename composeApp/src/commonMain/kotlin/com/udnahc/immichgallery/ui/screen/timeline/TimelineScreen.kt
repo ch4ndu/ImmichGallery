@@ -44,13 +44,18 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.ErrorItem
 import com.udnahc.immichgallery.domain.model.HeaderItem
+import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
+import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
+import com.udnahc.immichgallery.domain.model.timelineScrollFractionForDisplayIndex
+import com.udnahc.immichgallery.domain.model.visibleBucketIndexesForDisplayIndexes
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
+import com.udnahc.immichgallery.ui.component.MosaicPhotoBand
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
@@ -71,15 +76,14 @@ import immichgallery.composeapp.generated.resources.timeline_cannot_connect
 import immichgallery.composeapp.generated.resources.timeline_connected
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
 import immichgallery.composeapp.generated.resources.timeline_no_connection
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+private const val SCROLLBAR_TARGET_DEBOUNCE_MS = 200L
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -230,7 +234,9 @@ fun TimelineScreen(
                 listState = listState,
                 showOverlay = showOverlay,
                 hiddenAssetId = currentViewedAssetId,
-                onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
+                onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
+                onViewportBucketTargeted = viewModel::onViewportBucketTargeted,
+                scrollTargetForFraction = viewModel::scrollTargetForFraction,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 onAvailableWidthChanged = viewModel::setAvailableWidth,
                 onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
@@ -283,7 +289,9 @@ fun TimelineContent(
     listState: LazyListState = rememberLazyListState(),
     showOverlay: Boolean = false,
     hiddenAssetId: String? = null,
-    onFirstVisibleItemChanged: (Int) -> Unit,
+    onVisibleBucketsChanged: (List<Int>, TimelineBucketTargetReason) -> Unit,
+    onViewportBucketTargeted: (Int, TimelineBucketTargetReason) -> Unit,
+    scrollTargetForFraction: (Float) -> TimelineScrollTarget?,
     onTargetRowHeightChanged: (Float) -> Unit = {},
     onAvailableWidthChanged: (Float) -> Unit = {},
     onAvailableViewportHeightChanged: (Float) -> Unit = {},
@@ -304,13 +312,30 @@ fun TimelineContent(
         onRetry = onRetry
     ) {
         key(state.groupSize) {
-            // Visibility: prefetch nearby buckets only when scroll settles
-            @OptIn(FlowPreview::class)
-            LaunchedEffect(Unit) {
-                snapshotFlow { listState.firstVisibleItemIndex }
+            LaunchedEffect(displayItems) {
+                snapshotFlow {
+                    visibleBucketIndexesForDisplayIndexes(
+                        displayItems,
+                        listState.layoutInfo.visibleItemsInfo.map { it.index }
+                    )
+                }
                     .distinctUntilChanged()
-                    .debounce(300)
-                    .collectLatest { onFirstVisibleItemChanged(it) }
+                    .collectLatest { buckets ->
+                        onVisibleBucketsChanged(buckets, TimelineBucketTargetReason.VisibleScroll)
+                    }
+            }
+            LaunchedEffect(displayItems) {
+                snapshotFlow { listState.isScrollInProgress }
+                    .distinctUntilChanged()
+                    .collectLatest { isScrollInProgress ->
+                        if (!isScrollInProgress) {
+                            val buckets = visibleBucketIndexesForDisplayIndexes(
+                                displayItems,
+                                listState.layoutInfo.visibleItemsInfo.map { it.index }
+                            )
+                            onVisibleBucketsChanged(buckets, TimelineBucketTargetReason.ScrollSettled)
+                        }
+                    }
             }
 
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -339,10 +364,48 @@ fun TimelineContent(
                         .pinchToZoomRowHeight(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
                         .desktopGridZoom(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
                 ) {
+                    val coroutineScope = rememberCoroutineScope()
+                    var scrollbarScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+                    var pendingScrollbarBucket by remember { mutableStateOf<Int?>(null) }
+
+                    LaunchedEffect(pendingScrollbarBucket) {
+                        val bucket = pendingScrollbarBucket ?: return@LaunchedEffect
+                        delay(SCROLLBAR_TARGET_DEBOUNCE_MS)
+                        onViewportBucketTargeted(bucket, TimelineBucketTargetReason.ScrollbarDrag)
+                    }
+
+                    fun scrollToFractionTarget(fraction: Float, commit: Boolean) {
+                        val target = scrollTargetForFraction(fraction) ?: return
+                        scrollbarScrollJob?.cancel()
+                        scrollbarScrollJob = coroutineScope.launch {
+                            listState.scrollToItem(target.displayIndex)
+                        }
+                        if (commit) {
+                            pendingScrollbarBucket = null
+                            onViewportBucketTargeted(target.bucketIndex, TimelineBucketTargetReason.ScrollbarStop)
+                        } else {
+                            pendingScrollbarBucket = target.bucketIndex
+                        }
+                    }
+
                     ScrollbarOverlay(
                         listState = listState,
                         topPadding = statusBarPadding + Dimens.topBarHeight + Dimens.sectionHeaderHeight,
                         bottomPadding = Dimens.bottomBarHeight + navBarPadding,
+                        scrollFractionProvider = {
+                            val firstVisibleIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
+                            if (firstVisibleIndex == null) {
+                                0f
+                            } else {
+                                timelineScrollFractionForDisplayIndex(
+                                    pageIndex = state.pageIndex,
+                                    displayItems = displayItems,
+                                    displayIndex = firstVisibleIndex
+                                ) ?: 0f
+                            }
+                        },
+                        onScrollToFraction = { fraction -> scrollToFractionTarget(fraction, commit = false) },
+                        onDragStopped = { fraction -> scrollToFractionTarget(fraction, commit = true) },
                         labelProvider = labelProvider,
                         yearMarkers = state.yearMarkers
                     ) {
@@ -367,6 +430,12 @@ fun TimelineContent(
                                     is RowItem -> JustifiedPhotoRow(
                                         row = item,
                                         spacing = Dimens.gridSpacing,
+                                        onPhotoClick = onPhotoClick,
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        hiddenAssetId = hiddenAssetId,
+                                    )
+                                    is MosaicBandItem -> MosaicPhotoBand(
+                                        band = item,
                                         onPhotoClick = onPhotoClick,
                                         sharedTransitionScope = sharedTransitionScope,
                                         hiddenAssetId = hiddenAssetId,

@@ -32,6 +32,8 @@ Load this for Room, DAOs, repositories, cache invalidation, Immich API work, set
 ## Settings And Credentials
 
 - Server URL and API key live in `ServerConfigRepository` backed by `multiplatform-settings`.
+- Lightweight user view preferences, including per-screen row height and Mosaic `ViewConfig`, also live in `ServerConfigRepository` backed by `multiplatform-settings`.
+- Treat view preferences as settings, not Room cache data.
 - Clear-login flows must clear credentials and cache data that would otherwise leak data from the previous server.
 - Normalize server URLs consistently, usually by trimming the trailing slash before composing endpoint or image URLs.
 

@@ -8,6 +8,7 @@ Load this for new features, bug fixes, UI work, and significant refactors.
 - Explore existing code for reusable UseCases, Actions, repositories, composables, utilities, strings, icons, and theme dimensions.
 - Identify whether the change belongs in `commonMain` or requires platform-specific code.
 - Keep the change minimal and aligned with existing architecture.
+- When a code change updates durable architecture, workflow, layout, or verification behavior, update the relevant `docs/ai/*` file in the same change.
 
 ## Data Layer
 
@@ -28,6 +29,8 @@ For a new persisted cache entity or schema change:
 - Add or reuse one Action per write or side effect in `domain/action/{entity}/`.
 - Put derived and filtered flows in UseCases where possible.
 - Put screen-specific projections, row packing, pagination state, and overlay source lists in the screen ViewModel.
+- Persisted view preferences such as row height and Mosaic settings should flow through settings UseCases/Actions and `ServerConfigRepository`, not direct repository access from ViewModels.
+- For direct photo-grid screens, use `PhotoGridLayoutRunner` for expensive zoom-driven row/Mosaic projection work. Keep the runner as coroutine orchestration only; do not move screen projection ownership out of the ViewModel.
 - Register UseCases and Actions in `di/AppModule.kt`.
 - Use a screen-specific ViewModel for screen state.
 - Register ViewModels in `di/AppModule.kt` with `viewModel { ... }`.
@@ -39,7 +42,8 @@ For a new persisted cache entity or schema change:
 - Obtain ViewModels with `koinViewModel()` at the screen call site.
 - Wire new tabs or destinations in `ui/navigation/`.
 - Follow `docs/ai/ui.md` for theme, strings, dimensions, previews, overlay padding, and recomposition rules.
-- If a feature shows a photo grid, use `packIntoRows()`, `JustifiedPhotoRow`, `BoxWithConstraints`, and `pinchToZoomRowHeight`.
+- If a feature shows photo assets, use the ViewModel-owned photo-grid projection. Choose justified rows or the established Mosaic layout from persisted `ViewConfig`; do not transform assets into layout items inside composables.
+- Add Mosaic controls only where photo assets are displayed directly. Collection grids such as AlbumList and PeopleList should not expose photo-layout controls.
 - If a feature opens photo detail, use the existing overlay/detail patterns before adding a new pager.
 - If an Immich API endpoint paginates, implement `loadMore()` with a duplicate-request guard and near-end detection through `snapshotFlow` or `derivedStateOf`.
 

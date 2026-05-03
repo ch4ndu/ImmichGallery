@@ -10,11 +10,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
+import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
 import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
+import com.udnahc.immichgallery.domain.action.timeline.SyncAllTimelineAssetsAction
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.ErrorItem
 import com.udnahc.immichgallery.domain.model.HeaderItem
+import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
+import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.MosaicLayoutSpec
+import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
@@ -24,20 +30,37 @@ import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelinePageIndex
+import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
+import com.udnahc.immichgallery.domain.model.ViewConfig
+import com.udnahc.immichgallery.domain.model.buildMosaicAssignments
+import com.udnahc.immichgallery.domain.model.buildPhotoGridItemsWithMosaic
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
+import com.udnahc.immichgallery.domain.model.defaultTargetRowHeightForWidth
+import com.udnahc.immichgallery.domain.model.mosaicFallbackMinRowHeight
+import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecFor
 import com.udnahc.immichgallery.domain.model.packIntoRows
+import com.udnahc.immichgallery.domain.model.prioritizedTimelineBucketIndexes
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
+import com.udnahc.immichgallery.domain.model.timelineScrollTargetForFraction
+import com.udnahc.immichgallery.domain.model.bucketIndexForTimelineFraction
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
+import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
+import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +72,8 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
@@ -79,6 +104,7 @@ data class TimelineState(
     val bucketDisplayLabels: List<String> = emptyList(),
     val pageIndex: TimelinePageIndex = TimelinePageIndex(),
     val buckets: List<TimelineBucket> = emptyList(),
+    val viewConfig: ViewConfig = ViewConfig(),
     val bannerError: TimelineMessage? = null,
     val bannerSuccess: TimelineMessage? = null,
     val lastSyncedAt: Long? = null,
@@ -92,12 +118,20 @@ enum class TimelineMessage {
     ConnectedToServer
 }
 
+enum class TimelineBucketTargetReason {
+    VisibleScroll,
+    ScrollSettled,
+    ScrollbarDrag,
+    ScrollbarStop
+}
+
 @Immutable
 private data class BucketData(
     val buckets: List<TimelineBucket> = emptyList(),
     val loadedBuckets: Set<String> = emptySet(),
     val loadingBuckets: Set<String> = emptySet(),
-    val failedBuckets: Set<String> = emptySet()
+    val failedBuckets: Set<String> = emptySet(),
+    val assetRevision: Int = 0
 )
 
 @Immutable
@@ -112,20 +146,74 @@ private data class UiConfig(
     val bannerError: TimelineMessage? = null,
     val bannerSuccess: TimelineMessage? = null,
     val lastSyncedAt: Long? = null,
-    val isSyncing: Boolean = false
+    val isSyncing: Boolean = false,
+    val mosaicAnchorBucketIndex: Int = 0,
+    val viewConfig: ViewConfig = ViewConfig()
 )
 
+private data class MosaicCacheKey(
+    val timeBucket: String,
+    val sectionKey: String,
+    val columnCount: Int,
+    val assetRevision: Int,
+    val familiesKey: String
+)
+
+private data class MosaicQueueConfigKey(
+    val groupSize: TimelineGroupSize,
+    val columnCount: Int,
+    val assetRevision: Int,
+    val mosaicEnabled: Boolean,
+    val familiesKey: String
+)
+
+private data class DayGroupsCacheKey(
+    val timeBucket: String,
+    val assetRevision: Int
+)
+
+private sealed interface RuntimeMosaicState {
+    data object Pending : RuntimeMosaicState
+    data class Ready(val assignments: List<MosaicBandAssignment>) : RuntimeMosaicState
+    data object Failed : RuntimeMosaicState
+}
+
+private fun RuntimeMosaicState?.cacheToken(): String =
+    when (this) {
+        null -> "missing"
+        RuntimeMosaicState.Pending -> "pending"
+        is RuntimeMosaicState.Ready -> "ready_${assignments.size}"
+        RuntimeMosaicState.Failed -> "failed"
+    }
+
+private fun mosaicFamiliesKey(families: Set<MosaicTemplateFamily>): String =
+    families.map { it.persistedId }.sorted().joinToString("|")
+
+private fun monthMosaicSectionKey(timeBucket: String): String = "$timeBucket|month"
+
+private fun dayMosaicSectionKey(timeBucket: String, dayLabel: String): String =
+    "$timeBucket|day|$dayLabel"
+
+private fun dayMosaicLoaderSectionKey(timeBucket: String): String = "$timeBucket|day|loader"
+
+internal fun placeholderGridKey(bucketIndex: Int, sectionLabel: String, chunkIndex: Int): String =
+    "pl_${bucketIndex}_${sectionLabel.hashCode()}_$chunkIndex"
+
+@OptIn(ExperimentalCoroutinesApi::class)
 class TimelineViewModel(
     private val getTimelineBucketsUseCase: GetTimelineBucketsUseCase,
     private val getBucketAssetsUseCase: GetBucketAssetsUseCase,
     private val loadBucketAssetsAction: LoadBucketAssetsAction,
+    private val syncAllTimelineAssetsAction: SyncAllTimelineAssetsAction,
     getApiKeyUseCase: GetApiKeyUseCase,
     private val getAssetFileNameUseCase: GetAssetFileNameUseCase,
     private val getAssetDetailUseCase: GetAssetDetailUseCase,
     private val getTimelineGroupSizeUseCase: GetTimelineGroupSizeUseCase,
     private val getTargetRowHeightUseCase: GetTargetRowHeightUseCase,
+    private val getViewConfigUseCase: GetViewConfigUseCase,
     private val setTimelineGroupSizeAction: SetTimelineGroupSizeAction,
-    private val setTargetRowHeightAction: SetTargetRowHeightAction
+    private val setTargetRowHeightAction: SetTargetRowHeightAction,
+    private val setViewConfigAction: SetViewConfigAction
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
@@ -139,13 +227,30 @@ class TimelineViewModel(
     suspend fun getAssetFileName(assetId: String, fallback: String): Result<String> =
         getAssetFileNameUseCase(assetId, fallback)
 
-    private val log = logging()
+    private val log = logging("TimelineViewModel")
     private var syncJob: Job? = null
-    private var currentVisibleBucketIndex: Int? = null
+    private var mosaicQueueJob: Job? = null
+    private var mosaicQueueGeneration: Long = 0
+    private var mosaicConfigKey: MosaicQueueConfigKey? = null
+    private var mosaicQueueTargetRowHeight: Float? = null
+    private val mosaicQueueMutex = Mutex()
+    private val mosaicDispatcher = Dispatchers.Default.limitedParallelism(MOSAIC_WORKER_PARALLELISM)
+    private val mosaicQueueRunner = PhotoGridLayoutRunner(viewModelScope)
+    private val rowHeightPersistenceRunner = PhotoGridLayoutRunner(viewModelScope)
+    private val inFlightMosaicKeys = mutableSetOf<MosaicCacheKey>()
+    private var backgroundLoadJob: Job? = null
+    private var visibleBucketIndexes: List<Int> = emptyList()
+    private var lastVisibleBucketIndexes: List<Int> = emptyList()
+    private var lastTargetBucketIndex: Int? = null
+    private var lastLoggedTopMosaicBucket: String? = null
+    private var lastLoggedZoomColumnCount: Int? = null
+    private var hasSavedTargetRowHeight = false
     private var savedTargetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT
+    private val dayGroupsCache = mutableMapOf<DayGroupsCacheKey, List<DayGroup>>()
 
     private val _bucketData = MutableStateFlow(BucketData())
     private val _uiConfig: MutableStateFlow<UiConfig>
+    private val _mosaicStates = MutableStateFlow<Map<MosaicCacheKey, RuntimeMosaicState>>(emptyMap())
 
     // Exposed directly (not through debounced pipeline) so UI sees it immediately
     private val _isBuilding = MutableStateFlow(false)
@@ -165,8 +270,8 @@ class TimelineViewModel(
     //
     // Thread-safety: SnapshotStateMap is safe for concurrent access. Writes
     // happen from Dispatchers.IO (loadBucketAssetsInternal on action success)
-    // and Dispatchers.Default (lazy getOrPut inside buildBucketItems); reads
-    // happen from Default (build pipeline) and the UI thread (overlay pager).
+    // and the bounded mosaic worker pool; reads happen from Default (build
+    // pipeline) and the UI thread (overlay pager).
     val bucketAssetsCache: SnapshotStateMap<String, List<Asset>> = mutableStateMapOf()
 
     // Derived-item caches are layout-dependent, still single-threaded on Default.
@@ -176,32 +281,33 @@ class TimelineViewModel(
     private var cachedAvailableWidth: Float? = null
     private var cachedTargetRowHeight: Float? = null
     private var cachedMaxRowHeight: Float? = null
+    private var cachedMosaicColumnCount: Int? = null
+    private var cachedViewConfig: ViewConfig? = null
 
     val state: StateFlow<TimelineState>
 
     val labelProvider: (Float) -> String? = { fraction ->
         val s = state.value
-        val counts = s.cumulativeItemCounts
-        if (counts.isNotEmpty()) {
-            val targetIndex = (fraction * s.totalItemCount).toInt()
-            var low = 0
-            var high = counts.size - 1
-            while (low < high) {
-                val mid = (low + high) ushr 1
-                if (counts[mid] <= targetIndex) low = mid + 1 else high = mid
-            }
-            s.bucketDisplayLabels.getOrNull(low)
-        } else null
+        bucketIndexForTimelineFraction(s.pageIndex, fraction)
+            ?.let { index -> s.bucketDisplayLabels.getOrNull(index) }
     }
 
     init {
         val saved = getTimelineGroupSizeUseCase()
         val initialSize = TimelineGroupSize.entries.find { it.apiValue == saved }
             ?: TimelineGroupSize.MONTH
+        hasSavedTargetRowHeight = getTargetRowHeightUseCase.hasSavedValue(RowHeightScope.TIMELINE)
         savedTargetRowHeight = getTargetRowHeightUseCase(RowHeightScope.TIMELINE)
         val initialTargetRowHeight = savedTargetRowHeight
+        val initialViewConfig = getViewConfigUseCase()
 
-        _uiConfig = MutableStateFlow(UiConfig(groupSize = initialSize, targetRowHeight = initialTargetRowHeight))
+        _uiConfig = MutableStateFlow(
+            UiConfig(
+                groupSize = initialSize,
+                targetRowHeight = initialTargetRowHeight,
+                viewConfig = initialViewConfig
+            )
+        )
 
         viewModelScope.launch {
             getTimelineGroupSizeUseCase.observe().collect { saved ->
@@ -213,6 +319,16 @@ class TimelineViewModel(
             }
         }
 
+        viewModelScope.launch {
+            getViewConfigUseCase.observe().collect { saved ->
+                val config = saved.normalized
+                if (config != _uiConfig.value.viewConfig) {
+                    _uiConfig.update { it.copy(viewConfig = config) }
+                    scheduleMosaicQueue()
+                }
+            }
+        }
+
         // Bucket-load signals must propagate to displayItems IMMEDIATELY so
         // the grid has the dismissed asset's RowItem composed before the
         // shared-element exit animation starts. Layout changes (pinch-to-zoom
@@ -220,13 +336,14 @@ class TimelineViewModel(
         // on every intermediate frame. Combining them at the StateFlow level
         // means _bucketData updates bypass the debounce.
         @OptIn(FlowPreview::class)
-        state = combine(_bucketData, _uiConfig.debounce(200)) { data, config ->
-            buildTimelineState(data, config)
+        state = combine(_bucketData, _uiConfig.debounce(200), _mosaicStates) { data, config, mosaicStates ->
+            buildTimelineState(data, config, mosaicStates)
         }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TimelineState(
                 groupSize = initialSize,
-                targetRowHeight = initialTargetRowHeight
+                targetRowHeight = initialTargetRowHeight,
+                viewConfig = initialViewConfig
             ))
 
         // Observe Room for buckets (reactive SSOT)
@@ -235,11 +352,13 @@ class TimelineViewModel(
             val alreadyLoaded = getTimelineBucketsUseCase.getLoadedBucketIds()
             if (alreadyLoaded.isNotEmpty()) {
                 _bucketData.update { it.copy(loadedBuckets = it.loadedBuckets + alreadyLoaded) }
+                scheduleMosaicQueue()
             }
 
             getTimelineBucketsUseCase.observe().collect { buckets ->
                 log.d { "Room emitted ${buckets.size} buckets" }
                 _bucketData.update { it.copy(buckets = buckets) }
+                scheduleMosaicQueue()
             }
         }
 
@@ -265,11 +384,26 @@ class TimelineViewModel(
         // Signal full cache invalidation via _uiConfig change — buildDisplayItems
         // detects groupSize mismatch and clears all caches on Dispatchers.Default
         _uiConfig.update { it.copy(groupSize = size) }
+        scheduleMosaicQueue()
+    }
+
+    fun setViewConfig(config: ViewConfig) {
+        val normalized = config.normalized
+        if (normalized == _uiConfig.value.viewConfig) return
+        setViewConfigAction(normalized)
+        _uiConfig.update { it.copy(viewConfig = normalized) }
+        scheduleMosaicQueue()
     }
 
     fun setAvailableWidth(widthDp: Float) {
         if (widthDp == _uiConfig.value.availableWidth) return
-        _uiConfig.update { it.copy(availableWidth = widthDp) }
+        _uiConfig.update {
+            it.copy(
+                availableWidth = widthDp,
+                targetRowHeight = targetRowHeightForConfig(widthDp, it.rowHeightBounds)
+            )
+        }
+        scheduleMosaicQueue()
     }
 
     fun setAvailableViewportHeight(heightDp: Float) {
@@ -279,56 +413,116 @@ class TimelineViewModel(
             it.copy(
                 availableHeight = heightDp,
                 rowHeightBounds = bounds,
-                targetRowHeight = bounds.clamp(savedTargetRowHeight)
+                targetRowHeight = targetRowHeightForConfig(it.availableWidth, bounds)
             )
         }
     }
 
     fun setTargetRowHeight(height: Float) {
-        val clamped = _uiConfig.value.rowHeightBounds.clamp(height)
-        if (clamped == _uiConfig.value.targetRowHeight) return
+        val current = _uiConfig.value
+        val clamped = current.rowHeightBounds.clamp(height)
+        if (clamped == current.targetRowHeight) return
+        val previousLayoutSpec = mosaicLayoutSpecFor(current.availableWidth, current.targetRowHeight)
+        val previousColumnCount = previousLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT
+        val previousUseMosaic = shouldUseMosaicLayout(previousLayoutSpec, current.viewConfig)
+        val nextLayoutSpec = mosaicLayoutSpecFor(current.availableWidth, clamped)
+        val nextColumnCount = nextLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT
+        val nextUseMosaic = shouldUseMosaicLayout(nextLayoutSpec, current.viewConfig)
+        hasSavedTargetRowHeight = true
         savedTargetRowHeight = clamped
-        setTargetRowHeightAction(RowHeightScope.TIMELINE, clamped)
+        rowHeightPersistenceRunner.launch(debounce = true) {
+            setTargetRowHeightAction(RowHeightScope.TIMELINE, clamped)
+        }
+        if (nextColumnCount != lastLoggedZoomColumnCount) {
+            lastLoggedZoomColumnCount = nextColumnCount
+            log.d {
+                "Timeline zoom columnCount=$nextColumnCount targetRowHeight=$clamped " +
+                    "availableWidth=${current.availableWidth} effectiveMosaicEnabled=$nextUseMosaic"
+            }
+        }
         _uiConfig.update { it.copy(targetRowHeight = clamped) }
+        if (previousColumnCount != nextColumnCount || previousUseMosaic != nextUseMosaic) {
+            scheduleMosaicQueue(debounce = true)
+        }
+    }
+
+    private fun targetRowHeightForConfig(availableWidth: Float, bounds: RowHeightBounds): Float {
+        val preferred = if (hasSavedTargetRowHeight) {
+            savedTargetRowHeight
+        } else {
+            defaultTargetRowHeightForWidth(availableWidth)
+        }
+        return bounds.clamp(preferred)
     }
 
     fun loadBucketAssets(timeBucket: String, force: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
-            var shouldLoad = false
-            _bucketData.update { data ->
-                if (!force && (timeBucket in data.loadedBuckets ||
-                    timeBucket in data.loadingBuckets ||
-                    timeBucket in data.failedBuckets)
-                ) {
-                    shouldLoad = false
-                    data
-                } else {
-                    if (force) bucketAssetsCache.remove(timeBucket)
-                    shouldLoad = timeBucket !in data.loadingBuckets
-                    data.copy(
-                        loadedBuckets = data.loadedBuckets - timeBucket,
-                        loadingBuckets = data.loadingBuckets + timeBucket,
-                        failedBuckets = data.failedBuckets - timeBucket
-                    )
-                }
-            }
-            if (shouldLoad) {
-                loadBucketAssetsInternal(timeBucket)
-            }
+            loadBucketAssetsIfNeeded(timeBucket, force)
         }
     }
 
-    fun onFirstVisibleItemChanged(firstVisibleIndex: Int) {
+    fun onVisibleBucketsChanged(
+        bucketIndexes: List<Int>,
+        reason: TimelineBucketTargetReason = TimelineBucketTargetReason.VisibleScroll
+    ) {
         val snapshot = state.value
-        if (firstVisibleIndex !in snapshot.displayItems.indices) return
-        val bucketIndex = snapshot.displayItems[firstVisibleIndex].bucketIndex
-        currentVisibleBucketIndex = bucketIndex
-        for (offset in -2..2) {
-            val idx = bucketIndex + offset
-            if (idx in snapshot.buckets.indices) {
-                loadBucketAssets(snapshot.buckets[idx].timeBucket)
-            }
+        val validBucketIndexes = bucketIndexes
+            .filter { it in snapshot.buckets.indices }
+            .distinct()
+        if (validBucketIndexes.isEmpty()) return
+        if (validBucketIndexes == lastVisibleBucketIndexes && reason == TimelineBucketTargetReason.VisibleScroll) {
+            return
         }
+        lastVisibleBucketIndexes = validBucketIndexes
+        visibleBucketIndexes = validBucketIndexes
+        log.d { "Timeline visible buckets changed reason=$reason buckets=$validBucketIndexes" }
+        loadBucketIndexes(validBucketIndexes.flatMap(::bucketIndexesNear).distinct())
+        updateMosaicAnchor(validBucketIndexes.first(), reason)
+        scheduleMosaicQueue()
+        ensureBackgroundBucketLoads()
+    }
+
+    fun onViewportBucketTargeted(
+        bucketIndex: Int,
+        reason: TimelineBucketTargetReason = TimelineBucketTargetReason.ScrollbarStop
+    ) {
+        val snapshot = state.value
+        if (bucketIndex !in snapshot.buckets.indices) return
+        if (bucketIndex == lastTargetBucketIndex && reason == TimelineBucketTargetReason.ScrollbarDrag) {
+            return
+        }
+        lastTargetBucketIndex = bucketIndex
+        log.d { "Timeline target bucket changed reason=$reason bucket=$bucketIndex" }
+        loadBucketIndexes(bucketIndexesNear(bucketIndex))
+        updateMosaicAnchor(bucketIndex, reason)
+        scheduleMosaicQueue()
+        ensureBackgroundBucketLoads()
+    }
+
+    fun scrollTargetForFraction(fraction: Float): TimelineScrollTarget? {
+        val snapshot = state.value
+        return timelineScrollTargetForFraction(snapshot.pageIndex, snapshot.displayItems, fraction)
+    }
+
+    private fun updateMosaicAnchor(bucketIndex: Int, reason: TimelineBucketTargetReason) {
+        if (bucketIndex != _uiConfig.value.mosaicAnchorBucketIndex) {
+            _uiConfig.update { it.copy(mosaicAnchorBucketIndex = bucketIndex) }
+            log.d { "Timeline mosaic anchor changed reason=$reason bucket=$bucketIndex" }
+        }
+    }
+
+    private fun loadBucketIndexes(bucketIndexes: List<Int>) {
+        val buckets = state.value.buckets
+        bucketIndexes
+            .filter { it in buckets.indices }
+            .distinct()
+            .forEach { index -> loadBucketAssets(buckets[index].timeBucket) }
+    }
+
+    private fun bucketIndexesNear(bucketIndex: Int): List<Int> {
+        val bucketCount = state.value.buckets.size
+        return ((bucketIndex - PREFETCH_BUCKET_RADIUS)..(bucketIndex + PREFETCH_BUCKET_RADIUS))
+            .filter { it in 0 until bucketCount }
     }
 
     fun retryBucket(timeBucket: String) {
@@ -353,6 +547,7 @@ class TimelineViewModel(
                 when (item) {
                     is PhotoItem -> item.asset.id == assetId
                     is RowItem -> item.photos.any { it.asset.id == assetId }
+                    is MosaicBandItem -> item.tiles.any { it.photo.asset.id == assetId }
                     else -> false
                 }
             }
@@ -429,30 +624,25 @@ class TimelineViewModel(
 
                     if (!hasCachedBuckets) {
                         _bucketData.update { it.copy(buckets = buckets) }
-                        _isBuilding.value = false
-                        _buildError.value = null
-                        _uiConfig.update { it.copy(isSyncing = false) }
-                        loadInitialBuckets(buckets, force = false)
+                        syncAllTimelineAssetsAction(buckets).fold(
+                            onSuccess = { assetResult ->
+                                publishAssetSyncResult(assetResult.successfulBucketIds, assetResult.failedBucketIds)
+                                _isBuilding.value = false
+                                _buildError.value = null
+                                _uiConfig.update { it.copy(isSyncing = false) }
+                            },
+                            onFailure = { e ->
+                                log.e(e) { "Failed full first timeline asset sync" }
+                                _isBuilding.value = false
+                                _buildError.value = TimelineMessage.NoConnectionToServer
+                                _uiConfig.update { it.copy(isSyncing = false) }
+                            }
+                        )
                     } else if (isFullRefresh) {
-                        _uiConfig.update {
-                            it.copy(
-                                isSyncing = false,
-                                bannerSuccess = if (hadBannerError) TimelineMessage.ConnectedToServer else null
-                            )
-                        }
-                        val forceTargets = syncResult.staleBucketIds + refreshTargetBuckets(buckets)
-                        for (timeBucket in forceTargets) {
-                            loadBucketAssets(timeBucket, force = true)
-                        }
+                        syncCachedBuckets(buckets, hadBannerError)
                     } else {
                         // Subsequent launch with cache: lazy sync
-                        _uiConfig.update {
-                            it.copy(
-                                isSyncing = false,
-                                bannerSuccess = if (hadBannerError) TimelineMessage.ConnectedToServer else null
-                            )
-                        }
-                        loadInitialBuckets(buckets, force = false)
+                        syncCachedBuckets(buckets, hadBannerError)
                     }
                 },
                 onFailure = { e ->
@@ -473,6 +663,34 @@ class TimelineViewModel(
         }
     }
 
+    private suspend fun loadBucketAssetsIfNeeded(timeBucket: String, force: Boolean = false) {
+        if (claimBucketLoad(timeBucket, force)) {
+            loadBucketAssetsInternal(timeBucket)
+        }
+    }
+
+    private fun claimBucketLoad(timeBucket: String, force: Boolean = false): Boolean {
+        var shouldLoad = false
+        _bucketData.update { data ->
+            if (!force && (timeBucket in data.loadedBuckets ||
+                timeBucket in data.loadingBuckets ||
+                timeBucket in data.failedBuckets)
+            ) {
+                shouldLoad = false
+                data
+            } else {
+                if (force) bucketAssetsCache.remove(timeBucket)
+                shouldLoad = timeBucket !in data.loadingBuckets
+                data.copy(
+                    loadedBuckets = data.loadedBuckets - timeBucket,
+                    loadingBuckets = data.loadingBuckets + timeBucket,
+                    failedBuckets = data.failedBuckets - timeBucket
+                )
+            }
+        }
+        return shouldLoad
+    }
+
     private suspend fun loadBucketAssetsInternal(timeBucket: String) {
         log.d { "Syncing assets for bucket: $timeBucket" }
         loadBucketAssetsAction(timeBucket).fold(
@@ -488,6 +706,7 @@ class TimelineViewModel(
                 // cache to miss this bucket naturally, so no separate
                 // invalidation signal is needed.
                 val assets = getBucketAssetsUseCase(timeBucket)
+                invalidateRuntimeMosaicAssignments(timeBucket)
                 bucketAssetsCache[timeBucket] = assets
                 _bucketData.update { data ->
                     data.copy(
@@ -495,6 +714,7 @@ class TimelineViewModel(
                         loadedBuckets = data.loadedBuckets + timeBucket
                     )
                 }
+                scheduleMosaicQueue()
             },
             onFailure = { e ->
                 log.e(e) { "Failed to sync assets for bucket: $timeBucket" }
@@ -510,7 +730,10 @@ class TimelineViewModel(
 
     private fun invalidateBuckets(timeBuckets: Set<String>) {
         if (timeBuckets.isEmpty()) return
-        timeBuckets.forEach { bucketAssetsCache.remove(it) }
+        timeBuckets.forEach { timeBucket ->
+            bucketAssetsCache.remove(timeBucket)
+            invalidateRuntimeMosaicAssignments(timeBucket)
+        }
         _bucketData.update { data ->
             data.copy(
                 loadedBuckets = data.loadedBuckets - timeBuckets,
@@ -518,37 +741,28 @@ class TimelineViewModel(
                 failedBuckets = data.failedBuckets - timeBuckets
             )
         }
+        scheduleMosaicQueue()
     }
 
-    private fun loadInitialBuckets(buckets: List<TimelineBucket>, force: Boolean) {
-        for (bucket in buckets.take(INITIAL_BUCKET_LOAD_COUNT)) {
-            loadBucketAssets(bucket.timeBucket, force = force)
-        }
-    }
-
-    private fun refreshTargetBuckets(buckets: List<TimelineBucket>): Set<String> {
-        val targets = linkedSetOf<String>()
-        buckets.take(INITIAL_BUCKET_LOAD_COUNT).forEach { targets.add(it.timeBucket) }
-        val visibleIndex = currentVisibleBucketIndex
-        if (visibleIndex != null) {
-            for (offset in -PREFETCH_BUCKET_RADIUS..PREFETCH_BUCKET_RADIUS) {
-                val idx = visibleIndex + offset
-                if (idx in buckets.indices) targets.add(buckets[idx].timeBucket)
-            }
-        }
-        return targets
-    }
-
-    private suspend fun buildTimelineState(data: BucketData, config: UiConfig): TimelineState {
+    private suspend fun buildTimelineState(
+        data: BucketData,
+        config: UiConfig,
+        mosaicStates: Map<MosaicCacheKey, RuntimeMosaicState>
+    ): TimelineState {
+        val mosaicLayoutSpec = mosaicLayoutSpecFor(config.availableWidth, config.targetRowHeight)
+        val mosaicColumnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT
         val displayItems = buildDisplayItems(
             data,
             config.groupSize,
             config.availableWidth,
             config.targetRowHeight,
-            config.rowHeightBounds.max
+            config.rowHeightBounds.max,
+            mosaicLayoutSpec,
+            config.viewConfig,
+            mosaicStates
         )
-        val scrollbarData = computeScrollbarData(data.buckets, displayItems)
         val pageIndex = computePageIndex(data.buckets)
+        val scrollbarData = computeScrollbarData(data.buckets, pageIndex)
 
         return TimelineState(
             groupSize = config.groupSize,
@@ -563,6 +777,7 @@ class TimelineViewModel(
             bucketDisplayLabels = scrollbarData.bucketDisplayLabels,
             pageIndex = pageIndex,
             buckets = data.buckets,
+            viewConfig = config.viewConfig,
             bannerError = config.bannerError,
             bannerSuccess = config.bannerSuccess,
             lastSyncedAt = config.lastSyncedAt,
@@ -602,8 +817,12 @@ class TimelineViewModel(
         groupSize: TimelineGroupSize,
         availableWidth: Float,
         targetRowHeight: Float,
-        maxRowHeight: Float
+        maxRowHeight: Float,
+        mosaicLayoutSpec: MosaicLayoutSpec?,
+        viewConfig: ViewConfig,
+        mosaicStates: Map<MosaicCacheKey, RuntimeMosaicState>
     ): List<TimelineDisplayItem> {
+        val mosaicColumnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT
         // Layout change invalidates only the DERIVED display items (which are
         // sized against width/rowHeight/groupSize). The raw bucket assets in
         // bucketAssetsCache are layout-independent and must survive pinch-to-
@@ -611,7 +830,9 @@ class TimelineViewModel(
         if (groupSize != cachedGroupSize ||
             availableWidth != cachedAvailableWidth ||
             targetRowHeight != cachedTargetRowHeight ||
-            maxRowHeight != cachedMaxRowHeight
+            maxRowHeight != cachedMaxRowHeight ||
+            mosaicColumnCount != cachedMosaicColumnCount ||
+            viewConfig != cachedViewConfig
         ) {
             cachedBucketItems = emptyMap()
             cachedFlatItems = emptyList()
@@ -619,6 +840,8 @@ class TimelineViewModel(
             cachedAvailableWidth = availableWidth
             cachedTargetRowHeight = targetRowHeight
             cachedMaxRowHeight = maxRowHeight
+            cachedMosaicColumnCount = mosaicColumnCount
+            cachedViewConfig = viewConfig
         }
 
         var anyChanged = false
@@ -631,7 +854,19 @@ class TimelineViewModel(
                 timeBucket in data.loadedBuckets -> "loaded"
                 else -> "placeholder"
             }
-            val cacheKey = "${timeBucket}_${stateKey}"
+            val useMosaic = shouldUseMosaicLayout(mosaicLayoutSpec, viewConfig)
+            val layoutKey = mosaicLayoutKeyForBucket(
+                timeBucket = timeBucket,
+                isLoaded = timeBucket in data.loadedBuckets,
+                isFailed = timeBucket in data.failedBuckets,
+                groupSize = groupSize,
+                mosaicColumnCount = mosaicColumnCount,
+                assetRevision = data.assetRevision,
+                viewConfig = viewConfig,
+                useMosaic = useMosaic,
+                mosaicStates = mosaicStates
+            )
+            val cacheKey = "${timeBucket}_${stateKey}_${data.assetRevision}_$layoutKey"
 
             val cached = cachedBucketItems[cacheKey]
             if (cached != null) {
@@ -639,7 +874,17 @@ class TimelineViewModel(
             } else {
                 anyChanged = true
                 val bucketItems = buildBucketItems(
-                    data, index, bucket, groupSize, availableWidth, targetRowHeight, maxRowHeight
+                    data,
+                    index,
+                    bucket,
+                    groupSize,
+                    availableWidth,
+                    targetRowHeight,
+                    maxRowHeight,
+                    mosaicLayoutSpec,
+                    viewConfig,
+                    useMosaic,
+                    mosaicStates
                 )
                 newCache[cacheKey] = bucketItems
             }
@@ -654,20 +899,73 @@ class TimelineViewModel(
 
         val totalSize = newCache.values.sumOf { it.size }
         val items = ArrayList<TimelineDisplayItem>(totalSize)
-        for (bucket in data.buckets) {
+        for ((index, bucket) in data.buckets.withIndex()) {
             val timeBucket = bucket.timeBucket
             val stateKey = when {
                 timeBucket in data.failedBuckets -> "failed"
                 timeBucket in data.loadedBuckets -> "loaded"
                 else -> "placeholder"
             }
-            val cacheKey = "${timeBucket}_${stateKey}"
+            val useMosaic = shouldUseMosaicLayout(mosaicLayoutSpec, viewConfig)
+            val layoutKey = mosaicLayoutKeyForBucket(
+                timeBucket = timeBucket,
+                isLoaded = timeBucket in data.loadedBuckets,
+                isFailed = timeBucket in data.failedBuckets,
+                groupSize = groupSize,
+                mosaicColumnCount = mosaicColumnCount,
+                assetRevision = data.assetRevision,
+                viewConfig = viewConfig,
+                useMosaic = useMosaic,
+                mosaicStates = mosaicStates
+            )
+            val cacheKey = "${timeBucket}_${stateKey}_${data.assetRevision}_$layoutKey"
             newCache[cacheKey]?.let { items.addAll(it) }
         }
 
         cachedBucketItems = newCache
         cachedFlatItems = items
         return items
+    }
+
+    private fun mosaicLayoutKeyForBucket(
+        timeBucket: String,
+        isLoaded: Boolean,
+        isFailed: Boolean,
+        groupSize: TimelineGroupSize,
+        mosaicColumnCount: Int,
+        assetRevision: Int,
+        viewConfig: ViewConfig,
+        useMosaic: Boolean,
+        mosaicStates: Map<MosaicCacheKey, RuntimeMosaicState>
+    ): String {
+        if (!useMosaic || !isLoaded || isFailed) return "rows"
+        val familiesKey = mosaicFamiliesKey(viewConfig.mosaicFamilies)
+        if (groupSize != TimelineGroupSize.DAY) {
+            val key = MosaicCacheKey(
+                timeBucket = timeBucket,
+                sectionKey = monthMosaicSectionKey(timeBucket),
+                columnCount = mosaicColumnCount,
+                assetRevision = assetRevision,
+                familiesKey = familiesKey
+            )
+            return "mosaic_${mosaicStates[key].cacheToken()}"
+        }
+        val assets = bucketAssetsCache[timeBucket] ?: return "mosaic_days_unloaded"
+        val dayGroups = dayGroupsForBucket(timeBucket, assetRevision, assets)
+        if (dayGroups.isEmpty()) return "mosaic_empty_days"
+        return dayGroups.joinToString(
+            separator = ";",
+            prefix = "mosaic_days_"
+        ) { dayGroup ->
+            val key = MosaicCacheKey(
+                timeBucket = timeBucket,
+                sectionKey = dayMosaicSectionKey(timeBucket, dayGroup.label),
+                columnCount = mosaicColumnCount,
+                assetRevision = assetRevision,
+                familiesKey = familiesKey
+            )
+            "${dayGroup.label}:${mosaicStates[key].cacheToken()}"
+        }
     }
 
     private suspend fun buildBucketItems(
@@ -677,7 +975,11 @@ class TimelineViewModel(
         groupSize: TimelineGroupSize,
         availableWidth: Float,
         targetRowHeight: Float,
-        maxRowHeight: Float
+        maxRowHeight: Float,
+        mosaicLayoutSpec: MosaicLayoutSpec?,
+        viewConfig: ViewConfig,
+        useMosaic: Boolean,
+        mosaicStates: Map<MosaicCacheKey, RuntimeMosaicState>
     ): List<TimelineDisplayItem> {
         val timeBucket = bucket.timeBucket
         val isFailed = timeBucket in data.failedBuckets
@@ -702,60 +1004,140 @@ class TimelineViewModel(
                 ))
             }
             !isLoaded -> {
-                val photosPerRow = if (availableWidth > 0f)
-                    (availableWidth / targetRowHeight).coerceAtLeast(1f) else 3f
-                val estimatedRows = kotlin.math.ceil(bucket.count.toFloat() / photosPerRow).toInt()
-                val estimatedDayHeaders = if (groupSize == TimelineGroupSize.DAY)
-                    (bucket.count / 3).coerceAtLeast(1) else 0
-                val dayHeaderHeight = estimatedDayHeaders * SECTION_HEADER_HEIGHT_DP
-                val totalEstimatedHeight = (estimatedRows * (targetRowHeight + GRID_SPACING_DP) - GRID_SPACING_DP + dayHeaderHeight)
-                    .coerceAtLeast(targetRowHeight)
-
-                val chunks = kotlin.math.ceil(totalEstimatedHeight / MAX_PLACEHOLDER_HEIGHT_DP).toInt()
-                    .coerceAtLeast(1)
-                val chunkHeight = totalEstimatedHeight / chunks
-                repeat(chunks) { chunkIdx ->
-                    items.add(PlaceholderItem(
-                        gridKey = "pl_${index}_$chunkIdx",
-                        bucketIndex = index,
-                        sectionLabel = monthLabel,
-                        estimatedHeight = chunkHeight
-                    ))
-                }
+                addPlaceholderItems(
+                    items = items,
+                    bucketIndex = index,
+                    sectionLabel = monthLabel,
+                    assetCount = bucket.count,
+                    groupSize = groupSize,
+                    availableWidth = availableWidth,
+                    targetRowHeight = if (useMosaic && mosaicLayoutSpec != null) {
+                        mosaicLayoutSpec.cellHeight
+                    } else {
+                        targetRowHeight
+                    }
+                )
             }
             else -> {
                 // Fast path: overlay or a prior buildBucketItems already
                 // populated the unified cache. Slow path: first time this
                 // bucket is rendered in the grid, fetch from Room and publish
                 // into the cache so the overlay can also read it reactively.
-                val assets = bucketAssetsCache[timeBucket] ?: run {
-                    val fetched = getBucketAssetsUseCase(timeBucket)
-                    bucketAssetsCache[timeBucket] = fetched
-                    fetched
-                }
+                val assets = getCachedOrLoadBucketAssets(timeBucket)
                 if (assets.isNotEmpty()) {
                     val dayGroupList = if (groupSize == TimelineGroupSize.DAY) {
-                        computeDayGroups(assets)
+                        dayGroupsForBucket(timeBucket, data.assetRevision, assets)
                     } else null
 
                     if (!dayGroupList.isNullOrEmpty()) {
                         for (dayGroup in dayGroupList) {
+                            val dayLabel = dayGroup.label
                             items.add(HeaderItem(
-                                gridKey = "dh_${index}_${dayGroup.label}",
+                                gridKey = "dh_${index}_$dayLabel",
                                 bucketIndex = index,
-                                sectionLabel = dayGroup.label,
-                                label = dayGroup.label
+                                sectionLabel = dayLabel,
+                                label = dayLabel
                             ))
-                            items.addAll(packIntoRows(
-                                dayGroup.assets, index, dayGroup.label,
-                                availableWidth, targetRowHeight, GRID_SPACING_DP, maxRowHeight
-                            ))
+                            val dayMosaicState = mosaicStates[mosaicCacheKey(
+                                timeBucket = timeBucket,
+                                sectionKey = dayMosaicSectionKey(timeBucket, dayLabel),
+                                columnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT,
+                                assetRevision = data.assetRevision,
+                                families = viewConfig.mosaicFamilies
+                            )]
+                            when {
+                                useMosaic && (dayMosaicState == null || dayMosaicState == RuntimeMosaicState.Pending) -> {
+                                    addPlaceholderItems(
+                                        items = items,
+                                        bucketIndex = index,
+                                        sectionLabel = dayLabel,
+                                        assetCount = dayGroup.assets.size,
+                                        groupSize = TimelineGroupSize.MONTH,
+                                        availableWidth = availableWidth,
+                                        targetRowHeight = mosaicLayoutSpec?.cellHeight ?: targetRowHeight
+                                    )
+                                }
+                                useMosaic && dayMosaicState is RuntimeMosaicState.Ready && mosaicLayoutSpec != null -> {
+                                    items.addAll(
+                                        buildPhotoGridItemsWithMosaic(
+                                            assets = dayGroup.assets,
+                                            assignments = dayMosaicState.assignments,
+                                            bucketIndex = index,
+                                            sectionLabel = dayLabel,
+                                            layoutSpec = mosaicLayoutSpec,
+                                            spacing = GRID_SPACING_DP,
+                                            maxRowHeight = maxRowHeight,
+                                            promoteWideImages = false,
+                                            minCompleteRowPhotos = 2
+                                        )
+                                    )
+                                }
+                                else -> {
+                                    items.addAll(packIntoRows(
+                                        dayGroup.assets, index, dayLabel,
+                                        availableWidth,
+                                        if (useMosaic && mosaicLayoutSpec != null) {
+                                            mosaicFallbackMinRowHeight(mosaicLayoutSpec)
+                                        } else {
+                                            targetRowHeight
+                                        },
+                                        GRID_SPACING_DP,
+                                        maxRowHeight,
+                                        promoteWideImages = !viewConfig.mosaicEnabled,
+                                        minCompleteRowPhotos = if (viewConfig.mosaicEnabled) 2 else 1
+                                    ))
+                                }
+                            }
                         }
                     } else {
+                        val monthMosaicState = mosaicStates[mosaicCacheKey(
+                            timeBucket = timeBucket,
+                            sectionKey = monthMosaicSectionKey(timeBucket),
+                            columnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT,
+                            assetRevision = data.assetRevision,
+                            families = viewConfig.mosaicFamilies
+                        )]
+                        if (useMosaic && (monthMosaicState == null || monthMosaicState == RuntimeMosaicState.Pending)) {
+                            addPlaceholderItems(
+                                items = items,
+                                bucketIndex = index,
+                                sectionLabel = monthLabel,
+                                assetCount = bucket.count,
+                                groupSize = groupSize,
+                                availableWidth = availableWidth,
+                                targetRowHeight = mosaicLayoutSpec?.cellHeight ?: targetRowHeight
+                            )
+                            return items
+                        }
+                        if (useMosaic && monthMosaicState is RuntimeMosaicState.Ready && mosaicLayoutSpec != null) {
+                        items.addAll(
+                            buildPhotoGridItemsWithMosaic(
+                                assets = assets,
+                                assignments = monthMosaicState.assignments,
+                                bucketIndex = index,
+                                sectionLabel = monthLabel,
+                                layoutSpec = mosaicLayoutSpec,
+                                spacing = GRID_SPACING_DP,
+                                maxRowHeight = maxRowHeight,
+                                promoteWideImages = false,
+                                minCompleteRowPhotos = 2
+                            )
+                        )
+                        } else {
                         items.addAll(packIntoRows(
                             assets, index, monthLabel,
-                            availableWidth, targetRowHeight, GRID_SPACING_DP, maxRowHeight
+                            availableWidth,
+                            if (useMosaic && mosaicLayoutSpec != null) {
+                                mosaicFallbackMinRowHeight(mosaicLayoutSpec)
+                            } else {
+                                targetRowHeight
+                            },
+                            GRID_SPACING_DP,
+                            maxRowHeight,
+                            promoteWideImages = !viewConfig.mosaicEnabled,
+                            minCompleteRowPhotos = if (viewConfig.mosaicEnabled) 2 else 1
                         ))
+                        }
                     }
                 } else {
                     // Loaded but empty — show header only (no placeholder trap)
@@ -764,6 +1146,493 @@ class TimelineViewModel(
         }
         return items
     }
+
+    private fun addPlaceholderItems(
+        items: MutableList<TimelineDisplayItem>,
+        bucketIndex: Int,
+        sectionLabel: String,
+        assetCount: Int,
+        groupSize: TimelineGroupSize,
+        availableWidth: Float,
+        targetRowHeight: Float
+    ) {
+        val photosPerRow = if (availableWidth > 0f) {
+            (availableWidth / targetRowHeight).coerceAtLeast(1f)
+        } else {
+            3f
+        }
+        val estimatedRows = kotlin.math.ceil(assetCount.toFloat() / photosPerRow).toInt()
+        val estimatedDayHeaders = if (groupSize == TimelineGroupSize.DAY) {
+            (assetCount / 3).coerceAtLeast(1)
+        } else {
+            0
+        }
+        val dayHeaderHeight = estimatedDayHeaders * SECTION_HEADER_HEIGHT_DP
+        val totalEstimatedHeight =
+            (estimatedRows * (targetRowHeight + GRID_SPACING_DP) - GRID_SPACING_DP + dayHeaderHeight)
+                .coerceAtLeast(targetRowHeight)
+        val chunks = kotlin.math.ceil(totalEstimatedHeight / MAX_PLACEHOLDER_HEIGHT_DP).toInt()
+            .coerceAtLeast(1)
+        val chunkHeight = totalEstimatedHeight / chunks
+        repeat(chunks) { chunkIndex ->
+            items.add(
+                PlaceholderItem(
+                    gridKey = placeholderGridKey(bucketIndex, sectionLabel, chunkIndex),
+                    bucketIndex = bucketIndex,
+                    sectionLabel = sectionLabel,
+                    estimatedHeight = chunkHeight
+                )
+            )
+        }
+    }
+
+    private suspend fun syncCachedBuckets(buckets: List<TimelineBucket>, hadBannerError: Boolean) {
+        syncAllTimelineAssetsAction(buckets).fold(
+            onSuccess = { assetResult ->
+                publishAssetSyncResult(assetResult.successfulBucketIds, assetResult.failedBucketIds)
+                _uiConfig.update {
+                    it.copy(
+                        isSyncing = false,
+                        bannerSuccess = if (hadBannerError) TimelineMessage.ConnectedToServer else null
+                    )
+                }
+            },
+            onFailure = { e ->
+                log.e(e) { "Failed cached timeline asset sync" }
+                _uiConfig.update {
+                    it.copy(
+                        isSyncing = false,
+                        bannerError = TimelineMessage.CannotConnectToServer
+                    )
+                }
+            }
+        )
+    }
+
+    private fun publishAssetSyncResult(successfulBucketIds: Set<String>, failedBucketIds: Set<String>) {
+        successfulBucketIds.forEach { timeBucket ->
+            bucketAssetsCache.remove(timeBucket)
+            invalidateRuntimeMosaicAssignments(timeBucket)
+        }
+        _bucketData.update { data ->
+            data.copy(
+                loadedBuckets = data.loadedBuckets + successfulBucketIds - failedBucketIds,
+                loadingBuckets = data.loadingBuckets - successfulBucketIds - failedBucketIds,
+                failedBuckets = data.failedBuckets + failedBucketIds - successfulBucketIds,
+                assetRevision = data.assetRevision + 1
+            )
+        }
+        scheduleMosaicQueue()
+    }
+
+    private fun invalidateRuntimeMosaicAssignments(timeBucket: String) {
+        dayGroupsCache.keys.removeAll { it.timeBucket == timeBucket }
+        _mosaicStates.update { states ->
+            states.filterKeys { it.timeBucket != timeBucket }
+        }
+    }
+
+    private fun mosaicCacheKey(
+        timeBucket: String,
+        sectionKey: String,
+        columnCount: Int,
+        assetRevision: Int,
+        families: Set<MosaicTemplateFamily>
+    ): MosaicCacheKey =
+        MosaicCacheKey(
+            timeBucket = timeBucket,
+            sectionKey = sectionKey,
+            columnCount = columnCount,
+            assetRevision = assetRevision,
+            familiesKey = mosaicFamiliesKey(families)
+        )
+
+    private suspend fun getCachedOrLoadBucketAssets(timeBucket: String): List<Asset> =
+        bucketAssetsCache[timeBucket] ?: getBucketAssetsUseCase(timeBucket).also { fetched ->
+            bucketAssetsCache[timeBucket] = fetched
+        }
+
+    private fun scheduleMosaicQueue(debounce: Boolean = false) {
+        mosaicQueueRunner.launch(debounce = debounce) {
+            scheduleMosaicQueueNow()
+        }
+    }
+
+    private suspend fun scheduleMosaicQueueNow() {
+        val data = _bucketData.value
+        val config = _uiConfig.value
+        val layoutSpec = mosaicLayoutSpecFor(config.availableWidth, config.targetRowHeight)
+        val useMosaic = shouldUseMosaicLayout(layoutSpec, config.viewConfig)
+        if (!useMosaic) {
+            if (mosaicConfigKey != null || mosaicQueueJob?.isActive == true || backgroundLoadJob?.isActive == true) {
+                mosaicQueueGeneration++
+                mosaicConfigKey = null
+                mosaicQueueTargetRowHeight = null
+                mosaicQueueJob?.cancel()
+                mosaicQueueJob = null
+                backgroundLoadJob?.cancel()
+                backgroundLoadJob = null
+                clearInFlightMosaicKeys()
+            }
+            return
+        }
+
+        val nextConfigKey = MosaicQueueConfigKey(
+            groupSize = config.groupSize,
+            columnCount = layoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT,
+            assetRevision = data.assetRevision,
+            mosaicEnabled = config.viewConfig.mosaicEnabled,
+            familiesKey = mosaicFamiliesKey(config.viewConfig.mosaicFamilies)
+        )
+        if (nextConfigKey != mosaicConfigKey) {
+            mosaicConfigKey = nextConfigKey
+            mosaicQueueTargetRowHeight = config.targetRowHeight
+            mosaicQueueGeneration++
+            mosaicQueueJob?.cancel()
+            mosaicQueueJob = null
+            clearInFlightMosaicKeys()
+        } else if (mosaicQueueTargetRowHeight != config.targetRowHeight) {
+            mosaicQueueTargetRowHeight = config.targetRowHeight
+            log.d {
+                "Mosaic queue config unchanged; reusing generation=$mosaicQueueGeneration " +
+                    "columnCount=${layoutSpec?.columnCount} targetRowHeight=${config.targetRowHeight}"
+            }
+        }
+
+        val generation = mosaicQueueGeneration
+        ensureBackgroundBucketLoads()
+        val activeLayoutSpec = layoutSpec ?: return
+        if (nextMosaicRequestsAvailable(data, config, activeLayoutSpec).not()) {
+            return
+        }
+
+        logTopMosaicPriority(data, config, activeLayoutSpec)
+        if (mosaicQueueJob?.isActive == true) return
+
+        log.d {
+            "Mosaic priority queue start generation=$generation columnCount=${activeLayoutSpec.columnCount} " +
+                "anchor=${config.mosaicAnchorBucketIndex} workers=$MOSAIC_WORKER_PARALLELISM"
+        }
+
+        mosaicQueueJob = viewModelScope.launch {
+            repeat(MOSAIC_WORKER_PARALLELISM) {
+                launch(mosaicDispatcher) {
+                    mosaicWorkerLoop(generation)
+                }
+            }
+        }
+    }
+
+    private fun ensureBackgroundBucketLoads() {
+        val config = _uiConfig.value
+        val layoutSpec = mosaicLayoutSpecFor(config.availableWidth, config.targetRowHeight)
+        if (!shouldUseMosaicLayout(layoutSpec, config.viewConfig)) return
+        if (backgroundLoadJob?.isActive == true) return
+
+        backgroundLoadJob = viewModelScope.launch(Dispatchers.IO) {
+            while (true) {
+                val timeBucket = nextBackgroundBucketToLoad() ?: return@launch
+                loadBucketAssetsIfNeeded(timeBucket)
+            }
+        }
+    }
+
+    private fun nextBackgroundBucketToLoad(): String? {
+        val data = _bucketData.value
+        val config = _uiConfig.value
+        if (data.buckets.isEmpty()) return null
+        val order = prioritizedTimelineBucketIndexes(
+            bucketCount = data.buckets.size,
+            targetBucketIndex = config.mosaicAnchorBucketIndex,
+            visibleBucketIndexes = visibleBucketIndexes,
+            nearbyRadius = PREFETCH_BUCKET_RADIUS
+        )
+        return order
+            .map { data.buckets[it].timeBucket }
+            .firstOrNull { timeBucket ->
+                timeBucket !in data.loadedBuckets &&
+                    timeBucket !in data.loadingBuckets &&
+                    timeBucket !in data.failedBuckets
+            }
+    }
+
+    private suspend fun clearInFlightMosaicKeys() {
+        mosaicQueueMutex.withLock {
+            inFlightMosaicKeys.clear()
+        }
+    }
+
+    private suspend fun mosaicWorkerLoop(generation: Long) {
+        while (generation == mosaicQueueGeneration) {
+            val request = nextMosaicRequest(generation) ?: return
+            buildQueuedMosaic(request, generation)
+        }
+    }
+
+    private suspend fun nextMosaicRequest(generation: Long): MosaicBuildRequest? =
+        mosaicQueueMutex.withLock {
+            if (generation != mosaicQueueGeneration) return@withLock null
+            val data = _bucketData.value
+            val config = _uiConfig.value
+            val layoutSpec = mosaicLayoutSpecFor(config.availableWidth, config.targetRowHeight)
+                ?: return@withLock null
+            val request = prioritizedMosaicRequests(data, config, layoutSpec, inFlightMosaicKeys).firstOrNull()
+            if (request != null) {
+                inFlightMosaicKeys.add(request.key)
+            }
+            request
+        }
+
+    private fun nextMosaicRequestsAvailable(
+        data: BucketData,
+        config: UiConfig,
+        layoutSpec: MosaicLayoutSpec
+    ): Boolean =
+        prioritizedMosaicRequests(data, config, layoutSpec).isNotEmpty()
+
+    private fun logTopMosaicPriority(
+        data: BucketData,
+        config: UiConfig,
+        layoutSpec: MosaicLayoutSpec
+    ) {
+        val topBucket = prioritizedMosaicRequests(data, config, layoutSpec)
+            .firstOrNull()
+            ?.bucket
+            ?.timeBucket
+        if (topBucket != null && topBucket != lastLoggedTopMosaicBucket) {
+            lastLoggedTopMosaicBucket = topBucket
+            log.d {
+                "Mosaic top priority bucket=$topBucket anchor=${config.mosaicAnchorBucketIndex} " +
+                    "visible=$visibleBucketIndexes columnCount=${layoutSpec.columnCount}"
+            }
+        }
+    }
+
+    private fun prioritizedMosaicRequests(
+        data: BucketData,
+        config: UiConfig,
+        layoutSpec: MosaicLayoutSpec,
+        inFlightKeys: Set<MosaicCacheKey> = emptySet()
+    ): List<MosaicBuildRequest> {
+        if (data.buckets.isEmpty()) return emptyList()
+        val anchorBucketIndex = config.mosaicAnchorBucketIndex
+            .coerceIn(0, (data.buckets.size - 1).coerceAtLeast(0))
+        return prioritizedTimelineBucketIndexes(
+            bucketCount = data.buckets.size,
+            targetBucketIndex = anchorBucketIndex,
+            visibleBucketIndexes = visibleBucketIndexes,
+            nearbyRadius = PREFETCH_BUCKET_RADIUS
+        )
+            .flatMap { index ->
+                val bucket = data.buckets[index]
+                if (bucket.timeBucket !in data.loadedBuckets || bucket.timeBucket in data.failedBuckets) {
+                    return@flatMap emptyList()
+                }
+                if (config.groupSize == TimelineGroupSize.DAY) {
+                    val loaderKey = mosaicCacheKey(
+                        timeBucket = bucket.timeBucket,
+                        sectionKey = dayMosaicLoaderSectionKey(bucket.timeBucket),
+                        columnCount = layoutSpec.columnCount,
+                        assetRevision = data.assetRevision,
+                        families = config.viewConfig.mosaicFamilies
+                    )
+                    if (loaderKey in inFlightKeys) {
+                        return@flatMap emptyList()
+                    }
+                    val assets = bucketAssetsCache[bucket.timeBucket]
+                    if (assets == null) {
+                        return@flatMap when (_mosaicStates.value[loaderKey]) {
+                            is RuntimeMosaicState.Ready,
+                            RuntimeMosaicState.Failed -> emptyList()
+                            else -> if (loaderKey in inFlightKeys) {
+                                emptyList()
+                            } else {
+                                listOf(MosaicBuildRequest(
+                                    bucket = bucket,
+                                    key = loaderKey,
+                                    layoutSpec = layoutSpec,
+                                    enabledFamilies = config.viewConfig.mosaicFamilies,
+                                    buildAllDaySections = true
+                                ))
+                            }
+                        }
+                    }
+                    return@flatMap dayGroupsForBucket(bucket.timeBucket, data.assetRevision, assets).mapNotNull { dayGroup ->
+                        val key = mosaicCacheKey(
+                            timeBucket = bucket.timeBucket,
+                            sectionKey = dayMosaicSectionKey(bucket.timeBucket, dayGroup.label),
+                            columnCount = layoutSpec.columnCount,
+                            assetRevision = data.assetRevision,
+                            families = config.viewConfig.mosaicFamilies
+                        )
+                        if (key in inFlightKeys) return@mapNotNull null
+                        when (_mosaicStates.value[key]) {
+                            is RuntimeMosaicState.Ready,
+                            RuntimeMosaicState.Failed -> null
+                            else -> MosaicBuildRequest(
+                                bucket = bucket,
+                                key = key,
+                                layoutSpec = layoutSpec,
+                                enabledFamilies = config.viewConfig.mosaicFamilies,
+                                sectionAssets = dayGroup.assets
+                            )
+                        }
+                    }
+                }
+                val key = mosaicCacheKey(
+                    timeBucket = bucket.timeBucket,
+                    sectionKey = monthMosaicSectionKey(bucket.timeBucket),
+                    columnCount = layoutSpec.columnCount,
+                    assetRevision = data.assetRevision,
+                    families = config.viewConfig.mosaicFamilies
+                )
+                if (key in inFlightKeys) return@flatMap emptyList()
+                when (_mosaicStates.value[key]) {
+                    is RuntimeMosaicState.Ready,
+                    RuntimeMosaicState.Failed -> emptyList()
+                    else -> listOf(MosaicBuildRequest(bucket, key, layoutSpec, config.viewConfig.mosaicFamilies))
+                }
+            }
+    }
+
+    private suspend fun buildQueuedMosaic(request: MosaicBuildRequest, generation: Long) {
+        log.d {
+            "Mosaic build start generation=$generation bucket=${request.bucket.timeBucket} " +
+                "section=${request.key.sectionKey} columnCount=${request.key.columnCount}"
+        }
+        try {
+            val assets = request.sectionAssets ?: withContext(Dispatchers.IO) {
+                getBucketAssetsUseCase(request.bucket.timeBucket)
+            }
+            if (request.sectionAssets == null) {
+                bucketAssetsCache[request.bucket.timeBucket] = assets
+            }
+            val mosaicContext = currentCoroutineContext()
+            if (request.buildAllDaySections) {
+                val updates = mutableMapOf<MosaicCacheKey, RuntimeMosaicState>()
+                for (dayGroup in dayGroupsForBucket(request.bucket.timeBucket, request.key.assetRevision, assets)) {
+                    mosaicContext.ensureActive()
+                    val dayKey = mosaicCacheKey(
+                        timeBucket = request.bucket.timeBucket,
+                        sectionKey = dayMosaicSectionKey(request.bucket.timeBucket, dayGroup.label),
+                        columnCount = request.key.columnCount,
+                        assetRevision = request.key.assetRevision,
+                        families = request.enabledFamilies
+                    )
+                    val assignments = buildMosaicAssignments(
+                        assets = dayGroup.assets,
+                        layoutSpec = request.layoutSpec,
+                        spacing = GRID_SPACING_DP,
+                        enabledFamilies = request.enabledFamilies,
+                        shouldContinue = { mosaicContext.ensureActive() }
+                    )
+                    logMosaicAssignmentStats(
+                        sectionKey = dayKey.sectionKey,
+                        assetCount = dayGroup.assets.size,
+                        assignments = assignments
+                    )
+                    updates[dayKey] = RuntimeMosaicState.Ready(assignments)
+                }
+                if (!isCurrentMosaicRequest(request.key, generation)) {
+                    log.d {
+                        "Mosaic build stale generation=$generation bucket=${request.bucket.timeBucket} " +
+                            "section=${request.key.sectionKey} columnCount=${request.key.columnCount}"
+                    }
+                    return
+                }
+                _mosaicStates.update { it + updates + (request.key to RuntimeMosaicState.Ready(emptyList())) }
+                log.d {
+                    "Mosaic build finished generation=$generation bucket=${request.bucket.timeBucket} " +
+                        "section=${request.key.sectionKey} columnCount=${request.key.columnCount} " +
+                        "assets=${assets.size} daySections=${updates.size}"
+                }
+                return
+            }
+            val assignments = buildMosaicAssignments(
+                assets = assets,
+                layoutSpec = request.layoutSpec,
+                spacing = GRID_SPACING_DP,
+                enabledFamilies = request.enabledFamilies,
+                shouldContinue = { mosaicContext.ensureActive() }
+            )
+            logMosaicAssignmentStats(
+                sectionKey = request.key.sectionKey,
+                assetCount = assets.size,
+                assignments = assignments
+            )
+            if (!isCurrentMosaicRequest(request.key, generation)) {
+                log.d {
+                    "Mosaic build stale generation=$generation bucket=${request.bucket.timeBucket} " +
+                        "section=${request.key.sectionKey} columnCount=${request.key.columnCount}"
+                }
+                return
+            }
+            _mosaicStates.update { it + (request.key to RuntimeMosaicState.Ready(assignments)) }
+            log.d {
+                "Mosaic build finished generation=$generation bucket=${request.bucket.timeBucket} " +
+                    "section=${request.key.sectionKey} columnCount=${request.key.columnCount} " +
+                    "assets=${assets.size} bands=${assignments.size}"
+            }
+        } catch (e: CancellationException) {
+            log.d {
+                "Mosaic build cancelled generation=$generation bucket=${request.bucket.timeBucket} " +
+                    "section=${request.key.sectionKey} columnCount=${request.key.columnCount}"
+            }
+            throw e
+        } catch (e: Exception) {
+            if (isCurrentMosaicRequest(request.key, generation)) {
+                _mosaicStates.update { it + (request.key to RuntimeMosaicState.Failed) }
+            }
+            log.e(e) {
+                "Mosaic build failed generation=$generation bucket=${request.bucket.timeBucket} " +
+                    "section=${request.key.sectionKey} columnCount=${request.key.columnCount}"
+            }
+        } finally {
+            markMosaicRequestComplete(request.key)
+        }
+    }
+
+    private suspend fun markMosaicRequestComplete(key: MosaicCacheKey) {
+        mosaicQueueMutex.withLock {
+            inFlightMosaicKeys.remove(key)
+        }
+    }
+
+    private fun isCurrentMosaicRequest(key: MosaicCacheKey, generation: Long): Boolean {
+        val config = _uiConfig.value
+        val currentLayoutSpec = mosaicLayoutSpecFor(config.availableWidth, config.targetRowHeight)
+        val currentColumnCount = currentLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT
+        return generation == mosaicQueueGeneration &&
+            shouldUseMosaicLayout(currentLayoutSpec, config.viewConfig) &&
+            key.assetRevision == _bucketData.value.assetRevision &&
+            key.columnCount == currentColumnCount &&
+            key.familiesKey == mosaicFamiliesKey(config.viewConfig.mosaicFamilies)
+    }
+
+    private fun logMosaicAssignmentStats(
+        sectionKey: String,
+        assetCount: Int,
+        assignments: List<MosaicBandAssignment>
+    ) {
+        val assignedAssetCount = assignments.sumOf { it.sourceCount }
+        log.d {
+            "Mosaic assignments section=$sectionKey assets=$assetCount " +
+                "bands=${assignments.size} assignedAssets=$assignedAssetCount " +
+                "fallbackOrSkippedAssets=${assetCount - assignedAssetCount}"
+        }
+    }
+
+    private fun shouldUseMosaicLayout(layoutSpec: MosaicLayoutSpec?, viewConfig: ViewConfig): Boolean =
+        viewConfig.mosaicEnabled && layoutSpec != null
+
+    private data class MosaicBuildRequest(
+        val bucket: TimelineBucket,
+        val key: MosaicCacheKey,
+        val layoutSpec: MosaicLayoutSpec,
+        val enabledFamilies: Set<MosaicTemplateFamily>,
+        val sectionAssets: List<Asset>? = null,
+        val buildAllDaySections: Boolean = false
+    )
 
     private data class ScrollbarData(
         val yearMarkers: List<YearMarker>,
@@ -774,21 +1643,14 @@ class TimelineViewModel(
 
     private fun computeScrollbarData(
         buckets: List<TimelineBucket>,
-        displayItems: List<TimelineDisplayItem>
+        pageIndex: TimelinePageIndex
     ): ScrollbarData {
-        val bucketItemCounts = IntArray(buckets.size)
-        for (item in displayItems) {
-            if (item.bucketIndex in bucketItemCounts.indices) {
-                bucketItemCounts[item.bucketIndex]++
-            }
-        }
-
         var cumulative = 0
-        val cumulativeCounts = bucketItemCounts.map { count ->
-            cumulative += count
+        val cumulativeCounts = buckets.indices.map { index ->
+            cumulative += pageIndex.bucketPageCounts.getOrElse(index) { buckets[index].count }
             cumulative
         }
-        val totalItems = displayItems.size
+        val totalItems = pageIndex.totalPages
 
         val markers = mutableListOf<YearMarker>()
         var lastYear = ""
@@ -796,7 +1658,7 @@ class TimelineViewModel(
             val year = buckets[i].displayLabel.substringAfterLast(" ", "")
             if (year != lastYear && year.isNotEmpty()) {
                 val fraction = if (totalItems > 0) {
-                    (cumulativeCounts.getOrElse(i - 1) { 0 }).toFloat() / totalItems
+                    pageIndex.bucketStartPages.getOrElse(i) { 0 }.toFloat() / totalItems
                 } else 0f
                 markers.add(YearMarker(fraction.coerceIn(0f, 1f), year))
                 lastYear = year
@@ -809,6 +1671,17 @@ class TimelineViewModel(
             cumulativeItemCounts = cumulativeCounts,
             bucketDisplayLabels = buckets.map { it.displayLabel }
         )
+    }
+
+    private fun dayGroupsForBucket(
+        timeBucket: String,
+        assetRevision: Int,
+        assets: List<Asset>
+    ): List<DayGroup> {
+        val key = DayGroupsCacheKey(timeBucket, assetRevision)
+        return dayGroupsCache.getOrPut(key) {
+            computeDayGroups(assets)
+        }
     }
 
     private fun computeDayGroups(assets: List<Asset>): List<DayGroup> {
@@ -843,7 +1716,7 @@ class TimelineViewModel(
     }
 
     companion object {
-        private const val INITIAL_BUCKET_LOAD_COUNT = 5
         private const val PREFETCH_BUCKET_RADIUS = 2
+        private const val MOSAIC_WORKER_PARALLELISM = 1
     }
 }

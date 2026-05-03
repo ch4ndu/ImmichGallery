@@ -39,6 +39,7 @@ import coil3.size.Size
 import com.udnahc.immichgallery.LocalAppActive
 import androidx.compose.foundation.layout.statusBarsPadding
 import com.udnahc.immichgallery.domain.model.Album
+import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -95,7 +96,7 @@ fun AlbumListContent(
                 bottomPadding = Dimens.bottomBarHeight + navBarPadding
             ) {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                    columns = GridCells.Fixed(DEFAULT_GRID_COLUMN_COUNT),
                     state = gridState,
                     contentPadding = PaddingValues(
                         start = Dimens.cardPadding,

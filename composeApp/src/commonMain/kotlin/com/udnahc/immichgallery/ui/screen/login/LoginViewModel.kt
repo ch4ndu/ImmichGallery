@@ -27,7 +27,7 @@ class LoginViewModel(
     private val saveServerConfigAction: SaveServerConfigAction
 ) : ViewModel() {
 
-    private val log = logging()
+    private val log = logging("LoginViewModel")
     private val _state = MutableStateFlow(LoginState())
     val state: StateFlow<LoginState> = _state.asStateFlow()
 

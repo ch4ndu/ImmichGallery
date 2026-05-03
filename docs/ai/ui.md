@@ -16,7 +16,7 @@ Load this for Compose UI, screens, bottom sheets, previews, theme work, or recom
 - For `MainScreen` tabs, account for status bar plus `Dimens.topBarHeight` and navigation bar plus `Dimens.bottomBarHeight`.
 - For scaffold-style screens, use `innerPadding.calculateTopPadding()` and `innerPadding.calculateBottomPadding()` when wiring scrollbars.
 - `ScrollbarOverlay` requires explicit `topPadding` and `bottomPadding`; do not rely on hidden defaults.
-- Photo grids should use justified rows, not unrelated fixed-grid or staggered-grid layouts.
+- Photo grids should use justified rows or the established Mosaic layout, not unrelated fixed-grid or staggered-grid layouts.
 - Text must fit its container on mobile and desktop.
 - Do not add nested cards or unrelated decorative surfaces.
 
@@ -55,6 +55,15 @@ Load this for Compose UI, screens, bottom sheets, previews, theme work, or recom
 - Compute rows atomically inside the state update that changes the related data.
 - Use `lastSelectedAssetId` or equivalent retained state so overlay content survives dismiss transitions.
 - Slideshow auto-advance loops must re-check slideshow and page state after suspending.
+- Grid ViewModels own row-height bounds, effective target height, persisted view config, and photo-grid display items.
+- Mosaic assignment and row packing belong in domain/ViewModel code; composables should only render display items.
+- When Mosaic is enabled, keep it available at all zoom densities for every supported column count; do not add target-row-height or group-mode UI gates.
+- Mosaic-enabled grids use `MosaicLayoutSpec`: `targetRowHeight` chooses column count, while Mosaic bands, placeholders, and fallback rows use `availableWidth / columnCount` as cell height.
+- Mosaic-enabled fallback rows disable wide-image promotion, require at least two photos before a justified row can complete, and use the larger of `0.75 * MosaicLayoutSpec.cellHeight` and `0.5` of the representative Mosaic band height as the packing target when Mosaic bands exist in the group. Do not clamp completed row height after packing because the rendered row height must match the aspect-ratio-derived widths; a final leftover single-photo row may remain incomplete at the current group boundary.
+- Mosaic fallback rows must not consume assets from a valid later Mosaic assignment unless the current fallback gap cannot complete before that assignment; in that case demote the next Mosaic band into fallback rows rather than showing a non-final incomplete row.
+- Use `PhotoGridLayoutRunner` for expensive zoom-driven row or Mosaic projection work so repeated column-count changes cancel stale layout jobs instead of recomputing on every gesture step.
+- Persist row-height changes through UseCases/Actions, but debounce gesture-driven writes in the ViewModel.
+- Timeline scrollbar custom targeting must keep handle position, labels, year markers, and drag target mapping on the same fraction coordinate system.
 
 ## Previews
 

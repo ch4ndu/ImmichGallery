@@ -3,12 +3,14 @@ package com.udnahc.immichgallery.domain.model
 import androidx.compose.runtime.Immutable
 
 @Immutable
-sealed interface TimelineDisplayItem {
+sealed interface PhotoGridDisplayItem {
     val gridKey: String
     val bucketIndex: Int
     val isFullSpan: Boolean
     val sectionLabel: String
 }
+
+typealias TimelineDisplayItem = PhotoGridDisplayItem
 
 @Immutable
 data class HeaderItem(
@@ -16,7 +18,7 @@ data class HeaderItem(
     override val bucketIndex: Int,
     override val sectionLabel: String,
     val label: String
-) : TimelineDisplayItem {
+) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = true
 }
 
@@ -26,7 +28,7 @@ data class PhotoItem(
     override val bucketIndex: Int,
     override val sectionLabel: String,
     val asset: Asset
-) : TimelineDisplayItem {
+) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = false
 }
 
@@ -36,7 +38,7 @@ data class PlaceholderItem(
     override val bucketIndex: Int,
     override val sectionLabel: String,
     val estimatedHeight: Float = 150f
-) : TimelineDisplayItem {
+) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = false
 }
 
@@ -48,7 +50,28 @@ data class RowItem(
     val photos: List<PhotoItem>,
     val rowHeight: Float,
     val isComplete: Boolean = true
-) : TimelineDisplayItem {
+) : PhotoGridDisplayItem {
+    override val isFullSpan: Boolean = true
+}
+
+@Immutable
+data class MosaicTile(
+    val photo: PhotoItem,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float,
+    val visualOrder: Int
+)
+
+@Immutable
+data class MosaicBandItem(
+    override val gridKey: String,
+    override val bucketIndex: Int,
+    override val sectionLabel: String,
+    val tiles: List<MosaicTile>,
+    val bandHeight: Float
+) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = true
 }
 
@@ -58,6 +81,6 @@ data class ErrorItem(
     override val bucketIndex: Int,
     override val sectionLabel: String,
     val timeBucket: String
-) : TimelineDisplayItem {
+) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = true
 }

@@ -19,6 +19,7 @@
     <string name="unknown">Unknown</string>
     <string name="logout">Logout</string>
     <string name="cancel">Cancel</string>
+    <string name="done">Done</string>
     <string name="dismiss">Dismiss</string>
     <string name="refresh">Refresh</string>
     <string name="server_online">Server online</string>
@@ -68,6 +69,13 @@
     <string name="timeline_no_connection">No connection to server</string>
     <string name="timeline_cannot_connect">Cannot connect to server</string>
     <string name="timeline_connected">Connected to server</string>
+    <string name="mosaic">Mosaic</string>
+    <string name="mosaic_settings">Mosaic settings</string>
+    <string name="mosaic_settings_title">Mosaic layout</string>
+    <string name="mosaic_settings_warning">Mosaic may show nearby photos slightly out of chronological order to build balanced layouts. Selecting more variants can slow layout generation.</string>
+    <string name="mosaic_family_four">4-tile variants</string>
+    <string name="mosaic_family_five">5-tile variants</string>
+    <string name="mosaic_family_six">6-tile variants</string>
 
     <!-- People -->
     <string name="people_search_placeholder">Search people…</string>

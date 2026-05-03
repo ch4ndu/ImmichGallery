@@ -64,6 +64,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.domain.model.ViewConfig
+import com.udnahc.immichgallery.ui.component.MosaicViewConfigMenuItem
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
@@ -114,6 +116,7 @@ fun MainScreen(
 ) {
     val isServerOnline by viewModel.isServerOnline.collectAsState()
     val timelineGroupSize by viewModel.timelineGroupSize.collectAsState()
+    val viewConfig by viewModel.viewConfig.collectAsState()
 
     val tabNavController = rememberNavController()
     val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
@@ -142,6 +145,8 @@ fun MainScreen(
     val isTimelineTab = remember(currentDestination) {
         currentDestination?.hierarchy?.any { it.hasRoute(TimelineRoute::class) } == true
     }
+    // Mosaic is only offered on screens that render photo assets directly.
+    // AlbumList and PeopleList are collection grids, not photo-asset grids.
     val isSearchTab = remember(currentDestination) {
         currentDestination?.hierarchy?.any { it.hasRoute(SearchRoute::class) } == true
     }
@@ -202,6 +207,8 @@ fun MainScreen(
                 showRefresh = !isSearchTab,
                 onRefresh = { tabRefreshCallback?.invoke() },
                 onLogout = onLogout,
+                mosaicViewConfig = viewConfig.takeIf { isTimelineTab },
+                onMosaicViewConfigChanged = viewModel::setViewConfig,
                 trailingContent = if (isTimelineTab) {
                     {
                         TimelineGroupDropdown(
@@ -248,6 +255,8 @@ private fun TopBarOverlay(
     showRefresh: Boolean,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
+    mosaicViewConfig: ViewConfig? = null,
+    onMosaicViewConfigChanged: (ViewConfig) -> Unit = {},
     trailingContent: @Composable (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -360,6 +369,13 @@ private fun TopBarOverlay(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    if (mosaicViewConfig != null) {
+                        MosaicViewConfigMenuItem(
+                            viewConfig = mosaicViewConfig,
+                            onViewConfigChanged = onMosaicViewConfigChanged,
+                            onDismissMenu = { showMenu = false }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(Res.string.logout)) },
                         onClick = {

@@ -17,7 +17,7 @@ import com.udnahc.immichgallery.ui.screen.people.PersonDetailScreen
 import org.koin.compose.koinInject
 import org.lighthousegames.logging.logging
 
-private val log = logging()
+private val log = logging("AppNavigation")
 
 @Composable
 fun AppNavigation() {

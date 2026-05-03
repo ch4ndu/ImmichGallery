@@ -18,7 +18,10 @@ For Room, repository, cache, API, or date/time audits, also load `docs/ai/data-c
 - Flow transforms use `.flowOn(Dispatchers.Default)` where appropriate.
 - UI state flows use `WhileSubscribed(5000)` where state is exposed as `StateFlow`.
 - Row packing is performed in ViewModels, never in composables.
+- Mosaic assignment is performed in domain/ViewModel code, never in composables.
 - Row computation happens atomically with related data or layout state changes.
+- Zoom-driven photo-grid layout work uses cancellable/debounced orchestration such as `PhotoGridLayoutRunner`; it should not recompute expensive row/Mosaic projections directly on every gesture step.
+- Persisted view settings are accessed through UseCases/Actions, not direct ViewModel repository injection.
 
 ## UI Checks
 
@@ -29,6 +32,7 @@ For Room, repository, cache, API, or date/time audits, also load `docs/ai/data-c
 - `dp` values come from `Dimens`, except 0-2dp inline spacing and preview containers.
 - Screens account for translucent overlay top and bottom bars.
 - Scrollbars receive explicit top and bottom padding.
+- Timeline scrollbar labels, markers, handle position, and drag targets use one page-based targeting model.
 - Lazy layouts use stable keys.
 - Filtering, sorting, grouping, mapping, and row packing are not done in composables.
 - Shared patterns are reused or extracted instead of duplicated.
@@ -42,6 +46,7 @@ Every architecture or code audit must include a Compose recomposition and perfor
 - `[FLOW_SCOPE]` Look for state or flow collection that remains active beyond the UI state, mode, or component that needs it.
 - `[RECOMPOSITION]` Look for broad state propagation, unstable inputs, or expensive derivation work that can cause avoidable recomposition.
 - `[RECOMPOSITION]` Look for screen state that should be projected, indexed, row-packed, or precomputed before reaching composables.
+- `[RECOMPOSITION]` Look for pending/in-flight layout bookkeeping that causes broad recomposition without changing rendered display items.
 - `[LAZY_VIRTUALIZATION]` Look for lazy layouts that lose virtualization, stable identity, or efficient row-level recomposition.
 - `[RECOMPOSITION]` Treat `remember`, `derivedStateOf`, and similar Compose-local caching as performance tools, not replacements for correctly scoped ViewModel or domain projections.
 - Surface any missed Compose performance issue even if it is not named here; this list defines categories, not an exhaustive checklist.

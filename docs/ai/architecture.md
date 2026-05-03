@@ -69,7 +69,9 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 | Repositories | `data/repository/` |
 | DI modules | `di/AppModule.kt`, `di/PlatformModule.kt` |
 | Image loader factory | `di/ImageLoaderFactory.kt` |
-| Row packing utility | `domain/model/RowPacking.kt` |
+| Photo grid layout utilities | `domain/model/RowPacking.kt`, `domain/model/MosaicPacking.kt`, `domain/model/TimelineDisplayItem.kt` |
+| Timeline scroll targeting | `domain/model/TimelineScrollTargeting.kt` |
+| Persisted view settings | `domain/model/ViewConfig.kt`, `data/repository/ServerConfigRepository.kt` |
 | Scrollbar component | `ui/component/ScrollbarOverlay.kt` |
 | Photo overlay/detail components | `ui/component/StaticPhotoOverlay.kt`, `ui/component/AssetPageContent.kt` |
 | Version catalog | `gradle/libs.versions.toml` |
@@ -86,9 +88,19 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 ## Photo Grid And Overlay
 
 - `packIntoRows()` in `domain/model/RowPacking.kt` groups assets into justified rows.
-- Grid ViewModels hold `targetRowHeight` and `availableWidth` and compute rows atomically with data changes.
+- `MosaicPacking.kt` computes optional Mosaic assignments for photo grids. Use the established Mosaic pipeline instead of adding unrelated ad hoc grid systems.
+- Mosaic layout sizing flows through `MosaicLayoutSpec`: `targetRowHeight` selects the supported Mosaic column count, then Mosaic bands, placeholders, and fallback rows use `availableWidth / columnCount` as the effective cell height.
+- `PhotoGridDisplayItem` is the shared display model for headers, rows, placeholders, errors, and Mosaic bands.
+- Grid ViewModels hold `targetRowHeight`, row-height bounds, `availableWidth`, persisted `ViewConfig`, and photo-grid display items. They compute layout atomically with data changes.
+- `PhotoGridLayoutRunner` in `ui/util/` is the shared cancellable/debounced runner for expensive zoom-driven photo-grid projections. It coordinates coroutine timing only; domain layout math and screen display models stay in domain/ViewModel code.
 - `BoxWithConstraints` plus `LaunchedEffect(maxWidth)` measures width and passes it to the ViewModel.
 - `pinchToZoomRowHeight` in `ui/util/PinchToZoom.kt` is the shared grid zoom modifier.
+- Timeline Mosaic assignments are computed asynchronously at runtime and keyed by bucket or section, column count, asset revision, and enabled Mosaic families. Do not let assignments cross day-section boundaries.
+- Mosaic availability is controlled by persisted `ViewConfig`, supported column count, enabled template families, and asset count. Do not gate Mosaic by target row height or timeline group mode.
+- Mosaic fallback rows are still justified rows, but they must disable wide-image promotion and require a minimum of two photos before row completion. Use the larger of `0.75 * MosaicLayoutSpec.cellHeight` and, when valid Mosaic bands exist in the group, `0.5` of the representative Mosaic band height as the fallback packing target. Do not clamp completed row height after packing because that breaks the row's aspect-ratio math.
+- Mosaic fallback packing must respect valid Mosaic assignment boundaries. If a gap before the next Mosaic band cannot form a complete row, demote the next Mosaic band into fallback rows instead of emitting a non-final incomplete row.
+- Timeline bucket-load display updates must stay immediate for shared-element return transitions; debounce only zoom/config layout work.
+- Mosaic controls belong only on screens that display photo assets directly, such as Timeline, Album Detail, and Person Detail.
 - Shared element transitions use `SharedTransitionLayout`, matching `sharedBounds` keys, and the `lastSelectedAssetId` pattern so overlay content survives exit animation.
 - `StaticPhotoOverlay` and `TimelinePhotoOverlay` own detail paging, slideshow, and drag-to-dismiss behavior.
 - `KenBurnsImage` powers slideshow animation. `ScreenWakeLock` is expect/actual for keeping the screen on.
@@ -99,6 +111,7 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - People detail uses page-fetch UseCases and load-more state.
 - Guard duplicate pagination with `isLoadingMore`; stop at `hasMore == false`.
 - `ScrollbarOverlay` supports lazy list, grid, and staggered grid states. Screens must pass explicit top and bottom padding that accounts for translucent bars.
+- Timeline scrollbar labels, year markers, handle position, and drag targets use `TimelinePageIndex` and photo-page fractions. Keep those mappings aligned; do not mix page fractions with raw LazyColumn item-count fractions.
 
 ## Key Tech Stack
 

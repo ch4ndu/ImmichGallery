@@ -35,11 +35,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.domain.model.HeaderItem
+import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.GroupSizeDropdown
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
+import com.udnahc.immichgallery.ui.component.MosaicPhotoBand
+import com.udnahc.immichgallery.ui.component.MosaicViewConfigIconMenu
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
@@ -137,7 +142,11 @@ fun PersonDetailScreen(
     LaunchedEffect(viewModel.lastViewedAssetId) {
         val assetId = viewModel.lastViewedAssetId ?: return@LaunchedEffect
         val itemIndex = state.displayItems.indexOfFirst { item ->
-            item is PersonRowItem && item.row.photos.any { it.asset.id == assetId }
+            when (item) {
+                is RowItem -> item.photos.any { it.asset.id == assetId }
+                is MosaicBandItem -> item.tiles.any { it.photo.asset.id == assetId }
+                else -> false
+            }
         }
         if (itemIndex >= 0) {
             val info = listState.layoutInfo
@@ -214,6 +223,10 @@ fun PersonDetailScreen(
                     GroupSizeDropdown(
                         selected = state.groupSize,
                         onSelected = viewModel::setGroupSize
+                    )
+                    MosaicViewConfigIconMenu(
+                        viewConfig = state.viewConfig,
+                        onViewConfigChanged = viewModel::setViewConfig
                     )
                 }
             )
@@ -295,18 +308,25 @@ fun PersonDetailContent(
                     ) {
                         items(
                             count = displayItems.size,
-                            key = { displayItems[it].key },
+                            key = { displayItems[it].gridKey },
                             contentType = { displayItems[it]::class }
                         ) { index ->
                             when (val item = displayItems[index]) {
-                                is PersonHeaderItem -> SectionHeader(label = item.label)
-                                is PersonRowItem -> JustifiedPhotoRow(
-                                    row = item.row,
+                                is HeaderItem -> SectionHeader(label = item.label)
+                                is RowItem -> JustifiedPhotoRow(
+                                    row = item,
                                     spacing = Dimens.gridSpacing,
                                     onPhotoClick = onPhotoClick,
                                     sharedTransitionScope = sharedTransitionScope,
                                     hiddenAssetId = hiddenAssetId,
                                 )
+                                is MosaicBandItem -> MosaicPhotoBand(
+                                    band = item,
+                                    onPhotoClick = onPhotoClick,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    hiddenAssetId = hiddenAssetId,
+                                )
+                                else -> Unit
                             }
                         }
 

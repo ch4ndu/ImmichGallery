@@ -34,7 +34,9 @@ fun packIntoRows(
     availableWidth: Float,
     targetRowHeight: Float,
     spacing: Float,
-    maxRowHeight: Float = Float.MAX_VALUE
+    maxRowHeight: Float = Float.MAX_VALUE,
+    promoteWideImages: Boolean = true,
+    minCompleteRowPhotos: Int = 1
 ): List<RowItem> {
     if (availableWidth <= 0f || assets.isEmpty()) return emptyList()
     val rows = mutableListOf<RowItem>()
@@ -48,7 +50,8 @@ fun packIntoRows(
             sectionLabel = sectionLabel,
             asset = asset
         )
-        if (currentRow.isEmpty() &&
+        if (promoteWideImages &&
+            currentRow.isEmpty() &&
             asset.aspectRatio >= WIDE_FULL_WIDTH_ASPECT_RATIO
         ) {
             val fullWidthHeight = availableWidth / asset.aspectRatio
@@ -70,7 +73,7 @@ fun packIntoRows(
         currentRow.add(photoItem)
         currentSumAR += asset.aspectRatio
         val neededWidth = targetRowHeight * currentSumAR + (currentRow.size - 1) * spacing
-        if (neededWidth >= availableWidth) {
+        if (neededWidth >= availableWidth && currentRow.size >= minCompleteRowPhotos) {
             val actualHeight = (availableWidth - (currentRow.size - 1) * spacing) / currentSumAR
             rows.add(RowItem(
                 gridKey = "row_${currentRow.first().gridKey}",

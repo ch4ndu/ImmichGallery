@@ -17,6 +17,12 @@ data class TimelineBucketSyncResult(
 )
 
 @Immutable
+data class TimelineAssetSyncResult(
+    val successfulBucketIds: Set<String>,
+    val failedBucketIds: Set<String>
+)
+
+@Immutable
 data class TimelinePageIndex(
     val bucketStartPages: List<Int> = emptyList(),
     val bucketPageCounts: List<Int> = emptyList(),

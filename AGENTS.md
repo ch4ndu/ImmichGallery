@@ -20,6 +20,7 @@ Read this file first. Do not eagerly load every AI instruction document. Load on
 - Prefer `commonMain`; use platform code only when necessary.
 - Preserve the project layering: data repositories, domain UseCases/Actions, ViewModels, then UI.
 - ViewModels use UseCases and Actions, never repositories directly.
+- Ask clarifying questions before making architecture-affecting decisions; do not silently choose persistence shape, shared models, threading, or cross-screen ownership when multiple reasonable options exist.
 - Never use Kotlin `!!`; use safe calls, early returns, defaults, or smart-cast locals.
 - Reuse existing UseCases, Actions, repositories, composables, utilities, strings, icons, and theme dimensions before creating new ones.
 - Keep changes scoped. Do not refactor unrelated code while implementing a feature or fix.

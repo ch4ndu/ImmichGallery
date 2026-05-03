@@ -84,7 +84,7 @@ internal const val API_KEY_HEADER = "x-api-key"
 private const val ERROR_TEXT_ALPHA = 0.8f
 private const val ERROR_ICON_ALPHA = 0.6f
 
-private val log = logging()
+private val log = logging("AssetPageContent")
 
 private const val THUMBNAIL_HIDE_DELAY_MS = 500L
 private const val IMAGE_CROSSFADE_MS = 200

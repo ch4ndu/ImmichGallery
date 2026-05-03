@@ -12,9 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.ui.theme.Dimens
-
-private const val DEFAULT_COLUMNS = 3
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -22,7 +21,7 @@ fun PhotoRow(
     assets: List<Asset>,
     allAssets: List<Asset>,
     onPhotoClick: (List<Asset>, Int) -> Unit,
-    columns: Int = DEFAULT_COLUMNS,
+    columns: Int = DEFAULT_GRID_COLUMN_COUNT,
     sharedTransitionScope: SharedTransitionScope? = null,
     hiddenAssetId: String? = null,
 ) {
