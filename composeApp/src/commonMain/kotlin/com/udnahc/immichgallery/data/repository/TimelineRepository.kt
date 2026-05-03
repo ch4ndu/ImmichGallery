@@ -8,6 +8,7 @@ import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.model.TimelineBucketSyncResult
 import com.udnahc.immichgallery.domain.model.toAssetEntity
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toEntity
@@ -55,13 +56,29 @@ class TimelineRepository(
 
     // --- Network sync (writes to Room, Flows auto-emit) ---
 
-    suspend fun syncBuckets(): Result<List<TimelineBucket>> {
+    suspend fun syncBuckets(): Result<TimelineBucketSyncResult> {
         return try {
             val responses = apiService.getTimelineBuckets()
             val entities = responses.mapIndexed { index, response ->
                 response.toEntity(index)
             }
+            val oldEntities = withContext(Dispatchers.IO) {
+                timelineDao.getBuckets()
+            }
+            val oldById = oldEntities.associateBy { it.timeBucket }
+            val newIds = entities.map { it.timeBucket }.toSet()
+            val staleBucketIds = entities
+                .filter { entity ->
+                    val old = oldById[entity.timeBucket]
+                    old != null && old.count != entity.count
+                }
+                .map { it.timeBucket }
+                .toSet()
+            val removedBucketIds = oldById.keys - newIds
             withContext(Dispatchers.IO) {
+                (staleBucketIds + removedBucketIds).forEach { timeBucket ->
+                    timelineDao.clearTimelineRefsForBucket(timeBucket)
+                }
                 timelineDao.replaceBuckets(entities)
                 syncMetadataDao.upsert(
                     SyncMetadataEntity(
@@ -70,7 +87,13 @@ class TimelineRepository(
                     )
                 )
             }
-            Result.success(entities.map { it.toDomain() })
+            Result.success(
+                TimelineBucketSyncResult(
+                    buckets = entities.map { it.toDomain() },
+                    staleBucketIds = staleBucketIds,
+                    removedBucketIds = removedBucketIds
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }

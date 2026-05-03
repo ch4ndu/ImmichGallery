@@ -16,6 +16,9 @@ interface TimelineDao {
     @Query("SELECT * FROM timeline_buckets ORDER BY sortOrder ASC")
     fun observeBuckets(): Flow<List<TimelineBucketEntity>>
 
+    @Query("SELECT * FROM timeline_buckets ORDER BY sortOrder ASC")
+    suspend fun getBuckets(): List<TimelineBucketEntity>
+
     @Upsert
     suspend fun upsertTimelineRefs(refs: List<TimelineAssetCrossRef>)
 

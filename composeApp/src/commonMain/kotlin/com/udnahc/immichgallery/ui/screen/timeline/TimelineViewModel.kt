@@ -21,6 +21,7 @@ import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.domain.model.TimelinePageIndex
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
@@ -74,12 +75,20 @@ data class TimelineState(
     val totalItemCount: Int = 0,
     val cumulativeItemCounts: List<Int> = emptyList(),
     val bucketDisplayLabels: List<String> = emptyList(),
+    val pageIndex: TimelinePageIndex = TimelinePageIndex(),
     val buckets: List<TimelineBucket> = emptyList(),
-    val bannerError: String? = null,
-    val bannerSuccess: String? = null,
+    val bannerError: TimelineMessage? = null,
+    val bannerSuccess: TimelineMessage? = null,
     val lastSyncedAt: Long? = null,
     val isSyncing: Boolean = false
 )
+
+@Immutable
+enum class TimelineMessage {
+    NoConnectionToServer,
+    CannotConnectToServer,
+    ConnectedToServer
+}
 
 @Immutable
 private data class BucketData(
@@ -96,8 +105,8 @@ private data class UiConfig(
     val availableWidth: Float = 0f,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val bannerError: String? = null,
-    val bannerSuccess: String? = null,
+    val bannerError: TimelineMessage? = null,
+    val bannerSuccess: TimelineMessage? = null,
     val lastSyncedAt: Long? = null,
     val isSyncing: Boolean = false
 )
@@ -128,6 +137,7 @@ class TimelineViewModel(
 
     private val log = logging()
     private var syncJob: Job? = null
+    private var currentVisibleBucketIndex: Int? = null
 
     private val _bucketData = MutableStateFlow(BucketData())
     private val _uiConfig: MutableStateFlow<UiConfig>
@@ -135,8 +145,8 @@ class TimelineViewModel(
     // Exposed directly (not through debounced pipeline) so UI sees it immediately
     private val _isBuilding = MutableStateFlow(false)
     val isBuilding: StateFlow<Boolean> = _isBuilding.asStateFlow()
-    private val _buildError = MutableStateFlow<String?>(null)
-    val buildError: StateFlow<String?> = _buildError.asStateFlow()
+    private val _buildError = MutableStateFlow<TimelineMessage?>(null)
+    val buildError: StateFlow<TimelineMessage?> = _buildError.asStateFlow()
 
     // Single source of truth for `timeBucket -> assets`, shared between the
     // grid's buildDisplayItems pipeline AND the overlay's pager. Using
@@ -186,6 +196,16 @@ class TimelineViewModel(
             .coerceIn(MIN_TARGET_ROW_HEIGHT, MAX_TARGET_ROW_HEIGHT)
 
         _uiConfig = MutableStateFlow(UiConfig(groupSize = initialSize, targetRowHeight = initialTargetRowHeight))
+
+        viewModelScope.launch {
+            getTimelineGroupSizeUseCase.observe().collect { saved ->
+                val size = TimelineGroupSize.entries.find { it.apiValue == saved }
+                    ?: TimelineGroupSize.MONTH
+                if (size != _uiConfig.value.groupSize) {
+                    _uiConfig.update { it.copy(groupSize = size) }
+                }
+            }
+        }
 
         // Bucket-load signals must propagate to displayItems IMMEDIATELY so
         // the grid has the dismissed asset's RowItem composed before the
@@ -253,19 +273,24 @@ class TimelineViewModel(
         _uiConfig.update { it.copy(targetRowHeight = clamped) }
     }
 
-    fun loadBucketAssets(timeBucket: String) {
+    fun loadBucketAssets(timeBucket: String, force: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             var shouldLoad = false
             _bucketData.update { data ->
-                if (timeBucket in data.loadedBuckets ||
+                if (!force && (timeBucket in data.loadedBuckets ||
                     timeBucket in data.loadingBuckets ||
-                    timeBucket in data.failedBuckets
+                    timeBucket in data.failedBuckets)
                 ) {
                     shouldLoad = false
                     data
                 } else {
-                    shouldLoad = true
-                    data.copy(loadingBuckets = data.loadingBuckets + timeBucket)
+                    if (force) bucketAssetsCache.remove(timeBucket)
+                    shouldLoad = timeBucket !in data.loadingBuckets
+                    data.copy(
+                        loadedBuckets = data.loadedBuckets - timeBucket,
+                        loadingBuckets = data.loadingBuckets + timeBucket,
+                        failedBuckets = data.failedBuckets - timeBucket
+                    )
                 }
             }
             if (shouldLoad) {
@@ -278,6 +303,7 @@ class TimelineViewModel(
         val snapshot = state.value
         if (firstVisibleIndex !in snapshot.displayItems.indices) return
         val bucketIndex = snapshot.displayItems[firstVisibleIndex].bucketIndex
+        currentVisibleBucketIndex = bucketIndex
         for (offset in -2..2) {
             val idx = bucketIndex + offset
             if (idx in snapshot.buckets.indices) {
@@ -325,6 +351,7 @@ class TimelineViewModel(
 
     suspend fun getGlobalPhotoIndex(assetId: String): Int? {
         val s = state.value
+        s.pageIndex.loadedAssetPageIndexes[assetId]?.let { return it }
         // Fast path: in-memory cache. The clicked photo's bucket must already
         // be loaded (it's visible on screen), so this hits immediately and
         // avoids a Room round-trip that delayed the shared-element transition.
@@ -336,7 +363,7 @@ class TimelineViewModel(
                     val localIndex = assets.indexOfFirst { it.id == assetId }
                     if (localIndex >= 0) return@withContext globalIndex + localIndex
                 }
-                globalIndex += bucket.count
+                globalIndex += s.pageIndex.bucketPageCounts.getOrElse(s.buckets.indexOf(bucket)) { bucket.count }
             }
             null
         }
@@ -350,7 +377,8 @@ class TimelineViewModel(
             }
             val localIndex = assets.indexOfFirst { it.id == assetId }
             if (localIndex >= 0) return globalIndex + localIndex
-            globalIndex += bucket.count
+            val bucketIndex = s.buckets.indexOf(bucket)
+            globalIndex += s.pageIndex.bucketPageCounts.getOrElse(bucketIndex) { bucket.count }
         }
         return null
     }
@@ -375,76 +403,49 @@ class TimelineViewModel(
             _uiConfig.update { it.copy(lastSyncedAt = lastSync) }
 
             getTimelineBucketsUseCase.sync().fold(
-                onSuccess = { buckets ->
+                onSuccess = { syncResult ->
+                    val buckets = syncResult.buckets
                     log.d { "Synced ${buckets.size} buckets from server" }
+                    invalidateBuckets(syncResult.staleBucketIds + syncResult.removedBucketIds)
 
                     if (!hasCachedBuckets) {
-                        // First launch: blocking full sync of ALL bucket assets
-                        log.d { "First launch — syncing all ${buckets.size} bucket assets..." }
-                        for (bucket in buckets) {
-                            loadBucketAssetsAction(bucket.timeBucket).fold(
-                                onSuccess = {
-                                    _bucketData.update { data ->
-                                        data.copy(
-                                            loadedBuckets = data.loadedBuckets + bucket.timeBucket
-                                        )
-                                    }
-                                },
-                                onFailure = { e ->
-                                    log.e(e) { "Failed to sync assets for bucket: ${bucket.timeBucket}" }
-                                    _bucketData.update { data ->
-                                        data.copy(failedBuckets = data.failedBuckets + bucket.timeBucket)
-                                    }
-                                }
-                            )
-                        }
+                        _bucketData.update { it.copy(buckets = buckets) }
                         _isBuilding.value = false
+                        _buildError.value = null
+                        _uiConfig.update { it.copy(isSyncing = false) }
+                        loadInitialBuckets(buckets, force = false)
                     } else if (isFullRefresh) {
-                        // Manual refresh: clear tracking so buckets re-sync on scroll.
-                        // Also clear the in-memory asset cache — the grid renders
-                        // placeholders from loadedBuckets=∅ during the reload window,
-                        // but the overlay reads bucketAssetsCache directly and would
-                        // otherwise show stale photos if opened mid-refresh.
-                        bucketAssetsCache.clear()
-                        _bucketData.update {
-                            it.copy(
-                                loadedBuckets = emptySet(),
-                                loadingBuckets = emptySet(),
-                                failedBuckets = emptySet()
-                            )
-                        }
                         _uiConfig.update {
                             it.copy(
                                 isSyncing = false,
-                                bannerSuccess = if (hadBannerError) "Connected to server" else null
+                                bannerSuccess = if (hadBannerError) TimelineMessage.ConnectedToServer else null
                             )
                         }
-                        for (i in 0..minOf(4, buckets.size - 1)) {
-                            loadBucketAssets(buckets[i].timeBucket)
+                        val forceTargets = syncResult.staleBucketIds + refreshTargetBuckets(buckets)
+                        for (timeBucket in forceTargets) {
+                            loadBucketAssets(timeBucket, force = true)
                         }
                     } else {
                         // Subsequent launch with cache: lazy sync
                         _uiConfig.update {
                             it.copy(
                                 isSyncing = false,
-                                bannerSuccess = if (hadBannerError) "Connected to server" else null
+                                bannerSuccess = if (hadBannerError) TimelineMessage.ConnectedToServer else null
                             )
                         }
-                        for (i in 0..minOf(4, buckets.size - 1)) {
-                            loadBucketAssets(buckets[i].timeBucket)
-                        }
+                        loadInitialBuckets(buckets, force = false)
                     }
                 },
                 onFailure = { e ->
                     log.e(e) { "Failed to sync buckets from server" }
                     if (!hasCachedBuckets) {
                         _isBuilding.value = false
-                        _buildError.value = "No connection to server"
+                        _buildError.value = TimelineMessage.NoConnectionToServer
                     } else {
                         _uiConfig.update {
                             it.copy(
                                 isSyncing = false,
-                                bannerError = "Cannot connect to server"
+                                bannerError = TimelineMessage.CannotConnectToServer
                             )
                         }
                     }
@@ -488,9 +489,41 @@ class TimelineViewModel(
         )
     }
 
+    private fun invalidateBuckets(timeBuckets: Set<String>) {
+        if (timeBuckets.isEmpty()) return
+        timeBuckets.forEach { bucketAssetsCache.remove(it) }
+        _bucketData.update { data ->
+            data.copy(
+                loadedBuckets = data.loadedBuckets - timeBuckets,
+                loadingBuckets = data.loadingBuckets - timeBuckets,
+                failedBuckets = data.failedBuckets - timeBuckets
+            )
+        }
+    }
+
+    private fun loadInitialBuckets(buckets: List<TimelineBucket>, force: Boolean) {
+        for (bucket in buckets.take(INITIAL_BUCKET_LOAD_COUNT)) {
+            loadBucketAssets(bucket.timeBucket, force = force)
+        }
+    }
+
+    private fun refreshTargetBuckets(buckets: List<TimelineBucket>): Set<String> {
+        val targets = linkedSetOf<String>()
+        buckets.take(INITIAL_BUCKET_LOAD_COUNT).forEach { targets.add(it.timeBucket) }
+        val visibleIndex = currentVisibleBucketIndex
+        if (visibleIndex != null) {
+            for (offset in -PREFETCH_BUCKET_RADIUS..PREFETCH_BUCKET_RADIUS) {
+                val idx = visibleIndex + offset
+                if (idx in buckets.indices) targets.add(buckets[idx].timeBucket)
+            }
+        }
+        return targets
+    }
+
     private suspend fun buildTimelineState(data: BucketData, config: UiConfig): TimelineState {
         val displayItems = buildDisplayItems(data, config.groupSize, config.availableWidth, config.targetRowHeight)
         val scrollbarData = computeScrollbarData(data.buckets, displayItems)
+        val pageIndex = computePageIndex(data.buckets)
 
         return TimelineState(
             groupSize = config.groupSize,
@@ -502,11 +535,35 @@ class TimelineViewModel(
             totalItemCount = scrollbarData.totalItemCount,
             cumulativeItemCounts = scrollbarData.cumulativeItemCounts,
             bucketDisplayLabels = scrollbarData.bucketDisplayLabels,
+            pageIndex = pageIndex,
             buckets = data.buckets,
             bannerError = config.bannerError,
             bannerSuccess = config.bannerSuccess,
             lastSyncedAt = config.lastSyncedAt,
             isSyncing = config.isSyncing
+        )
+    }
+
+    private fun computePageIndex(buckets: List<TimelineBucket>): TimelinePageIndex {
+        val starts = ArrayList<Int>(buckets.size)
+        val counts = ArrayList<Int>(buckets.size)
+        val assetIndexes = mutableMapOf<String, Int>()
+        var start = 0
+        for (bucket in buckets) {
+            starts.add(start)
+            val assets = bucketAssetsCache[bucket.timeBucket]
+            val count = assets?.size ?: bucket.count
+            counts.add(count)
+            assets?.forEachIndexed { index, asset ->
+                assetIndexes[asset.id] = start + index
+            }
+            start += count
+        }
+        return TimelinePageIndex(
+            bucketStartPages = starts,
+            bucketPageCounts = counts,
+            totalPages = start,
+            loadedAssetPageIndexes = assetIndexes
         )
     }
 
@@ -745,13 +802,18 @@ class TimelineViewModel(
             .filterKeys { it != null }
             .entries
             .sortedByDescending { it.key }
-            .map { (date, dayAssets) ->
-                val d = date!!
+            .mapNotNull { (date, dayAssets) ->
+                val d = date ?: return@mapNotNull null
                 val monthName = d.month.name.lowercase()
                 DayGroup(
                     label = "${d.dayOfMonth} $monthName ${d.year}",
                     assets = dayAssets.sortedByDescending { it.createdAt }
                 )
             }
+    }
+
+    companion object {
+        private const val INITIAL_BUCKET_LOAD_COUNT = 5
+        private const val PREFETCH_BUCKET_RADIUS = 2
     }
 }

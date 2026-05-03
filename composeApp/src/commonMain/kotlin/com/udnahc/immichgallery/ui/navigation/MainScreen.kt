@@ -113,6 +113,7 @@ fun MainScreen(
     viewModel: MainScreenViewModel = koinViewModel()
 ) {
     val isServerOnline by viewModel.isServerOnline.collectAsState()
+    val timelineGroupSize by viewModel.timelineGroupSize.collectAsState()
 
     val tabNavController = rememberNavController()
     val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
@@ -138,8 +139,6 @@ fun MainScreen(
     // Overlay active reported up from Timeline / Search via callback
     var overlayActive by remember { mutableStateOf(false) }
 
-    var timelineGroupSize by remember { mutableStateOf(TimelineGroupSize.MONTH) }
-
     val isTimelineTab = remember(currentDestination) {
         currentDestination?.hierarchy?.any { it.hasRoute(TimelineRoute::class) } == true
     }
@@ -160,7 +159,6 @@ fun MainScreen(
         ) {
             composable<TimelineRoute> {
                 TimelineScreen(
-                    groupSize = timelineGroupSize,
                     onPersonClick = onPersonClick,
                     onRefreshCallback = { callback -> tabRefreshCallback = callback },
                     onSyncingState = { syncing -> tabIsSyncing = syncing },
@@ -208,9 +206,7 @@ fun MainScreen(
                     {
                         TimelineGroupDropdown(
                             selected = timelineGroupSize,
-                            onSelected = { newSize ->
-                                timelineGroupSize = newSize
-                            }
+                            onSelected = viewModel::setTimelineGroupSize
                         )
                     }
                 } else null

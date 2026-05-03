@@ -65,6 +65,9 @@
     <string name="timeline_failed_tap_retry">Failed to load. Tap to retry.</string>
     <string name="timeline_group_month">Month</string>
     <string name="timeline_group_day">Day</string>
+    <string name="timeline_no_connection">No connection to server</string>
+    <string name="timeline_cannot_connect">Cannot connect to server</string>
+    <string name="timeline_connected">Connected to server</string>
 
     <!-- People -->
     <string name="people_search_placeholder">Search people…</string>

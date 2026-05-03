@@ -48,7 +48,6 @@ import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
-import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
@@ -68,7 +67,10 @@ import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_timeline
+import immichgallery.composeapp.generated.resources.timeline_cannot_connect
+import immichgallery.composeapp.generated.resources.timeline_connected
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
+import immichgallery.composeapp.generated.resources.timeline_no_connection
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
@@ -82,7 +84,6 @@ import org.koin.compose.viewmodel.koinViewModel
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun TimelineScreen(
-    groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
     onRefreshCallback: ((() -> Unit)?) -> Unit = {},
     onSyncingState: (Boolean) -> Unit = {},
@@ -178,10 +179,6 @@ fun TimelineScreen(
     LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
     LaunchedEffect(state.isSyncing, isBuilding) { onSyncingState(state.isSyncing || isBuilding) }
 
-    LaunchedEffect(groupSize) {
-        viewModel.setGroupSize(groupSize)
-    }
-
     // Scroll back to last viewed asset (or its bucket placeholder) on return from detail.
     // Uses fully-visible check (offset within viewport bounds) rather than a loose
     // "any pixel peeking" test — otherwise rows partially clipped under the top bar
@@ -215,7 +212,7 @@ fun TimelineScreen(
     if (buildError != null) {
         LoadingErrorContent(
             isLoading = false,
-            error = buildError,
+            error = buildError?.asText(),
             onRetry = viewModel::refreshAll
         ) {}
         return
@@ -398,16 +395,18 @@ fun TimelineContent(
                     val bannerModifier = Modifier
                         .statusBarsPadding()
                         .padding(top = Dimens.topBarHeight + Dimens.sectionHeaderHeight)
-                    if (state.bannerError != null) {
+                    val bannerError = state.bannerError
+                    val bannerSuccess = state.bannerSuccess
+                    if (bannerError != null) {
                         ErrorBanner(
-                            message = state.bannerError,
+                            message = bannerError.asText(),
                             lastSyncedAt = state.lastSyncedAt,
                             onDismiss = onDismissBannerError,
                             modifier = bannerModifier
                         )
-                    } else if (state.bannerSuccess != null) {
+                    } else if (bannerSuccess != null) {
                         SuccessBanner(
-                            message = state.bannerSuccess,
+                            message = bannerSuccess.asText(),
                             onDismiss = onDismissBannerSuccess,
                             modifier = bannerModifier
                         )
@@ -458,7 +457,8 @@ private fun StickyHeaderOverlay(
         }
     }
 
-    if (label != null) {
+    val currentLabel = label
+    if (currentLabel != null) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -470,12 +470,24 @@ private fun StickyHeaderOverlay(
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
-                text = label!!,
+                text = currentLabel,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onBackground
             )
         }
     }
+}
+
+@Composable
+private fun TimelineMessage.asText(): String {
+    val message = this
+    return stringResource(
+        when (message) {
+            TimelineMessage.NoConnectionToServer -> Res.string.timeline_no_connection
+            TimelineMessage.CannotConnectToServer -> Res.string.timeline_cannot_connect
+            TimelineMessage.ConnectedToServer -> Res.string.timeline_connected
+        }
+    )
 }
 
 @Preview
