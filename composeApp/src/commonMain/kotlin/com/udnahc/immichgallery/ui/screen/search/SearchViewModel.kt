@@ -11,11 +11,16 @@ import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.RowHeightBounds
+import com.udnahc.immichgallery.domain.model.RowHeightScope
 import com.udnahc.immichgallery.domain.model.packIntoRows
+import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
+import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
+import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -42,21 +47,26 @@ data class SearchState(
     val currentPage: Int = 1,
     val hasMore: Boolean = false,
     val availableWidth: Float = 0f,
-    val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT
+    val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
+    val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f)
 )
 
 class SearchViewModel(
     private val smartSearchUseCase: SmartSearchUseCase,
     private val metadataSearchUseCase: MetadataSearchUseCase,
     getApiKeyUseCase: GetApiKeyUseCase,
-    private val getAssetDetailUseCase: GetAssetDetailUseCase
+    private val getAssetDetailUseCase: GetAssetDetailUseCase,
+    private val getTargetRowHeightUseCase: GetTargetRowHeightUseCase,
+    private val setTargetRowHeightAction: SetTargetRowHeightAction
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
     var lastViewedAssetId: String? by mutableStateOf(null)
 
     private val log = logging()
-    private val _state = MutableStateFlow(SearchState())
+    private var savedTargetRowHeight = getTargetRowHeightUseCase(RowHeightScope.SEARCH)
+    private var availableViewportHeight = 0f
+    private val _state = MutableStateFlow(SearchState(targetRowHeight = savedTargetRowHeight))
     val state: StateFlow<SearchState> = _state.asStateFlow()
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
@@ -78,21 +88,61 @@ class SearchViewModel(
         viewModelScope.launch(Dispatchers.Default) {
             _state.update { current ->
                 val rows = if (current.results.isNotEmpty() && widthDp > 0f) {
-                    packIntoRows(current.results, availableWidth = widthDp, targetRowHeight = current.targetRowHeight, spacing = GRID_SPACING_DP)
+                    packIntoRows(
+                        current.results,
+                        availableWidth = widthDp,
+                        targetRowHeight = current.targetRowHeight,
+                        spacing = GRID_SPACING_DP,
+                        maxRowHeight = current.rowHeightBounds.max
+                    )
                 } else current.rows
                 current.copy(availableWidth = widthDp, rows = rows)
             }
         }
     }
 
+    fun setAvailableViewportHeight(heightDp: Float) {
+        if (heightDp == availableViewportHeight) return
+        availableViewportHeight = heightDp
+        val bounds = rowHeightBoundsForViewport(heightDp)
+        viewModelScope.launch(Dispatchers.Default) {
+            _state.update { current ->
+                val targetHeight = bounds.clamp(savedTargetRowHeight)
+                val rows = if (current.results.isNotEmpty() && current.availableWidth > 0f) {
+                    packIntoRows(
+                        current.results,
+                        availableWidth = current.availableWidth,
+                        targetRowHeight = targetHeight,
+                        spacing = GRID_SPACING_DP,
+                        maxRowHeight = bounds.max
+                    )
+                } else current.rows
+                current.copy(
+                    targetRowHeight = targetHeight,
+                    rowHeightBounds = bounds,
+                    rows = rows
+                )
+            }
+        }
+    }
+
     fun setTargetRowHeight(height: Float) {
-        if (height == _state.value.targetRowHeight) return
+        val clamped = _state.value.rowHeightBounds.clamp(height)
+        if (clamped == _state.value.targetRowHeight) return
+        savedTargetRowHeight = clamped
+        setTargetRowHeightAction(RowHeightScope.SEARCH, clamped)
         viewModelScope.launch(Dispatchers.Default) {
             _state.update { current ->
                 val rows = if (current.results.isNotEmpty() && current.availableWidth > 0f) {
-                    packIntoRows(current.results, availableWidth = current.availableWidth, targetRowHeight = height, spacing = GRID_SPACING_DP)
+                    packIntoRows(
+                        current.results,
+                        availableWidth = current.availableWidth,
+                        targetRowHeight = clamped,
+                        spacing = GRID_SPACING_DP,
+                        maxRowHeight = current.rowHeightBounds.max
+                    )
                 } else current.rows
-                current.copy(targetRowHeight = height, rows = rows)
+                current.copy(targetRowHeight = clamped, rows = rows)
             }
         }
     }
@@ -131,7 +181,13 @@ class SearchViewModel(
                     val height = _state.value.targetRowHeight
                     val rows = if (width > 0f && searchResult.assets.isNotEmpty()) {
                         withContext(Dispatchers.Default) {
-                            packIntoRows(searchResult.assets, availableWidth = width, targetRowHeight = height, spacing = GRID_SPACING_DP)
+                            packIntoRows(
+                                searchResult.assets,
+                                availableWidth = width,
+                                targetRowHeight = height,
+                                spacing = GRID_SPACING_DP,
+                                maxRowHeight = _state.value.rowHeightBounds.max
+                            )
                         }
                     } else emptyList()
                     _state.update {
@@ -183,7 +239,13 @@ class SearchViewModel(
                     val height = _state.value.targetRowHeight
                     val rows = if (width > 0f && allAssets.isNotEmpty()) {
                         withContext(Dispatchers.Default) {
-                            packIntoRows(allAssets, availableWidth = width, targetRowHeight = height, spacing = GRID_SPACING_DP)
+                            packIntoRows(
+                                allAssets,
+                                availableWidth = width,
+                                targetRowHeight = height,
+                                spacing = GRID_SPACING_DP,
+                                maxRowHeight = _state.value.rowHeightBounds.max
+                            )
                         }
                     } else emptyList()
                     _state.update {

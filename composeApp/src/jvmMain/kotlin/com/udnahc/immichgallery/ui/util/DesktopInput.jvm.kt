@@ -16,8 +16,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.pointerInput
-import com.udnahc.immichgallery.ui.screen.timeline.MAX_TARGET_ROW_HEIGHT
-import com.udnahc.immichgallery.ui.screen.timeline.MIN_TARGET_ROW_HEIGHT
+import com.udnahc.immichgallery.domain.model.RowHeightBounds
 
 @Composable
 actual fun Modifier.desktopDetailShortcuts(
@@ -52,8 +51,9 @@ actual fun Modifier.desktopDetailShortcuts(
 
 actual fun Modifier.desktopGridZoom(
     currentHeight: Float,
+    bounds: RowHeightBounds,
     onHeightChanged: (Float) -> Unit,
-): Modifier = this.pointerInput(currentHeight) {
+): Modifier = this.pointerInput(currentHeight, bounds) {
     awaitPointerEventScope {
         while (true) {
             val event = awaitPointerEvent()
@@ -64,7 +64,7 @@ actual fun Modifier.desktopGridZoom(
             if (dy == 0f) continue
             val factor = if (dy < 0f) ZOOM_IN_FACTOR else ZOOM_OUT_FACTOR
             val newHeight = (currentHeight * factor)
-                .coerceIn(MIN_TARGET_ROW_HEIGHT, MAX_TARGET_ROW_HEIGHT)
+                .coerceIn(bounds.min, bounds.max)
             if (newHeight != currentHeight) {
                 onHeightChanged(newHeight)
             }

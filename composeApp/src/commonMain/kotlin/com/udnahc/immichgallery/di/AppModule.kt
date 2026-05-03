@@ -99,8 +99,8 @@ val sharedModule = module {
     viewModel { MainScreenViewModel(get(), get(), get(), get()) }
     viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
-    viewModel { params -> AlbumDetailViewModel(get(), get(), get(), params.get()) }
+    viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }
-    viewModel { params -> PersonDetailViewModel(get(), get(), get(), get(), params.get()) }
-    viewModel { SearchViewModel(get(), get(), get(), get()) }
+    viewModel { params -> PersonDetailViewModel(get(), get(), get(), get(), get(), get(), params.get()) }
+    viewModel { SearchViewModel(get(), get(), get(), get(), get(), get()) }
 }

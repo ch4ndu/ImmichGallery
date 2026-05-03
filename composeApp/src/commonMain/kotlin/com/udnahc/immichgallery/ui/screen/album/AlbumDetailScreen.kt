@@ -162,6 +162,7 @@ fun AlbumDetailScreen(
                 onRetry = viewModel::refreshAll,
                 onDismissBanner = viewModel::dismissBannerError,
                 onAvailableWidthChanged = viewModel::setAvailableWidth,
+                onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 contentTopPadding = contentTopPadding,
                 contentBottomPadding = contentBottomPadding,
@@ -223,6 +224,7 @@ fun AlbumDetailContent(
     onRetry: () -> Unit,
     onDismissBanner: () -> Unit = {},
     onAvailableWidthChanged: (Float) -> Unit = {},
+    onAvailableViewportHeightChanged: (Float) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
@@ -236,62 +238,70 @@ fun AlbumDetailContent(
         loadingText = if (state.isBuilding) stringResource(Res.string.loading_album) else null
     ) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .pinchToZoomRowHeight(state.targetRowHeight, onTargetRowHeightChanged)
-                .desktopGridZoom(state.targetRowHeight, onTargetRowHeightChanged)
+            modifier = Modifier.fillMaxSize()
         ) {
             val widthDp = maxWidth.value
-            LaunchedEffect(widthDp) {
+            val visibleGridHeight = (maxHeight - contentTopPadding - contentBottomPadding)
+                .value
+                .coerceAtLeast(0f)
+            LaunchedEffect(widthDp, visibleGridHeight) {
                 onAvailableWidthChanged(widthDp)
+                onAvailableViewportHeightChanged(visibleGridHeight)
             }
 
             val displayItems = state.displayItems
 
-            ScrollbarOverlay(
-                listState = listState,
-                topPadding = contentTopPadding,
-                bottomPadding = contentBottomPadding
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pinchToZoomRowHeight(state.targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
+                    .desktopGridZoom(state.targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
             ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
-                    contentPadding = remember(contentTopPadding, contentBottomPadding) {
-                        PaddingValues(
-                            top = contentTopPadding,
-                            bottom = contentBottomPadding
-                        )
-                    }
+                ScrollbarOverlay(
+                    listState = listState,
+                    topPadding = contentTopPadding,
+                    bottomPadding = contentBottomPadding
                 ) {
-                    items(
-                        count = displayItems.size,
-                        key = { displayItems[it].key },
-                        contentType = { displayItems[it]::class }
-                    ) { index ->
-                        when (val item = displayItems[index]) {
-                            is AlbumHeaderItem -> SectionHeader(label = item.label)
-                            is AlbumRowItem -> JustifiedPhotoRow(
-                                row = item.row,
-                                spacing = Dimens.gridSpacing,
-                                onPhotoClick = onPhotoClick,
-                                sharedTransitionScope = sharedTransitionScope,
-                                hiddenAssetId = hiddenAssetId,
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
+                        contentPadding = remember(contentTopPadding, contentBottomPadding) {
+                            PaddingValues(
+                                top = contentTopPadding,
+                                bottom = contentBottomPadding
                             )
+                        }
+                    ) {
+                        items(
+                            count = displayItems.size,
+                            key = { displayItems[it].key },
+                            contentType = { displayItems[it]::class }
+                        ) { index ->
+                            when (val item = displayItems[index]) {
+                                is AlbumHeaderItem -> SectionHeader(label = item.label)
+                                is AlbumRowItem -> JustifiedPhotoRow(
+                                    row = item.row,
+                                    spacing = Dimens.gridSpacing,
+                                    onPhotoClick = onPhotoClick,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    hiddenAssetId = hiddenAssetId,
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            if (state.bannerError != null) {
-                ErrorBanner(
-                    message = state.bannerError,
-                    lastSyncedAt = state.lastSyncedAt,
-                    onDismiss = onDismissBanner,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = contentTopPadding)
-                )
+                if (state.bannerError != null) {
+                    ErrorBanner(
+                        message = state.bannerError,
+                        lastSyncedAt = state.lastSyncedAt,
+                        onDismiss = onDismissBanner,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = contentTopPadding)
+                    )
+                }
             }
         }
     }

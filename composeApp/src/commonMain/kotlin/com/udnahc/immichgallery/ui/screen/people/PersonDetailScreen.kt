@@ -168,6 +168,7 @@ fun PersonDetailScreen(
                 onDismissBanner = viewModel::dismissBannerError,
                 onLoadMore = viewModel::loadMore,
                 onAvailableWidth = viewModel::setAvailableWidth,
+                onAvailableViewportHeight = viewModel::setAvailableViewportHeight,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 contentTopPadding = contentTopPadding,
                 contentBottomPadding = contentBottomPadding,
@@ -230,6 +231,7 @@ fun PersonDetailContent(
     onDismissBanner: () -> Unit = {},
     onLoadMore: () -> Unit,
     onAvailableWidth: (Float) -> Unit,
+    onAvailableViewportHeight: (Float) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
@@ -243,88 +245,96 @@ fun PersonDetailContent(
         loadingText = if (state.isBuilding) stringResource(Res.string.loading_photos) else null
     ) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .pinchToZoomRowHeight(state.targetRowHeight, onTargetRowHeightChanged)
-                .desktopGridZoom(state.targetRowHeight, onTargetRowHeightChanged)
+            modifier = Modifier.fillMaxSize()
         ) {
             val widthDp = maxWidth
-            LaunchedEffect(widthDp) {
+            val visibleGridHeight = (maxHeight - contentTopPadding - contentBottomPadding)
+                .value
+                .coerceAtLeast(0f)
+            LaunchedEffect(widthDp, visibleGridHeight) {
                 onAvailableWidth(widthDp.value)
+                onAvailableViewportHeight(visibleGridHeight)
             }
 
-            val shouldLoadMore by remember {
-                derivedStateOf {
-                    val info = listState.layoutInfo
-                    val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-                    val totalItems = info.totalItemsCount
-                    totalItems > 0 && lastVisible >= totalItems - 3
-                }
-            }
-            val latestOnLoadMore by rememberUpdatedState(onLoadMore)
-            LaunchedEffect(shouldLoadMore) {
-                if (shouldLoadMore) latestOnLoadMore()
-            }
-
-            val displayItems = state.displayItems
-
-            ScrollbarOverlay(
-                listState = listState,
-                topPadding = contentTopPadding,
-                bottomPadding = contentBottomPadding
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pinchToZoomRowHeight(state.targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
+                    .desktopGridZoom(state.targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
             ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = remember(contentTopPadding, contentBottomPadding) {
-                        PaddingValues(
-                            top = contentTopPadding,
-                            bottom = contentBottomPadding
-                        )
-                    },
-                    verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
-                ) {
-                    items(
-                        count = displayItems.size,
-                        key = { displayItems[it].key },
-                        contentType = { displayItems[it]::class }
-                    ) { index ->
-                        when (val item = displayItems[index]) {
-                            is PersonHeaderItem -> SectionHeader(label = item.label)
-                            is PersonRowItem -> JustifiedPhotoRow(
-                                row = item.row,
-                                spacing = Dimens.gridSpacing,
-                                onPhotoClick = onPhotoClick,
-                                sharedTransitionScope = sharedTransitionScope,
-                                hiddenAssetId = hiddenAssetId,
-                            )
-                        }
+                val shouldLoadMore by remember {
+                    derivedStateOf {
+                        val info = listState.layoutInfo
+                        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        val totalItems = info.totalItemsCount
+                        totalItems > 0 && lastVisible >= totalItems - 3
                     }
+                }
+                val latestOnLoadMore by rememberUpdatedState(onLoadMore)
+                LaunchedEffect(shouldLoadMore) {
+                    if (shouldLoadMore) latestOnLoadMore()
+                }
 
-                    if (state.isLoadingMore) {
-                        item(key = "loading_more") {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(Dimens.screenPadding),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator()
+                val displayItems = state.displayItems
+
+                ScrollbarOverlay(
+                    listState = listState,
+                    topPadding = contentTopPadding,
+                    bottomPadding = contentBottomPadding
+                ) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = remember(contentTopPadding, contentBottomPadding) {
+                            PaddingValues(
+                                top = contentTopPadding,
+                                bottom = contentBottomPadding
+                            )
+                        },
+                        verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
+                    ) {
+                        items(
+                            count = displayItems.size,
+                            key = { displayItems[it].key },
+                            contentType = { displayItems[it]::class }
+                        ) { index ->
+                            when (val item = displayItems[index]) {
+                                is PersonHeaderItem -> SectionHeader(label = item.label)
+                                is PersonRowItem -> JustifiedPhotoRow(
+                                    row = item.row,
+                                    spacing = Dimens.gridSpacing,
+                                    onPhotoClick = onPhotoClick,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    hiddenAssetId = hiddenAssetId,
+                                )
+                            }
+                        }
+
+                        if (state.isLoadingMore) {
+                            item(key = "loading_more") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(Dimens.screenPadding),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator()
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if (state.bannerError != null) {
-                ErrorBanner(
-                    message = state.bannerError,
-                    lastSyncedAt = state.lastSyncedAt,
-                    onDismiss = onDismissBanner,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = contentTopPadding)
-                )
+                if (state.bannerError != null) {
+                    ErrorBanner(
+                        message = state.bannerError,
+                        lastSyncedAt = state.lastSyncedAt,
+                        onDismiss = onDismissBanner,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = contentTopPadding)
+                    )
+                }
             }
         }
     }

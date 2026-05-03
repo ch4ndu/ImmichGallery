@@ -9,8 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.input.pointer.pointerInput
-import com.udnahc.immichgallery.ui.screen.timeline.MAX_TARGET_ROW_HEIGHT
-import com.udnahc.immichgallery.ui.screen.timeline.MIN_TARGET_ROW_HEIGHT
+import com.udnahc.immichgallery.domain.model.RowHeightBounds
 
 private const val ZOOM_STEP_THRESHOLD = 1.3f
 internal const val ZOOM_IN_FACTOR = 1.25f
@@ -18,10 +17,11 @@ internal const val ZOOM_OUT_FACTOR = 0.8f
 
 fun Modifier.pinchToZoomRowHeight(
     currentHeight: Float,
+    bounds: RowHeightBounds,
     onHeightChanged: (Float) -> Unit
 ): Modifier = composed {
     var zoomAccumulator by remember { mutableFloatStateOf(1f) }
-    pointerInput(currentHeight) {
+    pointerInput(currentHeight, bounds) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false)
             var previousDistance = 0f
@@ -35,12 +35,12 @@ fun Modifier.pinchToZoomRowHeight(
                         zoomAccumulator *= zoom
                         if (zoomAccumulator > ZOOM_STEP_THRESHOLD) {
                             val newHeight = (currentHeight * ZOOM_IN_FACTOR)
-                                .coerceIn(MIN_TARGET_ROW_HEIGHT, MAX_TARGET_ROW_HEIGHT)
+                                .coerceIn(bounds.min, bounds.max)
                             onHeightChanged(newHeight)
                             zoomAccumulator = 1f
                         } else if (zoomAccumulator < 1f / ZOOM_STEP_THRESHOLD) {
                             val newHeight = (currentHeight * ZOOM_OUT_FACTOR)
-                                .coerceIn(MIN_TARGET_ROW_HEIGHT, MAX_TARGET_ROW_HEIGHT)
+                                .coerceIn(bounds.min, bounds.max)
                             onHeightChanged(newHeight)
                             zoomAccumulator = 1f
                         }

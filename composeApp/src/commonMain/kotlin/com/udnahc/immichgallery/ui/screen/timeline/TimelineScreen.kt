@@ -233,6 +233,7 @@ fun TimelineScreen(
                 onFirstVisibleItemChanged = viewModel::onFirstVisibleItemChanged,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 onAvailableWidthChanged = viewModel::setAvailableWidth,
+                onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
                 onRetryBucket = viewModel::retryBucket,
                 onPhotoClick = remember { { assetId: String -> selectedAssetId = assetId } },
                 onRetry = viewModel::refreshAll,
@@ -285,6 +286,7 @@ fun TimelineContent(
     onFirstVisibleItemChanged: (Int) -> Unit,
     onTargetRowHeightChanged: (Float) -> Unit = {},
     onAvailableWidthChanged: (Float) -> Unit = {},
+    onAvailableViewportHeightChanged: (Float) -> Unit = {},
     onRetryBucket: (String) -> Unit,
     onPhotoClick: (assetId: String) -> Unit,
     onRetry: () -> Unit,
@@ -316,100 +318,112 @@ fun TimelineContent(
                 WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
             BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pinchToZoomRowHeight(targetRowHeight, onTargetRowHeightChanged)
-                    .desktopGridZoom(targetRowHeight, onTargetRowHeightChanged)
+                modifier = Modifier.fillMaxSize()
             ) {
+                val visibleGridHeight = (
+                    maxHeight -
+                        statusBarPadding -
+                        Dimens.topBarHeight -
+                        Dimens.bottomBarHeight -
+                        navBarPadding
+                ).value.coerceAtLeast(0f)
                 // Report available width to ViewModel for row packing
-                LaunchedEffect(maxWidth) {
+                LaunchedEffect(maxWidth, visibleGridHeight) {
                     onAvailableWidthChanged(maxWidth.value)
+                    onAvailableViewportHeightChanged(visibleGridHeight)
                 }
 
-                ScrollbarOverlay(
-                    listState = listState,
-                    topPadding = statusBarPadding + Dimens.topBarHeight + Dimens.sectionHeaderHeight,
-                    bottomPadding = Dimens.bottomBarHeight + navBarPadding,
-                    labelProvider = labelProvider,
-                    yearMarkers = state.yearMarkers
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pinchToZoomRowHeight(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
+                        .desktopGridZoom(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
                 ) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
-                        contentPadding = remember(statusBarPadding, navBarPadding) {
-                            PaddingValues(
-                                top = statusBarPadding + Dimens.topBarHeight,
-                                bottom = Dimens.bottomBarHeight + navBarPadding
-                            )
-                        }
+                    ScrollbarOverlay(
+                        listState = listState,
+                        topPadding = statusBarPadding + Dimens.topBarHeight + Dimens.sectionHeaderHeight,
+                        bottomPadding = Dimens.bottomBarHeight + navBarPadding,
+                        labelProvider = labelProvider,
+                        yearMarkers = state.yearMarkers
                     ) {
-                        items(
-                            count = displayItems.size,
-                            key = { displayItems[it].gridKey },
-                            contentType = { displayItems[it]::class }
-                        ) { index ->
-                            when (val item = displayItems[index]) {
-                                is HeaderItem -> SectionHeader(label = item.label)
-                                is RowItem -> JustifiedPhotoRow(
-                                    row = item,
-                                    spacing = Dimens.gridSpacing,
-                                    onPhotoClick = onPhotoClick,
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    hiddenAssetId = hiddenAssetId,
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
+                            contentPadding = remember(statusBarPadding, navBarPadding) {
+                                PaddingValues(
+                                    top = statusBarPadding + Dimens.topBarHeight,
+                                    bottom = Dimens.bottomBarHeight + navBarPadding
                                 )
-                                is PlaceholderItem -> PlaceholderRow(
-                                    estimatedHeight = item.estimatedHeight
-                                )
-                                is ErrorItem -> ErrorCell(
-                                    onRetry = { onRetryBucket(item.timeBucket) }
-                                )
-                                is PhotoItem -> { /* Should not appear at top level with row packing */ }
+                            }
+                        ) {
+                            items(
+                                count = displayItems.size,
+                                key = { displayItems[it].gridKey },
+                                contentType = { displayItems[it]::class }
+                            ) { index ->
+                                when (val item = displayItems[index]) {
+                                    is HeaderItem -> SectionHeader(label = item.label)
+                                    is RowItem -> JustifiedPhotoRow(
+                                        row = item,
+                                        spacing = Dimens.gridSpacing,
+                                        onPhotoClick = onPhotoClick,
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        hiddenAssetId = hiddenAssetId,
+                                    )
+                                    is PlaceholderItem -> PlaceholderRow(
+                                        estimatedHeight = item.estimatedHeight
+                                    )
+                                    is ErrorItem -> ErrorCell(
+                                        onRetry = { onRetryBucket(item.timeBucket) }
+                                    )
+                                    is PhotoItem -> { /* Should not appear at top level with row packing */ }
+                                }
                             }
                         }
                     }
-                }
 
-                // Sticky header overlay — hidden when the detail overlay is
-                // shown so it doesn't peek through the transparent scrim
-                // during drag-to-dismiss or overlap the overlay's top bar.
-                AnimatedVisibility(
-                    visible = !showOverlay,
-                    enter = systemBarFadeIn,
-                    exit = systemBarFadeOut,
-                ) {
-                    StickyHeaderOverlay(
-                        listState = listState,
-                        displayItems = displayItems,
-                        statusBarPadding = statusBarPadding
-                    )
-                }
+                    // Sticky header overlay — hidden when the detail overlay is
+                    // shown so it doesn't peek through the transparent scrim
+                    // during drag-to-dismiss or overlap the overlay's top bar.
+                    AnimatedVisibility(
+                        visible = !showOverlay,
+                        enter = systemBarFadeIn,
+                        exit = systemBarFadeOut,
+                    ) {
+                        StickyHeaderOverlay(
+                            listState = listState,
+                            displayItems = displayItems,
+                            statusBarPadding = statusBarPadding
+                        )
+                    }
 
-                // Banner overlays — same gating as sticky header.
-                AnimatedVisibility(
-                    visible = !showOverlay,
-                    enter = systemBarFadeIn,
-                    exit = systemBarFadeOut,
-                    modifier = Modifier.align(Alignment.TopCenter),
-                ) {
-                    val bannerModifier = Modifier
-                        .statusBarsPadding()
-                        .padding(top = Dimens.topBarHeight + Dimens.sectionHeaderHeight)
-                    val bannerError = state.bannerError
-                    val bannerSuccess = state.bannerSuccess
-                    if (bannerError != null) {
-                        ErrorBanner(
-                            message = bannerError.asText(),
-                            lastSyncedAt = state.lastSyncedAt,
-                            onDismiss = onDismissBannerError,
-                            modifier = bannerModifier
-                        )
-                    } else if (bannerSuccess != null) {
-                        SuccessBanner(
-                            message = bannerSuccess.asText(),
-                            onDismiss = onDismissBannerSuccess,
-                            modifier = bannerModifier
-                        )
+                    // Banner overlays — same gating as sticky header.
+                    AnimatedVisibility(
+                        visible = !showOverlay,
+                        enter = systemBarFadeIn,
+                        exit = systemBarFadeOut,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    ) {
+                        val bannerModifier = Modifier
+                            .statusBarsPadding()
+                            .padding(top = Dimens.topBarHeight + Dimens.sectionHeaderHeight)
+                        val bannerError = state.bannerError
+                        val bannerSuccess = state.bannerSuccess
+                        if (bannerError != null) {
+                            ErrorBanner(
+                                message = bannerError.asText(),
+                                lastSyncedAt = state.lastSyncedAt,
+                                onDismiss = onDismissBannerError,
+                                modifier = bannerModifier
+                            )
+                        } else if (bannerSuccess != null) {
+                            SuccessBanner(
+                                message = bannerSuccess.asText(),
+                                onDismiss = onDismissBannerSuccess,
+                                modifier = bannerModifier
+                            )
+                        }
                     }
                 }
             }

@@ -18,6 +18,8 @@ import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.RowHeightBounds
+import com.udnahc.immichgallery.domain.model.RowHeightScope
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
@@ -26,6 +28,7 @@ import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.packIntoRows
+import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
@@ -53,8 +56,6 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import org.lighthousegames.logging.logging
 
-const val MIN_TARGET_ROW_HEIGHT = 80f
-const val MAX_TARGET_ROW_HEIGHT = 300f
 private const val MAX_PLACEHOLDER_HEIGHT_DP = 10000f
 private const val SECTION_HEADER_HEIGHT_DP = 48f
 
@@ -68,6 +69,7 @@ data class DayGroup(val label: String, val assets: List<Asset>)
 data class TimelineState(
     val groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
+    val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f),
     val isLoading: Boolean = false,
     val error: String? = null,
     val displayItems: List<TimelineDisplayItem> = emptyList(),
@@ -102,7 +104,9 @@ private data class BucketData(
 private data class UiConfig(
     val groupSize: TimelineGroupSize = TimelineGroupSize.MONTH,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
+    val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f),
     val availableWidth: Float = 0f,
+    val availableHeight: Float = 0f,
     val isLoading: Boolean = false,
     val error: String? = null,
     val bannerError: TimelineMessage? = null,
@@ -138,6 +142,7 @@ class TimelineViewModel(
     private val log = logging()
     private var syncJob: Job? = null
     private var currentVisibleBucketIndex: Int? = null
+    private var savedTargetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT
 
     private val _bucketData = MutableStateFlow(BucketData())
     private val _uiConfig: MutableStateFlow<UiConfig>
@@ -170,6 +175,7 @@ class TimelineViewModel(
     private var cachedGroupSize: TimelineGroupSize? = null
     private var cachedAvailableWidth: Float? = null
     private var cachedTargetRowHeight: Float? = null
+    private var cachedMaxRowHeight: Float? = null
 
     val state: StateFlow<TimelineState>
 
@@ -192,8 +198,8 @@ class TimelineViewModel(
         val saved = getTimelineGroupSizeUseCase()
         val initialSize = TimelineGroupSize.entries.find { it.apiValue == saved }
             ?: TimelineGroupSize.MONTH
-        val initialTargetRowHeight = getTargetRowHeightUseCase()
-            .coerceIn(MIN_TARGET_ROW_HEIGHT, MAX_TARGET_ROW_HEIGHT)
+        savedTargetRowHeight = getTargetRowHeightUseCase(RowHeightScope.TIMELINE)
+        val initialTargetRowHeight = savedTargetRowHeight
 
         _uiConfig = MutableStateFlow(UiConfig(groupSize = initialSize, targetRowHeight = initialTargetRowHeight))
 
@@ -266,10 +272,23 @@ class TimelineViewModel(
         _uiConfig.update { it.copy(availableWidth = widthDp) }
     }
 
+    fun setAvailableViewportHeight(heightDp: Float) {
+        if (heightDp == _uiConfig.value.availableHeight) return
+        val bounds = rowHeightBoundsForViewport(heightDp)
+        _uiConfig.update {
+            it.copy(
+                availableHeight = heightDp,
+                rowHeightBounds = bounds,
+                targetRowHeight = bounds.clamp(savedTargetRowHeight)
+            )
+        }
+    }
+
     fun setTargetRowHeight(height: Float) {
-        val clamped = height.coerceIn(MIN_TARGET_ROW_HEIGHT, MAX_TARGET_ROW_HEIGHT)
+        val clamped = _uiConfig.value.rowHeightBounds.clamp(height)
         if (clamped == _uiConfig.value.targetRowHeight) return
-        setTargetRowHeightAction(clamped)
+        savedTargetRowHeight = clamped
+        setTargetRowHeightAction(RowHeightScope.TIMELINE, clamped)
         _uiConfig.update { it.copy(targetRowHeight = clamped) }
     }
 
@@ -521,13 +540,20 @@ class TimelineViewModel(
     }
 
     private suspend fun buildTimelineState(data: BucketData, config: UiConfig): TimelineState {
-        val displayItems = buildDisplayItems(data, config.groupSize, config.availableWidth, config.targetRowHeight)
+        val displayItems = buildDisplayItems(
+            data,
+            config.groupSize,
+            config.availableWidth,
+            config.targetRowHeight,
+            config.rowHeightBounds.max
+        )
         val scrollbarData = computeScrollbarData(data.buckets, displayItems)
         val pageIndex = computePageIndex(data.buckets)
 
         return TimelineState(
             groupSize = config.groupSize,
             targetRowHeight = config.targetRowHeight,
+            rowHeightBounds = config.rowHeightBounds,
             isLoading = config.isLoading,
             error = config.error,
             displayItems = displayItems,
@@ -575,7 +601,8 @@ class TimelineViewModel(
         data: BucketData,
         groupSize: TimelineGroupSize,
         availableWidth: Float,
-        targetRowHeight: Float
+        targetRowHeight: Float,
+        maxRowHeight: Float
     ): List<TimelineDisplayItem> {
         // Layout change invalidates only the DERIVED display items (which are
         // sized against width/rowHeight/groupSize). The raw bucket assets in
@@ -583,13 +610,15 @@ class TimelineViewModel(
         // zoom without forcing a Room re-query for every bucket.
         if (groupSize != cachedGroupSize ||
             availableWidth != cachedAvailableWidth ||
-            targetRowHeight != cachedTargetRowHeight
+            targetRowHeight != cachedTargetRowHeight ||
+            maxRowHeight != cachedMaxRowHeight
         ) {
             cachedBucketItems = emptyMap()
             cachedFlatItems = emptyList()
             cachedGroupSize = groupSize
             cachedAvailableWidth = availableWidth
             cachedTargetRowHeight = targetRowHeight
+            cachedMaxRowHeight = maxRowHeight
         }
 
         var anyChanged = false
@@ -610,7 +639,7 @@ class TimelineViewModel(
             } else {
                 anyChanged = true
                 val bucketItems = buildBucketItems(
-                    data, index, bucket, groupSize, availableWidth, targetRowHeight
+                    data, index, bucket, groupSize, availableWidth, targetRowHeight, maxRowHeight
                 )
                 newCache[cacheKey] = bucketItems
             }
@@ -647,7 +676,8 @@ class TimelineViewModel(
         bucket: TimelineBucket,
         groupSize: TimelineGroupSize,
         availableWidth: Float,
-        targetRowHeight: Float
+        targetRowHeight: Float,
+        maxRowHeight: Float
     ): List<TimelineDisplayItem> {
         val timeBucket = bucket.timeBucket
         val isFailed = timeBucket in data.failedBuckets
@@ -718,13 +748,13 @@ class TimelineViewModel(
                             ))
                             items.addAll(packIntoRows(
                                 dayGroup.assets, index, dayGroup.label,
-                                availableWidth, targetRowHeight, GRID_SPACING_DP
+                                availableWidth, targetRowHeight, GRID_SPACING_DP, maxRowHeight
                             ))
                         }
                     } else {
                         items.addAll(packIntoRows(
                             assets, index, monthLabel,
-                            availableWidth, targetRowHeight, GRID_SPACING_DP
+                            availableWidth, targetRowHeight, GRID_SPACING_DP, maxRowHeight
                         ))
                     }
                 } else {

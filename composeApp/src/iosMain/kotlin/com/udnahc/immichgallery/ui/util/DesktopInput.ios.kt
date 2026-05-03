@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.ui.util
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.udnahc.immichgallery.domain.model.RowHeightBounds
 
 @Composable
 actual fun Modifier.desktopDetailShortcuts(
@@ -15,5 +16,6 @@ actual fun Modifier.desktopDetailShortcuts(
 
 actual fun Modifier.desktopGridZoom(
     currentHeight: Float,
+    bounds: RowHeightBounds,
     onHeightChanged: (Float) -> Unit,
 ): Modifier = this

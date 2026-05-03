@@ -179,6 +179,7 @@ fun SearchScreen(
                 onSearch = viewModel::search,
                 onPhotoClick = remember { { id: String -> selectedAssetId = id } },
                 onSetAvailableWidth = viewModel::setAvailableWidth,
+                onSetAvailableViewportHeight = viewModel::setAvailableViewportHeight,
                 onSetTargetRowHeight = viewModel::setTargetRowHeight,
                 onLoadMore = viewModel::loadMore,
                 listState = listState,
@@ -224,6 +225,7 @@ fun SearchContent(
     onSearch: () -> Unit,
     onPhotoClick: (String) -> Unit,
     onSetAvailableWidth: (Float) -> Unit,
+    onSetAvailableViewportHeight: (Float) -> Unit = {},
     onSetTargetRowHeight: (Float) -> Unit = {},
     onLoadMore: () -> Unit,
     listState: LazyListState = rememberLazyListState(),
@@ -326,52 +328,60 @@ fun SearchContent(
                 }
 
                 BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pinchToZoomRowHeight(state.targetRowHeight, onSetTargetRowHeight)
-                        .desktopGridZoom(state.targetRowHeight, onSetTargetRowHeight)
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     val widthDp = with(density) { constraints.maxWidth.toDp() }
-                    LaunchedEffect(widthDp) {
+                    val visibleGridHeight = (maxHeight - Dimens.bottomBarHeight - navBarPadding)
+                        .value
+                        .coerceAtLeast(0f)
+                    LaunchedEffect(widthDp, visibleGridHeight) {
                         onSetAvailableWidth(widthDp.value)
+                        onSetAvailableViewportHeight(visibleGridHeight)
                     }
 
-                    ScrollbarOverlay(
-                        listState = listState,
-                        topPadding = statusBarPadding + Dimens.topBarHeight,
-                        bottomPadding = Dimens.bottomBarHeight + navBarPadding
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pinchToZoomRowHeight(state.targetRowHeight, state.rowHeightBounds, onSetTargetRowHeight)
+                            .desktopGridZoom(state.targetRowHeight, state.rowHeightBounds, onSetTargetRowHeight)
                     ) {
-                        val contentPadding = remember(navBarPadding) {
-                            PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
-                        }
-                        LazyColumn(
-                            state = listState,
-                            contentPadding = contentPadding,
-                            verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
+                        ScrollbarOverlay(
+                            listState = listState,
+                            topPadding = statusBarPadding + Dimens.topBarHeight,
+                            bottomPadding = Dimens.bottomBarHeight + navBarPadding
                         ) {
-                            itemsIndexed(
-                                items = state.rows,
-                                key = { _, row -> row.gridKey }
-                            ) { _, row ->
-                                JustifiedPhotoRow(
-                                    row = row,
-                                    spacing = Dimens.gridSpacing,
-                                    onPhotoClick = onPhotoClick,
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    hiddenAssetId = hiddenAssetId,
-                                )
+                            val contentPadding = remember(navBarPadding) {
+                                PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
                             }
-                            if (state.isLoadingMore) {
-                                item(key = "loading_more") {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = Dimens.mediumSpacing),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(Dimens.iconSize)
-                                        )
+                            LazyColumn(
+                                state = listState,
+                                contentPadding = contentPadding,
+                                verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
+                            ) {
+                                itemsIndexed(
+                                    items = state.rows,
+                                    key = { _, row -> row.gridKey }
+                                ) { _, row ->
+                                    JustifiedPhotoRow(
+                                        row = row,
+                                        spacing = Dimens.gridSpacing,
+                                        onPhotoClick = onPhotoClick,
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        hiddenAssetId = hiddenAssetId,
+                                    )
+                                }
+                                if (state.isLoadingMore) {
+                                    item(key = "loading_more") {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = Dimens.mediumSpacing),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(Dimens.iconSize)
+                                            )
+                                        }
                                     }
                                 }
                             }
