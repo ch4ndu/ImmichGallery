@@ -19,6 +19,7 @@ import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketGeometryEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicAssignmentEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineMosaicDisplayCacheEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
 
 @Database(
@@ -32,10 +33,11 @@ import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
         PersonEntity::class,
         PersonAssetCrossRef::class,
         TimelineMosaicAssignmentEntity::class,
+        TimelineMosaicDisplayCacheEntity::class,
         TimelineMosaicGeometryEntity::class,
         TimelineBucketGeometryEntity::class
     ],
-    version = 9
+    version = 10
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {

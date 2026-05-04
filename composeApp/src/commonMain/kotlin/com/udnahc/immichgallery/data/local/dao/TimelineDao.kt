@@ -8,6 +8,7 @@ import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketGeometryEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicAssignmentEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineMosaicDisplayCacheEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -41,6 +42,9 @@ interface TimelineDao {
     suspend fun upsertMosaicAssignments(assignments: List<TimelineMosaicAssignmentEntity>)
 
     @Upsert
+    suspend fun upsertMosaicDisplayCache(rows: List<TimelineMosaicDisplayCacheEntity>)
+
+    @Upsert
     suspend fun upsertMosaicGeometry(geometry: List<TimelineMosaicGeometryEntity>)
 
     @Upsert
@@ -61,6 +65,26 @@ interface TimelineDao {
         columnCount: Int,
         familiesKey: String
     ): List<TimelineMosaicAssignmentEntity>
+
+    @Query(
+        """
+        SELECT * FROM timeline_mosaic_display_cache
+        WHERE timeBucket IN (:timeBuckets)
+            AND groupMode = :groupMode
+            AND columnCount = :columnCount
+            AND familiesKey = :familiesKey
+            AND availableWidthKey = :availableWidthKey
+            AND displayVersion = :displayVersion
+        """
+    )
+    suspend fun getMosaicDisplayCache(
+        timeBuckets: List<String>,
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String,
+        availableWidthKey: Int,
+        displayVersion: Int
+    ): List<TimelineMosaicDisplayCacheEntity>
 
     @Query(
         """
@@ -136,6 +160,22 @@ interface TimelineDao {
 
     @Query(
         """
+        DELETE FROM timeline_mosaic_display_cache
+        WHERE timeBucket = :timeBucket
+            AND groupMode = :groupMode
+            AND columnCount = :columnCount
+            AND familiesKey = :familiesKey
+        """
+    )
+    suspend fun clearMosaicDisplayCacheForBucketConfig(
+        timeBucket: String,
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String
+    )
+
+    @Query(
+        """
         DELETE FROM timeline_bucket_geometry
         WHERE timeBucket = :timeBucket
             AND groupMode = :groupMode
@@ -156,6 +196,9 @@ interface TimelineDao {
     @Query("DELETE FROM timeline_mosaic_geometry WHERE timeBucket IN (:timeBuckets)")
     suspend fun clearMosaicGeometryForBuckets(timeBuckets: List<String>)
 
+    @Query("DELETE FROM timeline_mosaic_display_cache WHERE timeBucket IN (:timeBuckets)")
+    suspend fun clearMosaicDisplayCacheForBuckets(timeBuckets: List<String>)
+
     @Query("DELETE FROM timeline_bucket_geometry WHERE timeBucket IN (:timeBuckets)")
     suspend fun clearBucketGeometryForBuckets(timeBuckets: List<String>)
 
@@ -164,6 +207,9 @@ interface TimelineDao {
 
     @Query("DELETE FROM timeline_mosaic_geometry")
     suspend fun clearAllTimelineMosaicGeometry()
+
+    @Query("DELETE FROM timeline_mosaic_display_cache")
+    suspend fun clearAllTimelineMosaicDisplayCache()
 
     @Query("DELETE FROM timeline_bucket_geometry")
     suspend fun clearAllTimelineBucketGeometry()
@@ -187,14 +233,19 @@ interface TimelineDao {
         columnCount: Int,
         familiesKey: String,
         assignments: List<TimelineMosaicAssignmentEntity>,
+        displayCache: List<TimelineMosaicDisplayCacheEntity> = emptyList(),
         geometry: List<TimelineMosaicGeometryEntity> = emptyList(),
         bucketGeometry: TimelineBucketGeometryEntity? = null
     ) {
         clearMosaicAssignmentsForBucketConfig(timeBucket, groupMode, columnCount, familiesKey)
+        clearMosaicDisplayCacheForBucketConfig(timeBucket, groupMode, columnCount, familiesKey)
         clearMosaicGeometryForBucketConfig(timeBucket, groupMode, columnCount, familiesKey)
         clearBucketGeometryForBucketConfig(timeBucket, groupMode, columnCount, familiesKey)
         if (assignments.isNotEmpty()) {
             upsertMosaicAssignments(assignments)
+        }
+        if (displayCache.isNotEmpty()) {
+            upsertMosaicDisplayCache(displayCache)
         }
         if (geometry.isNotEmpty()) {
             upsertMosaicGeometry(geometry)

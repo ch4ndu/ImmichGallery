@@ -291,8 +291,9 @@ Mosaic assignments are computed in these cases:
 
 Mosaic assignments are not computed on normal scroll, scrollbar drag, width
 changes, group-size changes, or Mosaic-family changes. Those events request
-persisted cache reads. Missing rows remain placeholders or fall back to row
-packing depending on the current bucket/section state.
+persisted cache reads. Missing rows remain placeholders until assets or cached
+display bands are available; Timeline Mosaic-enabled photo content must not
+render standard justified row fallback.
 
 ### How Persisted Mosaic Is Built
 
@@ -314,17 +315,18 @@ For each bucket:
    When progressive runtime updates are enabled for a missing or changed
    section, the same source-order scan emits an in-memory chunk after each
    stable batch of eight Mosaic bands. A chunk owns a contiguous source-asset
-   range and may include delayed fallback gaps; unresolved gaps are held until a
-   later batch so fallback rows do not strand incomplete rows before a future
-   Mosaic boundary.
+   range. If no valid template exists at a source index, the scanner advances
+   by one asset instead of using standard row packing as a skip heuristic.
 6. If a measured Timeline width is available, replay the assignments through
-   the real display `MosaicLayoutSpec` and persist exact placeholder geometry
-   summaries in `timeline_mosaic_geometry`.
+   the real display `MosaicLayoutSpec`, generate fallback Mosaic bands for
+   unassigned or invalid ranges, persist exact placeholder geometry summaries
+   in `timeline_mosaic_geometry`, and persist portable real/fallback display
+   band records in `timeline_mosaic_display_cache`.
 7. Compute aggregate bucket geometry from the section geometry. In day mode this
    includes day section headers and inter-item spacing.
 8. Replace rows for that exact bucket/group/column/family config in
-   `timeline_mosaic_assignments`, section geometry, and aggregate bucket
-   geometry.
+   `timeline_mosaic_assignments`, display cache, section geometry, and
+   aggregate bucket geometry.
 
 Progressive chunks use the same generation, group mode, column count, Mosaic
 families, bucket revision, and full-screen geometry identity as persisted cache
@@ -452,28 +454,39 @@ graph LR
     stop --> load
     load --> read["Read persisted Mosaic assignments"]
     read --> state["Update Mosaic state"]
-    state --> render["Render Mosaic placeholders or rows"]
+    state --> render["Render Mosaic placeholders or bands"]
 ```
 
 ### Mosaic Display State
 
 `_mosaicStates` stores section-level runtime state:
 
-- missing or `Pending`: render Mosaic placeholders for the bucket/section while
-  Mosaic is enabled.
-- `Ready(assignments)`: call `buildPhotoGridItemsWithMosaic()` to render Mosaic
-  bands plus fallback rows around gaps.
-- `Failed`: fall back to justified row packing using the Mosaic fallback policy.
+- missing or `Pending`: unloaded buckets render exact placeholders; loaded
+  materialized sections render fallback Mosaic bands so photos remain visible.
+- `Partial(chunks)`: ready chunks render real/fallback Mosaic bands and
+  unresolved materialized ranges render fallback Mosaic bands.
+- `Ready(assignments, displayBands)`: replay persisted display bands when they
+  exist, otherwise call `buildPhotoGridItemsWithMosaic()` to render real Mosaic
+  bands plus fallback Mosaic bands around gaps.
+- `Failed`: render fallback Mosaic bands when assets are materialized.
 
 Pending Mosaic placeholders should preserve list position. If cached assets and
 persisted assignments are already available, the preferred placeholder height is
 the persisted geometry summary for the current rounded Timeline width. If a
-matching geometry row is missing but assignments are available, the repository
-backfills the geometry row by replaying `buildPhotoGridItemsWithMosaic()` for
-the current width. If cached assets are available but assignments are still
-missing, the placeholder uses the same aspect-ratio-based Mosaic fallback row
-packing that final failed/missing Mosaic sections use. Count-only bucket
-metadata estimates are used only when asset rows have not been materialized yet.
+matching geometry or display-cache row is missing but assignments are
+available, the repository backfills the rows by replaying
+`buildPhotoGridItemsWithMosaic()` for the current width. If cached assets are
+available but assignments are still missing, placeholders use the deterministic
+fallback Mosaic-band height. Count-only bucket metadata estimates are used only
+when asset rows have not been materialized yet.
+
+Timeline Mosaic display cache is width-dependent and active-config scoped. It
+stores portable band records, not Compose display objects, keyed by bucket,
+section, group mode, fixed Timeline Mosaic column count, families key, ordered
+asset fingerprint, rounded width, spacing, max row height, and display-cache
+version. Assignment rows remain width-independent. Replacing or clearing a
+bucket Mosaic config must clear assignments, display cache, section geometry,
+and aggregate bucket geometry together.
 
 Timeline Mosaic uses fixed column counts while enabled: 4 columns on normal
 widths and 5 columns on large widths. Pinch and desktop zoom do not change
@@ -512,9 +525,10 @@ of the following:
 - `ErrorItem` if the bucket failed and has no cached rows to keep.
 - `PlaceholderItem` rows if assets are not materialized yet or Mosaic rows are
   pending.
-- `RowItem` rows from `packIntoRows()` when Mosaic is off or failed/fallback.
-- `MosaicBandItem` bands from `buildPhotoGridItemsWithMosaic()` when persisted
-  assignments are ready.
+- `RowItem` rows from `packIntoRows()` only when Mosaic is off.
+- `MosaicBandItem` bands from persisted display cache or
+  `buildPhotoGridItemsWithMosaic()` when Mosaic is enabled and assets are
+  materialized; unresolved Mosaic ranges become fallback bands, not rows.
 
 `TimelineContent` renders a `LazyColumn` with stable `gridKey` values and
 content types based on display-item class. It also owns visible bucket reporting,
@@ -593,6 +607,9 @@ materialized yet.
 - No-op syncs must not bump revisions or repack unchanged buckets.
 - Scroll and scrollbar targeting may request persisted Mosaic rows, but must
   not run continuous Mosaic assignment computation.
+- Timeline Mosaic-enabled rendered photo content must be `MosaicBandItem`
+  output. Do not use `RowItem` as fallback for missing, invalid, failed, or
+  partially assigned Mosaic ranges.
 - Stale Mosaic cache reads must not publish after generation/config changes, and
   cancellation from superseded reads is expected.
 - Room asset rows should not store stale server URLs; domain assets reconstruct

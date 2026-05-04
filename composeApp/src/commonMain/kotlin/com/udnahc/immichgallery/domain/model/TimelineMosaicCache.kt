@@ -27,6 +27,37 @@ data class TimelineMosaicAssignment(
     val assignments: List<MosaicBandAssignment>
 )
 
+@Serializable
+enum class TimelineMosaicDisplayBandKind {
+    REAL,
+    FALLBACK
+}
+
+@Serializable
+data class TimelineMosaicDisplayTileRecord(
+    val assetId: String,
+    val visualOrder: Int,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float
+)
+
+@Serializable
+data class TimelineMosaicDisplayBandRecord(
+    val sourceStartIndex: Int,
+    val sourceCount: Int,
+    val bandHeight: Float,
+    val kind: TimelineMosaicDisplayBandKind,
+    val tiles: List<TimelineMosaicDisplayTileRecord>
+)
+
+data class TimelineMosaicDisplaySection(
+    val timeBucket: String,
+    val sectionKey: String,
+    val bands: List<TimelineMosaicDisplayBandRecord>
+)
+
 data class TimelineMosaicGeometrySummary(
     val timeBucket: String,
     val sectionKey: String,
@@ -49,9 +80,49 @@ data class TimelineMosaicGeometryRequest(
 data class TimelineMosaicCacheStatus(
     val assignments: List<TimelineMosaicAssignment>,
     val geometrySummaries: List<TimelineMosaicGeometrySummary> = emptyList(),
+    val displaySections: List<TimelineMosaicDisplaySection> = emptyList(),
     val completeBucketIds: Set<String>,
     val missingBucketIds: Set<String>
 )
+
+fun List<TimelineMosaicDisplayBandRecord>.toMosaicDisplayItems(
+    assets: List<Asset>,
+    bucketIndex: Int,
+    sectionLabel: String
+): List<PhotoGridDisplayItem> {
+    val assetsById = assets.associateBy { it.id }
+    return mapNotNull { band ->
+        val tiles = band.tiles.mapNotNull { tile ->
+            val asset = assetsById[tile.assetId] ?: return@mapNotNull null
+            MosaicTile(
+                photo = PhotoItem(
+                    gridKey = "p_${asset.id}",
+                    bucketIndex = bucketIndex,
+                    sectionLabel = sectionLabel,
+                    asset = asset
+                ),
+                x = tile.x,
+                y = tile.y,
+                width = tile.width,
+                height = tile.height,
+                visualOrder = tile.visualOrder
+            )
+        }
+        MosaicBandItem(
+            gridKey = "mosaic_cache_${bucketIndex}_${sectionLabel}_${band.sourceStartIndex}",
+            bucketIndex = bucketIndex,
+            sectionLabel = sectionLabel,
+            tiles = tiles,
+            bandHeight = band.bandHeight,
+            sourceStartIndex = band.sourceStartIndex,
+            sourceCount = band.sourceCount,
+            kind = when (band.kind) {
+                TimelineMosaicDisplayBandKind.REAL -> MosaicBandKind.REAL
+                TimelineMosaicDisplayBandKind.FALLBACK -> MosaicBandKind.FALLBACK
+            }
+        )
+    }
+}
 
 data class TimelineMosaicPrecomputeResult(
     val successfulBucketIds: Set<String>,

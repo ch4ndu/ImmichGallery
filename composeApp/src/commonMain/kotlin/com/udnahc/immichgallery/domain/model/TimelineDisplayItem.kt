@@ -64,13 +64,21 @@ data class MosaicTile(
     val visualOrder: Int
 )
 
+enum class MosaicBandKind {
+    REAL,
+    FALLBACK
+}
+
 @Immutable
 data class MosaicBandItem(
     override val gridKey: String,
     override val bucketIndex: Int,
     override val sectionLabel: String,
     val tiles: List<MosaicTile>,
-    val bandHeight: Float
+    val bandHeight: Float,
+    val sourceStartIndex: Int = 0,
+    val sourceCount: Int = tiles.size,
+    val kind: MosaicBandKind = MosaicBandKind.REAL
 ) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = true
 }

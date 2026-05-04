@@ -36,6 +36,7 @@ import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_COMPACT_COLUMN_COUN
 import com.udnahc.immichgallery.domain.model.TimelinePageIndex
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
+import com.udnahc.immichgallery.domain.model.TimelineMosaicDisplayBandRecord
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicProgressChunk
 import com.udnahc.immichgallery.domain.model.ViewConfig
@@ -57,6 +58,7 @@ import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.model.timelineScrollTargetForFraction
 import com.udnahc.immichgallery.domain.model.bucketIndexForTimelineFraction
+import com.udnahc.immichgallery.domain.model.toMosaicDisplayItems
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
@@ -348,7 +350,10 @@ internal class TimelineProgressiveMosaicBuffer {
 private sealed interface RuntimeMosaicState {
     data object Pending : RuntimeMosaicState
     data class Partial(val chunks: List<RuntimeMosaicProgressChunk>) : RuntimeMosaicState
-    data class Ready(val assignments: List<MosaicBandAssignment>) : RuntimeMosaicState
+    data class Ready(
+        val assignments: List<MosaicBandAssignment>,
+        val displayBands: List<TimelineMosaicDisplayBandRecord> = emptyList()
+    ) : RuntimeMosaicState
     data object Failed : RuntimeMosaicState
 }
 
@@ -357,7 +362,7 @@ private fun RuntimeMosaicState?.cacheToken(): String =
         null -> "missing"
         RuntimeMosaicState.Pending -> "pending"
         is RuntimeMosaicState.Partial -> "partial_${chunks.size}_${chunks.lastOrNull()?.sourceEndExclusive ?: 0}"
-        is RuntimeMosaicState.Ready -> "ready_${assignments.size}"
+        is RuntimeMosaicState.Ready -> "ready_${assignments.size}_${displayBands.size}"
         RuntimeMosaicState.Failed -> "failed"
     }
 
@@ -1897,36 +1902,24 @@ class TimelineViewModel(
                                 families = viewConfig.mosaicFamilies
                             )]
                             when {
-                                useMosaic && (dayMosaicState == null || dayMosaicState == RuntimeMosaicState.Pending) -> {
-                                    val geometryHeight = mosaicGeometryStates[mosaicCacheKey(
-                                        timeBucket = timeBucket,
-                                        sectionKey = daySectionKey,
-                                        columnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT,
-                                        assetRevision = assetRevision,
-                                        families = viewConfig.mosaicFamilies
-                                    )]
-                                    if (geometryHeight != null) {
-                                        addGeometryPlaceholderItems(
-                                            items = items,
+                                useMosaic &&
+                                    mosaicLayoutSpec != null &&
+                                    (dayMosaicState == null || dayMosaicState == RuntimeMosaicState.Pending) -> {
+                                    items.addAll(
+                                        remapTimelineMosaicBandKeys(
+                                            items = buildPhotoGridItemsWithMosaic(
+                                                assets = dayGroup.assets,
+                                                assignments = emptyList(),
+                                                bucketIndex = index,
+                                                sectionLabel = dayLabel,
+                                                layoutSpec = mosaicLayoutSpec,
+                                                spacing = GRID_SPACING_DP,
+                                                maxRowHeight = maxRowHeight
+                                            ),
                                             timeBucket = timeBucket,
-                                            sectionKey = daySectionKey,
-                                            bucketIndex = index,
-                                            sectionLabel = dayLabel,
-                                            placeholderHeight = geometryHeight
+                                            sectionKey = daySectionKey
                                         )
-                                    } else {
-                                        addProjectedMosaicPlaceholderItems(
-                                            items = items,
-                                            timeBucket = timeBucket,
-                                            sectionKey = daySectionKey,
-                                            bucketIndex = index,
-                                            sectionLabel = dayLabel,
-                                            assets = dayGroup.assets,
-                                            assignments = null,
-                                            mosaicLayoutSpec = mosaicLayoutSpec,
-                                            maxRowHeight = maxRowHeight
-                                        )
-                                    }
+                                    )
                                 }
                                 useMosaic && dayMosaicState is RuntimeMosaicState.Partial && mosaicLayoutSpec != null -> {
                                     addPartialMosaicItems(
@@ -1944,16 +1937,30 @@ class TimelineViewModel(
                                 useMosaic && dayMosaicState is RuntimeMosaicState.Ready && mosaicLayoutSpec != null -> {
                                     items.addAll(
                                         remapTimelineMosaicBandKeys(
+                                            items = readyMosaicDisplayItems(
+                                                assets = dayGroup.assets,
+                                                state = dayMosaicState,
+                                                bucketIndex = index,
+                                                sectionLabel = dayLabel,
+                                                mosaicLayoutSpec = mosaicLayoutSpec,
+                                                maxRowHeight = maxRowHeight
+                                            ),
+                                            timeBucket = timeBucket,
+                                            sectionKey = daySectionKey
+                                        )
+                                    )
+                                }
+                                useMosaic && dayMosaicState == RuntimeMosaicState.Failed && mosaicLayoutSpec != null -> {
+                                    items.addAll(
+                                        remapTimelineMosaicBandKeys(
                                             items = buildPhotoGridItemsWithMosaic(
-                                            assets = dayGroup.assets,
-                                            assignments = dayMosaicState.assignments,
-                                            bucketIndex = index,
-                                            sectionLabel = dayLabel,
-                                            layoutSpec = mosaicLayoutSpec,
-                                            spacing = GRID_SPACING_DP,
-                                            maxRowHeight = maxRowHeight,
-                                            promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
-                                                minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
+                                                assets = dayGroup.assets,
+                                                assignments = emptyList(),
+                                                bucketIndex = index,
+                                                sectionLabel = dayLabel,
+                                                layoutSpec = mosaicLayoutSpec,
+                                                spacing = GRID_SPACING_DP,
+                                                maxRowHeight = maxRowHeight
                                             ),
                                             timeBucket = timeBucket,
                                             sectionKey = daySectionKey
@@ -1998,36 +2005,25 @@ class TimelineViewModel(
                             assetRevision = assetRevision,
                             families = viewConfig.mosaicFamilies
                         )]
-                        if (useMosaic && (monthMosaicState == null || monthMosaicState == RuntimeMosaicState.Pending)) {
-                            val geometryHeight = mosaicGeometryStates[mosaicCacheKey(
-                                timeBucket = timeBucket,
-                                sectionKey = monthSectionKey,
-                                columnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT,
-                                assetRevision = assetRevision,
-                                families = viewConfig.mosaicFamilies
-                            )]
-                            if (geometryHeight != null) {
-                                addGeometryPlaceholderItems(
-                                    items = items,
+                        if (useMosaic &&
+                            mosaicLayoutSpec != null &&
+                            (monthMosaicState == null || monthMosaicState == RuntimeMosaicState.Pending)
+                        ) {
+                            items.addAll(
+                                remapTimelineMosaicBandKeys(
+                                    items = buildPhotoGridItemsWithMosaic(
+                                        assets = assets,
+                                        assignments = emptyList(),
+                                        bucketIndex = index,
+                                        sectionLabel = monthLabel,
+                                        layoutSpec = mosaicLayoutSpec,
+                                        spacing = GRID_SPACING_DP,
+                                        maxRowHeight = maxRowHeight
+                                    ),
                                     timeBucket = timeBucket,
-                                    sectionKey = monthSectionKey,
-                                    bucketIndex = index,
-                                    sectionLabel = monthLabel,
-                                    placeholderHeight = geometryHeight
+                                    sectionKey = monthSectionKey
                                 )
-                            } else {
-                                addProjectedMosaicPlaceholderItems(
-                                    items = items,
-                                    timeBucket = timeBucket,
-                                    sectionKey = monthSectionKey,
-                                    bucketIndex = index,
-                                    sectionLabel = monthLabel,
-                                    assets = assets,
-                                    assignments = null,
-                                    mosaicLayoutSpec = mosaicLayoutSpec,
-                                    maxRowHeight = maxRowHeight
-                                )
-                            }
+                            )
                             return items
                         }
                         if (useMosaic && monthMosaicState is RuntimeMosaicState.Partial && mosaicLayoutSpec != null) {
@@ -2047,16 +2043,29 @@ class TimelineViewModel(
                         if (useMosaic && monthMosaicState is RuntimeMosaicState.Ready && mosaicLayoutSpec != null) {
                         items.addAll(
                             remapTimelineMosaicBandKeys(
+                                items = readyMosaicDisplayItems(
+                                    assets = assets,
+                                    state = monthMosaicState,
+                                    bucketIndex = index,
+                                    sectionLabel = monthLabel,
+                                    mosaicLayoutSpec = mosaicLayoutSpec,
+                                    maxRowHeight = maxRowHeight
+                                ),
+                                timeBucket = timeBucket,
+                                sectionKey = monthSectionKey
+                            )
+                        )
+                        } else if (useMosaic && monthMosaicState == RuntimeMosaicState.Failed && mosaicLayoutSpec != null) {
+                        items.addAll(
+                            remapTimelineMosaicBandKeys(
                                 items = buildPhotoGridItemsWithMosaic(
-                                assets = assets,
-                                assignments = monthMosaicState.assignments,
-                                bucketIndex = index,
-                                sectionLabel = monthLabel,
-                                layoutSpec = mosaicLayoutSpec,
-                                spacing = GRID_SPACING_DP,
-                                maxRowHeight = maxRowHeight,
-                                promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
-                                    minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
+                                    assets = assets,
+                                    assignments = emptyList(),
+                                    bucketIndex = index,
+                                    sectionLabel = monthLabel,
+                                    layoutSpec = mosaicLayoutSpec,
+                                    spacing = GRID_SPACING_DP,
+                                    maxRowHeight = maxRowHeight
                                 ),
                                 timeBucket = timeBucket,
                                 sectionKey = monthSectionKey
@@ -2156,20 +2165,14 @@ class TimelineViewModel(
                     minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
                 )
             } else {
-                packIntoRows(
+                buildPhotoGridItemsWithMosaic(
                     assets = assets,
                     bucketIndex = bucketIndex,
                     sectionLabel = sectionLabel,
-                    availableWidth = mosaicLayoutSpec.availableWidth,
-                    targetRowHeight = mosaicFallbackRowHeight(
-                        layoutSpec = mosaicLayoutSpec,
-                        assetCount = assets.size,
-                        maxRowHeight = maxRowHeight
-                    ),
+                    assignments = emptyList(),
+                    layoutSpec = mosaicLayoutSpec,
                     spacing = GRID_SPACING_DP,
-                    maxRowHeight = maxRowHeight,
-                    promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
-                    minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
+                    maxRowHeight = maxRowHeight
                 )
             }
             val projectedHeight = estimatePhotoGridDisplayItemsHeight(projectedItems, GRID_SPACING_DP)
@@ -2200,6 +2203,34 @@ class TimelineViewModel(
             availableWidth = mosaicLayoutSpec?.availableWidth ?: 0f,
             targetRowHeight = mosaicLayoutSpec?.cellHeight ?: DEFAULT_TARGET_ROW_HEIGHT
         )
+    }
+
+    private fun readyMosaicDisplayItems(
+        assets: List<Asset>,
+        state: RuntimeMosaicState.Ready,
+        bucketIndex: Int,
+        sectionLabel: String,
+        mosaicLayoutSpec: MosaicLayoutSpec,
+        maxRowHeight: Float
+    ): List<TimelineDisplayItem> {
+        val cachedItems = state.displayBands.toMosaicDisplayItems(
+            assets = assets,
+            bucketIndex = bucketIndex,
+            sectionLabel = sectionLabel
+        )
+        return cachedItems.ifEmpty {
+            buildPhotoGridItemsWithMosaic(
+                assets = assets,
+                assignments = state.assignments,
+                bucketIndex = bucketIndex,
+                sectionLabel = sectionLabel,
+                layoutSpec = mosaicLayoutSpec,
+                spacing = GRID_SPACING_DP,
+                maxRowHeight = maxRowHeight,
+                promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
+                minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
+            )
+        }
     }
 
     private fun addPartialMosaicItems(
@@ -2286,32 +2317,18 @@ class TimelineViewModel(
         maxRowHeight: Float
     ) {
         if (assets.isEmpty()) return
-        val projectedItems = packIntoRows(
+        val projectedItems = buildPhotoGridItemsWithMosaic(
             assets = assets,
             bucketIndex = bucketIndex,
             sectionLabel = sectionLabel,
-            availableWidth = mosaicLayoutSpec.availableWidth,
-            targetRowHeight = mosaicFallbackRowHeight(
-                layoutSpec = mosaicLayoutSpec,
-                assetCount = assets.size,
-                maxRowHeight = maxRowHeight
-            ),
+            assignments = emptyList(),
+            layoutSpec = mosaicLayoutSpec,
             spacing = GRID_SPACING_DP,
-            maxRowHeight = maxRowHeight,
-            promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
-            minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
+            maxRowHeight = maxRowHeight
         )
-        val projectedHeight = estimatePhotoGridDisplayItemsHeight(projectedItems, GRID_SPACING_DP)
-        if (projectedHeight <= 0f) return
         items.addAll(
-            remapTimelinePlaceholderKeys(
-                placeholders = buildPhotoGridPlaceholderItemsForHeight(
-                bucketIndex = bucketIndex,
-                sectionLabel = sectionLabel,
-                estimatedHeight = projectedHeight,
-                externalSpacing = GRID_SPACING_DP
-                ),
-                prefix = "plp",
+            remapTimelineMosaicBandKeys(
+                items = projectedItems,
                 timeBucket = timeBucket,
                 sectionKey = "${sectionKey}_${sourceStartIndex}_$sourceEndExclusive"
             )
@@ -2821,6 +2838,7 @@ class TimelineViewModel(
             if (geometryUpdates.isNotEmpty()) {
                 _mosaicGeometryStates.update { states -> states + geometryUpdates }
             }
+            val displayBandsBySection = status.displaySections.associateBy { it.timeBucket to it.sectionKey }
             val updates = status.assignments.associate { assignment ->
                 mosaicCacheKey(
                     timeBucket = assignment.timeBucket,
@@ -2828,7 +2846,12 @@ class TimelineViewModel(
                     columnCount = columnCount,
                     assetRevision = revisions[assignment.timeBucket] ?: 0,
                     families = families
-                ) to RuntimeMosaicState.Ready(assignment.assignments)
+                ) to RuntimeMosaicState.Ready(
+                    assignments = assignment.assignments,
+                    displayBands = displayBandsBySection[assignment.timeBucket to assignment.sectionKey]
+                        ?.bands
+                        .orEmpty()
+                )
             }
             if (updates.isNotEmpty()) {
                 _mosaicStates.update { states -> states + updates }
@@ -2848,6 +2871,7 @@ class TimelineViewModel(
             log.d {
                 "Timeline persisted Mosaic read completed requested=${timeBuckets.size} " +
                     "assignments=${status.assignments.size} geometry=${status.geometrySummaries.size} " +
+                    "display=${status.displaySections.size} " +
                     "complete=${status.completeBucketIds.size} missing=${status.missingBucketIds.size}"
             }
         }
@@ -2900,6 +2924,7 @@ class TimelineViewModel(
             if (geometryUpdates.isNotEmpty()) {
                 _mosaicGeometryStates.update { states -> states + geometryUpdates }
             }
+            val displayBandsBySection = status.displaySections.associateBy { it.timeBucket to it.sectionKey }
             val updates = status.assignments.associate { assignment ->
                 mosaicCacheKey(
                     timeBucket = assignment.timeBucket,
@@ -2907,7 +2932,12 @@ class TimelineViewModel(
                     columnCount = active.columnCount,
                     assetRevision = revisions[assignment.timeBucket] ?: 0,
                     families = active.families
-                ) to RuntimeMosaicState.Ready(assignment.assignments)
+                ) to RuntimeMosaicState.Ready(
+                    assignments = assignment.assignments,
+                    displayBands = displayBandsBySection[assignment.timeBucket to assignment.sectionKey]
+                        ?.bands
+                        .orEmpty()
+                )
             }
             if (updates.isNotEmpty()) {
                 _mosaicStates.update { states -> states + updates }
@@ -2916,6 +2946,7 @@ class TimelineViewModel(
             log.d {
                 "Timeline active persisted Mosaic read completed requested=${timeBuckets.size} " +
                     "assignments=${status.assignments.size} geometry=${status.geometrySummaries.size} " +
+                    "display=${status.displaySections.size} " +
                     "complete=${status.completeBucketIds.size} missing=${status.missingBucketIds.size}"
             }
         }
