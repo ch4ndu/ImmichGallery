@@ -72,7 +72,7 @@
     <string name="mosaic">Mosaic</string>
     <string name="mosaic_settings">Mosaic settings</string>
     <string name="mosaic_settings_title">Mosaic layout</string>
-    <string name="mosaic_settings_warning">Mosaic uses a fixed column count while enabled, so pinch zoom is disabled. New Timeline mosaic layouts are computed after server sync and then reused from cache.</string>
+    <string name="mosaic_settings_warning">Mosaic uses fixed columns while enabled, so pinch zoom and Timeline grouping are disabled. New Timeline mosaic layouts are computed after server sync and reused from cache.</string>
     <string name="mosaic_family_four">4-tile variants</string>
     <string name="mosaic_family_five">5-tile variants</string>
     <string name="mosaic_family_six">6-tile variants</string>

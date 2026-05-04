@@ -39,3 +39,41 @@ fun buildPhotoGridPlaceholderItems(
         )
     }
 }
+
+fun buildPhotoGridPlaceholderItemsForHeight(
+    bucketIndex: Int,
+    sectionLabel: String,
+    estimatedHeight: Float,
+    externalSpacing: Float = GRID_SPACING_DP
+): List<PlaceholderItem> {
+    if (estimatedHeight <= 0f) return emptyList()
+    val chunks = ceil(estimatedHeight / MAX_PLACEHOLDER_HEIGHT_DP).toInt()
+        .coerceAtLeast(1)
+    val totalExternalSpacing = externalSpacing * (chunks - 1).coerceAtLeast(0)
+    val chunkHeight = ((estimatedHeight - totalExternalSpacing).coerceAtLeast(1f)) / chunks
+    return List(chunks) { chunkIndex ->
+        PlaceholderItem(
+            gridKey = placeholderGridKey(bucketIndex, sectionLabel, chunkIndex),
+            bucketIndex = bucketIndex,
+            sectionLabel = sectionLabel,
+            estimatedHeight = chunkHeight
+        )
+    }
+}
+
+fun estimatePhotoGridDisplayItemsHeight(
+    items: List<PhotoGridDisplayItem>,
+    spacing: Float
+): Float {
+    if (items.isEmpty()) return 0f
+    val itemHeight = items.sumOf { item ->
+        when (item) {
+            is HeaderItem -> SECTION_HEADER_HEIGHT_DP.toDouble()
+            is RowItem -> item.rowHeight.toDouble()
+            is MosaicBandItem -> item.bandHeight.toDouble()
+            is PlaceholderItem -> item.estimatedHeight.toDouble()
+            else -> 0.0
+        }
+    }.toFloat()
+    return itemHeight + spacing * (items.size - 1).coerceAtLeast(0)
+}

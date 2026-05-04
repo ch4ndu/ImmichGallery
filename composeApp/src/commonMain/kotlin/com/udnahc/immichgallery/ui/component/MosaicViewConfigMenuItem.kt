@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -118,11 +119,6 @@ private fun MosaicSettingsDialog(
         title = { Text(stringResource(Res.string.mosaic_settings_title)) },
         text = {
             Column {
-                Text(
-                    text = stringResource(Res.string.mosaic_settings_warning),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic)
-                )
                 MosaicTemplateFamily.entries.forEach { family ->
                     MosaicFamilyRow(
                         family = family,
@@ -139,6 +135,12 @@ private fun MosaicSettingsDialog(
                         }
                     )
                 }
+                Spacer(Modifier.height(Dimens.smallSpacing))
+                Text(
+                    text = stringResource(Res.string.mosaic_settings_warning),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall.copy(fontStyle = FontStyle.Italic)
+                )
             }
         },
         confirmButton = {

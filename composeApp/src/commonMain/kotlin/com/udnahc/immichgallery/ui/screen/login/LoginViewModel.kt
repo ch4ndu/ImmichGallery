@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.LocalLoginDefaults
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
-import com.udnahc.immichgallery.ui.model.UiMessage
+import com.udnahc.immichgallery.ui.model.LoginUiMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +20,7 @@ data class LoginState(
     val serverUrl: String = LocalLoginDefaults.SERVER_URL,
     val apiKey: String = LocalLoginDefaults.API_KEY,
     val isLoading: Boolean = false,
-    val error: UiMessage? = null,
+    val error: LoginUiMessage? = null,
     val isLoggedIn: Boolean = false
 )
 
@@ -45,7 +45,7 @@ class LoginViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val currentState = _state.value
             if (currentState.serverUrl.isBlank() || currentState.apiKey.isBlank()) {
-                _state.update { it.copy(error = UiMessage.LoginRequiredFields) }
+                _state.update { it.copy(error = LoginUiMessage.RequiredFields) }
                 return@launch
             }
 
@@ -64,7 +64,7 @@ class LoginViewModel(
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            error = UiMessage.LoginConnectionFailed
+                            error = LoginUiMessage.ConnectionFailed
                         )
                     }
                 }

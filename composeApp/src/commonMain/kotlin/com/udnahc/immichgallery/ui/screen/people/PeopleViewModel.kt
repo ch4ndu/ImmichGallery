@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
-import com.udnahc.immichgallery.ui.model.UiMessage
+import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.combine
@@ -23,8 +23,8 @@ data class PeopleState(
     val filteredPeople: List<Person> = emptyList(),
     val query: String = "",
     val isLoading: Boolean = false,
-    val error: UiMessage? = null,
-    val bannerError: UiMessage? = null,
+    val error: ConnectionUiMessage? = null,
+    val bannerError: ConnectionUiMessage? = null,
     val lastSyncedAt: Long? = null,
     val isBuilding: Boolean = false,
     val isSyncing: Boolean = false
@@ -98,14 +98,14 @@ class PeopleViewModel(
                             it.copy(
                                 isBuilding = false,
                                 isSyncing = false,
-                                error = UiMessage.NoConnectionToServer
+                                error = ConnectionUiMessage.NoConnectionToServer
                             )
                         }
                     } else {
                         _state.update {
                             it.copy(
                                 isSyncing = false,
-                                bannerError = UiMessage.CannotConnectToServer
+                                bannerError = ConnectionUiMessage.CannotConnectToServer
                             )
                         }
                     }

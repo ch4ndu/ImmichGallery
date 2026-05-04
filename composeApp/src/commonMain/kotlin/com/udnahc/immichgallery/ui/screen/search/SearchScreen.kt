@@ -2,7 +2,6 @@ package com.udnahc.immichgallery.ui.screen.search
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -33,17 +32,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,28 +50,21 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
+import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
-import com.udnahc.immichgallery.ui.model.UiMessage
+import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
-import com.udnahc.immichgallery.ui.util.PlatformBackHandler
-import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
-import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
-import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
-import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
-import immichgallery.composeapp.generated.resources.search_hint
-import immichgallery.composeapp.generated.resources.error_search_failed
 import immichgallery.composeapp.generated.resources.search_no_results
 import immichgallery.composeapp.generated.resources.search_placeholder
+import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_type_filename
 import immichgallery.composeapp.generated.resources.search_type_smart
 import org.jetbrains.compose.resources.stringResource
@@ -92,71 +80,9 @@ fun SearchScreen(
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
 
-    var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
-    var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
-    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
-
-    // Bumped on every open so key() below forces a fresh STL mount — fixes the
-    // same-asset re-tap Y-doubling that the lastSelectedAssetId key missed.
-    // MUST update synchronously in the composition body (not in a
-    // LaunchedEffect); otherwise the epoch increment lands in the same frame
-    // as overlayInitialIndex, so the STL remount coincides with showOverlay
-    // flipping true — AnimatedVisibility mounts already-visible and the enter
-    // animation snaps instead of running.
-    var selectionEpoch by rememberSaveable { mutableStateOf(0) }
-    var prevSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
-    if (prevSelectedAssetId == null && selectedAssetId != null) {
-        selectionEpoch++
-    }
-    prevSelectedAssetId = selectedAssetId
-
-    // Follows the pager's current page; drives which grid cell is hidden.
-    // NOTE: updated inside the same LaunchedEffect as `overlayInitialIndex`
-    // below — AFTER `overlayInitialIndex` — so both writes commit in the
-    // same snapshot. Otherwise the grid cell's AV can flip hidden before
-    // the overlay mounts, the source sharedElement disposes (ExitTransition
-    // is None), and the enter animation degrades to a plain alpha crossfade.
-    var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
-
-    var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
-    LaunchedEffect(selectedAssetId, state.results) {
-        val id = selectedAssetId
-        if (id != null) {
-            overlayInitialIndex = state.results.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: 0
-            currentViewedAssetId = id
-        } else {
-            currentViewedAssetId = null
-            overlayInitialIndex = null
-        }
-    }
-    val showOverlay = selectedAssetId != null && overlayInitialIndex != null
-
-    // Forwarded from the overlay: STL reports whether its bounds animation is
-    // actually running. Used below to flip `overlayAnimActive` false only when
-    // the animation has truly settled.
-    var stlTransitionActive by remember { mutableStateOf(false) }
-
-    var overlayAnimActive by remember { mutableStateOf(false) }
-    // Keyed on selectionEpoch as well so rapid open/close cycles don't let a
-    // previous effect's snapshotFlow resolve on a stale `stlTransitionActive`
-    // idle state from the prior transition.
-    LaunchedEffect(selectedAssetId, selectionEpoch) {
-        overlayAnimActive = true
-        delay(PHOTO_TRANSITION_DURATION_MS.toLong())
-        snapshotFlow { stlTransitionActive }.first { !it }
-        overlayAnimActive = false
-    }
-
-    LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
-    PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
-
     // Scroll back to last viewed asset when returning from detail
     LaunchedEffect(viewModel.lastViewedAssetId) {
-        val assetId = viewModel.lastViewedAssetId ?: return@LaunchedEffect
-        val rowIndex = state.rows.indexOfFirst { row ->
-            row.photos.any { it.asset.id == assetId }
-        }
-        if (rowIndex >= 0) {
+        val rowIndex = viewModel.getDisplayItemIndexForReturn() ?: return@LaunchedEffect
             val info = listState.layoutInfo
             val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == rowIndex }
             val fullyVisible = visibleItem != null &&
@@ -165,55 +91,47 @@ fun SearchScreen(
             if (!fullyVisible) {
                 listState.scrollToItem(rowIndex)
             }
-        }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
-        androidx.compose.runtime.key(selectionEpoch) {
-        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+    PhotoOverlayHost(
+        initialIndexKey = state.results,
+        onOverlayActiveChange = onOverlayActiveChange,
+        resolveInitialIndex = { id -> state.results.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
+        content = { showOverlay, hiddenAssetId, onPhotoClick ->
             SearchContent(
                 state = state,
                 showOverlay = showOverlay,
-                hiddenAssetId = currentViewedAssetId,
+                hiddenAssetId = hiddenAssetId,
                 onQueryChange = viewModel::updateQuery,
                 onSearchTypeChange = viewModel::updateSearchType,
                 onSearch = viewModel::search,
-                onPhotoClick = remember { { id: String -> selectedAssetId = id } },
+                onPhotoClick = onPhotoClick,
                 onSetAvailableWidth = viewModel::setAvailableWidth,
                 onSetAvailableViewportHeight = viewModel::setAvailableViewportHeight,
                 onSetTargetRowHeight = viewModel::setTargetRowHeight,
                 onLoadMore = viewModel::loadMore,
                 listState = listState,
-                sharedTransitionScope = this@SharedTransitionLayout,
+                sharedTransitionScope = this,
             )
-
-            AnimatedVisibility(
-                visible = showOverlay,
-                enter = photoTransitionFadeIn,
-                exit = photoTransitionFadeOut,
-            ) {
-                lastSelectedAssetId ?: return@AnimatedVisibility
+        },
+        overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
                 StaticPhotoOverlay(
                     assets = state.results,
-                    initialIndex = overlayInitialIndex ?: 0,
+                    initialIndex = initialIndex,
                     apiKey = viewModel.apiKey,
                     getAssetDetail = viewModel::getAssetDetail,
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId ->
                         viewModel.lastViewedAssetId = currentAssetId
-                        selectedAssetId = null
+                        onDismissHost(currentAssetId)
                     },
-                    onCurrentAssetChanged = { id -> currentViewedAssetId = id },
-                    onStlTransitionActiveChanged = { stlTransitionActive = it },
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedVisibilityScope = this@AnimatedVisibility,
+                    onCurrentAssetChanged = onCurrentAssetChanged,
+                    onStlTransitionActiveChanged = onStlTransitionActiveChanged,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
                 )
-            }
         }
-        }
-        }
-    }
+    )
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -290,7 +208,7 @@ fun SearchContent(
 
             state.error != null -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(state.error.asText(), color = MaterialTheme.colorScheme.error)
+                    Text(state.error.asTextOrNull().orEmpty(), color = MaterialTheme.colorScheme.error)
                 }
             }
 
@@ -403,13 +321,6 @@ fun SearchContent(
         }
     }
 }
-
-@Composable
-private fun UiMessage?.asText(): String =
-    when (this) {
-        UiMessage.SearchFailed -> stringResource(Res.string.error_search_failed)
-        else -> ""
-    }
 
 @Preview
 @Composable

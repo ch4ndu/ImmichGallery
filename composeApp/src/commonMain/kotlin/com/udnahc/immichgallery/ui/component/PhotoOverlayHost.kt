@@ -1,0 +1,119 @@
+package com.udnahc.immichgallery.ui.component
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Modifier
+import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
+import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
+import com.udnahc.immichgallery.ui.util.PlatformBackHandler
+import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
+import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun PhotoOverlayHost(
+    modifier: Modifier = Modifier,
+    initialIndexKey: Any? = Unit,
+    onOverlayActiveChange: (Boolean) -> Unit = {},
+    resolveInitialIndex: suspend (assetId: String) -> Int?,
+    content: @Composable SharedTransitionScope.(
+        showOverlay: Boolean,
+        hiddenAssetId: String?,
+        onPhotoClick: (String) -> Unit
+    ) -> Unit,
+    overlay: @Composable AnimatedVisibilityScope.(
+        initialIndex: Int,
+        onDismissHost: (currentAssetId: String?) -> Unit,
+        onCurrentAssetChanged: (String) -> Unit,
+        onStlTransitionActiveChanged: (Boolean) -> Unit,
+        sharedTransitionScope: SharedTransitionScope
+    ) -> Unit,
+    chrome: @Composable BoxScope.(showOverlay: Boolean) -> Unit = {}
+) {
+    var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
+
+    // Remount SharedTransitionLayout on every open so same-asset re-taps do
+    // not reuse stale shared-element bounds from the previous transition.
+    var selectionEpoch by rememberSaveable { mutableStateOf(0) }
+    var prevSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
+    if (prevSelectedAssetId == null && selectedAssetId != null) {
+        selectionEpoch++
+    }
+    prevSelectedAssetId = selectedAssetId
+
+    var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
+    var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(selectedAssetId, initialIndexKey) {
+        val id = selectedAssetId
+        if (id != null) {
+            overlayInitialIndex = resolveInitialIndex(id) ?: 0
+            currentViewedAssetId = id
+        } else {
+            currentViewedAssetId = null
+            overlayInitialIndex = null
+        }
+    }
+    val showOverlay = selectedAssetId != null && overlayInitialIndex != null
+
+    var stlTransitionActive by remember { mutableStateOf(false) }
+    var overlayAnimActive by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedAssetId, selectionEpoch) {
+        overlayAnimActive = true
+        delay(PHOTO_TRANSITION_DURATION_MS.toLong())
+        snapshotFlow { stlTransitionActive }.first { !it }
+        overlayAnimActive = false
+    }
+
+    LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
+    PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
+            androidx.compose.runtime.key(selectionEpoch) {
+                SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+                    content(
+                        showOverlay,
+                        currentViewedAssetId,
+                        remember { { id: String -> selectedAssetId = id } }
+                    )
+
+                    AnimatedVisibility(
+                        visible = showOverlay,
+                        enter = photoTransitionFadeIn,
+                        exit = photoTransitionFadeOut,
+                    ) {
+                        lastSelectedAssetId ?: return@AnimatedVisibility
+                        overlay(
+                            overlayInitialIndex ?: 0,
+                            { selectedAssetId = null },
+                            { id -> currentViewedAssetId = id },
+                            { active -> stlTransitionActive = active },
+                            this@SharedTransitionLayout
+                        )
+                    }
+                }
+            }
+        }
+
+        chrome(showOverlay)
+    }
+}

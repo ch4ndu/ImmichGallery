@@ -22,7 +22,7 @@ import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
-import com.udnahc.immichgallery.ui.model.UiMessage
+import com.udnahc.immichgallery.ui.model.SearchUiMessage
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -44,7 +44,7 @@ data class SearchState(
     val rows: List<RowItem> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
-    val error: UiMessage? = null,
+    val error: SearchUiMessage? = null,
     val hasSearched: Boolean = false,
     val currentPage: Int = 1,
     val hasMore: Boolean = false,
@@ -87,6 +87,13 @@ class SearchViewModel(
     fun updateSearchType(type: SearchType) {
         _state.update { it.copy(searchType = type) }
     }
+
+    fun getDisplayItemIndexForReturn(): Int? =
+        lastViewedAssetId?.let { assetId ->
+            _state.value.rows.indexOfFirst { row ->
+                row.photos.any { it.asset.id == assetId }
+            }.takeIf { it >= 0 }
+        }
 
     fun setAvailableWidth(widthDp: Float) {
         if (widthDp == _state.value.availableWidth) return
@@ -178,7 +185,7 @@ class SearchViewModel(
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            error = UiMessage.SearchFailed
+                            error = SearchUiMessage.SearchFailed
                         )
                     }
                 }

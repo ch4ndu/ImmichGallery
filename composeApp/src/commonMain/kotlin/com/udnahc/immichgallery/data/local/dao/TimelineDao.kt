@@ -5,8 +5,10 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
+import com.udnahc.immichgallery.data.local.entity.TimelineBucketGeometryEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicAssignmentEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -38,6 +40,12 @@ interface TimelineDao {
     @Upsert
     suspend fun upsertMosaicAssignments(assignments: List<TimelineMosaicAssignmentEntity>)
 
+    @Upsert
+    suspend fun upsertMosaicGeometry(geometry: List<TimelineMosaicGeometryEntity>)
+
+    @Upsert
+    suspend fun upsertBucketGeometry(geometry: List<TimelineBucketGeometryEntity>)
+
     @Query(
         """
         SELECT * FROM timeline_mosaic_assignments
@@ -56,6 +64,46 @@ interface TimelineDao {
 
     @Query(
         """
+        SELECT * FROM timeline_mosaic_geometry
+        WHERE timeBucket IN (:timeBuckets)
+            AND groupMode = :groupMode
+            AND columnCount = :columnCount
+            AND familiesKey = :familiesKey
+            AND availableWidthKey = :availableWidthKey
+            AND geometryVersion = :geometryVersion
+        """
+    )
+    suspend fun getMosaicGeometry(
+        timeBuckets: List<String>,
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String,
+        availableWidthKey: Int,
+        geometryVersion: Int
+    ): List<TimelineMosaicGeometryEntity>
+
+    @Query(
+        """
+        SELECT * FROM timeline_bucket_geometry
+        WHERE timeBucket IN (:timeBuckets)
+            AND groupMode = :groupMode
+            AND columnCount = :columnCount
+            AND familiesKey = :familiesKey
+            AND availableWidthKey = :availableWidthKey
+            AND geometryVersion = :geometryVersion
+        """
+    )
+    suspend fun getBucketGeometry(
+        timeBuckets: List<String>,
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String,
+        availableWidthKey: Int,
+        geometryVersion: Int
+    ): List<TimelineBucketGeometryEntity>
+
+    @Query(
+        """
         DELETE FROM timeline_mosaic_assignments
         WHERE timeBucket = :timeBucket
             AND groupMode = :groupMode
@@ -70,11 +118,55 @@ interface TimelineDao {
         familiesKey: String
     )
 
+    @Query(
+        """
+        DELETE FROM timeline_mosaic_geometry
+        WHERE timeBucket = :timeBucket
+            AND groupMode = :groupMode
+            AND columnCount = :columnCount
+            AND familiesKey = :familiesKey
+        """
+    )
+    suspend fun clearMosaicGeometryForBucketConfig(
+        timeBucket: String,
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String
+    )
+
+    @Query(
+        """
+        DELETE FROM timeline_bucket_geometry
+        WHERE timeBucket = :timeBucket
+            AND groupMode = :groupMode
+            AND columnCount = :columnCount
+            AND familiesKey = :familiesKey
+        """
+    )
+    suspend fun clearBucketGeometryForBucketConfig(
+        timeBucket: String,
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String
+    )
+
     @Query("DELETE FROM timeline_mosaic_assignments WHERE timeBucket IN (:timeBuckets)")
     suspend fun clearMosaicAssignmentsForBuckets(timeBuckets: List<String>)
 
+    @Query("DELETE FROM timeline_mosaic_geometry WHERE timeBucket IN (:timeBuckets)")
+    suspend fun clearMosaicGeometryForBuckets(timeBuckets: List<String>)
+
+    @Query("DELETE FROM timeline_bucket_geometry WHERE timeBucket IN (:timeBuckets)")
+    suspend fun clearBucketGeometryForBuckets(timeBuckets: List<String>)
+
     @Query("DELETE FROM timeline_mosaic_assignments")
     suspend fun clearAllTimelineMosaicAssignments()
+
+    @Query("DELETE FROM timeline_mosaic_geometry")
+    suspend fun clearAllTimelineMosaicGeometry()
+
+    @Query("DELETE FROM timeline_bucket_geometry")
+    suspend fun clearAllTimelineBucketGeometry()
 
     @Transaction
     suspend fun replaceBuckets(buckets: List<TimelineBucketEntity>) {
@@ -94,11 +186,21 @@ interface TimelineDao {
         groupMode: String,
         columnCount: Int,
         familiesKey: String,
-        assignments: List<TimelineMosaicAssignmentEntity>
+        assignments: List<TimelineMosaicAssignmentEntity>,
+        geometry: List<TimelineMosaicGeometryEntity> = emptyList(),
+        bucketGeometry: TimelineBucketGeometryEntity? = null
     ) {
         clearMosaicAssignmentsForBucketConfig(timeBucket, groupMode, columnCount, familiesKey)
+        clearMosaicGeometryForBucketConfig(timeBucket, groupMode, columnCount, familiesKey)
+        clearBucketGeometryForBucketConfig(timeBucket, groupMode, columnCount, familiesKey)
         if (assignments.isNotEmpty()) {
             upsertMosaicAssignments(assignments)
+        }
+        if (geometry.isNotEmpty()) {
+            upsertMosaicGeometry(geometry)
+        }
+        if (bucketGeometry != null) {
+            upsertBucketGeometry(listOf(bucketGeometry))
         }
     }
 }

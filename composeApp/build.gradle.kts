@@ -9,6 +9,7 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.provider.Property
 import java.util.Properties
 
 abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
@@ -20,6 +21,12 @@ abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
+    @get:org.gradle.api.tasks.Input
+    abstract val loginServerUrl: Property<String>
+
+    @get:org.gradle.api.tasks.Input
+    abstract val loginApiKey: Property<String>
+
     @TaskAction
     fun generate() {
         val props = Properties()
@@ -27,8 +34,10 @@ abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
         if (localPropertiesFile.isFile) {
             localPropertiesFile.inputStream().use(props::load)
         }
-        val serverUrl = props.getProperty("immichGallery.loginServerUrl", "")
-        val apiKey = props.getProperty("immichGallery.loginApiKey", "")
+        val serverUrl = props.getProperty("immichGallery.loginServerUrl")
+            ?: loginServerUrl.get()
+        val apiKey = props.getProperty("immichGallery.loginApiKey")
+            ?: loginApiKey.get()
         val packageDir = outputDir.file("com/udnahc/immichgallery").get().asFile
         packageDir.mkdirs()
         packageDir.resolve("LocalLoginDefaults.kt").writeText(
@@ -62,6 +71,16 @@ abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
 
 val generateLocalLoginDefaults by tasks.registering(GenerateLocalLoginDefaultsTask::class) {
     localProperties.set(rootProject.layout.projectDirectory.file("local.properties"))
+    loginServerUrl.set(
+        providers.gradleProperty("immichGallery.loginServerUrl")
+            .orElse(providers.environmentVariable("IMMICH_GALLERY_LOGIN_SERVER_URL"))
+            .orElse("")
+    )
+    loginApiKey.set(
+        providers.gradleProperty("immichGallery.loginApiKey")
+            .orElse(providers.environmentVariable("IMMICH_GALLERY_LOGIN_API_KEY"))
+            .orElse("")
+    )
     outputDir.set(layout.buildDirectory.dir("generated/source/localLoginDefaults/commonMain/kotlin"))
 }
 

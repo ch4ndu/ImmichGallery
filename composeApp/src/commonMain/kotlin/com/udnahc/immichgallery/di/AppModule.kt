@@ -39,6 +39,7 @@ import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCas
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
+import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketGeometryUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicAssignmentsUseCase
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailViewModel
@@ -82,6 +83,7 @@ val sharedModule = module {
     factory { GetTimelineBucketsUseCase(get()) }
     factory { GetBucketAssetsUseCase(get()) }
     factory { GetAssetFileNameUseCase(get()) }
+    factory { GetTimelineBucketGeometryUseCase(get()) }
     factory { GetTimelineMosaicAssignmentsUseCase(get()) }
     factory { GetAssetDetailUseCase(get()) }
     factory { GetAlbumsUseCase(get()) }
@@ -109,7 +111,7 @@ val sharedModule = module {
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
     viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }

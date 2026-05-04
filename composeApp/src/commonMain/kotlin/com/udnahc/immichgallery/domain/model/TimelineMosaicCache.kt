@@ -26,8 +26,28 @@ data class TimelineMosaicAssignment(
     val assignments: List<MosaicBandAssignment>
 )
 
+data class TimelineMosaicGeometrySummary(
+    val timeBucket: String,
+    val sectionKey: String,
+    val placeholderHeight: Float,
+    val displayItemCount: Int
+)
+
+data class TimelineBucketGeometrySummary(
+    val timeBucket: String,
+    val placeholderHeight: Float,
+    val displayItemCount: Int
+)
+
+data class TimelineMosaicGeometryRequest(
+    val availableWidth: Float,
+    val maxRowHeight: Float,
+    val spacing: Float
+)
+
 data class TimelineMosaicCacheStatus(
     val assignments: List<TimelineMosaicAssignment>,
+    val geometrySummaries: List<TimelineMosaicGeometrySummary> = emptyList(),
     val completeBucketIds: Set<String>,
     val missingBucketIds: Set<String>
 )

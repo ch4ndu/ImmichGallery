@@ -154,8 +154,10 @@ fun MainScreen(
     // Per-tab refresh callbacks and syncing state — set by each screen
     var tabRefreshCallback by remember { mutableStateOf<(() -> Unit)?>(null) }
     var tabIsSyncing by remember { mutableStateOf(false) }
+    var timelineColdSyncBlocking by remember { mutableStateOf(false) }
 
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
+    val showShellOverlays = !overlayActive && !(isTimelineTab && timelineColdSyncBlocking)
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -167,6 +169,7 @@ fun MainScreen(
                     onPersonClick = onPersonClick,
                     onRefreshCallback = { callback -> tabRefreshCallback = callback },
                     onSyncingState = { syncing -> tabIsSyncing = syncing },
+                    onColdSyncBlockingState = { blocking -> timelineColdSyncBlocking = blocking },
                     onOverlayActiveChange = { active -> overlayActive = active },
                 )
             }
@@ -195,7 +198,7 @@ fun MainScreen(
         // Top bar overlay — animated hide/show. Exit is delayed so the bar
         // stays visible across the shared-element flight into the detail view.
         AnimatedVisibility(
-            visible = !overlayActive,
+            visible = showShellOverlays,
             enter = systemBarFadeIn,
             exit = systemBarFadeOut
         ) {
@@ -213,6 +216,7 @@ fun MainScreen(
                     {
                         TimelineGroupDropdown(
                             selected = timelineGroupSize,
+                            enabled = !viewConfig.mosaicEnabled,
                             onSelected = viewModel::setTimelineGroupSize
                         )
                     }
@@ -223,7 +227,7 @@ fun MainScreen(
         // Bottom bar overlay — animated hide/show. Exit is delayed so the bar
         // stays visible across the shared-element flight into the detail view.
         AnimatedVisibility(
-            visible = !overlayActive,
+            visible = showShellOverlays,
             enter = systemBarFadeIn,
             exit = systemBarFadeOut,
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -392,11 +396,15 @@ private fun TopBarOverlay(
 @Composable
 private fun TimelineGroupDropdown(
     selected: TimelineGroupSize,
+    enabled: Boolean,
     onSelected: (TimelineGroupSize) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { expanded = true }) {
+        TextButton(
+            onClick = { expanded = true },
+            enabled = enabled
+        ) {
             Text(
                 text = stringResource(
                     when (selected) {
@@ -407,7 +415,7 @@ private fun TimelineGroupDropdown(
                 style = MaterialTheme.typography.labelLarge
             )
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
                 text = { Text(stringResource(Res.string.timeline_group_month)) },
                 onClick = {

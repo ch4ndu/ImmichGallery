@@ -14,5 +14,9 @@ class GetTimelineBucketsUseCase(private val repository: TimelineRepository) {
 
     suspend fun hasCachedBuckets(): Boolean = repository.hasCachedBuckets()
 
+    suspend fun hasCompletedColdTimelineSync(): Boolean = repository.hasCompletedColdTimelineSync()
+
+    suspend fun markColdTimelineSyncComplete() = repository.markColdTimelineSyncComplete()
+
     suspend fun getLoadedBucketIds(): Set<String> = repository.getLoadedBucketIds()
 }

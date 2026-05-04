@@ -17,8 +17,8 @@ data class Asset(
     val stackCount: Int = 0,
     val aspectRatio: Float = 1f,
     val isEdited: Boolean = false,
-    // Immich can serve new edited thumbnail bytes behind the same URL. Include
-    // edit-sensitive metadata in Coil's cache identity so refreshed crops do
-    // not keep displaying an older cached bitmap inside the new row shape.
+    // Immich can serve edited thumbnail bytes behind the same URL. Until the
+    // API exposes a durable edit version/fingerprint, same-aspect edited byte
+    // changes may still reuse cache; aspect ratio at least avoids stale crops.
     val thumbnailCacheKey: String = "$thumbnailUrl|edited=$isEdited|aspect=$aspectRatio"
 )

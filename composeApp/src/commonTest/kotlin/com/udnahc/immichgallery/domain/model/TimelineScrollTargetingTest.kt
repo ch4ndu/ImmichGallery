@@ -48,6 +48,43 @@ class TimelineScrollTargetingTest {
     }
 
     @Test
+    fun photoGridDisplayIndexMapsAssetsInsideRowsAndMosaicBands() {
+        val rowAsset = asset("row")
+        val mosaicAsset = asset("mosaic")
+        val displayItems: List<PhotoGridDisplayItem> = listOf(
+            header(bucketIndex = 0),
+            RowItem(
+                gridKey = "r_0",
+                bucketIndex = 0,
+                sectionLabel = "0",
+                photos = listOf(photo("row_photo", rowAsset)),
+                rowHeight = 120f
+            ),
+            MosaicBandItem(
+                gridKey = "m_1",
+                bucketIndex = 1,
+                sectionLabel = "1",
+                tiles = listOf(
+                    MosaicTile(
+                        photo = photo("mosaic_photo", mosaicAsset),
+                        x = 0f,
+                        y = 0f,
+                        width = 1f,
+                        height = 1f,
+                        visualOrder = 0
+                    )
+                ),
+                bandHeight = 120f
+            )
+        )
+
+        val displayIndex = buildPhotoGridDisplayIndex(displayItems)
+
+        assertEquals(1, displayIndex.assetDisplayIndexById[rowAsset.id])
+        assertEquals(2, displayIndex.assetDisplayIndexById[mosaicAsset.id])
+    }
+
+    @Test
     fun scrollFractionMapsToExpectedBuckets() {
         val pageIndex = TimelinePageIndex(
             bucketStartPages = listOf(0, 10, 30),
@@ -144,6 +181,32 @@ class TimelineScrollTargetingTest {
         assertEquals(listOf(3, 5, 6, 2, 4, 7, 0, 1), priority)
     }
 
+    @Test
+    fun scrollbarTargetTrackerNotifiesFirstChangeAndStop() {
+        val tracker = TimelineScrollbarTargetTracker()
+
+        tracker.onDragStarted()
+
+        assertEquals(true, tracker.shouldNotifyDragTarget(3))
+        assertEquals(false, tracker.shouldNotifyDragTarget(3))
+        assertEquals(true, tracker.shouldNotifyDragTarget(4))
+        assertEquals(true, tracker.shouldNotifyDragStop(4))
+        assertEquals(true, tracker.shouldNotifyDragStop(4))
+    }
+
+    @Test
+    fun scrollbarTargetTrackerDragStartResetsPreviousTarget() {
+        val tracker = TimelineScrollbarTargetTracker()
+
+        tracker.onDragStarted()
+        assertEquals(true, tracker.shouldNotifyDragTarget(3))
+        assertEquals(false, tracker.shouldNotifyDragTarget(3))
+
+        tracker.onDragStarted()
+
+        assertEquals(true, tracker.shouldNotifyDragTarget(3))
+    }
+
     private fun header(bucketIndex: Int): HeaderItem =
         HeaderItem(
             gridKey = "h_$bucketIndex",
@@ -157,5 +220,23 @@ class TimelineScrollTargetingTest {
             gridKey = "p_$bucketIndex",
             bucketIndex = bucketIndex,
             sectionLabel = "$bucketIndex"
+        )
+
+    private fun photo(gridKey: String, asset: Asset): PhotoItem =
+        PhotoItem(
+            gridKey = gridKey,
+            bucketIndex = 0,
+            sectionLabel = "0",
+            asset = asset
+        )
+
+    private fun asset(id: String): Asset =
+        Asset(
+            id = id,
+            type = AssetType.IMAGE,
+            fileName = "$id.jpg",
+            createdAt = "2026-01-01T00:00:00Z",
+            thumbnailUrl = "thumb/$id",
+            originalUrl = "original/$id"
         )
 }

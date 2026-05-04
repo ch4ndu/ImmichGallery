@@ -8,10 +8,30 @@ data class TimelineScrollTarget(
     val displayIndex: Int
 )
 
+class TimelineScrollbarTargetTracker {
+    private var lastDragBucketIndex: Int? = null
+
+    fun onDragStarted() {
+        lastDragBucketIndex = null
+    }
+
+    fun shouldNotifyDragTarget(bucketIndex: Int): Boolean {
+        if (bucketIndex == lastDragBucketIndex) return false
+        lastDragBucketIndex = bucketIndex
+        return true
+    }
+
+    fun shouldNotifyDragStop(bucketIndex: Int): Boolean {
+        lastDragBucketIndex = bucketIndex
+        return true
+    }
+}
+
 @Immutable
 data class TimelineDisplayIndex(
     val bucketByDisplayIndex: List<Int> = emptyList(),
-    val displayIndexesByBucket: Map<Int, List<Int>> = emptyMap()
+    val displayIndexesByBucket: Map<Int, List<Int>> = emptyMap(),
+    val assetDisplayIndexById: Map<String, Int> = emptyMap()
 )
 
 fun buildTimelineDisplayIndex(displayItems: List<TimelineDisplayItem>): TimelineDisplayIndex {
@@ -22,13 +42,27 @@ fun buildPhotoGridDisplayIndex(displayItems: List<PhotoGridDisplayItem>): Timeli
     if (displayItems.isEmpty()) return TimelineDisplayIndex()
     val bucketByDisplayIndex = ArrayList<Int>(displayItems.size)
     val mutableDisplayIndexesByBucket = linkedMapOf<Int, MutableList<Int>>()
+    val mutableAssetDisplayIndexById = linkedMapOf<String, Int>()
     displayItems.forEachIndexed { index, item ->
         bucketByDisplayIndex.add(item.bucketIndex)
         mutableDisplayIndexesByBucket.getOrPut(item.bucketIndex) { mutableListOf() }.add(index)
+        when (item) {
+            is PhotoItem -> mutableAssetDisplayIndexById[item.asset.id] = index
+            is RowItem -> item.photos.forEach { photo ->
+                mutableAssetDisplayIndexById[photo.asset.id] = index
+            }
+            is MosaicBandItem -> item.tiles.forEach { tile ->
+                mutableAssetDisplayIndexById[tile.photo.asset.id] = index
+            }
+            is HeaderItem,
+            is PlaceholderItem,
+            is ErrorItem -> Unit
+        }
     }
     return TimelineDisplayIndex(
         bucketByDisplayIndex = bucketByDisplayIndex,
-        displayIndexesByBucket = mutableDisplayIndexesByBucket
+        displayIndexesByBucket = mutableDisplayIndexesByBucket,
+        assetDisplayIndexById = mutableAssetDisplayIndexById
     )
 }
 

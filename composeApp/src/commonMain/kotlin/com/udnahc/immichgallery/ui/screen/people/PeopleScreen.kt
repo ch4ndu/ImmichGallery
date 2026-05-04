@@ -54,14 +54,13 @@ import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
-import com.udnahc.immichgallery.ui.model.UiMessage
+import com.udnahc.immichgallery.ui.model.asText
+import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_close
 import immichgallery.composeapp.generated.resources.loading_people
 import immichgallery.composeapp.generated.resources.people_search_placeholder
-import immichgallery.composeapp.generated.resources.timeline_cannot_connect
-import immichgallery.composeapp.generated.resources.timeline_no_connection
 import immichgallery.composeapp.generated.resources.unknown
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -196,19 +195,6 @@ fun PeopleContent(
         }
     }
 }
-
-@Composable
-private fun UiMessage?.asTextOrNull(): String? = this?.asText()
-
-@Composable
-private fun UiMessage.asText(): String =
-    stringResource(
-        when (this) {
-            UiMessage.NoConnectionToServer -> Res.string.timeline_no_connection
-            UiMessage.CannotConnectToServer -> Res.string.timeline_cannot_connect
-            else -> Res.string.timeline_cannot_connect
-        }
-    )
 
 @Composable
 private fun PersonItem(
