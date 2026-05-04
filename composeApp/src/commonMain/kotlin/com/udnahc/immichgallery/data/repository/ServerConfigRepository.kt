@@ -79,7 +79,10 @@ class ServerConfigRepository(private val settings: Settings) {
             .mapNotNull { id -> MosaicTemplateFamily.fromPersistedId(id.trim()) }
             .toSet()
         return ViewConfig(
-            mosaicEnabled = settings.getBoolean(VIEW_CONFIG_MOSAIC_ENABLED_KEY, false),
+            mosaicEnabled = settings.getBoolean(
+                VIEW_CONFIG_MOSAIC_ENABLED_KEY,
+                ViewConfig().mosaicEnabled
+            ),
             mosaicFamilies = savedFamilies.ifEmpty { MosaicTemplateFamily.defaultSet() }
         )
     }

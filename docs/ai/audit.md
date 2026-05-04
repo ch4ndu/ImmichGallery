@@ -34,7 +34,7 @@ For Room, repository, cache, API, or date/time audits, also load `docs/ai/data-c
 - Scrollbars receive explicit top and bottom padding.
 - Timeline scrollbar labels, markers, handle position, and drag targets use one page-based targeting model.
 - Lazy layouts use stable keys.
-- Filtering, sorting, grouping, mapping, and row packing are not done in composables.
+- No business logic should happen in composables.
 - Shared patterns are reused or extracted instead of duplicated.
 - Thumbnail cells use `rememberAsyncImagePainter` with bounded request size and `Precision.EXACT`.
 - Shared element transitions preserve the `lastSelectedAssetId` style exit-content pattern.

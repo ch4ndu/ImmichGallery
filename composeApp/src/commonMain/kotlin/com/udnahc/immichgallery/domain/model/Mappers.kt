@@ -62,7 +62,8 @@ fun AssetResponse.toDomain(baseUrl: String): Asset {
         videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
         isFavorite = isFavorite,
         stackCount = stackCount,
-        aspectRatio = computeAspectRatio()
+        aspectRatio = computeAspectRatio(),
+        isEdited = isEdited
     )
 }
 
@@ -126,7 +127,8 @@ fun AssetEntity.toDomain(baseUrl: String): Asset = Asset(
     videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
     isFavorite = isFavorite,
     stackCount = stackCount,
-    aspectRatio = aspectRatio
+    aspectRatio = aspectRatio,
+    isEdited = isEdited
 )
 
 // --- TimeBucket mappers ---

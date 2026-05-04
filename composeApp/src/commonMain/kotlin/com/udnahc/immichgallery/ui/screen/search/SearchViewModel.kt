@@ -22,6 +22,7 @@ import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
+import com.udnahc.immichgallery.ui.model.UiMessage
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -43,7 +44,7 @@ data class SearchState(
     val rows: List<RowItem> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
-    val error: String? = null,
+    val error: UiMessage? = null,
     val hasSearched: Boolean = false,
     val currentPage: Int = 1,
     val hasMore: Boolean = false,
@@ -177,7 +178,7 @@ class SearchViewModel(
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            error = e.message ?: "Search failed"
+                            error = UiMessage.SearchFailed
                         )
                     }
                 }

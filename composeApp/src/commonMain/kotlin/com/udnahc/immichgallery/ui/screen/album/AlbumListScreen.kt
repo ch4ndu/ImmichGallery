@@ -43,8 +43,11 @@ import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
+import com.udnahc.immichgallery.ui.model.UiMessage
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.timeline_cannot_connect
+import immichgallery.composeapp.generated.resources.timeline_no_connection
 import immichgallery.composeapp.generated.resources.items_count
 import immichgallery.composeapp.generated.resources.loading_albums
 import org.jetbrains.compose.resources.stringResource
@@ -81,7 +84,7 @@ fun AlbumListContent(
 ) {
     LoadingErrorContent(
         isLoading = (state.isBuilding || state.isLoading) && state.albums.isEmpty(),
-        error = if (state.albums.isEmpty()) state.error else null,
+        error = if (state.albums.isEmpty()) state.error.asTextOrNull() else null,
         onRetry = onRetry,
         loadingText = if (state.isBuilding) stringResource(Res.string.loading_albums) else null
     ) {
@@ -115,9 +118,10 @@ fun AlbumListContent(
                 }
             }
 
-            if (state.bannerError != null) {
+            val bannerError = state.bannerError
+            if (bannerError != null) {
                 ErrorBanner(
-                    message = state.bannerError,
+                    message = bannerError.asText(),
                     lastSyncedAt = state.lastSyncedAt,
                     onDismiss = onDismissBanner,
                     modifier = Modifier
@@ -129,6 +133,19 @@ fun AlbumListContent(
         }
     }
 }
+
+@Composable
+private fun UiMessage?.asTextOrNull(): String? = this?.asText()
+
+@Composable
+private fun UiMessage.asText(): String =
+    stringResource(
+        when (this) {
+            UiMessage.NoConnectionToServer -> Res.string.timeline_no_connection
+            UiMessage.CannotConnectToServer -> Res.string.timeline_cannot_connect
+            else -> Res.string.timeline_cannot_connect
+        }
+    )
 
 @Composable
 private fun AlbumCard(

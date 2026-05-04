@@ -20,6 +20,7 @@ import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
 import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
+import com.udnahc.immichgallery.domain.action.timeline.PrecomputeTimelineMosaicAction
 import com.udnahc.immichgallery.domain.action.timeline.SyncAllTimelineAssetsAction
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
@@ -39,6 +40,7 @@ import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseC
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
+import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicAssignmentsUseCase
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumListViewModel
 import com.udnahc.immichgallery.ui.navigation.MainScreenViewModel
@@ -80,6 +82,7 @@ val sharedModule = module {
     factory { GetTimelineBucketsUseCase(get()) }
     factory { GetBucketAssetsUseCase(get()) }
     factory { GetAssetFileNameUseCase(get()) }
+    factory { GetTimelineMosaicAssignmentsUseCase(get()) }
     factory { GetAssetDetailUseCase(get()) }
     factory { GetAlbumsUseCase(get()) }
     factory { GetAlbumDetailUseCase(get()) }
@@ -98,6 +101,7 @@ val sharedModule = module {
     factory { MonitorServerStatusAction(get()) }
     factory { LoadBucketAssetsAction(get()) }
     factory { SyncAllTimelineAssetsAction(get()) }
+    factory { PrecomputeTimelineMosaicAction(get()) }
     factory { SetTimelineGroupSizeAction(get()) }
     factory { SetTargetRowHeightAction(get()) }
     factory { SetViewConfigAction(get()) }
@@ -105,7 +109,7 @@ val sharedModule = module {
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
     viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }

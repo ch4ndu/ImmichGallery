@@ -15,5 +15,10 @@ data class Asset(
     val videoPlaybackUrl: String = "",
     val isFavorite: Boolean = false,
     val stackCount: Int = 0,
-    val aspectRatio: Float = 1f
+    val aspectRatio: Float = 1f,
+    val isEdited: Boolean = false,
+    // Immich can serve new edited thumbnail bytes behind the same URL. Include
+    // edit-sensitive metadata in Coil's cache identity so refreshed crops do
+    // not keep displaying an older cached bitmap inside the new row shape.
+    val thumbnailCacheKey: String = "$thumbnailUrl|edited=$isEdited|aspect=$aspectRatio"
 )

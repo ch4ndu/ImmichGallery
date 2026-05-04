@@ -114,6 +114,15 @@ class MosaicPackingTest {
     }
 
     @Test
+    fun timelineMosaicLayoutSpecUsesFixedColumnCount() {
+        val spec = assertIs<MosaicLayoutSpec>(mosaicLayoutSpecForColumnCount(600f, 4))
+
+        assertEquals(4, spec.columnCount)
+        assertEquals(600f, spec.availableWidth)
+        assertEquals(150f, spec.cellHeight)
+    }
+
+    @Test
     fun denseZoomColumnCountsCanBuildMosaicAssignments() {
         val layoutSpec = assertIs<MosaicLayoutSpec>(mosaicLayoutSpecFor(452.35602f, 95.38198f))
         val assignments = buildMosaicAssignments(
@@ -242,10 +251,10 @@ class MosaicPackingTest {
     }
 
     @Test
-    fun mosaicFallbackCanLeaveFinalWidePhotoFullSpanButIncomplete() {
+    fun mosaicFallbackCanLeaveFinalWidePhotoIncomplete() {
         val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
         val items = buildPhotoGridItemsWithMosaic(
-            assets = sampleAssets(aspectRatios = listOf(400f / mosaicFallbackMinRowHeight(layoutSpec))),
+            assets = sampleAssets(aspectRatios = listOf(400f / layoutSpec.cellHeight)),
             assignments = emptyList(),
             bucketIndex = 0,
             sectionLabel = "May 2026",
@@ -257,12 +266,88 @@ class MosaicPackingTest {
         val row = assertIs<RowItem>(items.single())
         assertFalse(row.isComplete)
         assertEquals(listOf("asset_0"), row.photos.map { it.asset.id })
-        assertEquals(mosaicFallbackMinRowHeight(layoutSpec), row.rowHeight)
-        assertTrue(abs(row.contentWidth(spacing = 0f) - layoutSpec.availableWidth) < 0.1f)
+        assertEquals(mosaicSmallGroupFallbackRowHeight(layoutSpec, maxRowHeight = 400f), row.rowHeight)
     }
 
     @Test
-    fun emptyAssignmentsFallbackPacksRowsUsingMosaicFallbackTarget() {
+    fun singleAssetEmptyAssignmentSectionUsesSmallGroupFallbackHeight() {
+        val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
+        val items = buildPhotoGridItemsWithMosaic(
+            assets = sampleAssets(count = 1, aspectRatio = 1f),
+            assignments = emptyList(),
+            bucketIndex = 0,
+            sectionLabel = "May 2026",
+            layoutSpec = layoutSpec,
+            spacing = 0f,
+            maxRowHeight = 400f
+        )
+
+        val row = assertIs<RowItem>(items.single())
+        assertFalse(row.isComplete)
+        assertEquals(listOf("asset_0"), row.photos.map { it.asset.id })
+        assertEquals(layoutSpec.cellHeight * 2f, row.rowHeight)
+    }
+
+    @Test
+    fun smallGroupFallbackHeightIsClampedByMaxRowHeight() {
+        val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
+        val items = buildPhotoGridItemsWithMosaic(
+            assets = sampleAssets(count = 1, aspectRatio = 1f),
+            assignments = emptyList(),
+            bucketIndex = 0,
+            sectionLabel = "May 2026",
+            layoutSpec = layoutSpec,
+            spacing = 0f,
+            maxRowHeight = 150f
+        )
+
+        val row = assertIs<RowItem>(items.single())
+        assertFalse(row.isComplete)
+        assertEquals(150f, row.rowHeight)
+    }
+
+    @Test
+    fun twoAssetEmptyAssignmentSectionUsesSmallGroupFallbackHeight() {
+        val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
+        val items = buildPhotoGridItemsWithMosaic(
+            assets = sampleAssets(count = 2, aspectRatio = 1f),
+            assignments = emptyList(),
+            bucketIndex = 0,
+            sectionLabel = "May 2026",
+            layoutSpec = layoutSpec,
+            spacing = 0f,
+            maxRowHeight = 400f
+        )
+
+        val row = assertIs<RowItem>(items.single())
+        assertTrue(row.isComplete)
+        assertEquals(listOf("asset_0", "asset_1"), row.photos.map { it.asset.id })
+        assertEquals(layoutSpec.cellHeight * 2f, row.rowHeight)
+    }
+
+    @Test
+    fun fourAssetEmptyAssignmentSectionSplitsIntoTallerSmallGroupRows() {
+        val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
+        val items = buildPhotoGridItemsWithMosaic(
+            assets = sampleAssets(count = 4, aspectRatio = 1f),
+            assignments = emptyList(),
+            bucketIndex = 0,
+            sectionLabel = "May 2026",
+            layoutSpec = layoutSpec,
+            spacing = 0f,
+            maxRowHeight = 400f
+        )
+
+        val rows = items.map { assertIs<RowItem>(it) }
+        assertEquals(2, rows.size)
+        assertTrue(rows.all { it.isComplete })
+        assertEquals(listOf("asset_0", "asset_1"), rows[0].photos.map { it.asset.id })
+        assertEquals(listOf("asset_2", "asset_3"), rows[1].photos.map { it.asset.id })
+        assertTrue(rows.all { it.rowHeight == layoutSpec.cellHeight * 2f })
+    }
+
+    @Test
+    fun emptyAssignmentsFallbackPacksRowsUsingFullMosaicCellHeight() {
         val layoutSpec = MosaicLayoutSpec(columnCount = 6, availableWidth = 600f, cellHeight = 100f)
         val items = buildPhotoGridItemsWithMosaic(
             assets = sampleAssets(count = 10, aspectRatio = 1f),
@@ -275,8 +360,8 @@ class MosaicPackingTest {
         )
 
         val firstRow = assertIs<RowItem>(items.first())
-        assertEquals(8, firstRow.photos.size)
-        assertEquals(mosaicFallbackMinRowHeight(layoutSpec), firstRow.rowHeight)
+        assertEquals(6, firstRow.photos.size)
+        assertEquals(layoutSpec.cellHeight, firstRow.rowHeight)
     }
 
     @Test
@@ -315,7 +400,7 @@ class MosaicPackingTest {
     @Test
     fun finalFallbackRowMayRemainIncomplete() {
         val items = buildPhotoGridItemsWithMosaic(
-            assets = sampleAssets(count = 2, aspectRatio = 1f),
+            assets = sampleAssets(count = 3, aspectRatio = 1f),
             assignments = emptyList(),
             bucketIndex = 0,
             sectionLabel = "May 2026",
@@ -325,9 +410,9 @@ class MosaicPackingTest {
             promoteWideImages = false
         )
 
-        val row = assertIs<RowItem>(items.single())
-        assertFalse(row.isComplete)
-        assertEquals(listOf("asset_0", "asset_1"), row.photos.map { it.asset.id })
+        val lastRow = assertIs<RowItem>(items.last())
+        assertFalse(lastRow.isComplete)
+        assertEquals(listOf("asset_2"), lastRow.photos.map { it.asset.id })
     }
 
     private fun sampleAssets(count: Int): List<Asset> {

@@ -1,5 +1,69 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import java.util.Properties
+
+abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
+    @get:Optional
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val localProperties: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val props = Properties()
+        val localPropertiesFile = localProperties.asFile.get()
+        if (localPropertiesFile.isFile) {
+            localPropertiesFile.inputStream().use(props::load)
+        }
+        val serverUrl = props.getProperty("immichGallery.loginServerUrl", "")
+        val apiKey = props.getProperty("immichGallery.loginApiKey", "")
+        val packageDir = outputDir.file("com/udnahc/immichgallery").get().asFile
+        packageDir.mkdirs()
+        packageDir.resolve("LocalLoginDefaults.kt").writeText(
+            """
+            package com.udnahc.immichgallery
+
+            object LocalLoginDefaults {
+                const val SERVER_URL: String = ${serverUrl.kotlinLiteral()}
+                const val API_KEY: String = ${apiKey.kotlinLiteral()}
+            }
+            """.trimIndent()
+        )
+    }
+
+    private fun String.kotlinLiteral(): String =
+        buildString {
+            append('"')
+            this@kotlinLiteral.forEach { char ->
+                when (char) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> append(char)
+                }
+            }
+            append('"')
+        }
+}
+
+val generateLocalLoginDefaults by tasks.registering(GenerateLocalLoginDefaultsTask::class) {
+    localProperties.set(rootProject.layout.projectDirectory.file("local.properties"))
+    outputDir.set(layout.buildDirectory.dir("generated/source/localLoginDefaults/commonMain/kotlin"))
+}
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -32,6 +96,9 @@ kotlin {
     jvm()
 
     sourceSets {
+        commonMain {
+            kotlin.srcDir(generateLocalLoginDefaults)
+        }
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)

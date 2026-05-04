@@ -20,8 +20,31 @@ class TimelineScrollTargetingTest {
             displayItems = displayItems,
             visibleItemIndexes = listOf(1, 2, 3, 5)
         )
+        val indexedBuckets = visibleBucketIndexesForDisplayIndexes(
+            displayIndex = buildTimelineDisplayIndex(displayItems),
+            visibleItemIndexes = listOf(1, 2, 3, 5)
+        )
 
         assertEquals(listOf(0, 1, 2), buckets)
+        assertEquals(buckets, indexedBuckets)
+    }
+
+    @Test
+    fun photoGridDisplayIndexCanBeSharedByDetailScreens() {
+        val displayItems: List<PhotoGridDisplayItem> = listOf(
+            header(bucketIndex = 0),
+            placeholder(bucketIndex = 0),
+            header(bucketIndex = 1),
+            placeholder(bucketIndex = 1)
+        )
+        val displayIndex = buildPhotoGridDisplayIndex(displayItems)
+
+        val buckets = visibleBucketIndexesForDisplayIndexes(
+            displayIndex = displayIndex,
+            visibleItemIndexes = listOf(1, 2, 3)
+        )
+
+        assertEquals(listOf(0, 1), buckets)
     }
 
     @Test
@@ -41,9 +64,14 @@ class TimelineScrollTargetingTest {
             placeholder(bucketIndex = 2)
         )
 
+        val displayIndex = buildTimelineDisplayIndex(displayItems)
+
         assertEquals(0, timelineScrollTargetForFraction(pageIndex, displayItems, 0f)?.bucketIndex)
         assertEquals(1, timelineScrollTargetForFraction(pageIndex, displayItems, 0.5f)?.bucketIndex)
         assertEquals(2, timelineScrollTargetForFraction(pageIndex, displayItems, 1f)?.bucketIndex)
+        assertEquals(0, timelineScrollTargetForFraction(pageIndex, displayIndex, 0f)?.bucketIndex)
+        assertEquals(1, timelineScrollTargetForFraction(pageIndex, displayIndex, 0.5f)?.bucketIndex)
+        assertEquals(2, timelineScrollTargetForFraction(pageIndex, displayIndex, 1f)?.bucketIndex)
     }
 
     @Test
@@ -73,7 +101,13 @@ class TimelineScrollTargetingTest {
             header(bucketIndex = 2)
         )
 
+        val timelineDisplayIndex = buildTimelineDisplayIndex(displayItems)
+
         assertEquals(0.25f, timelineScrollFractionForDisplayIndex(pageIndex, displayItems, displayIndex = 2))
+        assertEquals(
+            0.25f,
+            timelineScrollFractionForDisplayIndex(pageIndex, timelineDisplayIndex, displayIndex = 2)
+        )
     }
 
     @Test
@@ -92,7 +126,10 @@ class TimelineScrollTargetingTest {
             placeholder(bucketIndex = 1)
         )
 
+        val displayIndex = buildTimelineDisplayIndex(displayItems)
+
         assertEquals(4, estimatedDisplayIndexForBucketFraction(displayItems, bucketIndex = 1, bucketFraction = 0.5f))
+        assertEquals(4, estimatedDisplayIndexForBucketFraction(displayIndex, bucketIndex = 1, bucketFraction = 0.5f))
     }
 
     @Test

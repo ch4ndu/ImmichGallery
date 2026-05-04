@@ -11,6 +11,22 @@ internal fun orderedAssetsChanged(
 ): Boolean =
     before.map { it.orderedFingerprint() } != after.map { it.orderedFingerprint() }
 
+internal fun orderedAssetsFingerprint(assets: List<AssetEntity>): String =
+    assets.joinToString(separator = "\n") { asset ->
+        asset.orderedFingerprint().let { fingerprint ->
+            listOf(
+                fingerprint.id,
+                fingerprint.type,
+                fingerprint.fileName,
+                fingerprint.createdAt,
+                fingerprint.isFavorite.toString(),
+                fingerprint.stackCount.toString(),
+                fingerprint.aspectRatio.toString(),
+                fingerprint.isEdited.toString()
+            ).joinToString(separator = "\u001f")
+        }
+    }
+
 private data class OrderedAssetFingerprint(
     val id: String,
     val type: String,

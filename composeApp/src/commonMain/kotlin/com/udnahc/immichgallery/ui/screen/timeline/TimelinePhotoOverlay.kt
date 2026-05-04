@@ -56,7 +56,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun TimelinePhotoOverlay(
-    timelineState: StateFlow<TimelineState>,
+    timelineState: StateFlow<TimelineOverlayState>,
     initialIndex: Int,
     apiKey: String,
     getAssetFileName: suspend (assetId: String, fallback: String) -> Result<String>,
@@ -420,7 +420,7 @@ fun TimelinePhotoOverlay(
 
 private fun resolvePageAsset(
     pageIndex: Int,
-    state: TimelineState,
+    state: TimelineOverlayState,
     bucketAssets: Map<String, List<Asset>>
 ): Asset? {
     val bucketIndex = state.pageIndex.pageToBucketIndex(pageIndex) ?: return null
@@ -432,7 +432,7 @@ private fun resolvePageAsset(
 
 private fun resolvePageBucket(
     pageIndex: Int,
-    state: TimelineState
+    state: TimelineOverlayState
 ): String? {
     val bucketIndex = state.pageIndex.pageToBucketIndex(pageIndex) ?: return null
     return state.buckets.getOrNull(bucketIndex)?.timeBucket

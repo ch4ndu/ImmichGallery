@@ -111,12 +111,31 @@ class PeopleRepository(
             val hasMore = response.assets.nextPage != null
             val assetEntities = items.map { it.toAssetEntity() }
             val baseOffset = (page - 1) * size
+            val pageChanged = personPageChanged(
+                beforeAssetIds = before.map { it.id },
+                baseOffset = baseOffset,
+                fetchedAssetIds = items.map { it.id },
+                hasMore = hasMore
+            )
             val crossRefs = items.mapIndexed { index, asset ->
                 PersonAssetCrossRef(personId, asset.id, baseOffset + index)
             }
             withContext(Dispatchers.IO) {
                 assetDao.upsertAssets(assetEntities)
-                personDao.upsertPersonRefs(crossRefs)
+                if (pageChanged || !hasMore) {
+                    // If a fetched page changed, later cached pages may now be
+                    // shifted. Truncate from this page and let loadMore refill a
+                    // consistent snapshot instead of mixing old tail refs with
+                    // fresh page refs.
+                    personDao.replacePersonRefsFromSortOrder(personId, baseOffset, crossRefs)
+                } else {
+                    personDao.replacePersonRefsInSortRange(
+                        personId = personId,
+                        startSortOrder = baseOffset,
+                        endSortOrder = baseOffset + size,
+                        refs = crossRefs
+                    )
+                }
                 if (!hasMore) {
                     syncMetadataDao.upsert(
                         SyncMetadataEntity("$SYNC_SCOPE_PERSON_PREFIX$personId", currentEpochMillis())
@@ -201,4 +220,17 @@ class PeopleRepository(
         const val SYNC_SCOPE_PEOPLE = "people"
         const val SYNC_SCOPE_PERSON_PREFIX = "person:"
     }
+}
+
+internal fun personPageChanged(
+    beforeAssetIds: List<String>,
+    baseOffset: Int,
+    fetchedAssetIds: List<String>,
+    hasMore: Boolean
+): Boolean {
+    val previousPageIds = beforeAssetIds
+        .drop(baseOffset)
+        .take(fetchedAssetIds.size)
+    if (previousPageIds != fetchedAssetIds) return true
+    return !hasMore && beforeAssetIds.size > baseOffset + fetchedAssetIds.size
 }

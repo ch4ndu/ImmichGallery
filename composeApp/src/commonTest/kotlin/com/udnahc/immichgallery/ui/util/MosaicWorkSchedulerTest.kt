@@ -141,4 +141,39 @@ class MosaicWorkSchedulerTest {
         assertFailsWith<Throwable> { work.await() }
         blocker.await()
     }
+
+    @Test
+    fun reprioritizePendingMovesVisibleOwnerWorkAhead() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scheduler = MosaicWorkScheduler(dispatcher, this)
+        val order = mutableListOf<String>()
+
+        scheduler.setActiveForegroundOwner("album")
+        val blocker = async {
+            scheduler.run("timeline", "bg", 0, MosaicWorkPriority.Background) {
+                delay(100)
+            }
+        }
+        runCurrent()
+        val groupZero = async {
+            scheduler.run("album", "group_0", 0, MosaicWorkPriority.ForegroundPrefetch) {
+                order += "group_0"
+            }
+        }
+        val groupOne = async {
+            scheduler.run("album", "group_1", 0, MosaicWorkPriority.ForegroundPrefetch) {
+                order += "group_1"
+            }
+        }
+        runCurrent()
+
+        scheduler.reprioritizePending("album", setOf("group_1"))
+        testScheduler.advanceTimeBy(100)
+        runCurrent()
+        blocker.await()
+        groupZero.await()
+        groupOne.await()
+
+        assertEquals(listOf("group_1", "group_0"), order)
+    }
 }

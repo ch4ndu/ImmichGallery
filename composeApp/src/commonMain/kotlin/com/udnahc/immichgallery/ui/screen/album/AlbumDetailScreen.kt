@@ -25,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -36,6 +37,7 @@ import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.visibleBucketIndexesForDisplayIndexes
 import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.GroupSizeDropdown
@@ -47,6 +49,7 @@ import com.udnahc.immichgallery.ui.component.PlaceholderRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.model.UiMessage
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
 import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
@@ -62,6 +65,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_album
+import immichgallery.composeapp.generated.resources.timeline_cannot_connect
+import immichgallery.composeapp.generated.resources.timeline_no_connection
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -256,7 +261,7 @@ fun AlbumDetailContent(
 ) {
     LoadingErrorContent(
         isLoading = (state.isBuilding || state.isLoading) && state.assets.isEmpty(),
-        error = if (state.assets.isEmpty()) state.error else null,
+        error = if (state.assets.isEmpty()) state.error.asTextOrNull() else null,
         onRetry = onRetry,
         loadingText = if (state.isBuilding) stringResource(Res.string.loading_album) else null
     ) {
@@ -273,11 +278,13 @@ fun AlbumDetailContent(
             }
 
             val displayItems = state.displayItems
-            LaunchedEffect(listState, displayItems) {
+            val latestDisplayIndex by rememberUpdatedState(state.displayIndex)
+            LaunchedEffect(listState) {
                 snapshotFlow {
-                    listState.layoutInfo.visibleItemsInfo
-                        .mapNotNull { info -> displayItems.getOrNull(info.index)?.bucketIndex }
-                        .distinct()
+                    visibleBucketIndexesForDisplayIndexes(
+                        latestDisplayIndex,
+                        listState.layoutInfo.visibleItemsInfo.map { it.index }
+                    )
                 }
                     .distinctUntilChanged()
                     .collect { indexes -> onVisibleBucketIndexesChanged(indexes) }
@@ -334,9 +341,10 @@ fun AlbumDetailContent(
                     }
                 }
 
-                if (state.bannerError != null) {
+                val bannerError = state.bannerError
+                if (bannerError != null) {
                     ErrorBanner(
-                        message = state.bannerError,
+                        message = bannerError.asText(),
                         lastSyncedAt = state.lastSyncedAt,
                         onDismiss = onDismissBanner,
                         modifier = Modifier
@@ -348,3 +356,16 @@ fun AlbumDetailContent(
         }
     }
 }
+
+@Composable
+private fun UiMessage?.asTextOrNull(): String? = this?.asText()
+
+@Composable
+private fun UiMessage.asText(): String =
+    stringResource(
+        when (this) {
+            UiMessage.NoConnectionToServer -> Res.string.timeline_no_connection
+            UiMessage.CannotConnectToServer -> Res.string.timeline_cannot_connect
+            else -> Res.string.timeline_cannot_connect
+        }
+    )

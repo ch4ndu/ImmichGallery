@@ -122,7 +122,7 @@ fun AssetDetailSheet(
             }
 
             detail != null -> {
-                AssetDetailContent(detail = detail!!, onPersonClick = onPersonClick)
+                detail?.let { AssetDetailContent(detail = it, onPersonClick = onPersonClick) }
             }
         }
     }

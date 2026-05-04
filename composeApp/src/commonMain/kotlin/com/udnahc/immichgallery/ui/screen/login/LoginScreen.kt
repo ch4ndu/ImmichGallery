@@ -24,11 +24,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.model.UiMessage
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.app_title
 import immichgallery.composeapp.generated.resources.login_api_key_label
 import immichgallery.composeapp.generated.resources.login_api_key_placeholder
 import immichgallery.composeapp.generated.resources.login_connect
+import immichgallery.composeapp.generated.resources.login_connection_failed
+import immichgallery.composeapp.generated.resources.login_required_fields
 import immichgallery.composeapp.generated.resources.login_server_url_label
 import immichgallery.composeapp.generated.resources.login_server_url_placeholder
 import immichgallery.composeapp.generated.resources.login_subtitle
@@ -110,7 +113,7 @@ fun LoginContent(
         if (state.error != null) {
             Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
             Text(
-                text = state.error,
+                text = state.error.asText(),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall
             )
@@ -134,6 +137,14 @@ fun LoginContent(
         }
     }
 }
+
+@Composable
+private fun UiMessage?.asText(): String =
+    when (this) {
+        UiMessage.LoginRequiredFields -> stringResource(Res.string.login_required_fields)
+        UiMessage.LoginConnectionFailed -> stringResource(Res.string.login_connection_failed)
+        else -> ""
+    }
 
 @Preview
 @Composable

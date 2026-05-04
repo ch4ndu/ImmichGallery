@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontStyle
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -119,7 +120,8 @@ private fun MosaicSettingsDialog(
             Column {
                 Text(
                     text = stringResource(Res.string.mosaic_settings_warning),
-                    style = MaterialTheme.typography.bodyMedium
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic)
                 )
                 MosaicTemplateFamily.entries.forEach { family ->
                     MosaicFamilyRow(

@@ -38,6 +38,13 @@ const val MOSAIC_FALLBACK_MIN_ROW_HEIGHT_CELL_MULTIPLIER = 0.75f
 // to Mosaic band height; decreasing it makes fallback rows denser.
 const val MOSAIC_FALLBACK_TARGET_ROW_HEIGHT_BAND_MULTIPLIER = 1f
 
+// Small Mosaic groups cannot form a real 4-6 asset Mosaic band. Using a normal
+// one-cell fallback row makes 1-4 asset buckets look like thumbnails, so empty
+// assignment groups get a taller row target while still using aspect-safe
+// justified packing.
+const val MOSAIC_SMALL_GROUP_MAX_ASSETS = 4
+const val MOSAIC_SMALL_GROUP_FALLBACK_ROW_HEIGHT_CELL_MULTIPLIER = 2f
+
 // Explicit Mosaic fallback policy: do not use RowPacking's one-photo wide-image
 // promotion. Complete Mosaic fallback rows may still span the full grid width,
 // but only through normal justified packing, not a promoted single-photo row.
@@ -225,8 +232,44 @@ fun mosaicLayoutSpecFor(availableWidth: Float, targetRowHeight: Float): MosaicLa
     )
 }
 
+fun mosaicLayoutSpecForColumnCount(availableWidth: Float, columnCount: Int): MosaicLayoutSpec? {
+    if (availableWidth <= 0f || columnCount !in SUPPORTED_MOSAIC_COLUMN_COUNTS) return null
+    return MosaicLayoutSpec(
+        columnCount = columnCount,
+        availableWidth = availableWidth,
+        cellHeight = availableWidth / columnCount
+    )
+}
+
+fun mosaicAssignmentLayoutSpec(columnCount: Int): MosaicLayoutSpec? {
+    if (columnCount !in SUPPORTED_MOSAIC_COLUMN_COUNTS) return null
+    return MosaicLayoutSpec(
+        columnCount = columnCount,
+        availableWidth = columnCount * MOSAIC_CANONICAL_CELL_SIZE,
+        cellHeight = MOSAIC_CANONICAL_CELL_SIZE
+    )
+}
+
 fun mosaicFallbackMinRowHeight(layoutSpec: MosaicLayoutSpec): Float =
     layoutSpec.cellHeight * MOSAIC_FALLBACK_MIN_ROW_HEIGHT_CELL_MULTIPLIER
+
+fun mosaicSmallGroupFallbackRowHeight(
+    layoutSpec: MosaicLayoutSpec,
+    maxRowHeight: Float = Float.MAX_VALUE
+): Float =
+    (layoutSpec.cellHeight * MOSAIC_SMALL_GROUP_FALLBACK_ROW_HEIGHT_CELL_MULTIPLIER)
+        .coerceAtMost(maxRowHeight)
+
+fun mosaicFallbackRowHeight(
+    layoutSpec: MosaicLayoutSpec,
+    assetCount: Int,
+    maxRowHeight: Float = Float.MAX_VALUE
+): Float =
+    if (assetCount in 1..MOSAIC_SMALL_GROUP_MAX_ASSETS) {
+        mosaicSmallGroupFallbackRowHeight(layoutSpec, maxRowHeight)
+    } else {
+        layoutSpec.cellHeight
+    }
 
 fun mosaicFallbackMinRowHeight(layoutSpec: MosaicLayoutSpec, mosaicBandHeights: List<Float>): Float {
     val cellFloor = mosaicFallbackMinRowHeight(layoutSpec)
@@ -343,7 +386,15 @@ fun buildPhotoGridItemsWithMosaic(
         }
         .associateBy { it.assignment.sourceStartIndex }
         .toMutableMap()
-    val fallbackTargetRowHeight = mosaicFallbackMinRowHeight(layoutSpec, byStart.values.map { it.item.bandHeight })
+    val fallbackTargetRowHeight = if (byStart.isEmpty()) {
+        mosaicFallbackRowHeight(
+            layoutSpec = layoutSpec,
+            assetCount = assets.size,
+            maxRowHeight = maxRowHeight
+        )
+    } else {
+        mosaicFallbackMinRowHeight(layoutSpec, byStart.values.map { it.item.bandHeight })
+    }
     val items = mutableListOf<PhotoGridDisplayItem>()
     var sourceIndex = 0
     /*

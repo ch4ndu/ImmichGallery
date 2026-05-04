@@ -104,7 +104,8 @@ fun ThumbnailCell(
                         .precision(Precision.EXACT)
                         // Stable key so the full-image request can reference this
                         // cached thumbnail as its placeholder (see AssetPage).
-                        .memoryCacheKey(asset.thumbnailUrl)
+                        .memoryCacheKey(asset.thumbnailCacheKey)
+                        .diskCacheKey(asset.thumbnailCacheKey)
                         .build()
                 )
                 Image(

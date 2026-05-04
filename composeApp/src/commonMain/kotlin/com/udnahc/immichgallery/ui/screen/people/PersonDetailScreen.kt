@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -40,6 +42,7 @@ import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.visibleBucketIndexesForDisplayIndexes
 import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.GroupSizeDropdown
@@ -51,6 +54,7 @@ import com.udnahc.immichgallery.ui.component.PlaceholderRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.model.UiMessage
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
 import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
@@ -67,6 +71,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_photos
+import immichgallery.composeapp.generated.resources.person_detail_sync_in_progress
+import immichgallery.composeapp.generated.resources.timeline_cannot_connect
+import immichgallery.composeapp.generated.resources.timeline_no_connection
 import immichgallery.composeapp.generated.resources.unknown
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -84,6 +91,18 @@ fun PersonDetailScreen(
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
     val listState = rememberLazyListState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val syncInProgressMessage = stringResource(Res.string.person_detail_sync_in_progress)
+
+    LaunchedEffect(viewModel, syncInProgressMessage) {
+        viewModel.snackbarEvents.collect { message ->
+            when (message) {
+                PersonDetailSnackbarMessage.SyncInProgress -> {
+                    snackbarHostState.showSnackbar(syncInProgressMessage)
+                }
+            }
+        }
+    }
 
     DisposableEffect(viewModel) {
         viewModel.activateForegroundMosaic()
@@ -241,6 +260,13 @@ fun PersonDetailScreen(
                 }
             )
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = contentBottomPadding + Dimens.mediumSpacing)
+        )
     }
 }
 
@@ -264,7 +290,7 @@ fun PersonDetailContent(
 ) {
     LoadingErrorContent(
         isLoading = (state.isBuilding || state.isLoading) && state.assets.isEmpty(),
-        error = if (state.assets.isEmpty()) state.error else null,
+        error = if (state.assets.isEmpty()) state.error.asTextOrNull() else null,
         onRetry = onRetry,
         loadingText = if (state.isBuilding) stringResource(Res.string.loading_photos) else null
     ) {
@@ -300,11 +326,13 @@ fun PersonDetailContent(
                 }
 
                 val displayItems = state.displayItems
-                LaunchedEffect(listState, displayItems) {
+                val latestDisplayIndex by rememberUpdatedState(state.displayIndex)
+                LaunchedEffect(listState) {
                     snapshotFlow {
-                        listState.layoutInfo.visibleItemsInfo
-                            .mapNotNull { info -> displayItems.getOrNull(info.index)?.bucketIndex }
-                            .distinct()
+                        visibleBucketIndexesForDisplayIndexes(
+                            latestDisplayIndex,
+                            listState.layoutInfo.visibleItemsInfo.map { it.index }
+                        )
                     }
                         .distinctUntilChanged()
                         .collect { indexes -> onVisibleBucketIndexesChanged(indexes) }
@@ -368,9 +396,10 @@ fun PersonDetailContent(
                     }
                 }
 
-                if (state.bannerError != null) {
+                val bannerError = state.bannerError
+                if (bannerError != null) {
                     ErrorBanner(
-                        message = state.bannerError,
+                        message = bannerError.asText(),
                         lastSyncedAt = state.lastSyncedAt,
                         onDismiss = onDismissBanner,
                         modifier = Modifier
@@ -382,6 +411,19 @@ fun PersonDetailContent(
         }
     }
 }
+
+@Composable
+private fun UiMessage?.asTextOrNull(): String? = this?.asText()
+
+@Composable
+private fun UiMessage.asText(): String =
+    stringResource(
+        when (this) {
+            UiMessage.NoConnectionToServer -> Res.string.timeline_no_connection
+            UiMessage.CannotConnectToServer -> Res.string.timeline_cannot_connect
+            else -> Res.string.timeline_cannot_connect
+        }
+    )
 
 @Preview
 @Composable

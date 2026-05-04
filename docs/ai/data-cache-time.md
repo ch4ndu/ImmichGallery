@@ -9,7 +9,7 @@ Load this for Room, DAOs, repositories, cache invalidation, Immich API work, set
 - If the app starts storing durable user-authored data, add explicit migrations and remove destructive fallback for those tables.
 - DAOs expose `Flow` for observed reads and `suspend` functions for writes and imperative reads.
 - Cache replacement should be transactional where multiple tables or relationship rows must stay in sync.
-- Stale relationship data should be replaced atomically: delete or replace refs for the scoped owner, then insert current refs.
+- Stale relationship data should be replaced atomically: delete or replace refs for the scoped owner, then insert current refs. Timeline bucket metadata is the exception: count-changed buckets keep old refs until that bucket's asset refresh succeeds so cached launch rows do not collapse during background work; removed buckets still clear refs immediately.
 
 ## Repository Rules
 
@@ -27,7 +27,8 @@ Load this for Room, DAOs, repositories, cache invalidation, Immich API work, set
 - Hidden assets should be filtered out before writing or presenting timeline bucket assets.
 - Album detail currently returns all assets at once; do not add pagination loops unless the endpoint behavior changes.
 - Person assets and search endpoints may paginate. Follow the endpoint's `nextPage` response and guard duplicate loads with `isLoadingMore`.
-- Timeline buckets load lazily. Keep bucket metadata stable enough to avoid large scroll jumps while assets are fetched.
+- Person detail page refreshes should replace the fetched ref window and truncate stale later refs when page membership/order changes. Preserving later cached refs after a changed page can mix snapshots because subsequent pages may have shifted.
+- Timeline buckets load lazily. Cached launch syncs Timeline bucket metadata only; cached Room refs only mark asset availability. The ViewModel should materialize cached asset rows into memory for visible/nearby buckets, keep cached rows visible during background refresh, and avoid render-facing loading/error mutations for unchanged cached refreshes. Visible/nearby bucket asset refresh is serial and cache-preserving, while top-bar refresh performs the explicit full Timeline asset refresh.
 
 ## Settings And Credentials
 

@@ -79,6 +79,23 @@ class MosaicWorkScheduler(
             pending.any { it.isActiveForegroundWork() } || running.any { it.isActiveForegroundWork() }
         }
 
+    suspend fun reprioritizePending(
+        ownerKey: String,
+        visibleRequestKeys: Set<String>
+    ) {
+        mutex.withLock {
+            pending
+                .filter { it.ownerKey == ownerKey && it.priority != MosaicWorkPriority.Background }
+                .forEach { work ->
+                    work.priority = if (work.requestKey in visibleRequestKeys) {
+                        MosaicWorkPriority.ForegroundVisible
+                    } else {
+                        MosaicWorkPriority.ForegroundPrefetch
+                    }
+                }
+        }
+    }
+
     suspend fun <T> run(
         ownerKey: String,
         requestKey: String,
@@ -163,7 +180,7 @@ class MosaicWorkScheduler(
         val ownerKey: String,
         val requestKey: String,
         val generation: Long,
-        val priority: MosaicWorkPriority,
+        var priority: MosaicWorkPriority,
         val sequence: Long,
         private val block: suspend (MosaicWorkToken) -> T
     ) {

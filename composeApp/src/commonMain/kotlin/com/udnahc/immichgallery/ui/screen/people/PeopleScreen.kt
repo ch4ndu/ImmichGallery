@@ -54,11 +54,14 @@ import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
+import com.udnahc.immichgallery.ui.model.UiMessage
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_close
 import immichgallery.composeapp.generated.resources.loading_people
 import immichgallery.composeapp.generated.resources.people_search_placeholder
+import immichgallery.composeapp.generated.resources.timeline_cannot_connect
+import immichgallery.composeapp.generated.resources.timeline_no_connection
 import immichgallery.composeapp.generated.resources.unknown
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -97,7 +100,7 @@ fun PeopleContent(
 ) {
     LoadingErrorContent(
         isLoading = (state.isBuilding || state.isLoading) && state.people.isEmpty(),
-        error = if (state.people.isEmpty()) state.error else null,
+        error = if (state.people.isEmpty()) state.error.asTextOrNull() else null,
         onRetry = onRetry,
         loadingText = if (state.isBuilding) stringResource(Res.string.loading_people) else null
     ) {
@@ -178,9 +181,10 @@ fun PeopleContent(
                 }
             }
 
-            if (state.bannerError != null) {
+            val bannerError = state.bannerError
+            if (bannerError != null) {
                 ErrorBanner(
-                    message = state.bannerError,
+                    message = bannerError.asText(),
                     lastSyncedAt = state.lastSyncedAt,
                     onDismiss = onDismissBanner,
                     modifier = Modifier
@@ -192,6 +196,19 @@ fun PeopleContent(
         }
     }
 }
+
+@Composable
+private fun UiMessage?.asTextOrNull(): String? = this?.asText()
+
+@Composable
+private fun UiMessage.asText(): String =
+    stringResource(
+        when (this) {
+            UiMessage.NoConnectionToServer -> Res.string.timeline_no_connection
+            UiMessage.CannotConnectToServer -> Res.string.timeline_cannot_connect
+            else -> Res.string.timeline_cannot_connect
+        }
+    )
 
 @Composable
 private fun PersonItem(

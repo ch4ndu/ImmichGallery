@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
+import com.udnahc.immichgallery.ui.model.UiMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,8 +19,8 @@ import org.lighthousegames.logging.logging
 data class AlbumListState(
     val albums: List<Album> = emptyList(),
     val isLoading: Boolean = false,
-    val error: String? = null,
-    val bannerError: String? = null,
+    val error: UiMessage? = null,
+    val bannerError: UiMessage? = null,
     val lastSyncedAt: Long? = null,
     val isBuilding: Boolean = false,
     val isSyncing: Boolean = false
@@ -79,14 +80,14 @@ class AlbumListViewModel(
                             it.copy(
                                 isBuilding = false,
                                 isSyncing = false,
-                                error = "No connection to server"
+                                error = UiMessage.NoConnectionToServer
                             )
                         }
                     } else {
                         _state.update {
                             it.copy(
                                 isSyncing = false,
-                                bannerError = "Cannot connect to server"
+                                bannerError = UiMessage.CannotConnectToServer
                             )
                         }
                     }

@@ -19,12 +19,15 @@ import com.udnahc.immichgallery.domain.model.MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
 import com.udnahc.immichgallery.domain.model.RowHeightScope
+import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.buildMosaicAssignments
+import com.udnahc.immichgallery.domain.model.buildPhotoGridDisplayIndex
 import com.udnahc.immichgallery.domain.model.buildPhotoGridItemsWithMosaic
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItems
 import com.udnahc.immichgallery.domain.model.defaultTargetRowHeightForWidth
 import com.udnahc.immichgallery.domain.model.groupAssets
+import com.udnahc.immichgallery.domain.model.mosaicFallbackRowHeight
 import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecFor
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
@@ -34,14 +37,19 @@ import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
+import com.udnahc.immichgallery.ui.model.UiMessage
 import com.udnahc.immichgallery.ui.util.MosaicWorkPriority
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -51,6 +59,7 @@ import org.lighthousegames.logging.logging
 data class PersonDetailState(
     val assets: List<Asset> = emptyList(),
     val displayItems: List<PhotoGridDisplayItem> = emptyList(),
+    val displayIndex: TimelineDisplayIndex = TimelineDisplayIndex(),
     val availableWidth: Float = 0f,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
     val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f),
@@ -60,12 +69,16 @@ data class PersonDetailState(
     val hasMore: Boolean = true,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
-    val error: String? = null,
-    val bannerError: String? = null,
+    val error: UiMessage? = null,
+    val bannerError: UiMessage? = null,
     val lastSyncedAt: Long? = null,
     val isBuilding: Boolean = false,
     val isSyncing: Boolean = false
 )
+
+enum class PersonDetailSnackbarMessage {
+    SyncInProgress
+}
 
 class PersonDetailViewModel(
     private val getPersonAssetsUseCase: GetPersonAssetsUseCase,
@@ -97,6 +110,10 @@ class PersonDetailViewModel(
     private val mosaicOwnerKey = "person:$personId"
     private val layoutRunner = PhotoGridLayoutRunner(viewModelScope)
     private val rowHeightPersistenceRunner = PhotoGridLayoutRunner(viewModelScope)
+    private var syncJob: Job? = null
+    private var loadMoreJob: Job? = null
+    private val _snackbarEvents = MutableSharedFlow<PersonDetailSnackbarMessage>(extraBufferCapacity = 1)
+    val snackbarEvents: SharedFlow<PersonDetailSnackbarMessage> = _snackbarEvents.asSharedFlow()
     private val _state = MutableStateFlow(
         PersonDetailState(
             targetRowHeight = savedTargetRowHeight,
@@ -216,7 +233,12 @@ class PersonDetailViewModel(
         if (next == visibleBucketIndexes) return
         visibleBucketIndexes = next
         if (_state.value.viewConfig.mosaicEnabled) {
-            scheduleDisplayItems(debounce = true)
+            viewModelScope.launch {
+                mosaicWorkScheduler.reprioritizePending(
+                    ownerKey = mosaicOwnerKey,
+                    visibleRequestKeys = next.map(::mosaicGroupRequestKey).toSet()
+                )
+            }
         }
     }
 
@@ -227,10 +249,14 @@ class PersonDetailViewModel(
         // it, and both would launch duplicate requests — and both would try
         // to advance nextPage, skipping or refetching pages.
         val prev = _state.value
+        if (syncJob?.isActive == true || prev.isSyncing || prev.isBuilding) {
+            emitSyncInProgressSnackbar()
+            return
+        }
         if (prev.isLoadingMore || !prev.hasMore) return
         if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
 
-        viewModelScope.launch(Dispatchers.IO) {
+        loadMoreJob = viewModelScope.launch(Dispatchers.IO) {
             val page = _state.value.nextPage
             getPersonAssetsPageUseCase(personId, page = page).fold(
                 onSuccess = { result ->
@@ -266,7 +292,7 @@ class PersonDetailViewModel(
             val cacheKey = snapshot.displayCacheKey(revision)
             displayCache?.takeIf { it.key == cacheKey }?.let { cached ->
                 if (layoutRunner.isCurrent(generation) && revision == assetRevision) {
-                    _state.update { current -> current.copy(displayItems = cached.items) }
+                    _state.update { current -> current.withDisplayItems(cached.items) }
                 }
                 return@launch
             }
@@ -288,7 +314,7 @@ class PersonDetailViewModel(
                 )
                 if (layoutRunner.isCurrent(generation) && revision == assetRevision) {
                     displayCache = CachedDisplayItems(cacheKey, items)
-                    _state.update { current -> current.copy(displayItems = items) }
+                    _state.update { current -> current.withDisplayItems(items) }
                 }
             }
         }
@@ -328,15 +354,14 @@ class PersonDetailViewModel(
             mosaicGeneration == mosaicLayoutGeneration &&
             revision == assetRevision
         ) {
-            _state.update { current -> current.copy(displayItems = initialItems) }
+            _state.update { current -> current.withDisplayItems(initialItems) }
         }
-        val visible = visibleBucketIndexes.toSet()
-        val orderedGroups = keyedGroups
+        val remainingGroups = keyedGroups
             .filter { keyed -> groupDisplayCache[keyed.cacheKey] == null }
-            .sortedWith(compareBy<KeyedAssetGroup> {
-                if (it.group.index in visible) 0 else 1
-            }.thenBy { it.group.index })
-        for (keyedGroup in orderedGroups) {
+            .toMutableList()
+        while (remainingGroups.isNotEmpty()) {
+            val keyedGroup = nextMosaicGroup(remainingGroups)
+            remainingGroups.remove(keyedGroup)
             val group = keyedGroup.group
             val priority = if (group.index in visibleBucketIndexes) {
                 MosaicWorkPriority.ForegroundVisible
@@ -346,7 +371,7 @@ class PersonDetailViewModel(
             val groupItems = try {
                 val assignments = mosaicWorkScheduler.run(
                     ownerKey = mosaicOwnerKey,
-                    requestKey = "group_${group.index}",
+                    requestKey = mosaicGroupRequestKey(group.index),
                     generation = mosaicGeneration,
                     priority = priority
                 ) { token ->
@@ -379,7 +404,11 @@ class PersonDetailViewModel(
                     bucketIndex = group.index,
                     sectionLabel = group.label,
                     availableWidth = snapshot.availableWidth,
-                    targetRowHeight = layoutSpec.cellHeight,
+                    targetRowHeight = mosaicFallbackRowHeight(
+                        layoutSpec = layoutSpec,
+                        assetCount = group.assets.size,
+                        maxRowHeight = snapshot.rowHeightBounds.max
+                    ),
                     spacing = GRID_SPACING_DP,
                     maxRowHeight = snapshot.rowHeightBounds.max,
                     promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
@@ -392,7 +421,7 @@ class PersonDetailViewModel(
             ) return
             groupDisplayCache[keyedGroup.cacheKey] = groupItems
             _state.update { current ->
-                current.copy(displayItems = replaceGroupItems(current.displayItems, group.index, groupItems))
+                current.withDisplayItems(replaceGroupItems(current.displayItems, group.index, groupItems))
             }
         }
         if (layoutRunner.isCurrent(runnerGeneration) &&
@@ -454,7 +483,11 @@ class PersonDetailViewModel(
                         sectionLabel = group.label,
                         availableWidth = availableWidth,
                         targetRowHeight = if (viewConfig.mosaicEnabled && layoutSpec != null) {
-                            layoutSpec.cellHeight
+                            mosaicFallbackRowHeight(
+                                layoutSpec = layoutSpec,
+                                assetCount = group.assets.size,
+                                maxRowHeight = maxRowHeight
+                            )
                         } else {
                             targetRowHeight
                         },
@@ -547,8 +580,9 @@ class PersonDetailViewModel(
     }
 
     private fun syncFromServer() {
+        if (syncJob?.isActive == true || _state.value.isLoadingMore || loadMoreJob?.isActive == true) return
         _state.update { it.copy(nextPage = 1) }
-        viewModelScope.launch(Dispatchers.IO) {
+        syncJob = viewModelScope.launch(Dispatchers.IO) {
             val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
 
             if (!hasCachedAssets) {
@@ -580,7 +614,7 @@ class PersonDetailViewModel(
                             it.copy(
                                 isBuilding = false,
                                 isSyncing = false,
-                                error = "No connection to server"
+                                error = UiMessage.NoConnectionToServer
                             )
                         }
                     }
@@ -603,7 +637,7 @@ class PersonDetailViewModel(
                         _state.update {
                             it.copy(
                                 isSyncing = false,
-                                bannerError = "Cannot connect to server"
+                                bannerError = UiMessage.CannotConnectToServer
                             )
                         }
                     }
@@ -672,6 +706,19 @@ class PersonDetailViewModel(
         displayCache = null
         groupDisplayCache.clear()
     }
+
+    private fun nextMosaicGroup(groups: List<KeyedAssetGroup>): KeyedAssetGroup {
+        val visible = visibleBucketIndexes.toSet()
+        return groups.minWith(compareBy<KeyedAssetGroup> {
+            if (it.group.index in visible) 0 else 1
+        }.thenBy { it.group.index })
+    }
+
+    private fun mosaicGroupRequestKey(groupIndex: Int): String = "group_$groupIndex"
+
+    private fun emitSyncInProgressSnackbar() {
+        _snackbarEvents.tryEmit(PersonDetailSnackbarMessage.SyncInProgress)
+    }
 }
 
 private data class DetailDisplayCacheKey(
@@ -711,8 +758,15 @@ private data class DetailAssetFingerprint(
     val createdAt: String,
     val isFavorite: Boolean,
     val stackCount: Int,
-    val aspectRatio: Float
+    val aspectRatio: Float,
+    val isEdited: Boolean
 )
+
+private fun PersonDetailState.withDisplayItems(items: List<PhotoGridDisplayItem>): PersonDetailState =
+    copy(
+        displayItems = items,
+        displayIndex = buildPhotoGridDisplayIndex(items)
+    )
 
 private fun PersonDetailState.displayCacheKey(assetRevision: Int): DetailDisplayCacheKey =
     DetailDisplayCacheKey(
@@ -758,6 +812,7 @@ private fun List<Asset>.detailFingerprint(): List<DetailAssetFingerprint> =
             createdAt = asset.createdAt,
             isFavorite = asset.isFavorite,
             stackCount = asset.stackCount,
-            aspectRatio = asset.aspectRatio
+            aspectRatio = asset.aspectRatio,
+            isEdited = asset.isEdited
         )
     }

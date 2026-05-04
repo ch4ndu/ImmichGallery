@@ -34,6 +34,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -48,6 +49,8 @@ import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT
+import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_LARGE_COLUMN_COUNT
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.timelineScrollFractionForDisplayIndex
@@ -85,6 +88,7 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 private const val SCROLLBAR_TARGET_DEBOUNCE_MS = 200L
+private val LARGE_SCREEN_MOSAIC_WIDTH = 840.dp
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -239,6 +243,7 @@ fun TimelineScreen(
                 onViewportBucketTargeted = viewModel::onViewportBucketTargeted,
                 scrollTargetForFraction = viewModel::scrollTargetForFraction,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+                onMosaicColumnCountChanged = viewModel::setMosaicColumnCount,
                 onAvailableWidthChanged = viewModel::setAvailableWidth,
                 onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
                 onRetryBucket = viewModel::retryBucket,
@@ -258,7 +263,7 @@ fun TimelineScreen(
                 val assetId = lastSelectedAssetId ?: return@AnimatedVisibility
                 val initialIndex = overlayInitialIndex ?: 0
                 TimelinePhotoOverlay(
-                    timelineState = viewModel.state,
+                    timelineState = viewModel.overlayState,
                     initialIndex = initialIndex,
                     apiKey = viewModel.apiKey,
                     getAssetFileName = viewModel::getAssetFileName,
@@ -294,6 +299,7 @@ fun TimelineContent(
     onViewportBucketTargeted: (Int, TimelineBucketTargetReason) -> Unit,
     scrollTargetForFraction: (Float) -> TimelineScrollTarget?,
     onTargetRowHeightChanged: (Float) -> Unit = {},
+    onMosaicColumnCountChanged: (Int) -> Unit = {},
     onAvailableWidthChanged: (Float) -> Unit = {},
     onAvailableViewportHeightChanged: (Float) -> Unit = {},
     onRetryBucket: (String) -> Unit,
@@ -306,6 +312,8 @@ fun TimelineContent(
 ) {
     val displayItems = state.displayItems
     val targetRowHeight = state.targetRowHeight
+    val latestDisplayIndex by rememberUpdatedState(state.displayIndex)
+    val latestPageIndex by rememberUpdatedState(state.pageIndex)
 
     LoadingErrorContent(
         isLoading = state.isLoading && displayItems.isEmpty(),
@@ -313,10 +321,10 @@ fun TimelineContent(
         onRetry = onRetry
     ) {
         key(state.groupSize) {
-            LaunchedEffect(displayItems) {
+            LaunchedEffect(listState) {
                 snapshotFlow {
                     visibleBucketIndexesForDisplayIndexes(
-                        displayItems,
+                        latestDisplayIndex,
                         listState.layoutInfo.visibleItemsInfo.map { it.index }
                     )
                 }
@@ -325,13 +333,13 @@ fun TimelineContent(
                         onVisibleBucketsChanged(buckets, TimelineBucketTargetReason.VisibleScroll)
                     }
             }
-            LaunchedEffect(displayItems) {
+            LaunchedEffect(listState) {
                 snapshotFlow { listState.isScrollInProgress }
                     .distinctUntilChanged()
                     .collectLatest { isScrollInProgress ->
                         if (!isScrollInProgress) {
                             val buckets = visibleBucketIndexesForDisplayIndexes(
-                                displayItems,
+                                latestDisplayIndex,
                                 listState.layoutInfo.visibleItemsInfo.map { it.index }
                             )
                             onVisibleBucketsChanged(buckets, TimelineBucketTargetReason.ScrollSettled)
@@ -354,19 +362,32 @@ fun TimelineContent(
                         navBarPadding
                 ).value.coerceAtLeast(0f)
                 // Report available width to ViewModel for row packing
-                LaunchedEffect(maxWidth, visibleGridHeight) {
+                val timelineMosaicColumnCount = if (maxWidth >= LARGE_SCREEN_MOSAIC_WIDTH) {
+                    TIMELINE_MOSAIC_LARGE_COLUMN_COUNT
+                } else {
+                    TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT
+                }
+                LaunchedEffect(maxWidth, visibleGridHeight, timelineMosaicColumnCount) {
                     onAvailableWidthChanged(maxWidth.value)
                     onAvailableViewportHeightChanged(visibleGridHeight)
+                    onMosaicColumnCountChanged(timelineMosaicColumnCount)
+                }
+
+                val gridModifier = Modifier.fillMaxSize().let { base ->
+                    if (state.viewConfig.mosaicEnabled) {
+                        base
+                    } else {
+                        base
+                            .pinchToZoomRowHeight(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
+                            .desktopGridZoom(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
+                    }
                 }
 
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pinchToZoomRowHeight(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
-                        .desktopGridZoom(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
+                    modifier = gridModifier
                 ) {
                     val coroutineScope = rememberCoroutineScope()
-                    var scrollbarScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+                    val scrollbarScrollJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
                     var pendingScrollbarBucket by remember { mutableStateOf<Int?>(null) }
 
                     LaunchedEffect(pendingScrollbarBucket) {
@@ -377,8 +398,8 @@ fun TimelineContent(
 
                     fun scrollToFractionTarget(fraction: Float, commit: Boolean) {
                         val target = scrollTargetForFraction(fraction) ?: return
-                        scrollbarScrollJob?.cancel()
-                        scrollbarScrollJob = coroutineScope.launch {
+                        scrollbarScrollJob[0]?.cancel()
+                        scrollbarScrollJob[0] = coroutineScope.launch {
                             listState.scrollToItem(target.displayIndex)
                         }
                         if (commit) {
@@ -399,8 +420,8 @@ fun TimelineContent(
                                 0f
                             } else {
                                 timelineScrollFractionForDisplayIndex(
-                                    pageIndex = state.pageIndex,
-                                    displayItems = displayItems,
+                                    pageIndex = latestPageIndex,
+                                    timelineDisplayIndex = latestDisplayIndex,
                                     displayIndex = firstVisibleIndex
                                 ) ?: 0f
                             }

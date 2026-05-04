@@ -36,12 +36,12 @@ private fun computeMonthGroups(assets: List<Asset>): List<AssetGroup> {
         }
     }
     return grouped
-        .filterKeys { it != null }
         .entries
-        .sortedWith(compareByDescending<Map.Entry<Pair<Int, kotlinx.datetime.Month>?, List<Asset>>> { it.key!!.first }
-            .thenByDescending { it.key!!.second })
+        .mapNotNull { (key, groupAssets) -> key?.let { it to groupAssets } }
+        .sortedWith(compareByDescending<Pair<Pair<Int, kotlinx.datetime.Month>, List<Asset>>> { it.first.first }
+            .thenByDescending { it.first.second })
         .map { (key, groupAssets) ->
-            val (year, month) = key!!
+            val (year, month) = key
             val monthName = month.name.lowercase().replaceFirstChar { it.uppercase() }
             AssetGroup(
                 label = "$monthName $year",
@@ -64,11 +64,10 @@ private fun computeDayGroups(assets: List<Asset>): List<AssetGroup> {
         }
     }
     return grouped
-        .filterKeys { it != null }
         .entries
-        .sortedByDescending { it.key }
-        .map { (date, groupAssets) ->
-            val d = date!!
+        .mapNotNull { (date, groupAssets) -> date?.let { it to groupAssets } }
+        .sortedByDescending { it.first }
+        .map { (d, groupAssets) ->
             val monthName = d.month.name.lowercase().replaceFirstChar { it.uppercase() }
             AssetGroup(
                 label = "${d.dayOfMonth} $monthName ${d.year}",

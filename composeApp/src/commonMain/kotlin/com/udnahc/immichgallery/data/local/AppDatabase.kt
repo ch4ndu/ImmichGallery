@@ -17,6 +17,7 @@ import com.udnahc.immichgallery.data.local.entity.PersonEntity
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineMosaicAssignmentEntity
 
 @Database(
     entities = [
@@ -27,9 +28,10 @@ import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
         AlbumEntity::class,
         AlbumAssetCrossRef::class,
         PersonEntity::class,
-        PersonAssetCrossRef::class
+        PersonAssetCrossRef::class,
+        TimelineMosaicAssignmentEntity::class
     ],
-    version = 6
+    version = 7
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {

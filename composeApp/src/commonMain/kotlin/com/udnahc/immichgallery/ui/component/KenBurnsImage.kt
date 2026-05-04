@@ -67,6 +67,7 @@ fun KenBurnsImage(
     isActive: Boolean,
     durationMs: Int = KEN_BURNS_DURATION_MS,
     thumbnailUrl: String? = null,
+    thumbnailCacheKey: String? = thumbnailUrl,
     modifier: Modifier = Modifier
 ) {
     val progress = remember { Animatable(0f) }
@@ -93,10 +94,10 @@ fun KenBurnsImage(
     // placeholder so page advances during slideshow don't flash empty while the
     // high-res image decodes. Same pattern as ImageContent in AssetPageContent.
     val context = LocalPlatformContext.current
-    val imageRequest = remember(context, url, thumbnailUrl) {
+    val imageRequest = remember(context, url, thumbnailCacheKey) {
         ImageRequest.Builder(context)
             .data(url)
-            .apply { if (thumbnailUrl != null) placeholderMemoryCacheKey(thumbnailUrl) }
+            .apply { if (thumbnailCacheKey != null) placeholderMemoryCacheKey(thumbnailCacheKey) }
             .crossfade(200)
             .build()
     }

@@ -23,6 +23,29 @@ interface PersonDao {
     @Query("DELETE FROM person_asset_refs WHERE personId = :personId")
     suspend fun clearPersonRefs(personId: String)
 
+    @Query(
+        """
+        DELETE FROM person_asset_refs
+        WHERE personId = :personId
+        AND sortOrder >= :startSortOrder
+        AND sortOrder < :endSortOrder
+        """
+    )
+    suspend fun clearPersonRefsInSortRange(
+        personId: String,
+        startSortOrder: Int,
+        endSortOrder: Int
+    )
+
+    @Query(
+        """
+        DELETE FROM person_asset_refs
+        WHERE personId = :personId
+        AND sortOrder >= :startSortOrder
+        """
+    )
+    suspend fun clearPersonRefsFromSortOrder(personId: String, startSortOrder: Int)
+
     @Query("SELECT COUNT(*) FROM person_asset_refs WHERE personId = :personId")
     suspend fun getPersonAssetCount(personId: String): Int
 
@@ -66,6 +89,27 @@ interface PersonDao {
     @Transaction
     suspend fun replacePersonRefs(personId: String, refs: List<PersonAssetCrossRef>) {
         clearPersonRefs(personId)
+        upsertPersonRefs(refs)
+    }
+
+    @Transaction
+    suspend fun replacePersonRefsInSortRange(
+        personId: String,
+        startSortOrder: Int,
+        endSortOrder: Int,
+        refs: List<PersonAssetCrossRef>
+    ) {
+        clearPersonRefsInSortRange(personId, startSortOrder, endSortOrder)
+        upsertPersonRefs(refs)
+    }
+
+    @Transaction
+    suspend fun replacePersonRefsFromSortOrder(
+        personId: String,
+        startSortOrder: Int,
+        refs: List<PersonAssetCrossRef>
+    ) {
+        clearPersonRefsFromSortOrder(personId, startSortOrder)
         upsertPersonRefs(refs)
     }
 }

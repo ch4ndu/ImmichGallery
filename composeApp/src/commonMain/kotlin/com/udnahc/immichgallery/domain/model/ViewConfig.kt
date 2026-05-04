@@ -4,7 +4,7 @@ import androidx.compose.runtime.Immutable
 
 @Immutable
 data class ViewConfig(
-    val mosaicEnabled: Boolean = false,
+    val mosaicEnabled: Boolean = true,
     val mosaicFamilies: Set<MosaicTemplateFamily> = MosaicTemplateFamily.defaultSet()
 ) {
     val normalized: ViewConfig

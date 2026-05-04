@@ -57,6 +57,7 @@ import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.model.UiMessage
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
@@ -73,6 +74,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_hint
+import immichgallery.composeapp.generated.resources.error_search_failed
 import immichgallery.composeapp.generated.resources.search_no_results
 import immichgallery.composeapp.generated.resources.search_placeholder
 import immichgallery.composeapp.generated.resources.search_type_filename
@@ -288,7 +290,7 @@ fun SearchContent(
 
             state.error != null -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(state.error, color = MaterialTheme.colorScheme.error)
+                    Text(state.error.asText(), color = MaterialTheme.colorScheme.error)
                 }
             }
 
@@ -401,6 +403,13 @@ fun SearchContent(
         }
     }
 }
+
+@Composable
+private fun UiMessage?.asText(): String =
+    when (this) {
+        UiMessage.SearchFailed -> stringResource(Res.string.error_search_failed)
+        else -> ""
+    }
 
 @Preview
 @Composable

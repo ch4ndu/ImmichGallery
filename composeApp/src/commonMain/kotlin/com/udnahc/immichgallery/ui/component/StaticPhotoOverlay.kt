@@ -102,6 +102,7 @@ fun StaticPhotoOverlay(
     val pagerState = rememberPagerState(
         initialPage = clampedInitial
     ) { assets.size }
+    val latestAssets by rememberUpdatedState(assets)
 
     // Force pager to snap to initialPage on first composition. In LookaheadScope
     // from SharedTransitionLayout, the pager's scroll offset can transiently be 0
@@ -112,12 +113,18 @@ fun StaticPhotoOverlay(
         }
     }
 
+    LaunchedEffect(assets.size) {
+        if (assets.isNotEmpty() && pagerState.currentPage >= assets.size) {
+            pagerState.scrollToPage(assets.lastIndex)
+        }
+    }
+
     // Report the currently-viewed asset to the parent so the grid can hide it.
-    // Unit key + snapshotFlow so new `assets` references don't restart the
-    // collector mid-stream.
+    // Keep the collector stable, but read the latest asset list so Room/search
+    // updates don't leave the grid hiding or prefetching an old page.
     val latestAssetChangedCallback by rememberUpdatedState(onCurrentAssetChanged)
     LaunchedEffect(Unit) {
-        snapshotFlow { assets.getOrNull(pagerState.settledPage)?.id }
+        snapshotFlow { latestAssets.getOrNull(pagerState.settledPage)?.id }
             .mapNotNull { it }
             .distinctUntilChanged()
             .collect { latestAssetChangedCallback(it) }
@@ -133,7 +140,7 @@ fun StaticPhotoOverlay(
             .distinctUntilChanged()
             .collect { page ->
                 listOf(page - 1, page, page + 1).forEach { idx ->
-                    val asset = assets.getOrNull(idx) ?: return@forEach
+                    val asset = latestAssets.getOrNull(idx) ?: return@forEach
                     imageLoader.enqueue(
                         ImageRequest.Builder(prefetchContext)
                             .data(asset.originalUrl)
@@ -257,9 +264,9 @@ fun StaticPhotoOverlay(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            key = { page -> assets[page].id }
+            key = { page -> assets.getOrNull(page)?.id ?: "missing_$page" }
         ) { page ->
-            val asset = assets[page]
+            val asset = assets.getOrNull(page)
             val isSettledPage = pagerState.settledPage == page
             // Only apply graphicsLayer while a drag is actually in flight —
             // an always-on identity layer adds a compositing boundary that
@@ -277,27 +284,29 @@ fun StaticPhotoOverlay(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                AssetPage(
-                    asset = asset,
-                    apiKey = apiKey,
-                    isCurrentPage = isSettledPage,
-                    isSlideshow = isSlideshow,
-                    slideshowConfig = slideshowConfig,
-                    onTap = onTap,
-                    sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
-                    animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
-                    pageTransform = transformForPage,
-                    isDragging = isSettledPage && dragState.isActive,
-                    onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
-                )
+                if (asset != null) {
+                    AssetPage(
+                        asset = asset,
+                        apiKey = apiKey,
+                        isCurrentPage = isSettledPage,
+                        isSlideshow = isSlideshow,
+                        slideshowConfig = slideshowConfig,
+                        onTap = onTap,
+                        sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
+                        animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
+                        pageTransform = transformForPage,
+                        isDragging = isSettledPage && dragState.isActive,
+                        onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
+                    )
+                }
             }
         }
 
-        val currentAsset = assets[pagerState.settledPage]
+        val currentAsset = assets.getOrNull(pagerState.settledPage)
         DetailTopBarOverlay(
             showTopBar = showTopBar,
-            title = currentAsset.fileName,
-            onBack = { onDismiss(currentAsset.id) },
+            title = currentAsset?.fileName.orEmpty(),
+            onBack = { onDismiss(currentAsset?.id) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (assets.size > 1) {
                 { showSlideshowDialog = true }
@@ -311,7 +320,7 @@ fun StaticPhotoOverlay(
             )
         }
 
-        if (showDetailSheet) {
+        if (showDetailSheet && currentAsset != null) {
             AssetDetailSheet(
                 assetId = currentAsset.id,
                 getAssetDetail = getAssetDetail,

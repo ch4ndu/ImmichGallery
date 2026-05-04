@@ -202,14 +202,15 @@ internal fun AssetPage(
                 // grid-side thumbnail's layout exactly (same Fit, same fillMaxSize,
                 // no bar padding). Any layout mismatch makes the sharedBounds
                 // cross-fade visible as a "second animation".
-                // Explicit memoryCacheKey keeps this thumbnail entry aligned with
+                // Explicit cache keys keep this thumbnail entry aligned with
                 // the grid's ThumbnailCell cache key — the full-image request in
                 // ImageContent references it via placeholderMemoryCacheKey.
                 val thumbnailContext = LocalPlatformContext.current
-                val thumbnailRequest = remember(thumbnailContext, asset.thumbnailUrl) {
+                val thumbnailRequest = remember(thumbnailContext, asset.thumbnailUrl, asset.thumbnailCacheKey) {
                     ImageRequest.Builder(thumbnailContext)
                         .data(asset.thumbnailUrl)
-                        .memoryCacheKey(asset.thumbnailUrl)
+                        .memoryCacheKey(asset.thumbnailCacheKey)
+                        .diskCacheKey(asset.thumbnailCacheKey)
                         .build()
                 }
                 AsyncImage(
@@ -245,6 +246,7 @@ internal fun AssetPage(
                             isActive = isCurrentPage,
                             durationMs = durationMs,
                             thumbnailUrl = asset.thumbnailUrl,
+                            thumbnailCacheKey = asset.thumbnailCacheKey,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -287,7 +289,7 @@ internal fun AssetPage(
                 ) {
                     ImageContent(
                         url = asset.originalUrl,
-                        thumbnailUrl = asset.thumbnailUrl,
+                        thumbnailCacheKey = asset.thumbnailCacheKey,
                         onTap = onTap,
                         zoomState = zoomState
                     )
@@ -418,7 +420,7 @@ internal fun DetailBottomHandle(
 @Composable
 private fun ImageContent(
     url: String,
-    thumbnailUrl: String,
+    thumbnailCacheKey: String,
     onTap: () -> Unit,
     zoomState: com.github.panpf.zoomimage.CoilZoomState
 ) {
@@ -431,10 +433,10 @@ private fun ImageContent(
     // and the full-resolution image arriving. The short crossfade smooths
     // the thumbnail→original handoff.
     val context = LocalPlatformContext.current
-    val imageRequest = remember(context, url, thumbnailUrl) {
+    val imageRequest = remember(context, url, thumbnailCacheKey) {
         ImageRequest.Builder(context)
             .data(url)
-            .placeholderMemoryCacheKey(thumbnailUrl)
+            .placeholderMemoryCacheKey(thumbnailCacheKey)
             .crossfade(IMAGE_CROSSFADE_MS)
             .build()
     }

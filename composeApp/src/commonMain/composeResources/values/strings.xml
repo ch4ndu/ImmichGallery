@@ -72,13 +72,14 @@
     <string name="mosaic">Mosaic</string>
     <string name="mosaic_settings">Mosaic settings</string>
     <string name="mosaic_settings_title">Mosaic layout</string>
-    <string name="mosaic_settings_warning">Mosaic may show nearby photos slightly out of chronological order to build balanced layouts. Selecting more variants can slow layout generation.</string>
+    <string name="mosaic_settings_warning">Mosaic uses a fixed column count while enabled, so pinch zoom is disabled. New Timeline mosaic layouts are computed after server sync and then reused from cache.</string>
     <string name="mosaic_family_four">4-tile variants</string>
     <string name="mosaic_family_five">5-tile variants</string>
     <string name="mosaic_family_six">6-tile variants</string>
 
     <!-- People -->
     <string name="people_search_placeholder">Search people…</string>
+    <string name="person_detail_sync_in_progress">Sync in progress. More photos will load when it finishes.</string>
 
     <!-- Search -->
     <string name="search_placeholder">Search photos…</string>

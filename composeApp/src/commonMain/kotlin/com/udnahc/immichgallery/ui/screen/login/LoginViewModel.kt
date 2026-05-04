@@ -2,8 +2,10 @@ package com.udnahc.immichgallery.ui.screen.login
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.udnahc.immichgallery.LocalLoginDefaults
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
+import com.udnahc.immichgallery.ui.model.UiMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,10 +17,10 @@ import org.lighthousegames.logging.logging
 
 @androidx.compose.runtime.Immutable
 data class LoginState(
-    val serverUrl: String = "http://192.168.86.167:2283",
-    val apiKey: String = "pcikjymklYXrSTYr5FqXHY9birKVp0GzyOYuG6I",
+    val serverUrl: String = LocalLoginDefaults.SERVER_URL,
+    val apiKey: String = LocalLoginDefaults.API_KEY,
     val isLoading: Boolean = false,
-    val error: String? = null,
+    val error: UiMessage? = null,
     val isLoggedIn: Boolean = false
 )
 
@@ -43,7 +45,7 @@ class LoginViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val currentState = _state.value
             if (currentState.serverUrl.isBlank() || currentState.apiKey.isBlank()) {
-                _state.update { it.copy(error = "Server URL and API key are required") }
+                _state.update { it.copy(error = UiMessage.LoginRequiredFields) }
                 return@launch
             }
 
@@ -62,7 +64,7 @@ class LoginViewModel(
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            error = e.message ?: "Connection failed"
+                            error = UiMessage.LoginConnectionFailed
                         )
                     }
                 }
