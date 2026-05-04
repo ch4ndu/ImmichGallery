@@ -9,6 +9,7 @@ import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.Person
+import com.udnahc.immichgallery.domain.model.PersonAssetsSyncResult
 import com.udnahc.immichgallery.domain.model.toAssetEntity
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toPersonEntity
@@ -92,14 +93,19 @@ class PeopleRepository(
     /**
      * Syncs a single page of person assets. Uses offset-based sortOrder
      * so appending pages doesn't require clearing previous pages.
-     * Returns (hasMore).
+     * Returns whether persisted ordered content changed plus hasMore. A page
+     * sync can succeed without changing grid-visible content; detail screens
+     * use that distinction to avoid unnecessary layout invalidation.
      */
     suspend fun syncPersonAssetsPage(
         personId: String,
         page: Int,
         size: Int = 250
-    ): Result<Boolean> {
+    ): Result<PersonAssetsSyncResult> {
         return try {
+            val before = withContext(Dispatchers.IO) {
+                personDao.getPersonAssets(personId)
+            }
             val response = apiService.getPersonAssets(personId, page, size)
             val items = response.assets.items
             val hasMore = response.assets.nextPage != null
@@ -118,7 +124,15 @@ class PeopleRepository(
                 }
             }
             editsEnricher.enrich(items)
-            Result.success(hasMore)
+            val after = withContext(Dispatchers.IO) {
+                personDao.getPersonAssets(personId)
+            }
+            Result.success(
+                PersonAssetsSyncResult(
+                    changed = orderedAssetsChanged(before, after),
+                    hasMore = hasMore
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -133,8 +147,11 @@ class PeopleRepository(
      * Memory cost: ~all items for the person held in RAM during the sync.
      * At 250 items/page and a few pages per person, this is a few hundred KB.
      */
-    suspend fun syncAllPersonAssets(personId: String): Result<Unit> {
+    suspend fun syncAllPersonAssets(personId: String): Result<PersonAssetsSyncResult> {
         return try {
+            val before = withContext(Dispatchers.IO) {
+                personDao.getPersonAssets(personId)
+            }
             val pageSize = 250
             val allItems = mutableListOf<AssetResponse>()
             var page = 1
@@ -156,7 +173,15 @@ class PeopleRepository(
                 )
             }
             editsEnricher.enrich(allItems)
-            Result.success(Unit)
+            val after = withContext(Dispatchers.IO) {
+                personDao.getPersonAssets(personId)
+            }
+            Result.success(
+                PersonAssetsSyncResult(
+                    changed = orderedAssetsChanged(before, after),
+                    hasMore = false
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -3,12 +3,14 @@ package com.udnahc.immichgallery.data.repository
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.dao.TimelineDao
+import com.udnahc.immichgallery.data.local.entity.AssetEntity
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
+import com.udnahc.immichgallery.domain.model.TimelineBucketAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucketSyncResult
 import com.udnahc.immichgallery.domain.model.toAssetEntity
 import com.udnahc.immichgallery.domain.model.toDomain
@@ -111,8 +113,15 @@ class TimelineRepository(
         }
     }
 
-    suspend fun syncBucketAssets(timeBucket: String): Result<Unit> {
+    suspend fun syncBucketAssets(timeBucket: String): Result<TimelineBucketAssetSyncResult> {
         return try {
+            // Compare the persisted bucket before and after the full write path,
+            // including edit enrichment below. The ViewModel uses this changed
+            // bit to decide whether row packing and Mosaic assignments for this
+            // one bucket need a new revision.
+            val before = withContext(Dispatchers.IO) {
+                assetDao.getTimelineAssets(timeBucket)
+            }
             val allAssets = apiService.getTimelineBucket(timeBucket)
             val filtered = allAssets.filter { it.visibility != "hidden" }
             val assetEntities = filtered.map { it.toAssetEntity() }
@@ -129,7 +138,13 @@ class TimelineRepository(
             // otherwise no-ops; keep it here so lazy mosaic builds can use
             // edited aspect ratios when the endpoint/model can provide them.
             editsEnricher.enrich(filtered)
-            Result.success(Unit)
+            val after = withContext(Dispatchers.IO) {
+                assetDao.getTimelineAssets(timeBucket)
+            }
+            Result.success(TimelineBucketAssetSyncResult(
+                timeBucket = timeBucket,
+                changed = timelineBucketAssetsChanged(before, after)
+            ))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -148,9 +163,10 @@ class TimelineRepository(
             val results = coroutineScope {
                 buckets.map { bucket ->
                     async(Dispatchers.IO) {
-                        val success = semaphore.withPermit {
-                            syncBucketAssets(bucket.timeBucket).isSuccess
+                        val result = semaphore.withPermit {
+                            syncBucketAssets(bucket.timeBucket)
                         }
+                        val success = result.isSuccess
                         progressMutex.withLock {
                             completed++
                             if (success) successful++ else failed++
@@ -159,15 +175,19 @@ class TimelineRepository(
                                     "${bucket.timeBucket} success=$success successful=$successful failed=$failed"
                             }
                         }
-                        bucket.timeBucket to success
+                        bucket.timeBucket to result.getOrNull()
                     }
                 }.awaitAll()
             }
             log.d { "Finished timeline asset sync: successful=$successful failed=$failed total=${buckets.size}" }
             Result.success(
                 TimelineAssetSyncResult(
-                    successfulBucketIds = results.filter { it.second }.map { it.first }.toSet(),
-                    failedBucketIds = results.filterNot { it.second }.map { it.first }.toSet()
+                    successfulBucketIds = results.filter { it.second != null }.map { it.first }.toSet(),
+                    failedBucketIds = results.filter { it.second == null }.map { it.first }.toSet(),
+                    changedBucketIds = results.mapNotNull { it.second }
+                        .filter { it.changed }
+                        .map { it.timeBucket }
+                        .toSet()
                 )
             )
         } catch (e: Exception) {
@@ -195,3 +215,12 @@ class TimelineRepository(
         private const val FULL_SYNC_BUCKET_PARALLELISM = 4
     }
 }
+
+// Timeline sync may write the same rows on every app launch. Layout invalidation
+// must be based on content that can affect the grid, not on write success. The
+// input lists are already ordered by timeline_asset_refs.sortOrder.
+internal fun timelineBucketAssetsChanged(
+    before: List<AssetEntity>,
+    after: List<AssetEntity>
+): Boolean =
+    orderedAssetsChanged(before, after)

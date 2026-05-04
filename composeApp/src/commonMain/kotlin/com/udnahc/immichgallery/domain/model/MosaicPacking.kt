@@ -4,10 +4,55 @@ import androidx.compose.runtime.Immutable
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/*
+ * The Mosaic engine has two coordinate spaces:
+ * - assignment/scoring uses a normalized width based on MOSAIC_CANONICAL_CELL_SIZE
+ * - rendering uses the real measured grid width from MosaicLayoutSpec
+ *
+ * Keep constants near the top because most Mosaic UX changes are tuning changes.
+ * When changing any of these values, update the Mosaic tests and docs/ai notes
+ * that describe the user-visible fallback policy.
+ */
+
+// Normalized "one column" size used while scoring Mosaic candidates. This does
+// not directly set UI pixels; it keeps scoring stable across viewport widths.
+// Raising it without adjusting thresholds makes min tile checks and target
+// height scoring more permissive in assignment space.
 const val MOSAIC_CANONICAL_CELL_SIZE = 100f
+
+// Maximum displayed Mosaic band height as a multiple of the resolved real cell
+// height (availableWidth / columnCount). Bands taller than this are rejected at
+// render time and their photos fall back to justified rows. Increasing it keeps
+// more tall Mosaic bands; decreasing it makes Mosaic fail over more often.
 const val MOSAIC_MAX_BAND_HEIGHT_TARGET_MULTIPLIER = 5f
+
+// Lower bound for Mosaic fallback row packing when there are no valid Mosaic
+// bands, or when bands are smaller than this floor. It is multiplied by the real
+// Mosaic cell height. Increasing it makes fallback rows taller and less dense;
+// decreasing it allows small rows between/around Mosaic bands.
 const val MOSAIC_FALLBACK_MIN_ROW_HEIGHT_CELL_MULTIPLIER = 0.75f
-const val MOSAIC_FALLBACK_TARGET_ROW_HEIGHT_BAND_MULTIPLIER = 0.5f
+
+// Additional fallback-row target based on the representative valid Mosaic band
+// height in the current group. The fallback target is max(cell floor, median
+// band height * this value). Increasing it makes normal justified rows closer
+// to Mosaic band height; decreasing it makes fallback rows denser.
+const val MOSAIC_FALLBACK_TARGET_ROW_HEIGHT_BAND_MULTIPLIER = 1f
+
+// Explicit Mosaic fallback policy: do not use RowPacking's one-photo wide-image
+// promotion. Complete Mosaic fallback rows may still span the full grid width,
+// but only through normal justified packing, not a promoted single-photo row.
+const val MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES = false
+
+// Explicit Mosaic fallback policy: require at least this many photos before a
+// row can become a complete justified row. This prevents a wide photo from
+// becoming a complete one-photo full-width row inside Mosaic fallback. A final
+// leftover row at the current group boundary may still be incomplete.
+const val MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS = 2
+
+// Supported resolved Mosaic densities. The row-height preference is converted
+// into one of these column counts; the actual cell height is then width/count.
+// Adding counts requires validating all template families, assignment cost, and
+// display tests because every count changes the real cell-height tolerance.
 val SUPPORTED_MOSAIC_COLUMN_COUNTS = 2..6
 
 @Immutable
@@ -50,6 +95,19 @@ private data class TileRect(
     val height: Float
 )
 
+/*
+ * Mosaic templates are tiny layout trees. A leaf represents one photo slot,
+ * a horizontal node puts child groups next to each other at the same height,
+ * and a vertical node stacks child groups at the same width.
+ *
+ * The important invariant is that every node can answer both directions:
+ * - "If this node is H tall, how wide is it?"
+ * - "If this node must fit W wide, how tall is it?"
+ *
+ * That lets assignment scoring run in a normalized coordinate space and lets
+ * rendering later replay the same template against the real grid width without
+ * storing fragile pixel rectangles in cache/state.
+ */
 private sealed interface MosaicNode {
     fun widthForHeight(height: Float, aspects: FloatArray, spacing: Float): Float
     fun heightForWidth(width: Float, aspects: FloatArray, spacing: Float): Float
@@ -78,6 +136,9 @@ private data class HorizontalNode(val children: List<MosaicNode>) : MosaicNode {
         val usableWidth = width.coerceAtLeast(0f)
         var low = 0f
         var high = usableWidth.coerceAtLeast(1f)
+        // Width is monotonic with height for horizontal groups, but there is no
+        // closed form once children contain nested vertical groups. Binary
+        // search gives stable enough geometry without introducing a solver.
         repeat(BINARY_SEARCH_STEPS) {
             val mid = (low + high) / 2f
             if (widthForHeight(mid, aspects, spacing) > usableWidth) {
@@ -144,6 +205,10 @@ private data class MosaicTemplate(
 
 fun nearestMosaicColumnCount(availableWidth: Float, targetRowHeight: Float): Int {
     if (availableWidth <= 0f || targetRowHeight <= 0f) return DEFAULT_GRID_COLUMN_COUNT
+    // Mosaic treats the row-height preference as a density hint. The resolved
+    // column count then defines the real cell height used by bands, placeholders,
+    // and fallback rows. This keeps Mosaic available at dense zoom levels where
+    // the requested target row height is smaller than a useful Mosaic band.
     return (availableWidth / targetRowHeight)
         .roundToInt()
         .coerceIn(SUPPORTED_MOSAIC_COLUMN_COUNTS.first, SUPPORTED_MOSAIC_COLUMN_COUNTS.last)
@@ -165,6 +230,10 @@ fun mosaicFallbackMinRowHeight(layoutSpec: MosaicLayoutSpec): Float =
 
 fun mosaicFallbackMinRowHeight(layoutSpec: MosaicLayoutSpec, mosaicBandHeights: List<Float>): Float {
     val cellFloor = mosaicFallbackMinRowHeight(layoutSpec)
+    // Fallback rows sit between Mosaic bands. If the bands in this group are
+    // large, using only the cell-height floor can make normal justified rows
+    // look accidental and tiny. The median valid band height gives a stable
+    // local reference without letting one extreme band dominate the fallback.
     val representativeBandHeight = mosaicBandHeights
         .filter { it > 0f }
         .sorted()
@@ -194,6 +263,18 @@ fun buildMosaicAssignments(
         layoutSpec.columnCount !in SUPPORTED_MOSAIC_COLUMN_COUNTS ||
         enabledFamilies.isEmpty()
     ) return emptyList()
+    /*
+     * Assignment is a source-order scan. At each source index we try to build
+     * one Mosaic band from the next 4-6 assets. If no template/permutation is
+     * acceptable, we skip roughly one justified row and try again. Skipping by a
+     * row instead of a single photo prevents repeatedly testing almost the same
+     * failing window in large buckets.
+     *
+     * The assignments intentionally store asset IDs, template IDs, source
+     * indexes, and visual order only. Pixel geometry is recomputed in
+     * toDisplayItem() for the current real width so stale assignments can be
+     * reused across screen updates that preserve the same Mosaic density.
+     */
     val assignments = mutableListOf<MosaicBandAssignment>()
     var sourceIndex = 0
     var bandIndex = 0
@@ -234,10 +315,17 @@ fun buildPhotoGridItemsWithMosaic(
     layoutSpec: MosaicLayoutSpec,
     spacing: Float,
     maxRowHeight: Float,
-    promoteWideImages: Boolean = false,
-    minCompleteRowPhotos: Int = 2
+    promoteWideImages: Boolean = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
+    minCompleteRowPhotos: Int = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
 ): List<PhotoGridDisplayItem> {
     if (assets.isEmpty() || layoutSpec.availableWidth <= 0f) return emptyList()
+    /*
+     * Rendering is intentionally more defensive than assignment. Assignments
+     * can be produced by previous async work and then consumed after dimensions,
+     * families, or asset metadata have changed. Each assignment is replayed into
+     * real display geometry and validated before it is allowed to reserve source
+     * assets. Invalid bands simply become fallback rows.
+     */
     val byStart = assignments
         .mapNotNull { assignment ->
             val item = assignment.toDisplayItem(
@@ -258,6 +346,11 @@ fun buildPhotoGridItemsWithMosaic(
     val fallbackTargetRowHeight = mosaicFallbackMinRowHeight(layoutSpec, byStart.values.map { it.item.bandHeight })
     val items = mutableListOf<PhotoGridDisplayItem>()
     var sourceIndex = 0
+    /*
+     * The final display list must cover every source asset exactly once, in
+     * source order. A valid Mosaic at the current index wins; otherwise the gap
+     * before the next valid Mosaic is packed as justified fallback rows.
+     */
     while (sourceIndex < assets.size) {
         val mosaic = byStart[sourceIndex]
         if (mosaic != null) {
@@ -288,6 +381,17 @@ fun buildPhotoGridItemsWithMosaic(
     return items
 }
 
+/*
+ * Mosaic fallback rows are intentionally normal justified rows: complete rows
+ * span the grid width, but wide-image promotion cannot create a one-photo row.
+ *
+ * The subtle rule is about group boundaries. An incomplete fallback row is fine
+ * only at the end of the current asset group, because the next header/bucket is
+ * a natural visual break. If an incomplete fallback row would appear before a
+ * later Mosaic band in the same group, the row would look randomly stranded.
+ * In that case we demote the next Mosaic band back into fallback input and
+ * retry packing a larger gap.
+ */
 private fun packMosaicFallbackRows(
     assets: List<Asset>,
     sourceStartIndex: Int,
@@ -301,6 +405,9 @@ private fun packMosaicFallbackRows(
     minCompleteRowPhotos: Int,
     targetRowHeight: Float
 ): List<RowItem> {
+    // Start by protecting the next valid Mosaic boundary. The retry loop below
+    // relaxes that boundary only when it would otherwise create a non-final
+    // incomplete row.
     var sourceEndIndex = validMosaicsByStart.keys
         .filter { it > sourceStartIndex }
         .minOrNull() ?: assets.size
@@ -319,6 +426,9 @@ private fun packMosaicFallbackRows(
     )
 
     while (sourceEndIndex < assets.size && rows.lastOrNull()?.isComplete == false) {
+        // The current gap cannot finish cleanly before the next Mosaic. Remove
+        // that Mosaic from the render map and include its source assets in the
+        // fallback gap so the next pass can complete a justified row.
         val demotedMosaic = validMosaicsByStart.remove(sourceEndIndex)
         val demotedEndIndex = sourceEndIndex + (demotedMosaic?.assignment?.sourceCount ?: 1)
         sourceEndIndex = validMosaicsByStart.keys
@@ -381,6 +491,12 @@ private fun bestCandidate(
 ): MosaicCandidate? {
     var best: MosaicCandidate? = null
     val maxCount = minOf(MAX_MOSAIC_ASSETS, assets.size - sourceStartIndex)
+    /*
+     * Try larger bands first because a good 6-photo Mosaic usually gives more
+     * visual variety and reduces fallback churn. We still score every enabled
+     * template/permutation for every supported count and return the lowest score
+     * overall, so a poor 6-photo candidate can lose to a cleaner 4-photo band.
+     */
     for (count in maxCount downTo MIN_MOSAIC_ASSETS) {
         shouldContinue()
         val templates = MOSAIC_TEMPLATES.filter { it.slotCount == count && it.family in enabledFamilies }
@@ -388,6 +504,9 @@ private fun bestCandidate(
         val window = assets.subList(sourceStartIndex, sourceStartIndex + count)
         for (permutation in permutations(count)) {
             shouldContinue()
+            // permutation[slot] maps a template slot to a source asset. This is
+            // how the same template can choose which photo becomes the feature
+            // tile without changing source ownership.
             val aspects = FloatArray(count) { slot ->
                 window[permutation[slot]].aspectRatio.coerceAtLeast(MIN_ASPECT_RATIO)
             }
@@ -427,12 +546,18 @@ private fun scoreCandidate(
     bandHeightLimit: Float,
     width: Float
 ): Float? {
+    // Reject unusable geometry before comparing aesthetics. These thresholds
+    // protect rendering from huge bands, tiny tap targets, and degenerate
+    // templates produced by extreme aspect ratios.
     if (height <= 0f || height > bandHeightLimit) return null
     if (rects.any { it.width < MIN_TILE_SIZE || it.height < MIN_TILE_SIZE }) return null
     val area = rects.map { it.width * it.height }
     val minArea = area.minOrNull() ?: return null
     val maxArea = area.maxOrNull() ?: return null
     val areaBalancePenalty = maxArea / minArea
+    // The target is intentionally approximate. Mosaic should avoid both tiny
+    // strips and huge posters, but the later display validation allows bands up
+    // to 5x cell height because some real photo sets need that tolerance.
     val heightPenalty = abs(height - MOSAIC_CANONICAL_CELL_SIZE * 2.5f) / MOSAIC_CANONICAL_CELL_SIZE
     val fillPenalty = abs((rects.maxOf { it.x + it.width }) - width) / width
     return heightPenalty + areaBalancePenalty * AREA_BALANCE_WEIGHT + fillPenalty
@@ -455,6 +580,9 @@ private fun MosaicBandAssignment.toDisplayItem(
     }
     val rects = template.root.layout(0f, 0f, layoutSpec.availableWidth, aspects, spacing)
     val bandHeight = rects.maxOfOrNull { it.y + it.height } ?: return null
+    // Rebuild display tiles from the template slots, not from source order.
+    // visualOrder is the stable slot order used by the renderer and shared
+    // element keys; source order is preserved by sourceStartIndex/sourceCount.
     val displayTiles = rects.map { rect ->
         val asset = tileAssets.getOrNull(rect.slot) ?: return null
         MosaicTile(
@@ -481,6 +609,9 @@ private fun MosaicBandAssignment.toDisplayItem(
 }
 
 private fun MosaicBandItem.isValidFor(layoutSpec: MosaicLayoutSpec): Boolean {
+    // Validation is the final guardrail before a Mosaic band reserves assets in
+    // the display list. Any failure falls back to justified rows, which is safer
+    // than rendering overlapping tiles or a band far larger than nearby content.
     if (bandHeight <= 0f || bandHeight > layoutSpec.cellHeight * MOSAIC_MAX_BAND_HEIGHT_TARGET_MULTIPLIER) return false
     if (tiles.any { it.width < MIN_TILE_SIZE || it.height < MIN_TILE_SIZE }) return false
     val filledWidth = tiles.maxOfOrNull { it.x + it.width } ?: return false
@@ -500,6 +631,9 @@ private fun MosaicTile.overlaps(other: MosaicTile): Boolean =
         other.y + other.height > y + GEOMETRY_TOLERANCE
 
 private fun firstJustifiedRowCount(assets: List<Asset>, width: Float, spacing: Float): Int =
+    // Used only during assignment scanning to jump past a bad Mosaic window.
+    // The real fallback rows are packed later with the current Mosaic fallback
+    // policy and the real display width.
     packIntoRows(
         assets = assets,
         availableWidth = width,

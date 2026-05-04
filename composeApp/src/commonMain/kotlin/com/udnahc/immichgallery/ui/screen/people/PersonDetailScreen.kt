@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.ErrorBanner
@@ -45,6 +47,7 @@ import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.MosaicPhotoBand
 import com.udnahc.immichgallery.ui.component.MosaicViewConfigIconMenu
+import com.udnahc.immichgallery.ui.component.PlaceholderRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
@@ -60,6 +63,7 @@ import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import androidx.compose.ui.tooling.preview.Preview
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_photos
@@ -80,6 +84,11 @@ fun PersonDetailScreen(
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
     val listState = rememberLazyListState()
+
+    DisposableEffect(viewModel) {
+        viewModel.activateForegroundMosaic()
+        onDispose { viewModel.deactivateForegroundMosaic() }
+    }
 
     var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -178,6 +187,7 @@ fun PersonDetailScreen(
                 onLoadMore = viewModel::loadMore,
                 onAvailableWidth = viewModel::setAvailableWidth,
                 onAvailableViewportHeight = viewModel::setAvailableViewportHeight,
+                onVisibleBucketIndexesChanged = viewModel::setVisibleBucketIndexes,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 contentTopPadding = contentTopPadding,
                 contentBottomPadding = contentBottomPadding,
@@ -245,6 +255,7 @@ fun PersonDetailContent(
     onLoadMore: () -> Unit,
     onAvailableWidth: (Float) -> Unit,
     onAvailableViewportHeight: (Float) -> Unit = {},
+    onVisibleBucketIndexesChanged: (List<Int>) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
@@ -289,6 +300,15 @@ fun PersonDetailContent(
                 }
 
                 val displayItems = state.displayItems
+                LaunchedEffect(listState, displayItems) {
+                    snapshotFlow {
+                        listState.layoutInfo.visibleItemsInfo
+                            .mapNotNull { info -> displayItems.getOrNull(info.index)?.bucketIndex }
+                            .distinct()
+                    }
+                        .distinctUntilChanged()
+                        .collect { indexes -> onVisibleBucketIndexesChanged(indexes) }
+                }
 
                 ScrollbarOverlay(
                     listState = listState,
@@ -325,6 +345,9 @@ fun PersonDetailContent(
                                     onPhotoClick = onPhotoClick,
                                     sharedTransitionScope = sharedTransitionScope,
                                     hiddenAssetId = hiddenAssetId,
+                                )
+                                is PlaceholderItem -> PlaceholderRow(
+                                    estimatedHeight = item.estimatedHeight
                                 )
                                 else -> Unit
                             }

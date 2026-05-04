@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.ErrorBanner
@@ -41,6 +43,7 @@ import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.MosaicPhotoBand
 import com.udnahc.immichgallery.ui.component.MosaicViewConfigIconMenu
+import com.udnahc.immichgallery.ui.component.PlaceholderRow
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
@@ -55,6 +58,7 @@ import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_album
@@ -72,6 +76,11 @@ fun AlbumDetailScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
+
+    DisposableEffect(viewModel) {
+        viewModel.activateForegroundMosaic()
+        onDispose { viewModel.deactivateForegroundMosaic() }
+    }
 
     var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -171,6 +180,7 @@ fun AlbumDetailScreen(
                 onDismissBanner = viewModel::dismissBannerError,
                 onAvailableWidthChanged = viewModel::setAvailableWidth,
                 onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
+                onVisibleBucketIndexesChanged = viewModel::setVisibleBucketIndexes,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 contentTopPadding = contentTopPadding,
                 contentBottomPadding = contentBottomPadding,
@@ -237,6 +247,7 @@ fun AlbumDetailContent(
     onDismissBanner: () -> Unit = {},
     onAvailableWidthChanged: (Float) -> Unit = {},
     onAvailableViewportHeightChanged: (Float) -> Unit = {},
+    onVisibleBucketIndexesChanged: (List<Int>) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
@@ -262,6 +273,15 @@ fun AlbumDetailContent(
             }
 
             val displayItems = state.displayItems
+            LaunchedEffect(listState, displayItems) {
+                snapshotFlow {
+                    listState.layoutInfo.visibleItemsInfo
+                        .mapNotNull { info -> displayItems.getOrNull(info.index)?.bucketIndex }
+                        .distinct()
+                }
+                    .distinctUntilChanged()
+                    .collect { indexes -> onVisibleBucketIndexesChanged(indexes) }
+            }
 
             Box(
                 modifier = Modifier
@@ -304,6 +324,9 @@ fun AlbumDetailContent(
                                     onPhotoClick = onPhotoClick,
                                     sharedTransitionScope = sharedTransitionScope,
                                     hiddenAssetId = hiddenAssetId,
+                                )
+                                is PlaceholderItem -> PlaceholderRow(
+                                    estimatedHeight = item.estimatedHeight
                                 )
                                 else -> Unit
                             }

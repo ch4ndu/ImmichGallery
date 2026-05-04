@@ -31,6 +31,11 @@ For a new persisted cache entity or schema change:
 - Put screen-specific projections, row packing, pagination state, and overlay source lists in the screen ViewModel.
 - Persisted view preferences such as row height and Mosaic settings should flow through settings UseCases/Actions and `ServerConfigRepository`, not direct repository access from ViewModels.
 - For direct photo-grid screens, use `PhotoGridLayoutRunner` for expensive zoom-driven row/Mosaic projection work. Keep the runner as coroutine orchestration only; do not move screen projection ownership out of the ViewModel.
+- Route CPU-heavy Mosaic assignment work for Timeline, Album Detail, and Person Detail through `MosaicWorkScheduler`; foreground visible detail groups must not wait behind queued Timeline background work.
+- For Timeline sync/layout changes, keep asset revisions per bucket. Do not use a successful full sync as a global row-packing or Mosaic invalidation signal.
+- Detail screens that read Room assets, such as Album Detail and Person Detail, should render cached assets immediately and sync the opened detail in the background. Treat sync success and ordered content change as separate signals; album-name-only updates and cache bookkeeping changes must not repack rows or rebuild Mosaic assignments.
+- Do not preload Person detail assets from the People list. Person detail caching starts only when that person is opened; first open with no cached assets may perform the full opened-person sync.
+- Add nearby code comments for cache invalidation, sync freshness, and layout reuse logic when the invariant is not obvious from the type names alone.
 - Register UseCases and Actions in `di/AppModule.kt`.
 - Use a screen-specific ViewModel for screen state.
 - Register ViewModels in `di/AppModule.kt` with `viewModel { ... }`.
@@ -43,6 +48,7 @@ For a new persisted cache entity or schema change:
 - Wire new tabs or destinations in `ui/navigation/`.
 - Follow `docs/ai/ui.md` for theme, strings, dimensions, previews, overlay padding, and recomposition rules.
 - If a feature shows photo assets, use the ViewModel-owned photo-grid projection. Choose justified rows or the established Mosaic layout from persisted `ViewConfig`; do not transform assets into layout items inside composables.
+- When touching Mosaic fallback behavior, keep the policy explicit in `MosaicPacking.kt`: fallback rows are justified full-span rows, wide-image promotion is disabled, and single-photo complete rows are not allowed.
 - Add Mosaic controls only where photo assets are displayed directly. Collection grids such as AlbumList and PeopleList should not expose photo-layout controls.
 - If a feature opens photo detail, use the existing overlay/detail patterns before adding a new pager.
 - If an Immich API endpoint paginates, implement `loadMore()` with a duplicate-request guard and near-end detection through `snapshotFlow` or `derivedStateOf`.

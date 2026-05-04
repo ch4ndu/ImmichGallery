@@ -17,9 +17,16 @@ data class TimelineBucketSyncResult(
 )
 
 @Immutable
+data class TimelineBucketAssetSyncResult(
+    val timeBucket: String,
+    val changed: Boolean
+)
+
+@Immutable
 data class TimelineAssetSyncResult(
     val successfulBucketIds: Set<String>,
-    val failedBucketIds: Set<String>
+    val failedBucketIds: Set<String>,
+    val changedBucketIds: Set<String> = emptySet()
 )
 
 @Immutable

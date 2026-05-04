@@ -8,3 +8,9 @@ data class Person(
     val name: String,
     val thumbnailUrl: String
 )
+
+@Immutable
+data class PersonAssetsSyncResult(
+    val changed: Boolean,
+    val hasMore: Boolean = false
+)

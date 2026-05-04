@@ -4,9 +4,11 @@ import com.udnahc.immichgallery.data.local.dao.AlbumDao
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.entity.AlbumAssetCrossRef
+import com.udnahc.immichgallery.data.local.entity.AlbumEntity
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Album
+import com.udnahc.immichgallery.domain.model.AlbumDetailSyncResult
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.toAlbumEntity
 import com.udnahc.immichgallery.domain.model.toAssetEntity
@@ -92,14 +94,31 @@ class AlbumRepository(
         }
     }
 
-    suspend fun syncAlbumDetail(albumId: String): Result<String> {
+    suspend fun syncAlbumDetail(albumId: String): Result<AlbumDetailSyncResult> {
         return try {
+            // A successful detail sync is not automatically a content change.
+            // Compare persisted rows after the full write/enrichment path so
+            // title-only updates do not force row packing or Mosaic rebuilds.
+            val before = withContext(Dispatchers.IO) {
+                albumDao.getAlbumAssets(albumId)
+            }
             val response = apiService.getAlbumDetail(albumId)
             val assetEntities = response.assets.map { it.toAssetEntity() }
             val crossRefs = response.assets.mapIndexed { index, asset ->
                 AlbumAssetCrossRef(albumId, asset.id, index)
             }
+            val cachedAlbum = withContext(Dispatchers.IO) {
+                albumDao.getAlbum(albumId)
+            }
+            val detailAlbum = AlbumEntity(
+                id = response.id,
+                name = response.albumName,
+                assetCount = response.assetCount,
+                thumbnailAssetId = cachedAlbum?.thumbnailAssetId,
+                updatedAt = cachedAlbum?.updatedAt ?: ""
+            )
             withContext(Dispatchers.IO) {
+                albumDao.upsertAlbums(listOf(detailAlbum))
                 assetDao.upsertAssets(assetEntities)
                 albumDao.replaceAlbumRefs(albumId, crossRefs)
                 syncMetadataDao.upsert(
@@ -112,7 +131,15 @@ class AlbumRepository(
             // renders immediately; updates land via Room's Flow as they
             // resolve.
             editsEnricher.enrich(response.assets)
-            Result.success(response.albumName)
+            val after = withContext(Dispatchers.IO) {
+                albumDao.getAlbumAssets(albumId)
+            }
+            Result.success(
+                AlbumDetailSyncResult(
+                    albumName = response.albumName,
+                    changed = orderedAssetsChanged(before, after)
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }

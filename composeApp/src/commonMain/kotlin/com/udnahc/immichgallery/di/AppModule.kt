@@ -47,6 +47,7 @@ import com.udnahc.immichgallery.ui.screen.people.PeopleViewModel
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailViewModel
 import com.udnahc.immichgallery.ui.screen.search.SearchViewModel
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineViewModel
+import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -54,6 +55,7 @@ val sharedModule = module {
     // Settings
     single { Settings() }
     single { ServerConfigRepository(get()) }
+    single { MosaicWorkScheduler() }
 
     // Networking
     single { createHttpClientEngine() }
@@ -103,10 +105,10 @@ val sharedModule = module {
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
-    viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), get(), get(), get(), params.get()) }
+    viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }
-    viewModel { params -> PersonDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get(), params.get()) }
+    viewModel { params -> PersonDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), params.get()) }
     viewModel { SearchViewModel(get(), get(), get(), get(), get(), get()) }
 }

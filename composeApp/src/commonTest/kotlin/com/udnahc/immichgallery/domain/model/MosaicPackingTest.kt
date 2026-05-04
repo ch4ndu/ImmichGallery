@@ -161,7 +161,7 @@ class MosaicPackingTest {
     }
 
     @Test
-    fun fallbackRowBeforeLaterMosaicConsumesEnoughAssetsToCompleteRow() {
+    fun fallbackRowBeforeLaterMosaicCompletesWithoutDemotingMosaic() {
         val assets = sampleAssets(count = 8, aspectRatio = 1f)
         val items = buildPhotoGridItemsWithMosaic(
             assets = assets,
@@ -176,17 +176,17 @@ class MosaicPackingTest {
 
         val row = assertIs<RowItem>(items.first())
         assertTrue(row.isComplete)
-        assertEquals(listOf("asset_0", "asset_1", "asset_2"), row.photos.map { it.asset.id })
-        assertTrue(items.none { it is MosaicBandItem })
+        assertEquals((0..1).map { "asset_$it" }, row.photos.map { it.asset.id })
+        assertIs<MosaicBandItem>(items[1])
         assertEquals(collectedAssetIds(items).distinct(), collectedAssetIds(items))
     }
 
     @Test
-    fun higherFallbackTargetDemotesLaterMosaicWhenBoundaryWouldLeaveIncompleteRow() {
+    fun fallbackPackingDemotesLaterMosaicWhenBoundaryWouldLeaveIncompleteRow() {
         val assets = sampleAssets(count = 8, aspectRatio = 1f)
         val items = buildPhotoGridItemsWithMosaic(
             assets = assets,
-            assignments = listOf(manualAssignment(sourceStartIndex = 4, sourceCount = 4)),
+            assignments = listOf(manualAssignment(sourceStartIndex = 1, sourceCount = 4)),
             bucketIndex = 0,
             sectionLabel = "May 2026",
             layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f),
@@ -197,7 +197,7 @@ class MosaicPackingTest {
 
         val row = assertIs<RowItem>(items.first())
         assertTrue(row.isComplete)
-        assertEquals(listOf("asset_0", "asset_1", "asset_2"), row.photos.map { it.asset.id })
+        assertEquals((0..1).map { "asset_$it" }, row.photos.map { it.asset.id })
         assertTrue(items.none { it is MosaicBandItem })
         assertEquals(collectedAssetIds(items).distinct(), collectedAssetIds(items))
     }
@@ -220,6 +220,45 @@ class MosaicPackingTest {
         assertTrue(items.dropLast(1).filterIsInstance<RowItem>().all { it.isComplete })
         assertTrue(items.filterIsInstance<RowItem>().none { it.isComplete && it.photos.size == 1 })
         assertIs<MosaicBandItem>(items.last())
+    }
+
+    @Test
+    fun mosaicFallbackCanIntentionallyRenderFullSpanJustifiedRows() {
+        val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
+        val items = buildPhotoGridItemsWithMosaic(
+            assets = sampleAssets(aspectRatios = listOf(3f, 3f)),
+            assignments = emptyList(),
+            bucketIndex = 0,
+            sectionLabel = "May 2026",
+            layoutSpec = layoutSpec,
+            spacing = 0f,
+            maxRowHeight = 400f
+        )
+
+        val row = assertIs<RowItem>(items.single())
+        assertTrue(row.isComplete)
+        assertEquals(listOf("asset_0", "asset_1"), row.photos.map { it.asset.id })
+        assertTrue(abs(row.contentWidth(spacing = 0f) - layoutSpec.availableWidth) < 0.1f)
+    }
+
+    @Test
+    fun mosaicFallbackCanLeaveFinalWidePhotoFullSpanButIncomplete() {
+        val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
+        val items = buildPhotoGridItemsWithMosaic(
+            assets = sampleAssets(aspectRatios = listOf(400f / mosaicFallbackMinRowHeight(layoutSpec))),
+            assignments = emptyList(),
+            bucketIndex = 0,
+            sectionLabel = "May 2026",
+            layoutSpec = layoutSpec,
+            spacing = 0f,
+            maxRowHeight = 400f
+        )
+
+        val row = assertIs<RowItem>(items.single())
+        assertFalse(row.isComplete)
+        assertEquals(listOf("asset_0"), row.photos.map { it.asset.id })
+        assertEquals(mosaicFallbackMinRowHeight(layoutSpec), row.rowHeight)
+        assertTrue(abs(row.contentWidth(spacing = 0f) - layoutSpec.availableWidth) < 0.1f)
     }
 
     @Test
@@ -356,6 +395,10 @@ class MosaicPackingTest {
                 else -> emptyList()
             }
         }
+
+    private fun RowItem.contentWidth(spacing: Float): Float =
+        photos.sumOf { (it.asset.aspectRatio * rowHeight).toDouble() }.toFloat() +
+            spacing * (photos.size - 1)
 
     private fun MosaicTile.overlaps(other: MosaicTile): Boolean {
         val separated = x + width <= other.x ||

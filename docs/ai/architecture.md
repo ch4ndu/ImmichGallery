@@ -79,6 +79,8 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 ## Room Write-Through Cache
 
 - Timeline, album, people, and asset detail data are cached in Room where the repository supports it.
+- Album Detail and Person Detail use cached-first loading: if Room already has detail assets, render them immediately, refresh the opened detail in the background, and invalidate row/Mosaic layout only when ordered persisted asset content changes.
+- Person detail asset caching starts when a person is opened. The People list sync must not preload every person's detail assets.
 - Repository flow is network fetch, Room upsert or replace, then UI reads from Room or updated domain state.
 - Timeline uses `TimelineBucketEntity`, `AssetEntity`, and `TimelineAssetCrossRef`.
 - Album and people relationships use `AlbumAssetCrossRef` and `PersonAssetCrossRef`.
@@ -93,13 +95,17 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - `PhotoGridDisplayItem` is the shared display model for headers, rows, placeholders, errors, and Mosaic bands.
 - Grid ViewModels hold `targetRowHeight`, row-height bounds, `availableWidth`, persisted `ViewConfig`, and photo-grid display items. They compute layout atomically with data changes.
 - `PhotoGridLayoutRunner` in `ui/util/` is the shared cancellable/debounced runner for expensive zoom-driven photo-grid projections. It coordinates coroutine timing only; domain layout math and screen display models stay in domain/ViewModel code.
+- `MosaicWorkScheduler` in `ui/util/` is the shared priority gate for CPU-heavy Mosaic assignment work. Foreground visible detail groups outrank foreground prefetch, and both outrank Timeline background work; a currently-running Timeline bucket is allowed to finish.
 - `BoxWithConstraints` plus `LaunchedEffect(maxWidth)` measures width and passes it to the ViewModel.
 - `pinchToZoomRowHeight` in `ui/util/PinchToZoom.kt` is the shared grid zoom modifier.
-- Timeline Mosaic assignments are computed asynchronously at runtime and keyed by bucket or section, column count, asset revision, and enabled Mosaic families. Do not let assignments cross day-section boundaries.
+- Timeline content invalidation is per bucket. A successful launch sync must not bump a global asset revision or repack unchanged buckets; only buckets whose ordered assets or persisted server metadata changed should invalidate derived rows and Mosaic assignments. Album and Person detail use the same ordered asset fingerprint idea for their single-screen asset revision.
+- Timeline Mosaic assignments are computed asynchronously at runtime and keyed by bucket or section, column count, per-bucket asset revision, and enabled Mosaic families. Do not let assignments cross day-section boundaries.
+- Album and Person detail screens publish placeholder display items immediately while foreground Mosaic groups wait for the scheduler. Visible groups should be submitted before offscreen prefetch groups, and stale layout generations must not publish results.
 - Mosaic availability is controlled by persisted `ViewConfig`, supported column count, enabled template families, and asset count. Do not gate Mosaic by target row height or timeline group mode.
-- Mosaic fallback rows are still justified rows, but they must disable wide-image promotion and require a minimum of two photos before row completion. Use the larger of `0.75 * MosaicLayoutSpec.cellHeight` and, when valid Mosaic bands exist in the group, `0.5` of the representative Mosaic band height as the fallback packing target. Do not clamp completed row height after packing because that breaks the row's aspect-ratio math.
+- Mosaic fallback rows are intentionally justified full-span rows, but they must use the named Mosaic fallback policy: disable wide-image promotion and require a minimum of two photos before row completion. Use the larger of `0.75 * MosaicLayoutSpec.cellHeight` and, when valid Mosaic bands exist in the group, `1.0` of the representative Mosaic band height as the fallback packing target. Do not clamp completed row height after packing because that breaks the row's aspect-ratio math; a final leftover single-photo row may remain incomplete and still visually span the row when its aspect ratio naturally fits.
 - Mosaic fallback packing must respect valid Mosaic assignment boundaries. If a gap before the next Mosaic band cannot form a complete row, demote the next Mosaic band into fallback rows instead of emitting a non-final incomplete row.
 - Timeline bucket-load display updates must stay immediate for shared-element return transitions; debounce only zoom/config layout work.
+- Non-obvious cache, sync, and layout invalidation rules need nearby code comments that explain the invariant and the failure mode they prevent.
 - Mosaic controls belong only on screens that display photo assets directly, such as Timeline, Album Detail, and Person Detail.
 - Shared element transitions use `SharedTransitionLayout`, matching `sharedBounds` keys, and the `lastSelectedAssetId` pattern so overlay content survives exit animation.
 - `StaticPhotoOverlay` and `TimelinePhotoOverlay` own detail paging, slideshow, and drag-to-dismiss behavior.

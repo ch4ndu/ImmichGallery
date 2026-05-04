@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.domain.usecase.album
 
 import com.udnahc.immichgallery.data.repository.AlbumRepository
+import com.udnahc.immichgallery.domain.model.AlbumDetailSyncResult
 import com.udnahc.immichgallery.domain.model.Asset
 import kotlinx.coroutines.flow.Flow
 
@@ -10,7 +11,7 @@ class GetAlbumDetailUseCase(
     fun observeAssets(albumId: String): Flow<List<Asset>> =
         repository.observeAlbumAssets(albumId)
 
-    suspend fun sync(albumId: String): Result<String> =
+    suspend fun sync(albumId: String): Result<AlbumDetailSyncResult> =
         repository.syncAlbumDetail(albumId)
 
     suspend fun getCachedAlbumName(albumId: String): String? =

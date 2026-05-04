@@ -17,3 +17,9 @@ data class AlbumDetail(
     val assets: List<Asset>,
     val assetCount: Int
 )
+
+@Immutable
+data class AlbumDetailSyncResult(
+    val albumName: String,
+    val changed: Boolean
+)

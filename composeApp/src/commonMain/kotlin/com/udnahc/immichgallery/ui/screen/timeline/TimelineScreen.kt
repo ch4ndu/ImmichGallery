@@ -56,6 +56,7 @@ import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.MosaicPhotoBand
+import com.udnahc.immichgallery.ui.component.PlaceholderRow
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
@@ -498,16 +499,6 @@ fun TimelineContent(
             }
         }
     }
-}
-
-@Composable
-private fun PlaceholderRow(estimatedHeight: Float) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(estimatedHeight.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-    )
 }
 
 @Composable
