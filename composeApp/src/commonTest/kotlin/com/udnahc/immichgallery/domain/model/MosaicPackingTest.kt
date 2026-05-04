@@ -6,6 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class MosaicPackingTest {
     @Test
@@ -62,6 +63,33 @@ class MosaicPackingTest {
         )
 
         assertTrue(assignments.isEmpty())
+    }
+
+    @Test
+    fun progressiveAssignmentsEmitContiguousBandChunks() = runTest {
+        val chunks = mutableListOf<MosaicAssignmentProgressChunk>()
+        val assignments = buildMosaicAssignmentsWithProgress(
+            assets = sampleAssets(80),
+            layoutSpec = layoutSpec(4),
+            spacing = GRID_SPACING_DP,
+            progressBandBatchSize = 2,
+            maxRowHeight = 500f,
+            onProgressChunk = { chunk -> chunks.add(chunk) }
+        )
+
+        assertTrue(assignments.isNotEmpty())
+        assertTrue(chunks.size > 1)
+        assertEquals(assignments, chunks.flatMap { it.assignments })
+        var cursor = 0
+        chunks.forEach { chunk ->
+            assertEquals(cursor, chunk.sourceStartIndex)
+            assertTrue(chunk.sourceEndExclusive > chunk.sourceStartIndex)
+            cursor = chunk.sourceEndExclusive
+        }
+        assertEquals(
+            assignments.last().sourceStartIndex + assignments.last().sourceCount,
+            cursor
+        )
     }
 
     @Test

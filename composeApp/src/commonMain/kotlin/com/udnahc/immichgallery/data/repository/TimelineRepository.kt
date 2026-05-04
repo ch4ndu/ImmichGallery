@@ -26,10 +26,12 @@ import com.udnahc.immichgallery.domain.model.TimelineMosaicCacheStatus
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineMosaicPrecomputeResult
+import com.udnahc.immichgallery.domain.model.TimelineMosaicProgressChunk
 import com.udnahc.immichgallery.domain.model.buildPhotoGridItemsWithMosaic
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForHeight
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.buildMosaicAssignments
+import com.udnahc.immichgallery.domain.model.buildMosaicAssignmentsWithProgress
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.mosaicAssignmentLayoutSpec
 import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
@@ -393,7 +395,8 @@ class TimelineRepository(
         groupSize: TimelineGroupSize,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
-        geometryRequest: TimelineMosaicGeometryRequest? = null
+        geometryRequest: TimelineMosaicGeometryRequest? = null,
+        onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit = {}
     ): Result<TimelineMosaicPrecomputeResult> {
         // Timeline Mosaic is persisted after sync so scrolling does not keep
         // CPU-heavy assignment work alive. The assignment rows are replaced for
@@ -431,7 +434,8 @@ class TimelineRepository(
                                     families = normalizedFamilies,
                                     familiesKey = familiesKey,
                                     assignmentLayoutSpec = layoutSpec,
-                                    geometryRequest = geometryRequest
+                                    geometryRequest = geometryRequest,
+                                    onProgressChunk = onProgressChunk
                                 )
                                 true
                             } catch (e: CancellationException) {
@@ -687,7 +691,8 @@ class TimelineRepository(
         families: Set<MosaicTemplateFamily>,
         familiesKey: String,
         assignmentLayoutSpec: com.udnahc.immichgallery.domain.model.MosaicLayoutSpec,
-        geometryRequest: TimelineMosaicGeometryRequest?
+        geometryRequest: TimelineMosaicGeometryRequest?,
+        onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit = {}
     ) {
         val entities = withContext(Dispatchers.IO) {
             assetDao.getTimelineAssets(timeBucket)
@@ -701,7 +706,8 @@ class TimelineRepository(
             familiesKey = familiesKey,
             assignmentLayoutSpec = assignmentLayoutSpec,
             geometryRequest = geometryRequest,
-            entities = entities
+            entities = entities,
+            onProgressChunk = onProgressChunk
         )
     }
 
@@ -714,7 +720,8 @@ class TimelineRepository(
         familiesKey: String,
         assignmentLayoutSpec: com.udnahc.immichgallery.domain.model.MosaicLayoutSpec,
         geometryRequest: TimelineMosaicGeometryRequest?,
-        entities: List<AssetEntity>
+        entities: List<AssetEntity>,
+        onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit = {}
     ): TimelineBucketGeometryEntity? {
         val fingerprint = orderedAssetsFingerprint(entities)
         val assets = entities.map { it.toDomain(baseUrl()) }
@@ -723,12 +730,36 @@ class TimelineRepository(
         val geometryRows = mutableListOf<TimelineMosaicGeometryEntity>()
         val bucketGeometryItems = mutableListOf<com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem>()
         val rows = sections.map { section ->
-            val assignments = buildMosaicAssignments(
-                assets = section.assets,
-                layoutSpec = assignmentLayoutSpec,
-                spacing = GRID_SPACING_DP,
-                enabledFamilies = families
-            )
+            val assignments = withContext(Dispatchers.Default) {
+                if (geometryRequest != null) {
+                    buildMosaicAssignmentsWithProgress(
+                        assets = section.assets,
+                        layoutSpec = assignmentLayoutSpec,
+                        spacing = GRID_SPACING_DP,
+                        enabledFamilies = families,
+                        maxRowHeight = geometryRequest.maxRowHeight,
+                        onProgressChunk = { chunk ->
+                            onProgressChunk(
+                                TimelineMosaicProgressChunk(
+                                    timeBucket = timeBucket,
+                                    sectionKey = section.sectionKey,
+                                    sectionLabel = section.label,
+                                    sourceStartIndex = chunk.sourceStartIndex,
+                                    sourceEndExclusive = chunk.sourceEndExclusive,
+                                    assignments = chunk.assignments
+                                )
+                            )
+                        }
+                    )
+                } else {
+                    buildMosaicAssignments(
+                        assets = section.assets,
+                        layoutSpec = assignmentLayoutSpec,
+                        spacing = GRID_SPACING_DP,
+                        enabledFamilies = families
+                    )
+                }
+            }
             geometryRequest?.let { request ->
                 computeTimelineMosaicGeometryEntity(
                     timeBucket = timeBucket,

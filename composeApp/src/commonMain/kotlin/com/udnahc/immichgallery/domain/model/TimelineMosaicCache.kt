@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 
 const val TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT = 4
 const val TIMELINE_MOSAIC_LARGE_COLUMN_COUNT = 5
+const val TIMELINE_MOSAIC_PROGRESS_BAND_BATCH_SIZE = 8
 
 @Serializable
 data class MosaicTileAssignmentDto(
@@ -55,6 +56,15 @@ data class TimelineMosaicCacheStatus(
 data class TimelineMosaicPrecomputeResult(
     val successfulBucketIds: Set<String>,
     val failedBucketIds: Set<String>
+)
+
+data class TimelineMosaicProgressChunk(
+    val timeBucket: String,
+    val sectionKey: String,
+    val sectionLabel: String,
+    val sourceStartIndex: Int,
+    val sourceEndExclusive: Int,
+    val assignments: List<MosaicBandAssignment>
 )
 
 fun MosaicBandAssignment.toDto(): MosaicBandAssignmentDto =

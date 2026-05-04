@@ -5,6 +5,7 @@ import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicPrecomputeResult
+import com.udnahc.immichgallery.domain.model.TimelineMosaicProgressChunk
 
 class PrecomputeTimelineMosaicAction(
     private val repository: TimelineRepository
@@ -14,7 +15,15 @@ class PrecomputeTimelineMosaicAction(
         groupSize: TimelineGroupSize,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
-        geometryRequest: TimelineMosaicGeometryRequest? = null
+        geometryRequest: TimelineMosaicGeometryRequest? = null,
+        onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit = {}
     ): Result<TimelineMosaicPrecomputeResult> =
-        repository.precomputeTimelineMosaic(timeBuckets, groupSize, columnCount, families, geometryRequest)
+        repository.precomputeTimelineMosaic(
+            timeBuckets,
+            groupSize,
+            columnCount,
+            families,
+            geometryRequest,
+            onProgressChunk
+        )
 }

@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +55,7 @@ import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT
 import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_LARGE_COLUMN_COUNT
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
+import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.TimelineScrollbarTargetTracker
 import com.udnahc.immichgallery.domain.model.timelineScrollFractionForDisplayIndex
@@ -82,6 +85,11 @@ import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
 private val LARGE_SCREEN_MOSAIC_WIDTH = 840.dp
+
+private data class TimelineScrollAnchor(
+    val assetId: String,
+    val scrollOffset: Int
+)
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -254,8 +262,10 @@ fun TimelineContent(
 ) {
     val displayItems = state.displayItems
     val targetRowHeight = state.targetRowHeight
+    val latestDisplayItems by rememberUpdatedState(displayItems)
     val latestDisplayIndex by rememberUpdatedState(state.displayIndex)
     val latestPageIndex by rememberUpdatedState(state.pageIndex)
+    var scrollAnchor by remember { mutableStateOf<TimelineScrollAnchor?>(null) }
 
     LoadingErrorContent(
         isLoading = state.isLoading && displayItems.isEmpty(),
@@ -263,6 +273,32 @@ fun TimelineContent(
         onRetry = onRetry
     ) {
         key(state.groupSize) {
+            LaunchedEffect(listState) {
+                snapshotFlow {
+                    firstVisibleAssetAnchor(
+                        displayItems = latestDisplayItems,
+                        visibleItems = listState.layoutInfo.visibleItemsInfo
+                    )
+                }
+                    .distinctUntilChanged()
+                    .collectLatest { anchor ->
+                        if (anchor != null) {
+                            scrollAnchor = anchor
+                        }
+                    }
+            }
+            LaunchedEffect(state.displayIndex) {
+                val anchor = scrollAnchor ?: return@LaunchedEffect
+                if (listState.isScrollInProgress) return@LaunchedEffect
+                val targetIndex = latestDisplayIndex.assetDisplayIndexById[anchor.assetId] ?: return@LaunchedEffect
+                val currentAnchor = firstVisibleAssetAnchor(
+                    displayItems = latestDisplayItems,
+                    visibleItems = listState.layoutInfo.visibleItemsInfo
+                )
+                if (currentAnchor?.assetId != anchor.assetId) {
+                    listState.scrollToItem(targetIndex, anchor.scrollOffset)
+                }
+            }
             LaunchedEffect(listState) {
                 snapshotFlow {
                     visibleBucketIndexesForDisplayIndexes(
@@ -375,33 +411,17 @@ fun TimelineContent(
                             }
                         ) {
                             items(
-                                count = displayItems.size,
-                                key = { displayItems[it].gridKey },
-                                contentType = { displayItems[it]::class }
-                            ) { index ->
-                                when (val item = displayItems[index]) {
-                                    is HeaderItem -> SectionHeader(label = item.label)
-                                    is RowItem -> JustifiedPhotoRow(
-                                        row = item,
-                                        spacing = Dimens.gridSpacing,
-                                        onPhotoClick = onPhotoClick,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        hiddenAssetId = hiddenAssetId,
-                                    )
-                                    is MosaicBandItem -> MosaicPhotoBand(
-                                        band = item,
-                                        onPhotoClick = onPhotoClick,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        hiddenAssetId = hiddenAssetId,
-                                    )
-                                    is PlaceholderItem -> PlaceholderRow(
-                                        estimatedHeight = item.estimatedHeight
-                                    )
-                                    is ErrorItem -> ErrorCell(
-                                        onRetry = { onRetryBucket(item.timeBucket) }
-                                    )
-                                    is PhotoItem -> { /* Should not appear at top level with row packing */ }
-                                }
+                                items = displayItems,
+                                key = { item -> item.gridKey },
+                                contentType = { item -> item::class }
+                            ) { item ->
+                                TimelineDisplayItemRenderer(
+                                    item = item,
+                                    hiddenAssetId = hiddenAssetId,
+                                    onPhotoClick = onPhotoClick,
+                                    onRetryBucket = onRetryBucket,
+                                    sharedTransitionScope = sharedTransitionScope
+                                )
                             }
                         }
                     }
@@ -416,7 +436,7 @@ fun TimelineContent(
                     ) {
                         StickyHeaderOverlay(
                             listState = listState,
-                            displayItems = displayItems,
+                            displayIndex = state.displayIndex,
                             statusBarPadding = statusBarPadding
                         )
                     }
@@ -454,6 +474,59 @@ fun TimelineContent(
     }
 }
 
+private fun firstVisibleAssetAnchor(
+    displayItems: List<TimelineDisplayItem>,
+    visibleItems: List<LazyListItemInfo>
+): TimelineScrollAnchor? =
+    visibleItems
+        .asSequence()
+        .mapNotNull { itemInfo ->
+            displayItems.getOrNull(itemInfo.index)
+                ?.firstAssetId()
+                ?.let { assetId -> TimelineScrollAnchor(assetId, itemInfo.offset) }
+        }
+        .firstOrNull()
+
+private fun TimelineDisplayItem.firstAssetId(): String? =
+    when (this) {
+        is PhotoItem -> asset.id
+        is RowItem -> photos.firstOrNull()?.asset?.id
+        is MosaicBandItem -> tiles.minByOrNull { it.visualOrder }?.photo?.asset?.id
+        is HeaderItem,
+        is PlaceholderItem,
+        is ErrorItem -> null
+    }
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun TimelineDisplayItemRenderer(
+    item: TimelineDisplayItem,
+    hiddenAssetId: String?,
+    onPhotoClick: (String) -> Unit,
+    onRetryBucket: (String) -> Unit,
+    sharedTransitionScope: SharedTransitionScope?
+) {
+    when (item) {
+        is HeaderItem -> SectionHeader(label = item.label)
+        is RowItem -> JustifiedPhotoRow(
+            row = item,
+            spacing = Dimens.gridSpacing,
+            onPhotoClick = onPhotoClick,
+            sharedTransitionScope = sharedTransitionScope,
+            hiddenAssetId = hiddenAssetId,
+        )
+        is MosaicBandItem -> MosaicPhotoBand(
+            band = item,
+            onPhotoClick = onPhotoClick,
+            sharedTransitionScope = sharedTransitionScope,
+            hiddenAssetId = hiddenAssetId,
+        )
+        is PlaceholderItem -> PlaceholderRow(estimatedHeight = item.estimatedHeight)
+        is ErrorItem -> ErrorCell(onRetry = { onRetryBucket(item.timeBucket) })
+        is PhotoItem -> Unit
+    }
+}
+
 @Composable
 private fun ErrorCell(onRetry: () -> Unit) {
     val failedText = stringResource(Res.string.timeline_failed_tap_retry)
@@ -475,16 +548,23 @@ private fun ErrorCell(onRetry: () -> Unit) {
 @Composable
 private fun StickyHeaderOverlay(
     listState: LazyListState,
-    displayItems: List<TimelineDisplayItem>,
+    displayIndex: TimelineDisplayIndex,
     statusBarPadding: Dp
 ) {
-    val label by remember(displayItems) {
+    val latestDisplayIndex by rememberUpdatedState(displayIndex)
+    var retainedLabel by remember { mutableStateOf<String?>(null) }
+    val label by remember(listState) {
         derivedStateOf {
-            displayItems.getOrNull(listState.firstVisibleItemIndex)?.sectionLabel
+            latestDisplayIndex.sectionLabelByDisplayIndex.getOrNull(listState.firstVisibleItemIndex)
+        }
+    }
+    LaunchedEffect(label) {
+        if (label != null) {
+            retainedLabel = label
         }
     }
 
-    val currentLabel = label
+    val currentLabel = label ?: retainedLabel
     if (currentLabel != null) {
         Box(
             modifier = Modifier
@@ -523,7 +603,7 @@ private fun StickyHeaderOverlayPreview() {
     val listState = rememberLazyListState()
     StickyHeaderOverlay(
         listState = listState,
-        displayItems = emptyList(),
+        displayIndex = TimelineDisplayIndex(),
         statusBarPadding = 0.dp
     )
 }

@@ -31,7 +31,8 @@ class TimelineScrollbarTargetTracker {
 data class TimelineDisplayIndex(
     val bucketByDisplayIndex: List<Int> = emptyList(),
     val displayIndexesByBucket: Map<Int, List<Int>> = emptyMap(),
-    val assetDisplayIndexById: Map<String, Int> = emptyMap()
+    val assetDisplayIndexById: Map<String, Int> = emptyMap(),
+    val sectionLabelByDisplayIndex: List<String> = emptyList()
 )
 
 fun buildTimelineDisplayIndex(displayItems: List<TimelineDisplayItem>): TimelineDisplayIndex {
@@ -41,10 +42,12 @@ fun buildTimelineDisplayIndex(displayItems: List<TimelineDisplayItem>): Timeline
 fun buildPhotoGridDisplayIndex(displayItems: List<PhotoGridDisplayItem>): TimelineDisplayIndex {
     if (displayItems.isEmpty()) return TimelineDisplayIndex()
     val bucketByDisplayIndex = ArrayList<Int>(displayItems.size)
+    val sectionLabelByDisplayIndex = ArrayList<String>(displayItems.size)
     val mutableDisplayIndexesByBucket = linkedMapOf<Int, MutableList<Int>>()
     val mutableAssetDisplayIndexById = linkedMapOf<String, Int>()
     displayItems.forEachIndexed { index, item ->
         bucketByDisplayIndex.add(item.bucketIndex)
+        sectionLabelByDisplayIndex.add(item.sectionLabel)
         mutableDisplayIndexesByBucket.getOrPut(item.bucketIndex) { mutableListOf() }.add(index)
         when (item) {
             is PhotoItem -> mutableAssetDisplayIndexById[item.asset.id] = index
@@ -62,7 +65,8 @@ fun buildPhotoGridDisplayIndex(displayItems: List<PhotoGridDisplayItem>): Timeli
     return TimelineDisplayIndex(
         bucketByDisplayIndex = bucketByDisplayIndex,
         displayIndexesByBucket = mutableDisplayIndexesByBucket,
-        assetDisplayIndexById = mutableAssetDisplayIndexById
+        assetDisplayIndexById = mutableAssetDisplayIndexById,
+        sectionLabelByDisplayIndex = sectionLabelByDisplayIndex
     )
 }
 

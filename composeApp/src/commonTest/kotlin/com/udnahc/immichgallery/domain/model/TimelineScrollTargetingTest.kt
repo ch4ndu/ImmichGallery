@@ -48,6 +48,31 @@ class TimelineScrollTargetingTest {
     }
 
     @Test
+    fun displayIndexMapsSectionLabelsByDisplayIndex() {
+        val displayItems: List<PhotoGridDisplayItem> = listOf(
+            header(bucketIndex = 0),
+            PlaceholderItem(
+                gridKey = "p_month",
+                bucketIndex = 0,
+                sectionLabel = "January 2026"
+            ),
+            HeaderItem(
+                gridKey = "h_day",
+                bucketIndex = 0,
+                sectionLabel = "January 7",
+                label = "January 7"
+            )
+        )
+
+        val displayIndex = buildPhotoGridDisplayIndex(displayItems)
+
+        assertEquals(
+            listOf("0", "January 2026", "January 7"),
+            displayIndex.sectionLabelByDisplayIndex
+        )
+    }
+
+    @Test
     fun photoGridDisplayIndexMapsAssetsInsideRowsAndMosaicBands() {
         val rowAsset = asset("row")
         val mosaicAsset = asset("mosaic")

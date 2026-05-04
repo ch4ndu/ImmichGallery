@@ -268,6 +268,12 @@ assignment calculation happens after server sync for buckets whose ordered asset
 content changed. Scrolling normally or dragging the scrollbar only reads
 persisted Mosaic assignments for loaded visible/nearby buckets.
 
+Changed or missing Timeline Mosaic rows may also publish session-only
+progressive chunks while the full assignment pass is still running. Progressive
+chunks are not a Room persistence contract: they exist only in ViewModel runtime
+state so large sections can show ready Mosaic content before the final complete
+section row is written.
+
 ### When Mosaic Is Computed
 
 Mosaic assignments are computed in these cases:
@@ -305,6 +311,12 @@ For each bucket:
    - day group mode splits assets by local date and writes one section per day.
 5. For each section, call `buildMosaicAssignments()` using the fixed assignment
    `MosaicLayoutSpec`, grid spacing, and normalized enabled families.
+   When progressive runtime updates are enabled for a missing or changed
+   section, the same source-order scan emits an in-memory chunk after each
+   stable batch of eight Mosaic bands. A chunk owns a contiguous source-asset
+   range and may include delayed fallback gaps; unresolved gaps are held until a
+   later batch so fallback rows do not strand incomplete rows before a future
+   Mosaic boundary.
 6. If a measured Timeline width is available, replay the assignments through
    the real display `MosaicLayoutSpec` and persist exact placeholder geometry
    summaries in `timeline_mosaic_geometry`.
@@ -313,6 +325,30 @@ For each bucket:
 8. Replace rows for that exact bucket/group/column/family config in
    `timeline_mosaic_assignments`, section geometry, and aggregate bucket
    geometry.
+
+Progressive chunks use the same generation, group mode, column count, Mosaic
+families, bucket revision, and full-screen geometry identity as persisted cache
+reads. Stale chunks must be ignored after a config, width, or content-revision
+change. Once the complete persisted section row is available, `Ready`
+assignments replace the partial runtime chunks.
+
+Partial rendering must preserve source order: ready chunks render their final
+Mosaic/fallback display items, and pending source ranges render placeholders.
+Those placeholders use range-specific keys so LazyColumn identity does not
+collide with full-section placeholders. Exact aggregate bucket geometry still
+protects unloaded bucket height; partial section placeholders are best-effort
+until the remaining Mosaic bands are computed, so the screen anchors the first
+visible real asset when chunks replace placeholders above or inside the
+viewport.
+
+Progressive chunks are buffered in the ViewModel before entering
+`_mosaicStates`. The buffer is protected by a mutex, deduplicates chunks by
+source range, and only drains chunks for visible, nearby, or explicitly targeted
+buckets. New chunk arrivals use a short 250 ms throttle so a large bucket does
+not rebuild Timeline state for every computed band batch; visibility and
+scrollbar-target changes flush immediately. The buffer has no memory cap today:
+chunks are session-only, cleared on bucket/config invalidation, and superseded
+by complete persisted assignment rows when those rows become available.
 
 ```mermaid
 graph TD
@@ -353,6 +389,10 @@ Normal scroll is driven by `snapshotFlow` over visible lazy-list item indexes in
    state combine pipeline rebuilds only bucket/section display items whose cache
    key changed. Cache-read jobs superseded by newer visible/target requests are
    normal cancellation and should not be logged as load failures.
+7. If progressive Mosaic chunks were buffered for any visible or nearby bucket,
+   the ViewModel flushes them immediately; offscreen chunks remain buffered
+   until their bucket becomes visible, nearby, targeted, invalidated, or
+   replaced by a complete persisted row.
 
 ```mermaid
 sequenceDiagram
@@ -480,6 +520,27 @@ of the following:
 content types based on display-item class. It also owns visible bucket reporting,
 scrollbar callbacks, sticky header overlay, and sync banners.
 
+Timeline remaps placeholder and Mosaic band keys into Timeline-local keys that
+include bucket and section identity. Shared grid builders may produce keys that
+are only unique inside one section; reusing those keys directly in the full
+Timeline list can make Compose reuse the wrong item when placeholders transition
+to partial or ready Mosaic rows. The screen renders with item-based
+`LazyColumn.items(...)`, not index-based access, so content identity is driven by
+these stable keys and display-item content type.
+
+The sticky month header should derive its label from `TimelineDisplayIndex`, not
+by rescanning or keying effects on the full `displayItems` list. The display
+index carries `sectionLabelByDisplayIndex`, so the header can map the current
+first visible item to a label even while progressive Mosaic updates replace rows
+inside the same bucket. During a transient index/key mismatch it keeps the last
+non-null label instead of briefly clearing the header.
+
+When display items change while the user is scrolled inside loaded content, the
+screen anchors the first visible real asset and its current item offset. After
+the new `TimelineDisplayIndex` is published, it scrolls that asset back to the
+same offset. This preserves the visible position when placeholders above or
+inside the viewport are replaced by partial or ready Mosaic rows.
+
 ## Overlay And Return Targeting
 
 `TimelineScreen` keeps the grid composed behind `TimelinePhotoOverlay` so
@@ -515,6 +576,15 @@ materialized yet.
   exact persisted geometry first, geometry backfilled from persisted
   assignments second, cached-asset aspect projection third, count-only metadata
   estimates last.
+- Placeholder and Mosaic item keys must remain stable across placeholder,
+  partial, and ready transitions. Include Timeline bucket and section identity
+  when shared grid builders return section-local keys.
+- Sticky header labels must use the precomputed Timeline display index and
+  retain the last non-null label during transient progressive updates; do not
+  key header state directly on the whole display-item list.
+- Progressive Mosaic chunks should be throttled before publishing to UI state,
+  but visibility and scrollbar-target changes must flush eligible chunks
+  immediately. Do not debounce visible/target bucket loading.
 - Aggregate geometry reads for warm launch are generation/config guarded. Stale
   reads from a previous group, Mosaic family set, column count, width, or
   full-screen height must be ignored.
