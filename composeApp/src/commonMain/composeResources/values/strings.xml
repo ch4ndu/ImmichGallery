@@ -20,6 +20,7 @@
     <string name="logout">Logout</string>
     <string name="cancel">Cancel</string>
     <string name="done">Done</string>
+    <string name="apply">Apply</string>
     <string name="dismiss">Dismiss</string>
     <string name="refresh">Refresh</string>
     <string name="server_online">Server online</string>
@@ -72,7 +73,16 @@
     <string name="mosaic">Mosaic</string>
     <string name="mosaic_settings">Mosaic settings</string>
     <string name="mosaic_settings_title">Mosaic layout</string>
-    <string name="mosaic_settings_warning">Mosaic uses fixed columns while enabled, so pinch zoom and Timeline grouping are disabled. New Timeline mosaic layouts are computed after server sync and reused from cache.</string>
+    <string name="mosaic_settings_warning">Mosaic disables Timeline grouping while enabled. Zoom can be disabled here. Cached results are reused when available; missing cache entries fall back to runtime construction.</string>
+    <string name="mosaic_settings_tab_options">Options</string>
+    <string name="mosaic_settings_tab_columns">Columns</string>
+    <string name="mosaic_columns_title">Column count</string>
+    <string name="mosaic_columns_option">%1$d columns</string>
+    <string name="mosaic_apply_blocking_warning">Applying cached Mosaic changes prepares the full view cache before closing. The app cannot be used until this finishes.</string>
+    <string name="mosaic_apply_preparing">Preparing Mosaic cache…</string>
+    <string name="mosaic_apply_failed">Failed to prepare Mosaic cache</string>
+    <string name="mosaic_cache_results">Cache results</string>
+    <string name="mosaic_disable_zoom">Disable zoom</string>
     <string name="mosaic_family_four">4-tile variants</string>
     <string name="mosaic_family_five">5-tile variants</string>
     <string name="mosaic_family_six">6-tile variants</string>

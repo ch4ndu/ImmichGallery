@@ -6,7 +6,10 @@ import androidx.room.Index
 @Entity(
     tableName = "timeline_mosaic_assignments",
     primaryKeys = ["timeBucket", "groupMode", "sectionKey", "columnCount", "familiesKey"],
-    indices = [Index("timeBucket")]
+    indices = [
+        Index("timeBucket"),
+        Index("groupMode", "columnCount", "familiesKey", "timeBucket")
+    ]
 )
 data class TimelineMosaicAssignmentEntity(
     val timeBucket: String,

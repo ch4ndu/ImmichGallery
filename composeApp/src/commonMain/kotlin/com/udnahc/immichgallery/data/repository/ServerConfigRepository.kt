@@ -42,6 +42,9 @@ class ServerConfigRepository(private val settings: Settings) {
     fun setViewConfig(config: ViewConfig) {
         val normalized = config.normalized
         settings.putBoolean(VIEW_CONFIG_MOSAIC_ENABLED_KEY, normalized.mosaicEnabled)
+        settings.putBoolean(VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY, normalized.cacheMosaicResults)
+        settings.putBoolean(VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY, normalized.disableZoomWhenMosaicEnabled)
+        settings.putInt(VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY, normalized.mosaicColumnCount)
         settings.putString(
             VIEW_CONFIG_MOSAIC_FAMILIES_KEY,
             normalized.mosaicFamilies.joinToString(",") { it.persistedId }
@@ -83,7 +86,19 @@ class ServerConfigRepository(private val settings: Settings) {
                 VIEW_CONFIG_MOSAIC_ENABLED_KEY,
                 ViewConfig().mosaicEnabled
             ),
-            mosaicFamilies = savedFamilies.ifEmpty { MosaicTemplateFamily.defaultSet() }
+            mosaicFamilies = savedFamilies.ifEmpty { MosaicTemplateFamily.defaultSet() },
+            cacheMosaicResults = settings.getBoolean(
+                VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY,
+                ViewConfig().cacheMosaicResults
+            ),
+            disableZoomWhenMosaicEnabled = settings.getBoolean(
+                VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY,
+                ViewConfig().disableZoomWhenMosaicEnabled
+            ),
+            mosaicColumnCount = settings.getInt(
+                VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY,
+                ViewConfig().mosaicColumnCount
+            )
         )
     }
 
@@ -99,5 +114,8 @@ class ServerConfigRepository(private val settings: Settings) {
         const val LEGACY_TIMELINE_TARGET_ROW_HEIGHT_KEY = "target_row_height"
         const val VIEW_CONFIG_MOSAIC_ENABLED_KEY = "view_config_mosaic_enabled"
         const val VIEW_CONFIG_MOSAIC_FAMILIES_KEY = "view_config_mosaic_families"
+        const val VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY = "view_config_cache_mosaic_results"
+        const val VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY = "view_config_disable_mosaic_zoom"
+        const val VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY = "view_config_mosaic_column_count"
     }
 }

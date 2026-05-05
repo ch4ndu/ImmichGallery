@@ -107,6 +107,7 @@ fun PersonDetailScreen(
                 onAvailableWidth = viewModel::setAvailableWidth,
                 onAvailableViewportHeight = viewModel::setAvailableViewportHeight,
                 onVisibleBucketIndexesChanged = viewModel::setVisibleBucketIndexes,
+                onScrollInProgressChanged = viewModel::setScrollInProgress,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 contentTopPadding = contentTopPadding,
                 contentBottomPadding = contentBottomPadding,
@@ -145,7 +146,8 @@ fun PersonDetailScreen(
                             groupSize = state.groupSize,
                             viewConfig = state.viewConfig,
                             onGroupSizeSelected = viewModel::setGroupSize,
-                            onViewConfigChanged = viewModel::setViewConfig
+                            onViewConfigChanged = viewModel::setViewConfig,
+                            onPrepareViewConfig = viewModel::prepareMosaicViewConfig
                         )
                     }
                 )
@@ -173,6 +175,7 @@ fun PersonDetailContent(
     onAvailableWidth: (Float) -> Unit,
     onAvailableViewportHeight: (Float) -> Unit = {},
     onVisibleBucketIndexesChanged: (List<Int>) -> Unit = {},
+    onScrollInProgressChanged: (Boolean) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
@@ -192,12 +195,14 @@ fun PersonDetailContent(
         hiddenAssetId = hiddenAssetId,
         targetRowHeight = state.targetRowHeight,
         rowHeightBounds = state.rowHeightBounds,
+        viewConfig = state.viewConfig,
         onPhotoClick = onPhotoClick,
         onRetry = onRetry,
         onDismissBanner = onDismissBanner,
         onAvailableWidthChanged = onAvailableWidth,
         onAvailableViewportHeightChanged = onAvailableViewportHeight,
         onVisibleBucketIndexesChanged = onVisibleBucketIndexesChanged,
+        onScrollInProgressChanged = onScrollInProgressChanged,
         onTargetRowHeightChanged = onTargetRowHeightChanged,
         contentTopPadding = contentTopPadding,
         contentBottomPadding = contentBottomPadding,

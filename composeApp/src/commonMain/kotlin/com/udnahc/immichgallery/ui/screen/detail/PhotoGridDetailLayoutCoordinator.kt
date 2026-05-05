@@ -1,6 +1,9 @@
 package com.udnahc.immichgallery.ui.screen.detail
 
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.DetailMosaicCacheEntry
+import com.udnahc.immichgallery.domain.model.DetailMosaicCacheLookup
+import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.HeaderItem
@@ -13,18 +16,28 @@ import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.buildMosaicAssignments
 import com.udnahc.immichgallery.domain.model.buildPhotoGridItemsWithMosaic
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItems
+import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForHeight
 import com.udnahc.immichgallery.domain.model.defaultTargetRowHeightForWidth
+import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.groupAssets
 import com.udnahc.immichgallery.domain.model.mosaicFallbackRowHeight
-import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecFor
+import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
+import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheDimensionKey
+import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheFamiliesKey
+import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheWidthKey
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
+import com.udnahc.immichgallery.ui.util.MosaicWorkCancelledException
 import com.udnahc.immichgallery.ui.util.MosaicWorkPriority
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.lighthousegames.logging.logging
 
 data class PhotoGridDetailLayoutSnapshot(
@@ -56,6 +69,11 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private val withDisplayItems: (S, List<PhotoGridDisplayItem>) -> S,
     private val persistTargetRowHeight: suspend (RowHeightScope, Float) -> Unit,
     private val persistViewConfig: (ViewConfig) -> Unit,
+    private val cacheOwnerType: DetailMosaicCacheOwnerType? = null,
+    private val cacheOwnerId: String = "",
+    private val isPersistentCacheComplete: () -> Boolean = { true },
+    private val readPersistentCache: suspend (DetailMosaicCacheLookup) -> List<DetailMosaicCacheEntry> = { emptyList() },
+    private val upsertPersistentCache: suspend (DetailMosaicCacheEntry) -> Unit = {},
     private val layoutRunner: PhotoGridLayoutRunner = PhotoGridLayoutRunner(scope),
     private val rowHeightPersistenceRunner: PhotoGridLayoutRunner = PhotoGridLayoutRunner(scope)
 ) {
@@ -68,6 +86,11 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private var displayCache: CachedDisplayItems? = null
     private val groupDisplayCache = mutableMapOf<DetailGroupDisplayCacheKey, List<PhotoGridDisplayItem>>()
     private var visibleBucketIndexes: List<Int> = listOf(0)
+    private var isScrollInProgress = false
+    private val deferredMosaicGroupItems = mutableMapOf<Int, List<PhotoGridDisplayItem>>()
+    private var deferredMosaicFlushJob: Job? = null
+    private val persistentCacheRenderer = CachedPhotoGridMosaicRenderer()
+    private val runtimeRenderer = RuntimePhotoGridMosaicRenderer()
 
     fun activateForegroundMosaic() {
         scope.launch {
@@ -153,6 +176,57 @@ class PhotoGridDetailLayoutCoordinator<S>(
         scheduleDisplayItems()
     }
 
+    suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> {
+        val normalized = config.normalized
+        if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return Result.success(Unit)
+        val snapshot = snapshotOf(getState())
+        if (snapshot.assets.isEmpty()) return Result.success(Unit)
+        if (!isPersistentCacheComplete()) {
+            return Result.failure(IllegalStateException("Detail Mosaic cache requires a complete owner snapshot"))
+        }
+        val layoutSpec = mosaicLayoutSpecForColumnCount(snapshot.availableWidth, normalized.mosaicColumnCount)
+            ?: return Result.failure(IllegalStateException("Detail Mosaic metrics are not ready"))
+        val lookup = persistentCacheLookup(snapshot.copy(viewConfig = normalized), layoutSpec.cellHeight)
+            ?: return Result.failure(IllegalStateException("Detail Mosaic cache is unavailable"))
+        return runCatching {
+            val existing = readPersistentCache(lookup).associateBy {
+                DetailPersistentGroupKey(it.sectionIndex, it.sectionKey, it.assetFingerprint)
+            }
+            val groups = groupAssets(snapshot.assets, snapshot.groupSize)
+            groups.forEachIndexed { index, assetGroup ->
+                val group = IndexedAssetGroup(index, assetGroup.label, assetGroup.assets)
+                val fingerprint = group.assets.detailPersistentFingerprint()
+                val persistentKey = DetailPersistentGroupKey(group.index, group.label, fingerprint)
+                if (existing[persistentKey] != null) return@forEachIndexed
+                val groupItems = withContext(Dispatchers.Default) {
+                    val assignments = buildMosaicAssignments(
+                        assets = group.assets,
+                        layoutSpec = layoutSpec,
+                        spacing = GRID_SPACING_DP,
+                        enabledFamilies = normalized.mosaicFamilies
+                    )
+                    groupHeader(group) + buildPhotoGridItemsWithMosaic(
+                        assets = group.assets,
+                        assignments = assignments,
+                        bucketIndex = group.index,
+                        sectionLabel = group.label,
+                        layoutSpec = layoutSpec,
+                        spacing = GRID_SPACING_DP,
+                        maxRowHeight = snapshot.rowHeightBounds.max,
+                        promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
+                        minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
+                    )
+                }
+                runtimeRenderer.groupCacheEntry(
+                    group = group,
+                    groupItems = groupItems,
+                    assetFingerprint = fingerprint,
+                    lookup = lookup
+                )?.let { upsertPersistentCache(it) }
+            }
+        }
+    }
+
     fun onViewConfigObserved(config: ViewConfig) {
         val normalized = config.normalized
         if (normalized == snapshotOf(getState()).viewConfig) return
@@ -166,12 +240,24 @@ class PhotoGridDetailLayoutCoordinator<S>(
         if (next == visibleBucketIndexes) return
         visibleBucketIndexes = next
         if (snapshotOf(getState()).viewConfig.mosaicEnabled) {
+            flushDeferredMosaicGroups(visibleWindowOnly = true)
             scope.launch {
                 mosaicWorkScheduler.reprioritizePending(
                     ownerKey = ownerKey,
                     visibleRequestKeys = next.map(::mosaicGroupRequestKey).toSet()
                 )
             }
+        }
+    }
+
+    fun setScrollInProgress(inProgress: Boolean) {
+        if (inProgress == isScrollInProgress) return
+        isScrollInProgress = inProgress
+        if (inProgress) {
+            deferredMosaicFlushJob?.cancel()
+            deferredMosaicFlushJob = null
+        } else {
+            scheduleDeferredMosaicFlush()
         }
     }
 
@@ -224,7 +310,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 }
                 return@launch
             }
-            val layoutSpec = mosaicLayoutSpecFor(snapshot.availableWidth, snapshot.targetRowHeight)
+            val layoutSpec = mosaicLayoutSpecForSnapshot(snapshot)
             if (snapshot.viewConfig.mosaicEnabled &&
                 layoutSpec != null &&
                 snapshot.assets.isNotEmpty() &&
@@ -248,11 +334,24 @@ class PhotoGridDetailLayoutCoordinator<S>(
         revision: Int,
         cacheKey: DetailDisplayCacheKey
     ) {
-        val layoutSpec = mosaicLayoutSpecFor(snapshot.availableWidth, snapshot.targetRowHeight) ?: return
+        val layoutSpec = mosaicLayoutSpecForSnapshot(snapshot) ?: return
+        val persistentCacheLookup = persistentCacheLookup(snapshot, layoutSpec.cellHeight)
+        val persistentCacheEntries = if (persistentCacheLookup != null) {
+            runCatching { readPersistentCache(persistentCacheLookup) }
+                .onFailure { e -> log.e(e) { "Failed to read Mosaic cache for $logTag owner=$cacheOwnerId" } }
+                .getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+        val persistentCacheByGroup = persistentCacheEntries.associateBy {
+            DetailPersistentGroupKey(it.sectionIndex, it.sectionKey, it.assetFingerprint)
+        }
         val keyedGroups = groupAssets(snapshot.assets, snapshot.groupSize).mapIndexed { index, group ->
             val indexedGroup = IndexedAssetGroup(index, group.label, group.assets)
+            val assetFingerprint = group.assets.detailPersistentFingerprint()
             KeyedAssetGroup(
                 group = indexedGroup,
+                assetFingerprint = assetFingerprint,
                 cacheKey = snapshot.groupDisplayCacheKey(
                     bucketIndex = indexedGroup.index,
                     sectionLabel = indexedGroup.label,
@@ -262,12 +361,21 @@ class PhotoGridDetailLayoutCoordinator<S>(
             )
         }
         val initialItems = keyedGroups.flatMap { keyed ->
-            groupDisplayCache[keyed.cacheKey] ?: placeholderItemsForGroup(
+            groupDisplayCache[keyed.cacheKey]
+                ?: persistentCacheRenderer.cachedGroupItems(
+                    group = keyed.group,
+                    assetFingerprint = keyed.assetFingerprint,
+                    cachedEntries = persistentCacheByGroup
+                )?.also { items -> groupDisplayCache[keyed.cacheKey] = items }
+                ?: placeholderItemsForGroup(
                 bucketIndex = keyed.group.index,
                 sectionLabel = keyed.group.label,
                 assets = keyed.group.assets,
                 availableWidth = snapshot.availableWidth,
-                targetRowHeight = layoutSpec.cellHeight
+                targetRowHeight = layoutSpec.cellHeight,
+                cachedPlaceholderHeight = persistentCacheByGroup[
+                    DetailPersistentGroupKey(keyed.group.index, keyed.group.label, keyed.assetFingerprint)
+                ]?.placeholderHeight
             )
         }
         if (layoutRunner.isCurrent(runnerGeneration) &&
@@ -315,6 +423,13 @@ class PhotoGridDetailLayoutCoordinator<S>(
                     promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
                     minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
                 )
+            } catch (e: MosaicWorkCancelledException) {
+                if (!layoutRunner.isCurrent(runnerGeneration) ||
+                    mosaicGeneration != mosaicLayoutGeneration ||
+                    revision != assetRevision
+                ) return
+                remainingGroups.add(keyedGroup)
+                continue
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -340,9 +455,25 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 revision != assetRevision
             ) return
             groupDisplayCache[keyedGroup.cacheKey] = groupItems
-            updateState { state ->
-                val current = snapshotOf(state)
-                withDisplayItems(state, replaceGroupItems(current.displayItems, group.index, groupItems))
+            if (shouldPublishMosaicGroupImmediately(group.index)) {
+                deferredMosaicGroupItems.remove(group.index)
+                publishMosaicGroupItems(mapOf(group.index to groupItems))
+            } else {
+                deferredMosaicGroupItems[group.index] = groupItems
+                scheduleDeferredMosaicFlush()
+            }
+            persistentCacheLookup?.let { lookup ->
+                runtimeRenderer.writeGroupCacheAsync(
+                    scope = scope,
+                    group = group,
+                    groupItems = groupItems,
+                    assetFingerprint = keyedGroup.assetFingerprint,
+                    lookup = lookup,
+                    upsert = upsertPersistentCache,
+                    onFailure = { e ->
+                        log.e(e) { "Failed to write Mosaic cache for $logTag owner=$cacheOwnerId section=${group.label}" }
+                    }
+                )
             }
         }
         if (layoutRunner.isCurrent(runnerGeneration) &&
@@ -357,7 +488,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         if (snapshot.assets.isEmpty() || snapshot.availableWidth <= 0f) return emptyList()
         val groups = groupAssets(snapshot.assets, snapshot.groupSize)
         val items = mutableListOf<PhotoGridDisplayItem>()
-        val mosaicLayoutSpec = mosaicLayoutSpecFor(snapshot.availableWidth, snapshot.targetRowHeight)
+        val mosaicLayoutSpec = mosaicLayoutSpecForSnapshot(snapshot)
         for ((index, group) in groups.withIndex()) {
             if (group.label.isNotEmpty()) {
                 items.add(HeaderItem(
@@ -442,9 +573,17 @@ class PhotoGridDetailLayoutCoordinator<S>(
         sectionLabel: String,
         assets: List<Asset>,
         availableWidth: Float,
-        targetRowHeight: Float
-    ): List<PhotoGridDisplayItem> =
-        groupHeader(IndexedAssetGroup(bucketIndex, sectionLabel, assets)) +
+        targetRowHeight: Float,
+        cachedPlaceholderHeight: Float? = null
+    ): List<PhotoGridDisplayItem> {
+        val header = groupHeader(IndexedAssetGroup(bucketIndex, sectionLabel, assets))
+        val placeholders = if (cachedPlaceholderHeight != null && cachedPlaceholderHeight > 0f) {
+            buildPhotoGridPlaceholderItemsForHeight(
+                bucketIndex = bucketIndex,
+                sectionLabel = sectionLabel,
+                estimatedHeight = cachedPlaceholderHeight
+            )
+        } else {
             buildPhotoGridPlaceholderItems(
                 bucketIndex = bucketIndex,
                 sectionLabel = sectionLabel,
@@ -452,6 +591,47 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 availableWidth = availableWidth,
                 targetRowHeight = targetRowHeight
             )
+        }
+        return header + placeholders
+    }
+
+    private fun shouldPublishMosaicGroupImmediately(bucketIndex: Int): Boolean =
+        !isScrollInProgress || bucketIndex in visibleBucketWindow()
+
+    private fun visibleBucketWindow(): Set<Int> =
+        visibleBucketIndexes.flatMap { index -> (index - VISIBLE_GROUP_PREFETCH_RADIUS)..(index + VISIBLE_GROUP_PREFETCH_RADIUS) }
+            .filter { it >= 0 }
+            .toSet()
+
+    private fun scheduleDeferredMosaicFlush() {
+        if (isScrollInProgress || deferredMosaicGroupItems.isEmpty()) return
+        if (deferredMosaicFlushJob?.isActive == true) return
+        deferredMosaicFlushJob = scope.launch {
+            delay(DEFERRED_MOSAIC_FLUSH_DELAY_MS)
+            flushDeferredMosaicGroups(visibleWindowOnly = false)
+        }
+    }
+
+    private fun flushDeferredMosaicGroups(visibleWindowOnly: Boolean) {
+        if (deferredMosaicGroupItems.isEmpty()) return
+        val eligibleIndexes = if (visibleWindowOnly) visibleBucketWindow() else null
+        val updates = deferredMosaicGroupItems
+            .filterKeys { index -> eligibleIndexes == null || index in eligibleIndexes }
+        if (updates.isEmpty()) return
+        updates.keys.forEach(deferredMosaicGroupItems::remove)
+        publishMosaicGroupItems(updates)
+    }
+
+    private fun publishMosaicGroupItems(updates: Map<Int, List<PhotoGridDisplayItem>>) {
+        if (updates.isEmpty()) return
+        updateState { state ->
+            val current = snapshotOf(state)
+            val nextItems = updates.entries.sortedBy { it.key }.fold(current.displayItems) { items, (groupIndex, groupItems) ->
+                replaceGroupItems(items, groupIndex, groupItems)
+            }
+            withDisplayItems(state, nextItems)
+        }
+    }
 
     private fun groupHeader(group: IndexedAssetGroup): List<PhotoGridDisplayItem> =
         if (group.label.isNotEmpty()) {
@@ -464,6 +644,9 @@ class PhotoGridDetailLayoutCoordinator<S>(
         } else {
             emptyList()
         }
+
+    private fun mosaicLayoutSpecForSnapshot(snapshot: PhotoGridDetailLayoutSnapshot) =
+        mosaicLayoutSpecForColumnCount(snapshot.availableWidth, snapshot.viewConfig.mosaicColumnCount)
 
     private fun replaceGroupItems(
         currentItems: List<PhotoGridDisplayItem>,
@@ -507,6 +690,9 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private fun clearLayoutCaches() {
         displayCache = null
         groupDisplayCache.clear()
+        deferredMosaicFlushJob?.cancel()
+        deferredMosaicFlushJob = null
+        deferredMosaicGroupItems.clear()
     }
 
     private fun nextMosaicGroup(groups: List<KeyedAssetGroup>): KeyedAssetGroup {
@@ -517,16 +703,33 @@ class PhotoGridDetailLayoutCoordinator<S>(
     }
 
     private fun mosaicGroupRequestKey(groupIndex: Int): String = "group_$groupIndex"
+
+    private fun persistentCacheLookup(
+        snapshot: PhotoGridDetailLayoutSnapshot,
+        cellHeight: Float
+    ): DetailMosaicCacheLookup? {
+        val ownerType = cacheOwnerType ?: return null
+        if (!snapshot.viewConfig.cacheMosaicResults || !isPersistentCacheComplete()) return null
+        return DetailMosaicCacheLookup(
+            ownerType = ownerType,
+            ownerId = cacheOwnerId,
+            groupSize = snapshot.groupSize,
+            familiesKey = mosaicDisplayCacheFamiliesKey(snapshot.viewConfig.mosaicFamilies),
+            availableWidthKey = mosaicDisplayCacheWidthKey(snapshot.availableWidth),
+            cellHeightKey = mosaicDisplayCacheDimensionKey(cellHeight),
+            maxRowHeightKey = mosaicDisplayCacheDimensionKey(snapshot.rowHeightBounds.max),
+            spacingKey = mosaicDisplayCacheDimensionKey(GRID_SPACING_DP),
+            displayVersion = DETAIL_MOSAIC_DISPLAY_CACHE_VERSION
+        )
+    }
 }
 
-private data class IndexedAssetGroup(
-    val index: Int,
-    val label: String,
-    val assets: List<Asset>
-)
+private const val VISIBLE_GROUP_PREFETCH_RADIUS = 1
+private const val DEFERRED_MOSAIC_FLUSH_DELAY_MS = 120L
 
 private data class KeyedAssetGroup(
     val group: IndexedAssetGroup,
+    val assetFingerprint: String,
     val cacheKey: DetailGroupDisplayCacheKey
 )
 
@@ -619,3 +822,33 @@ private fun List<Asset>.detailFingerprint(): List<DetailAssetFingerprint> =
             isEdited = asset.isEdited
         )
     }
+
+private fun List<Asset>.detailPersistentFingerprint(): String {
+    var hash = FNV_64_OFFSET_BASIS
+    forEach { asset ->
+        hash = hash.update(asset.id)
+        hash = hash.update(asset.type.name)
+        hash = hash.update(asset.fileName)
+        hash = hash.update(asset.createdAt)
+        hash = hash.update(asset.isFavorite.toString())
+        hash = hash.update(asset.stackCount.toString())
+        hash = hash.update(asset.aspectRatio.toString())
+        hash = hash.update(asset.isEdited.toString())
+    }
+    return hash.toULong().toString(16)
+}
+
+private fun Long.update(value: String): Long {
+    var hash = this
+    value.forEach { char ->
+        hash = hash xor char.code.toLong()
+        hash *= FNV_64_PRIME
+    }
+    hash = hash xor '|'.code.toLong()
+    hash *= FNV_64_PRIME
+    return hash
+}
+
+private const val DETAIL_MOSAIC_DISPLAY_CACHE_VERSION = 1
+private const val FNV_64_OFFSET_BASIS = -3750763034362895579L
+private const val FNV_64_PRIME = 1099511628211L

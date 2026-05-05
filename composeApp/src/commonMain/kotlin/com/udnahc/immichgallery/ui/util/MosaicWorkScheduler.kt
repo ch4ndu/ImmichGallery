@@ -18,6 +18,8 @@ enum class MosaicWorkPriority {
     Background
 }
 
+class MosaicWorkCancelledException(message: String) : CancellationException(message)
+
 class MosaicWorkToken internal constructor(
     private val isActive: () -> Boolean
 ) {
@@ -32,7 +34,7 @@ class MosaicWorkScheduler(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + dispatcher)
 ) {
     private val mutex = Mutex()
-    private val pending = mutableListOf<MosaicWork<*>>()
+    private val pending = MosaicPriorityWorkQueue()
     private val running = mutableSetOf<MosaicWork<*>>()
     private var workerJob: Job? = null
     private var sequence = 0L
@@ -66,8 +68,7 @@ class MosaicWorkScheduler(
 
     suspend fun cancelOwner(ownerKey: String) {
         val removed = mutex.withLock {
-            val stale = pending.filter { it.ownerKey == ownerKey }
-            pending.removeAll(stale)
+            val stale = pending.removeAll { it.ownerKey == ownerKey }
             running.filter { it.ownerKey == ownerKey }.forEach { it.cancel() }
             stale
         }
@@ -83,7 +84,7 @@ class MosaicWorkScheduler(
         ownerKey: String,
         visibleRequestKeys: Set<String>
     ) {
-        mutex.withLock {
+        val cancelledRunning = mutex.withLock {
             pending
                 .filter { it.ownerKey == ownerKey && it.priority != MosaicWorkPriority.Background }
                 .forEach { work ->
@@ -93,7 +94,18 @@ class MosaicWorkScheduler(
                         MosaicWorkPriority.ForegroundPrefetch
                     }
                 }
+            if (visibleRequestKeys.isEmpty()) {
+                emptyList()
+            } else {
+                running
+                    .filter { work ->
+                        work.ownerKey == ownerKey &&
+                            work.priority == MosaicWorkPriority.ForegroundPrefetch &&
+                            work.requestKey !in visibleRequestKeys
+                    }
+            }
         }
+        cancelledRunning.forEach { it.cancel() }
     }
 
     suspend fun <T> run(
@@ -112,8 +124,7 @@ class MosaicWorkScheduler(
             block = block
         )
         val replaced = mutex.withLock {
-            val stale = pending.filter { it.ownerKey == ownerKey && it.requestKey == requestKey }
-            pending.removeAll(stale)
+            val stale = pending.removeAll { it.ownerKey == ownerKey && it.requestKey == requestKey }
             pending.add(work)
             startWorkerIfNeeded()
             stale
@@ -146,13 +157,11 @@ class MosaicWorkScheduler(
     private suspend fun workerLoop() {
         while (true) {
             val work = mutex.withLock {
-                val next = pending
-                    .minWithOrNull(compareBy<MosaicWork<*>> { it.priorityRank(activeForegroundOwner) }.thenBy { it.sequence })
+                val next = pending.popNext(activeForegroundOwner)
                 if (next == null) {
                     workerJob = null
                     return
                 }
-                pending.remove(next)
                 running.add(next)
                 next
             }
@@ -207,7 +216,39 @@ class MosaicWorkScheduler(
 
         fun cancel() {
             active = false
-            result.cancel(CancellationException("Mosaic work was cancelled"))
+            result.cancel(MosaicWorkCancelledException("Mosaic work was cancelled"))
+        }
+    }
+
+    private inner class MosaicPriorityWorkQueue {
+        private val items = mutableListOf<MosaicWork<*>>()
+
+        fun add(work: MosaicWork<*>) {
+            items.add(work)
+        }
+
+        fun remove(work: MosaicWork<*>) {
+            items.remove(work)
+        }
+
+        fun removeAll(predicate: (MosaicWork<*>) -> Boolean): List<MosaicWork<*>> {
+            val removed = items.filter(predicate)
+            items.removeAll(removed)
+            return removed
+        }
+
+        fun filter(predicate: (MosaicWork<*>) -> Boolean): List<MosaicWork<*>> =
+            items.filter(predicate)
+
+        fun any(predicate: (MosaicWork<*>) -> Boolean): Boolean =
+            items.any(predicate)
+
+        fun popNext(activeOwner: String?): MosaicWork<*>? {
+            val next = items.minWithOrNull(
+                compareBy<MosaicWork<*>> { it.priorityRank(activeOwner) }.thenBy { it.sequence }
+            ) ?: return null
+            items.remove(next)
+            return next
         }
     }
 

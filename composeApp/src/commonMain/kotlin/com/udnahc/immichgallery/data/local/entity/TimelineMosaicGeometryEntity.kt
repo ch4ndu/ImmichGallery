@@ -15,7 +15,10 @@ import androidx.room.Index
         "availableWidthKey",
         "geometryVersion"
     ],
-    indices = [Index("timeBucket")]
+    indices = [
+        Index("timeBucket"),
+        Index("groupMode", "columnCount", "familiesKey", "availableWidthKey", "geometryVersion", "timeBucket")
+    ]
 )
 data class TimelineMosaicGeometryEntity(
     val timeBucket: String,

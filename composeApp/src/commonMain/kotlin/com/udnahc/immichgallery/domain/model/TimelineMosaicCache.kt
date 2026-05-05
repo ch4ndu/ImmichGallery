@@ -27,30 +27,9 @@ data class TimelineMosaicAssignment(
     val assignments: List<MosaicBandAssignment>
 )
 
-@Serializable
-enum class TimelineMosaicDisplayBandKind {
-    REAL,
-    FALLBACK
-}
-
-@Serializable
-data class TimelineMosaicDisplayTileRecord(
-    val assetId: String,
-    val visualOrder: Int,
-    val x: Float,
-    val y: Float,
-    val width: Float,
-    val height: Float
-)
-
-@Serializable
-data class TimelineMosaicDisplayBandRecord(
-    val sourceStartIndex: Int,
-    val sourceCount: Int,
-    val bandHeight: Float,
-    val kind: TimelineMosaicDisplayBandKind,
-    val tiles: List<TimelineMosaicDisplayTileRecord>
-)
+typealias TimelineMosaicDisplayBandKind = MosaicDisplayBandKind
+typealias TimelineMosaicDisplayTileRecord = MosaicDisplayTileRecord
+typealias TimelineMosaicDisplayBandRecord = MosaicDisplayBandRecord
 
 data class TimelineMosaicDisplaySection(
     val timeBucket: String,
@@ -85,48 +64,22 @@ data class TimelineMosaicCacheStatus(
     val missingBucketIds: Set<String>
 )
 
-fun List<TimelineMosaicDisplayBandRecord>.toMosaicDisplayItems(
+fun List<TimelineMosaicDisplayBandRecord>.toTimelineMosaicDisplayItems(
     assets: List<Asset>,
     bucketIndex: Int,
     sectionLabel: String
-): List<PhotoGridDisplayItem> {
-    val assetsById = assets.associateBy { it.id }
-    return mapNotNull { band ->
-        val tiles = band.tiles.mapNotNull { tile ->
-            val asset = assetsById[tile.assetId] ?: return@mapNotNull null
-            MosaicTile(
-                photo = PhotoItem(
-                    gridKey = "p_${asset.id}",
-                    bucketIndex = bucketIndex,
-                    sectionLabel = sectionLabel,
-                    asset = asset
-                ),
-                x = tile.x,
-                y = tile.y,
-                width = tile.width,
-                height = tile.height,
-                visualOrder = tile.visualOrder
-            )
-        }
-        MosaicBandItem(
-            gridKey = "mosaic_cache_${bucketIndex}_${sectionLabel}_${band.sourceStartIndex}",
-            bucketIndex = bucketIndex,
-            sectionLabel = sectionLabel,
-            tiles = tiles,
-            bandHeight = band.bandHeight,
-            sourceStartIndex = band.sourceStartIndex,
-            sourceCount = band.sourceCount,
-            kind = when (band.kind) {
-                TimelineMosaicDisplayBandKind.REAL -> MosaicBandKind.REAL
-                TimelineMosaicDisplayBandKind.FALLBACK -> MosaicBandKind.FALLBACK
-            }
-        )
-    }
-}
+): List<PhotoGridDisplayItem> =
+    toMosaicDisplayItems(
+        assets = assets,
+        bucketIndex = bucketIndex,
+        sectionLabel = sectionLabel,
+        keyPrefix = "mosaic_cache"
+    )
 
 data class TimelineMosaicPrecomputeResult(
     val successfulBucketIds: Set<String>,
-    val failedBucketIds: Set<String>
+    val failedBucketIds: Set<String>,
+    val bucketGeometrySummaries: List<TimelineBucketGeometrySummary> = emptyList()
 )
 
 data class TimelineMosaicProgressChunk(

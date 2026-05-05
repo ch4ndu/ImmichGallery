@@ -84,6 +84,7 @@ fun AlbumDetailScreen(
                 onAvailableWidthChanged = viewModel::setAvailableWidth,
                 onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
                 onVisibleBucketIndexesChanged = viewModel::setVisibleBucketIndexes,
+                onScrollInProgressChanged = viewModel::setScrollInProgress,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 contentTopPadding = contentTopPadding,
                 contentBottomPadding = contentBottomPadding,
@@ -122,7 +123,8 @@ fun AlbumDetailScreen(
                             groupSize = state.groupSize,
                             viewConfig = state.viewConfig,
                             onGroupSizeSelected = viewModel::setGroupSize,
-                            onViewConfigChanged = viewModel::setViewConfig
+                            onViewConfigChanged = viewModel::setViewConfig,
+                            onPrepareViewConfig = viewModel::prepareMosaicViewConfig
                         )
                     }
                 )
@@ -142,6 +144,7 @@ fun AlbumDetailContent(
     onAvailableWidthChanged: (Float) -> Unit = {},
     onAvailableViewportHeightChanged: (Float) -> Unit = {},
     onVisibleBucketIndexesChanged: (List<Int>) -> Unit = {},
+    onScrollInProgressChanged: (Boolean) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
@@ -161,12 +164,14 @@ fun AlbumDetailContent(
         hiddenAssetId = hiddenAssetId,
         targetRowHeight = state.targetRowHeight,
         rowHeightBounds = state.rowHeightBounds,
+        viewConfig = state.viewConfig,
         onPhotoClick = onPhotoClick,
         onRetry = onRetry,
         onDismissBanner = onDismissBanner,
         onAvailableWidthChanged = onAvailableWidthChanged,
         onAvailableViewportHeightChanged = onAvailableViewportHeightChanged,
         onVisibleBucketIndexesChanged = onVisibleBucketIndexesChanged,
+        onScrollInProgressChanged = onScrollInProgressChanged,
         onTargetRowHeightChanged = onTargetRowHeightChanged,
         contentTopPadding = contentTopPadding,
         contentBottomPadding = contentBottomPadding,

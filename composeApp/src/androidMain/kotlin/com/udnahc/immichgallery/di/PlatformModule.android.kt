@@ -19,4 +19,5 @@ actual fun platformModule(): Module = module {
     single { get<AppDatabase>().syncMetadataDao() }
     single { get<AppDatabase>().albumDao() }
     single { get<AppDatabase>().personDao() }
+    single { get<AppDatabase>().detailMosaicCacheDao() }
 }

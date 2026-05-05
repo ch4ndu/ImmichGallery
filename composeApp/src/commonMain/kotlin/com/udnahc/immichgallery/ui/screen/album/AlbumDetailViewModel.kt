@@ -6,11 +6,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
+import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
@@ -22,6 +24,7 @@ import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
+import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicCacheUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
@@ -66,6 +69,8 @@ class AlbumDetailViewModel(
     private val setTargetRowHeightAction: SetTargetRowHeightAction,
     private val setViewConfigAction: SetViewConfigAction,
     private val mosaicWorkScheduler: MosaicWorkScheduler,
+    private val getDetailMosaicCacheUseCase: GetDetailMosaicCacheUseCase,
+    private val upsertDetailMosaicCacheAction: UpsertDetailMosaicCacheAction,
     private val albumId: String
 ) : ViewModel() {
 
@@ -102,7 +107,11 @@ class AlbumDetailViewModel(
         withViewConfig = { state, viewConfig -> state.copy(viewConfig = viewConfig) },
         withDisplayItems = { state, items -> state.withDisplayItems(items) },
         persistTargetRowHeight = { scope, height -> setTargetRowHeightAction(scope, height) },
-        persistViewConfig = setViewConfigAction::invoke
+        persistViewConfig = setViewConfigAction::invoke,
+        cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
+        cacheOwnerId = albumId,
+        readPersistentCache = getDetailMosaicCacheUseCase::invoke,
+        upsertPersistentCache = upsertDetailMosaicCacheAction::invoke
     )
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
@@ -162,8 +171,15 @@ class AlbumDetailViewModel(
         layoutCoordinator.setViewConfig(config)
     }
 
+    suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
+        layoutCoordinator.prepareMosaicViewConfig(config)
+
     fun setVisibleBucketIndexes(indexes: List<Int>) {
         layoutCoordinator.setVisibleBucketIndexes(indexes)
+    }
+
+    fun setScrollInProgress(inProgress: Boolean) {
+        layoutCoordinator.setScrollInProgress(inProgress)
     }
 
     fun refreshAll() {

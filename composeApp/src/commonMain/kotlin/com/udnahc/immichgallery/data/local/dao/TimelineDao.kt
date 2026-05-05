@@ -23,6 +23,9 @@ interface TimelineDao {
     @Query("SELECT * FROM timeline_buckets ORDER BY sortOrder ASC")
     suspend fun getBuckets(): List<TimelineBucketEntity>
 
+    @Query("SELECT count FROM timeline_buckets WHERE timeBucket = :timeBucket")
+    suspend fun getBucketAssetCount(timeBucket: String): Int?
+
     @Upsert
     suspend fun upsertTimelineRefs(refs: List<TimelineAssetCrossRef>)
 

@@ -52,12 +52,11 @@ import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
-import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT
-import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_LARGE_COLUMN_COUNT
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.TimelineScrollbarTargetTracker
+import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.timelineScrollFractionForDisplayIndex
 import com.udnahc.immichgallery.domain.model.visibleBucketIndexesForDisplayIndexes
 import com.udnahc.immichgallery.ui.component.ErrorBanner
@@ -84,8 +83,6 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
-private val LARGE_SCREEN_MOSAIC_WIDTH = 840.dp
-
 private data class TimelineScrollAnchor(
     val assetId: String,
     val scrollOffset: Int
@@ -98,6 +95,7 @@ fun TimelineScreen(
     onRefreshCallback: ((() -> Unit)?) -> Unit = {},
     onSyncingState: (Boolean) -> Unit = {},
     onColdSyncBlockingState: (Boolean) -> Unit = {},
+    onMosaicPrepareCallback: ((suspend (ViewConfig) -> Result<Unit>)?) -> Unit = {},
     onOverlayActiveChange: (Boolean) -> Unit = {},
     viewModel: TimelineViewModel = koinViewModel()
 ) {
@@ -110,8 +108,12 @@ fun TimelineScreen(
     LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
     LaunchedEffect(state.isSyncing, isBuilding) { onSyncingState(state.isSyncing || isBuilding) }
     LaunchedEffect(isBuilding) { onColdSyncBlockingState(isBuilding) }
+    LaunchedEffect(Unit) { onMosaicPrepareCallback(viewModel::prepareMosaicViewConfig) }
     DisposableEffect(Unit) {
-        onDispose { onColdSyncBlockingState(false) }
+        onDispose {
+            onColdSyncBlockingState(false)
+            onMosaicPrepareCallback(null)
+        }
     }
 
     // Scroll back to last viewed asset (or its bucket placeholder) on return from detail.
@@ -138,6 +140,7 @@ fun TimelineScreen(
     if (isBuilding) {
         TimelineColdSyncLoading(
             loadingText = stringResource(Res.string.loading_timeline),
+            mosaicColumnCount = state.viewConfig.mosaicColumnCount,
             onAvailableWidthChanged = viewModel::setAvailableWidth,
             onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
             onMosaicColumnCountChanged = viewModel::setMosaicColumnCount
@@ -208,16 +211,13 @@ fun TimelineScreen(
 @Composable
 private fun TimelineColdSyncLoading(
     loadingText: String,
+    mosaicColumnCount: Int,
     onAvailableWidthChanged: (Float) -> Unit,
     onAvailableViewportHeightChanged: (Float) -> Unit,
     onMosaicColumnCountChanged: (Int) -> Unit
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val timelineMosaicColumnCount = if (maxWidth >= LARGE_SCREEN_MOSAIC_WIDTH) {
-            TIMELINE_MOSAIC_LARGE_COLUMN_COUNT
-        } else {
-            TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT
-        }
+        val timelineMosaicColumnCount = mosaicColumnCount
         LaunchedEffect(maxWidth, maxHeight, timelineMosaicColumnCount) {
             onAvailableWidthChanged(maxWidth.value)
             onAvailableViewportHeightChanged(maxHeight.value)
@@ -334,11 +334,7 @@ fun TimelineContent(
             ) {
                 val fullGridHeight = maxHeight.value.coerceAtLeast(0f)
                 // Report available width to ViewModel for row packing
-                val timelineMosaicColumnCount = if (maxWidth >= LARGE_SCREEN_MOSAIC_WIDTH) {
-                    TIMELINE_MOSAIC_LARGE_COLUMN_COUNT
-                } else {
-                    TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT
-                }
+                val timelineMosaicColumnCount = state.viewConfig.mosaicColumnCount
                 LaunchedEffect(maxWidth, fullGridHeight, timelineMosaicColumnCount) {
                     onAvailableWidthChanged(maxWidth.value)
                     onAvailableViewportHeightChanged(fullGridHeight)
@@ -346,7 +342,9 @@ fun TimelineContent(
                 }
 
                 val gridModifier = Modifier.fillMaxSize().let { base ->
-                    if (state.viewConfig.mosaicEnabled) {
+                    if (state.viewConfig.mosaicEnabled &&
+                        (state.viewConfig.disableZoomWhenMosaicEnabled || state.viewConfig.cacheMosaicResults)
+                    ) {
                         base
                     } else {
                         base

@@ -6,12 +6,14 @@ import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import com.udnahc.immichgallery.data.local.dao.AlbumDao
 import com.udnahc.immichgallery.data.local.dao.AssetDao
+import com.udnahc.immichgallery.data.local.dao.DetailMosaicCacheDao
 import com.udnahc.immichgallery.data.local.dao.PersonDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.dao.TimelineDao
 import com.udnahc.immichgallery.data.local.entity.AlbumAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.AlbumEntity
 import com.udnahc.immichgallery.data.local.entity.AssetEntity
+import com.udnahc.immichgallery.data.local.entity.DetailMosaicDisplayCacheEntity
 import com.udnahc.immichgallery.data.local.entity.PersonAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.PersonEntity
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
@@ -35,9 +37,10 @@ import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
         TimelineMosaicAssignmentEntity::class,
         TimelineMosaicDisplayCacheEntity::class,
         TimelineMosaicGeometryEntity::class,
-        TimelineBucketGeometryEntity::class
+        TimelineBucketGeometryEntity::class,
+        DetailMosaicDisplayCacheEntity::class
     ],
-    version = 10
+    version = 12
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -46,6 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun syncMetadataDao(): SyncMetadataDao
     abstract fun albumDao(): AlbumDao
     abstract fun personDao(): PersonDao
+    abstract fun detailMosaicCacheDao(): DetailMosaicCacheDao
 }
 
 @Suppress("NO_ACTUAL_FOR_EXPECT")

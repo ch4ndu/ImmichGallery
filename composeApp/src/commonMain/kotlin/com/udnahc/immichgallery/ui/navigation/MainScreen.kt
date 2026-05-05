@@ -153,6 +153,9 @@ fun MainScreen(
 
     // Per-tab refresh callbacks and syncing state — set by each screen
     var tabRefreshCallback by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var timelineMosaicPrepareCallback by remember {
+        mutableStateOf<(suspend (ViewConfig) -> Result<Unit>)?>(null)
+    }
     var tabIsSyncing by remember { mutableStateOf(false) }
     var timelineColdSyncBlocking by remember { mutableStateOf(false) }
 
@@ -170,6 +173,7 @@ fun MainScreen(
                     onRefreshCallback = { callback -> tabRefreshCallback = callback },
                     onSyncingState = { syncing -> tabIsSyncing = syncing },
                     onColdSyncBlockingState = { blocking -> timelineColdSyncBlocking = blocking },
+                    onMosaicPrepareCallback = { callback -> timelineMosaicPrepareCallback = callback },
                     onOverlayActiveChange = { active -> overlayActive = active },
                 )
             }
@@ -212,6 +216,9 @@ fun MainScreen(
                 onLogout = onLogout,
                 mosaicViewConfig = viewConfig.takeIf { isTimelineTab },
                 onMosaicViewConfigChanged = viewModel::setViewConfig,
+                onPrepareMosaicViewConfig = { config ->
+                    timelineMosaicPrepareCallback?.invoke(config) ?: Result.success(Unit)
+                },
                 trailingContent = if (isTimelineTab) {
                     {
                         TimelineGroupDropdown(
@@ -261,6 +268,7 @@ private fun TopBarOverlay(
     onLogout: () -> Unit,
     mosaicViewConfig: ViewConfig? = null,
     onMosaicViewConfigChanged: (ViewConfig) -> Unit = {},
+    onPrepareMosaicViewConfig: suspend (ViewConfig) -> Result<Unit> = { Result.success(Unit) },
     trailingContent: @Composable (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -377,6 +385,7 @@ private fun TopBarOverlay(
                         MosaicViewConfigMenuItem(
                             viewConfig = mosaicViewConfig,
                             onViewConfigChanged = onMosaicViewConfigChanged,
+                            onPrepareViewConfig = onPrepareMosaicViewConfig,
                             onDismissMenu = { showMenu = false }
                         )
                     }

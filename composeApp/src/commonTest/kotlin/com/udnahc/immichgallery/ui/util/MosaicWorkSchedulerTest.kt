@@ -69,6 +69,37 @@ class MosaicWorkSchedulerTest {
     }
 
     @Test
+    fun visibleOwnerWorkCancelsRunningOwnerPrefetch() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scheduler = MosaicWorkScheduler(dispatcher, this)
+        val order = mutableListOf<String>()
+
+        scheduler.setActiveForegroundOwner("album")
+        val prefetch = async {
+            scheduler.run("album", "group_0", 0, MosaicWorkPriority.ForegroundPrefetch) { token ->
+                order += "prefetch_start"
+                delay(100)
+                token.ensureActive()
+                order += "prefetch_end"
+            }
+        }
+        runCurrent()
+        val visible = async {
+            scheduler.run("album", "group_1", 0, MosaicWorkPriority.ForegroundVisible) {
+                order += "visible"
+            }
+        }
+
+        scheduler.reprioritizePending("album", setOf("group_1"))
+        testScheduler.advanceTimeBy(100)
+        runCurrent()
+        assertFailsWith<MosaicWorkCancelledException> { prefetch.await() }
+        visible.await()
+
+        assertEquals(listOf("prefetch_start", "visible"), order)
+    }
+
+    @Test
     fun activeForegroundOwnerOutranksOldForegroundOwner() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val scheduler = MosaicWorkScheduler(dispatcher, this)

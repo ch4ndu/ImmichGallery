@@ -26,8 +26,7 @@ data class TimelineBucketAssetSyncResult(
 data class TimelineAssetSyncResult(
     val successfulBucketIds: Set<String>,
     val failedBucketIds: Set<String>,
-    val changedBucketIds: Set<String> = emptySet(),
-    val bucketGeometrySummaries: List<TimelineBucketGeometrySummary> = emptyList()
+    val changedBucketIds: Set<String> = emptySet()
 )
 
 @Immutable

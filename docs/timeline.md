@@ -16,10 +16,12 @@ changing Timeline cache, sync, Mosaic, scrollbar, overlay, or rendering behavior
 - Timeline use cases/actions keep the ViewModel out of repositories:
   `GetTimelineBucketsUseCase`, `GetBucketAssetsUseCase`,
   `LoadBucketAssetsAction`, `SyncAllTimelineAssetsAction`,
-  `PrecomputeTimelineMosaicAction`, and
-  `GetTimelineMosaicAssignmentsUseCase`.
-- `TimelineRepository` owns Immich API calls, Room writes, ordered asset change
-  detection, persisted Mosaic assignment writes/reads, and sync metadata.
+  `PrepareTimelineMosaicCacheAction`, and
+  `GetTimelineMosaicCacheStatusUseCase`.
+- `TimelineRepository` owns Immich API calls, bucket/asset Room writes, ordered
+  asset change detection, and sync metadata.
+- `TimelineMosaicCacheRepository` owns persisted Timeline Mosaic assignment,
+  display-cache, section geometry, and aggregate geometry reads/writes.
 - Room stores bucket metadata, timeline asset refs, asset rows, and persisted
   Mosaic assignments. The in-memory `bucketAssetsCache` stores materialized
   assets for buckets currently needed by the grid or overlay.
@@ -29,7 +31,7 @@ graph LR
     screen["Timeline screen"] --> viewModel["Timeline view model"]
     viewModel --> reads["Timeline read use cases"]
     viewModel --> actions["Timeline actions"]
-    reads --> repository["Timeline repository"]
+    reads --> repository["Timeline repositories"]
     actions --> repository
     repository --> api["Immich API"]
     repository --> room["Room cache"]
@@ -65,23 +67,24 @@ true.
 The cold loading gate still reports layout metrics. Timeline is edge-to-edge and
 occupies the full screen under system, top, and bottom bars, so the gate uses its
 full `BoxWithConstraints` width and height to seed `availableWidth`,
-`availableHeight`, and the fixed Timeline Mosaic column count. Normal content
+`availableHeight`, and the configured Timeline Mosaic column count. Normal content
 uses the same full-surface height for geometry requests; toolbar and system-bar
 padding affect interaction and scrollbar insets, not persisted Mosaic geometry.
 After metrics are known:
 
 1. `GetTimelineBucketsUseCase.sync()` refreshes bucket metadata.
-2. `SyncAllTimelineAssetsAction` runs the cold fused path. For each bucket it
-   fetches assets, writes refs, runs edit enrichment, builds Mosaic assignments,
-   computes section geometry, computes aggregate bucket geometry, and persists
-   all rows before the worker completes.
-3. Any failed bucket keeps the blocking retry state. Cold startup does not open
-   partially.
-4. Successful cold sync marks buckets as cached and exact-geometry-ready for the
+2. `SyncAllTimelineAssetsAction` syncs all bucket assets and refs. Failed
+   buckets are retried once during cold sync.
+3. `PrepareTimelineMosaicCacheAction` prepares Mosaic assignments, display
+   cache rows when enabled, section geometry, and aggregate bucket geometry for
+   the successfully materialized buckets.
+4. Any asset-sync retry failure or Mosaic prepare failure keeps the blocking
+   retry state. Cold startup does not open partially.
+5. Successful cold sync marks buckets as cached and exact-geometry-ready for the
    current geometry key, not loaded, then writes the cold-complete marker. The
    first interactive render can use exact placeholders without reading every
    bucket's assets back into memory.
-5. Visible/nearby or scrollbar-targeted buckets then materialize assets and
+6. Visible/nearby or scrollbar-targeted buckets then materialize assets and
    hydrate Mosaic assignments on demand.
 
 For warm launch with cached buckets and the cold-complete marker,
@@ -103,17 +106,16 @@ under the `TimelineViewModel` tag:
   height, and Mosaic column count.
 - bucket metadata sync start/completion, including bucket, stale, and removed
   counts.
-- cold fused asset/Mosaic/geometry sync start/completion, including successful,
-  failed, changed, and missing-geometry bucket counts.
+- cold asset sync and Mosaic prepare start/completion, including successful,
+  failed, retried, changed, and missing-geometry bucket counts.
 - visible/targeted Mosaic reads after startup, including requested bucket
   counts, assignment counts, geometry counts, and failures.
 - final cold-sync success or failure state.
 
-Repository-level progress logs use the `TimelineRepository` tag. They report
-bucket metadata fetch/write counts, fused cold per-bucket asset/ref/assignment/
-geometry persistence, warm full asset sync progress, and Mosaic precompute
-progress. Expected cancellation from superseded Mosaic cache reads should not be
-treated as a user-facing sync failure.
+Repository-level progress logs use `TimelineRepository` for bucket/asset sync
+and `TimelineMosaicCacheRepository` for Mosaic precompute/cache progress.
+Expected cancellation from superseded Mosaic cache reads should not be treated
+as a user-facing sync failure.
 
 Manual refresh is broader than warm launch. It blocks the visible-refresh queue,
 refreshes bucket assets while preserving cached rows on failure, and recomputes
@@ -121,8 +123,8 @@ Mosaic assignments plus geometry summaries only for buckets whose ordered asset
 content changed.
 
 No-op sync success must not bump asset revisions, clear display caches, or
-replace Mosaic/geometry rows. Removed buckets clear refs, assignments, and
-geometry immediately.
+replace Mosaic/geometry rows. Removed or content-changed buckets clear Mosaic
+rows through `ClearTimelineMosaicCacheAction`, not through asset-sync reads.
 
 ### Cold Launch With No Cache
 
@@ -135,13 +137,13 @@ state via `_isBuilding`.
 2. `TimelineRepository.syncBuckets()` writes `TimelineBucketEntity` rows and
    updates sync metadata.
 3. `SyncAllTimelineAssetsAction` syncs all buckets because there is no cached
-   content to show.
+   content to show. Failed buckets are retried once.
 4. Each bucket asset sync fetches `/api/timeline/bucket?timeBucket=...`, filters
-   hidden assets, writes assets and `TimelineAssetCrossRef` rows, runs edit
-   enrichment, computes Mosaic assignments, section geometry, and aggregate
-   bucket geometry in the same worker.
-5. All assignment and geometry rows are persisted before the bucket is counted
-   successful.
+   hidden assets, writes assets and `TimelineAssetCrossRef` rows, and runs edit
+   enrichment.
+5. `PrepareTimelineMosaicCacheAction` computes Mosaic assignments, section
+   geometry, display-cache rows when enabled, and aggregate bucket geometry for
+   the successful asset buckets.
 6. `_bucketData` marks successful buckets cached and geometry-ready for the
    exact group/column/family/full-screen-geometry key, but not loaded. Exact
    placeholders render immediately after the blocking state ends; actual rows
@@ -165,10 +167,13 @@ sequenceDiagram
     VM->>Repo: sync bucket metadata
     Repo->>API: fetch timeline buckets
     Repo->>DB: replace bucket rows
-    VM->>Repo: fused cold asset and geometry sync
+    VM->>Repo: cold asset sync
     loop each bucket with limit four
         Repo->>API: fetch bucket assets
         Repo->>DB: upsert assets and replace refs
+    end
+    VM->>Repo: prepare Mosaic cache
+    loop each bucket with limit four
         Repo->>DB: write Mosaic assignments
         Repo->>DB: write section and aggregate geometry
     end
@@ -227,7 +232,7 @@ Timeline uses multiple cache layers, each with a different purpose.
 - Room `assets`: shared asset metadata used by timeline, details, albums, and
   people where applicable.
 - Room `timeline_mosaic_assignments`: persisted Mosaic assignments for a bucket
-  or day section, keyed by group mode, fixed column count, asset fingerprint, and
+  or day section, keyed by group mode, configured column count, asset fingerprint, and
   enabled Mosaic families.
 - Room `timeline_mosaic_geometry`: width-keyed placeholder geometry summaries
   for persisted Mosaic sections. Geometry rows are keyed by assignment identity,
@@ -240,6 +245,11 @@ Timeline uses multiple cache layers, each with a different purpose.
   families, asset revision, rounded full Timeline width, max row height,
   spacing, and geometry version; missing exact geometry falls back to projected
   or count placeholders instead of rendering header-only.
+- Room `timeline_mosaic_display_cache`: optional width-keyed display-band cache
+  for ready Mosaic sections. If `ViewConfig.cacheMosaicResults` is disabled,
+  Timeline bypasses these display-band reads, but still reads assignments,
+  section geometry, and aggregate bucket geometry because those are the
+  fast-scroll/placeholder accuracy contract. Reads never backfill missing rows.
 - `bucketAssetsCache`: in-memory `timeBucket -> List<Asset>` used by both grid
   display building and `TimelinePhotoOverlay`.
 - `_bucketData`: render-facing bucket state: buckets, cached, exact-key
@@ -297,14 +307,20 @@ render standard justified row fallback.
 
 ### How Persisted Mosaic Is Built
 
-`PrecomputeTimelineMosaicAction` delegates to
-`TimelineRepository.precomputeTimelineMosaic()`. The repository limits bucket
-work with `TIMELINE_MOSAIC_PRECOMPUTE_PARALLELISM = 4` and runs the work on
-`Dispatchers.IO`.
+`PrepareTimelineMosaicCacheAction` delegates to
+`TimelineMosaicCacheRepository.precomputeTimelineMosaic()`. The repository
+limits bucket work with `TIMELINE_MOSAIC_PRECOMPUTE_PARALLELISM = 4` and runs
+the work on `Dispatchers.IO`, with assignment math on `Dispatchers.Default`.
+This standalone precompute path only operates on materialized Room refs. If
+bucket metadata says a bucket has assets but the ordered Room read is empty, the
+repository must fail instead of persisting zero-height Mosaic geometry. A
+legitimately empty bucket is successful only when metadata confirms the
+expected count is zero or absent.
 
 For each bucket:
 
-1. Read ordered persisted Room assets for the bucket.
+1. Read ordered persisted Room assets for the bucket and reject unsynced empty
+   reads when bucket metadata still reports assets.
 2. Compute `orderedAssetsFingerprint(entities)`.
 3. Convert entities to domain `Asset` models with the current base URL.
 4. Split into Mosaic sections:
@@ -321,7 +337,8 @@ For each bucket:
    the real display `MosaicLayoutSpec`, generate fallback Mosaic bands for
    unassigned or invalid ranges, persist exact placeholder geometry summaries
    in `timeline_mosaic_geometry`, and persist portable real/fallback display
-   band records in `timeline_mosaic_display_cache`.
+   band records in `timeline_mosaic_display_cache` when cache results are
+   enabled.
 7. Compute aggregate bucket geometry from the section geometry. In day mode this
    includes day section headers and inter-item spacing.
 8. Replace rows for that exact bucket/group/column/family config in
@@ -466,35 +483,43 @@ graph LR
 - `Partial(chunks)`: ready chunks render real/fallback Mosaic bands and
   unresolved materialized ranges render fallback Mosaic bands.
 - `Ready(assignments, displayBands)`: replay persisted display bands when they
-  exist, otherwise call `buildPhotoGridItemsWithMosaic()` to render real Mosaic
-  bands plus fallback Mosaic bands around gaps.
+  exist and cache results are enabled, otherwise call
+  `buildPhotoGridItemsWithMosaic()` to render real Mosaic bands plus fallback
+  Mosaic bands around gaps.
 - `Failed`: render fallback Mosaic bands when assets are materialized.
 
 Pending Mosaic placeholders should preserve list position. If cached assets and
 persisted assignments are already available, the preferred placeholder height is
-the persisted geometry summary for the current rounded Timeline width. If a
-matching geometry or display-cache row is missing but assignments are
-available, the repository backfills the rows by replaying
-`buildPhotoGridItemsWithMosaic()` for the current width. If cached assets are
-available but assignments are still missing, placeholders use the deterministic
-fallback Mosaic-band height. Count-only bucket metadata estimates are used only
-when asset rows have not been materialized yet.
+the persisted geometry summary for the current rounded Timeline width. Timeline
+Mosaic cache reads are pure: if matching geometry or display-cache rows are
+missing, reads report the missing state and do not backfill rows. Explicit
+prepare/precompute actions are the only paths that write Mosaic cache rows. If
+cached assets are available but assignments are still missing, placeholders use
+the deterministic fallback Mosaic-band height. Count-only bucket metadata
+estimates are used only when asset rows have not been materialized yet.
 
 Timeline Mosaic display cache is width-dependent and active-config scoped. It
 stores portable band records, not Compose display objects, keyed by bucket,
-section, group mode, fixed Timeline Mosaic column count, families key, ordered
+section, group mode, configured Timeline Mosaic column count, families key, ordered
 asset fingerprint, rounded width, spacing, max row height, and display-cache
 version. Assignment rows remain width-independent. Replacing or clearing a
 bucket Mosaic config must clear assignments, display cache, section geometry,
 and aggregate bucket geometry together.
 
-Timeline Mosaic uses fixed column counts while enabled: 4 columns on normal
-widths and 5 columns on large widths. Pinch and desktop zoom do not change
-Timeline column count while Mosaic is enabled, and the Timeline grouping
-control is disabled while Mosaic is enabled. Width, group mode, and Mosaic
-family changes request persisted rows for the new config; they do not compute
-assignments for unchanged buckets. `activeMosaicConfig` lets the ViewModel keep
-using a previously complete config until the requested config is complete.
+Timeline Mosaic uses the global `ViewConfig.mosaicColumnCount` while enabled.
+Column count changes happen through the Mosaic settings dialog, not pinch or
+desktop zoom. When cache results is enabled, applying Mosaic changes blocks in
+the dialog while every current Timeline metadata bucket is prepared for the
+requested group/column/family/full-screen-geometry key. The blocking prepare
+path first materializes buckets with asset sync, retrying failures once, then
+runs explicit Mosaic cache preparation before cache readiness is reported. The
+previous active layout stays visible until preparation succeeds. If any bucket
+fails, the draft config is not persisted or applied. The Timeline grouping
+control is disabled while Mosaic is enabled. Width and scroll changes may
+request persisted rows, but they must not compute assignments or write cache
+rows on the hot scroll path.
+`activeMosaicConfig` lets the ViewModel keep using a previously complete config
+until the requested config is complete.
 
 ## Rendering Pipeline
 
@@ -587,9 +612,9 @@ materialized yet.
   Do not debounce the bucket-loading signal; visible item/header reporting is a
   secondary settle signal after fast-scroll targeting.
 - Placeholder heights should match final cached geometry as closely as possible:
-  exact persisted geometry first, geometry backfilled from persisted
-  assignments second, cached-asset aspect projection third, count-only metadata
-  estimates last.
+  exact persisted geometry first, cached-asset aspect projection second,
+  count-only metadata estimates last. Missing geometry is repaired by explicit
+  prepare/precompute actions, not by read-side backfill.
 - Placeholder and Mosaic item keys must remain stable across placeholder,
   partial, and ready transitions. Include Timeline bucket and section identity
   when shared grid builders return section-local keys.

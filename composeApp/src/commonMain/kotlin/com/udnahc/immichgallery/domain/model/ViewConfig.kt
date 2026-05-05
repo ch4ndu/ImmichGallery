@@ -5,11 +5,22 @@ import androidx.compose.runtime.Immutable
 @Immutable
 data class ViewConfig(
     val mosaicEnabled: Boolean = true,
-    val mosaicFamilies: Set<MosaicTemplateFamily> = MosaicTemplateFamily.defaultSet()
+    val mosaicFamilies: Set<MosaicTemplateFamily> = MosaicTemplateFamily.defaultSet(),
+    val cacheMosaicResults: Boolean = true,
+    val disableZoomWhenMosaicEnabled: Boolean = true,
+    val mosaicColumnCount: Int = DEFAULT_MOSAIC_COLUMN_COUNT
 ) {
     val normalized: ViewConfig
-        get() = copy(mosaicFamilies = mosaicFamilies.normalizedMosaicFamilies())
+        get() = copy(
+            mosaicFamilies = mosaicFamilies.normalizedMosaicFamilies(),
+            mosaicColumnCount = mosaicColumnCount.coerceIn(
+                SUPPORTED_MOSAIC_COLUMN_COUNTS.first,
+                SUPPORTED_MOSAIC_COLUMN_COUNTS.last
+            )
+        )
 }
+
+const val DEFAULT_MOSAIC_COLUMN_COUNT = 4
 
 enum class MosaicTemplateFamily(val persistedId: String, val tileCount: Int) {
     FOUR_TILE("FOUR_TILE", 4),

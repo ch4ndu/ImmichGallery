@@ -11,4 +11,5 @@ actual fun platformModule(): Module = module {
     single { get<com.udnahc.immichgallery.data.local.AppDatabase>().syncMetadataDao() }
     single { get<com.udnahc.immichgallery.data.local.AppDatabase>().albumDao() }
     single { get<com.udnahc.immichgallery.data.local.AppDatabase>().personDao() }
+    single { get<com.udnahc.immichgallery.data.local.AppDatabase>().detailMosaicCacheDao() }
 }

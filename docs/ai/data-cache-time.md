@@ -10,6 +10,9 @@ Load this for Room, DAOs, repositories, cache invalidation, Immich API work, set
 - DAOs expose `Flow` for observed reads and `suspend` functions for writes and imperative reads.
 - Cache replacement should be transactional where multiple tables or relationship rows must stay in sync.
 - Stale relationship data should be replaced atomically: delete or replace refs for the scoped owner, then insert current refs. Timeline bucket metadata is the exception: count-changed buckets keep old refs until that bucket's asset refresh succeeds so cached launch rows do not collapse during background work; removed buckets still clear refs immediately.
+- Timeline Mosaic cache rows are split by purpose: assignments are width-independent, while section geometry, aggregate bucket geometry, and display-band cache rows are width/key/version dependent. `TimelineMosaicCacheRepository` owns these rows; `TimelineRepository` must stay bucket/asset-sync focused. `ViewConfig.cacheMosaicResults = false` only bypasses display-band cache reads; it must not disable assignment or geometry reads because those preserve placeholder and fast-scroll accuracy.
+- Album and Person detail Mosaic cache uses owner-scoped display-band rows. Cache keys must include owner identity, group/section identity, normalized Mosaic families, ordered asset fingerprint, rounded geometry keys, and display version. Album Detail may cache whenever the owner snapshot is complete; Person Detail must only persist/read owner Mosaic cache after the full asset set is known (`hasMore == false`).
+- Mosaic cache lookup tables should have composite indices matching their config lookup paths, not only owner or bucket indices. Cached Mosaic config apply treats matching persisted rows as readiness; it should skip already prepared rows and compute only missing rows.
 
 ## Repository Rules
 
@@ -20,6 +23,8 @@ Load this for Room, DAOs, repositories, cache invalidation, Immich API work, set
 - Flow transforms that map entity lists to domain projections use `.flowOn(Dispatchers.Default)` where appropriate.
 - Reconstruct URLs from current server config and asset IDs where possible so cached rows do not retain stale server URLs.
 - Include `edited=true` on asset image URLs when non-destructive edit support requires edited variants.
+- Mosaic cache writes should use ordered asset fingerprints for invalidation, not timestamps or counts alone. A no-op sync must keep existing Mosaic rows, geometry, display cache, and asset revisions intact; changed or removed scoped content must clear the matching Mosaic cache rows with the relationship/content update.
+- When `ViewConfig.cacheMosaicResults` is enabled, Mosaic settings apply is a blocking cache-preparation operation. Persist the new `ViewConfig` only after the applicable Timeline/detail cache rows are ready; failed preparation must keep the previous config. Timeline blocking prepare must fetch/materialize current metadata buckets through asset sync, retry failures once, then run explicit Mosaic cache preparation before reporting readiness. Timeline Mosaic read use cases must not backfill or upsert rows; only Actions write cache rows. Standalone persisted-ref precompute must reject empty Room asset reads when bucket metadata still reports assets, so unsynced buckets cannot persist zero-height geometry.
 
 ## Immich API
 

@@ -56,12 +56,14 @@ fun PhotoGridDetailContent(
     hiddenAssetId: String?,
     targetRowHeight: Float,
     rowHeightBounds: RowHeightBounds,
+    viewConfig: ViewConfig,
     onPhotoClick: (String) -> Unit,
     onRetry: () -> Unit,
     onDismissBanner: () -> Unit,
     onAvailableWidthChanged: (Float) -> Unit,
     onAvailableViewportHeightChanged: (Float) -> Unit,
     onVisibleBucketIndexesChanged: (List<Int>) -> Unit,
+    onScrollInProgressChanged: (Boolean) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit,
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
@@ -91,13 +93,21 @@ fun PhotoGridDetailContent(
                 displayIndex = displayIndex,
                 onVisibleBucketIndexesChanged = onVisibleBucketIndexesChanged
             )
+            ScrollInProgressReporter(
+                listState = listState,
+                onScrollInProgressChanged = onScrollInProgressChanged
+            )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
+            var gridModifier = Modifier.fillMaxSize()
+            if (!(viewConfig.mosaicEnabled &&
+                    (viewConfig.disableZoomWhenMosaicEnabled || viewConfig.cacheMosaicResults))
+            ) {
+                gridModifier = gridModifier
                     .pinchToZoomRowHeight(targetRowHeight, rowHeightBounds, onTargetRowHeightChanged)
                     .desktopGridZoom(targetRowHeight, rowHeightBounds, onTargetRowHeightChanged)
-            ) {
+            }
+
+            Box(modifier = gridModifier) {
                 ScrollbarOverlay(
                     listState = listState,
                     topPadding = contentTopPadding,
@@ -172,6 +182,19 @@ fun VisibleBucketReporter(
     }
 }
 
+@Composable
+fun ScrollInProgressReporter(
+    listState: LazyListState,
+    onScrollInProgressChanged: (Boolean) -> Unit
+) {
+    val latestCallback by rememberUpdatedState(onScrollInProgressChanged)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { inProgress -> latestCallback(inProgress) }
+    }
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun PhotoGridDisplayItemRenderer(
@@ -207,7 +230,8 @@ fun PhotoGridDetailActions(
     groupSize: GroupSize,
     viewConfig: ViewConfig,
     onGroupSizeSelected: (GroupSize) -> Unit,
-    onViewConfigChanged: (ViewConfig) -> Unit
+    onViewConfigChanged: (ViewConfig) -> Unit,
+    onPrepareViewConfig: suspend (ViewConfig) -> Result<Unit> = { Result.success(Unit) }
 ) {
     GroupSizeDropdown(
         selected = groupSize,
@@ -215,7 +239,8 @@ fun PhotoGridDetailActions(
     )
     MosaicViewConfigIconMenu(
         viewConfig = viewConfig,
-        onViewConfigChanged = onViewConfigChanged
+        onViewConfigChanged = onViewConfigChanged,
+        onPrepareViewConfig = onPrepareViewConfig
     )
 }
 
