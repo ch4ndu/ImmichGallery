@@ -32,6 +32,7 @@ else:
 - The cold-complete marker lives in `sync_metadata`.
 - Warm launch is allowed only when bucket metadata exists and the cold-complete marker exists.
 - Manual refresh is the explicit top-bar refresh path after warm cache exists.
+- `TimelineViewModel` can run a cache-only warm policy through `DISABLE_TIMELINE_NON_MANUAL_SERVER_SYNC`. When enabled, completed-cold-cache launch and bucket visibility changes do not hit the server; cold sync and manual refresh remain the only Timeline server refresh paths.
 
 ## Cold Sync
 
@@ -111,11 +112,11 @@ Warm launch is cached-first and non-blocking.
 2. Cached bucket ids are read from existing `timeline_asset_refs`.
 3. `_bucketData.cachedBuckets` records buckets that have cached refs.
 4. The grid can render headers and placeholders without loading every bucket's asset rows.
-5. Visible or targeted buckets materialize assets from Room first, then refresh from the server.
+5. Visible or targeted buckets materialize assets from Room first. If the cache-only warm policy is disabled, they may then refresh from the server; if it is enabled, they stay cache-only until manual refresh.
 
 ### Background Metadata Refresh
 
-Warm launch `syncFromServer()` refreshes bucket metadata only:
+When warm server refresh is enabled, warm launch `syncFromServer()` refreshes bucket metadata only:
 
 1. Fetch `/api/timeline/buckets`.
 2. Compare old and new metadata.
@@ -127,9 +128,22 @@ Warm launch `syncFromServer()` refreshes bucket metadata only:
 
 Warm launch must not fetch every bucket's assets before first render.
 
+### Cache-Only Warm Policy
+
+When `DISABLE_TIMELINE_NON_MANUAL_SERVER_SYNC = true`, warm launch intentionally skips the server:
+
+1. `syncFromServer(isFullRefresh = false)` still computes `CachedLaunch`, reads `lastSyncedAt`, clears transient syncing UI state, and logs that warm server sync was skipped.
+2. It does not call `GetTimelineBucketsUseCase.sync()`, so bucket metadata stays whatever cold sync or manual refresh last wrote.
+3. Visible, targeted, scrollbar, retry, and explicit bucket-load paths still call `materializeCachedBucketIfAvailable(...)` so Room-backed rows can render.
+4. After materialization, those paths return before queueing `pendingVisibleRefreshBuckets` or starting `visibleRefreshJob`.
+5. Blocking Timeline Mosaic settings preparation uses already-cached bucket assets; it must not call `SyncAllTimelineAssetsAction` under this policy.
+6. Manual refresh is the only warm-cache path that refreshes metadata and bucket assets from the server.
+
+This policy is currently implemented as a compile-time experiment flag, but if it becomes permanent it should be promoted to a named Timeline sync mode rather than being treated as a transient optimization.
+
 ### Visible Bucket Refresh
 
-Visible refreshes are serial and cache-preserving:
+When warm server refresh is allowed, visible refreshes are serial and cache-preserving:
 
 1. Materialize cached Room assets for the requested bucket before network refresh when available.
 2. Add the bucket to loaded/cached state if this is the first materialization.
@@ -226,6 +240,7 @@ No-op refresh may:
 - Manual refresh failure keeps cached rows visible and reports a banner after the loop.
 - Removed buckets clear refs and Mosaic artifacts immediately.
 - Count-changed buckets keep old refs until the bucket asset refresh succeeds.
+- Cache-only warm launch cannot discover removed or count-changed buckets until manual refresh or a future cold sync.
 - Runtime Mosaic cancellation during scroll is expected pause/resume behavior, not a sync failure.
 
 ## Verification Expectations
@@ -235,6 +250,7 @@ Tests or manual log checks for sync changes should cover:
 - cold sync cache-on prepares Mosaic artifacts before completion;
 - cold sync cache-off skips Mosaic preparation and waits for render-demand runtime Mosaic;
 - warm launch does not sync every bucket asset before first render;
+- cache-only warm launch skips metadata sync and all non-manual bucket server refresh while still materializing cached Room rows;
 - unchanged visible bucket refresh does not rewrite rows or bump revision;
 - manual refresh cache-off clears Timeline and Detail Mosaic caches once;
 - manual refresh cache-off does not run sync-time or runtime Mosaic work;

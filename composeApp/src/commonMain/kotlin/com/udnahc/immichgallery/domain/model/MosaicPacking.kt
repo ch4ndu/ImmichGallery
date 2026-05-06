@@ -596,7 +596,10 @@ private fun isStableProgressChunk(
         promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
         minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
     )
-    return displayItems.lastOrNull() != null
+    return displayItems.isNotEmpty() &&
+        displayItems.all { item ->
+            item is MosaicBandItem && item.kind == MosaicBandKind.REAL
+        }
 }
 
 fun buildFallbackMosaicBands(

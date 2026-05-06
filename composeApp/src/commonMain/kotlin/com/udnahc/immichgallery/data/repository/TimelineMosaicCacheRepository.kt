@@ -14,14 +14,9 @@ import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignmentDto
 import com.udnahc.immichgallery.domain.model.MosaicBandKind
-import com.udnahc.immichgallery.domain.model.MosaicKeyScope
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
-import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
-import com.udnahc.immichgallery.domain.model.MosaicOwnerScope
-import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
-import com.udnahc.immichgallery.domain.model.MosaicSectionRequest
-import com.udnahc.immichgallery.domain.model.MosaicSectionResult
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
+import com.udnahc.immichgallery.domain.model.SectionReady
 import com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicAssignment
@@ -33,7 +28,7 @@ import com.udnahc.immichgallery.domain.model.TimelineMosaicDisplayTileRecord
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineMosaicPrecomputeResult
-import com.udnahc.immichgallery.domain.model.TimelineMosaicProgressChunk
+import com.udnahc.immichgallery.domain.model.TimelineMosaicSectionPrecomputeRequest
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForHeight
 import com.udnahc.immichgallery.domain.model.coversOrderedAssets
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
@@ -71,7 +66,6 @@ class TimelineMosaicCacheRepository(
     private val serverConfigRepository: ServerConfigRepository
 ) {
     private val log = logging("TimelineMosaicCacheRepository")
-    private val mosaicRenderEngine = MosaicRenderEngine()
 
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -266,7 +260,7 @@ class TimelineMosaicCacheRepository(
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest? = null,
         cacheDisplayResults: Boolean = true,
-        onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit = {}
+        computeSection: suspend (TimelineMosaicSectionPrecomputeRequest) -> SectionReady
     ): Result<TimelineMosaicPrecomputeResult> {
         if (timeBuckets.isEmpty()) {
             return Result.success(TimelineMosaicPrecomputeResult(emptySet(), emptySet()))
@@ -302,7 +296,7 @@ class TimelineMosaicCacheRepository(
                                     assignmentLayoutSpec = layoutSpec,
                                     geometryRequest = geometryRequest,
                                     cacheDisplayResults = cacheDisplayResults,
-                                    onProgressChunk = onProgressChunk
+                                    computeSection = computeSection
                                 )
                             } catch (e: CancellationException) {
                                 throw e
@@ -368,7 +362,7 @@ class TimelineMosaicCacheRepository(
         assignmentLayoutSpec: com.udnahc.immichgallery.domain.model.MosaicLayoutSpec,
         geometryRequest: TimelineMosaicGeometryRequest?,
         cacheDisplayResults: Boolean,
-        onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit = {}
+        computeSection: suspend (TimelineMosaicSectionPrecomputeRequest) -> SectionReady
     ): TimelineBucketGeometryEntity? {
         val entities = withContext(Dispatchers.IO) {
             assetDao.getTimelineAssets(timeBucket)
@@ -397,7 +391,7 @@ class TimelineMosaicCacheRepository(
             geometryRequest = geometryRequest,
             cacheDisplayResults = cacheDisplayResults,
             entities = entities,
-            onProgressChunk = onProgressChunk
+            computeSection = computeSection
         )
     }
 
@@ -412,7 +406,7 @@ class TimelineMosaicCacheRepository(
         geometryRequest: TimelineMosaicGeometryRequest?,
         cacheDisplayResults: Boolean,
         entities: List<AssetEntity>,
-        onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit = {}
+        computeSection: suspend (TimelineMosaicSectionPrecomputeRequest) -> SectionReady
     ): TimelineBucketGeometryEntity? {
         val fingerprint = orderedAssetsFingerprint(entities)
         val assets = entities.map { it.toDomain(baseUrl()) }
@@ -427,42 +421,24 @@ class TimelineMosaicCacheRepository(
                 ?: assignmentLayoutSpec
             val maxRowHeight = geometryRequest?.maxRowHeight ?: Float.MAX_VALUE
             val ready = withContext(Dispatchers.Default) {
-                val request = MosaicSectionRequest(
-                    keyScope = MosaicKeyScope(
-                        owner = MosaicOwnerKey(MosaicOwnerScope.TIMELINE_BUCKET, timeBucket),
+                computeSection(
+                    TimelineMosaicSectionPrecomputeRequest(
+                        timeBucket = timeBucket,
                         sectionKey = section.sectionKey,
+                        sectionLabel = section.label,
+                        assets = section.assets,
+                        bucketIndex = 0,
                         columnCount = columnCount,
                         familiesKey = familiesKey,
                         contentFingerprint = fingerprint,
-                        generation = now
-                    ),
-                    assets = section.assets,
-                    bucketIndex = 0,
-                    sectionLabel = section.label,
-                    assignmentLayoutSpec = assignmentLayoutSpec,
-                    displayLayoutSpec = displayLayoutSpec,
-                    spacing = geometryRequest?.spacing ?: GRID_SPACING_DP,
-                    maxRowHeight = maxRowHeight,
-                    enabledFamilies = families
+                        generation = now,
+                        assignmentLayoutSpec = assignmentLayoutSpec,
+                        displayLayoutSpec = displayLayoutSpec,
+                        spacing = geometryRequest?.spacing ?: GRID_SPACING_DP,
+                        maxRowHeight = maxRowHeight,
+                        enabledFamilies = families
+                    )
                 )
-                when (val result = mosaicRenderEngine.computeSection(
-                    request = request,
-                    onProgressChunk = { chunk ->
-                        onProgressChunk(
-                            TimelineMosaicProgressChunk(
-                                timeBucket = timeBucket,
-                                sectionKey = section.sectionKey,
-                                sectionLabel = section.label,
-                                sourceStartIndex = chunk.sourceStartIndex,
-                                sourceEndExclusive = chunk.sourceEndExclusive,
-                                assignments = chunk.assignments
-                            )
-                        )
-                    }
-                )) {
-                    is MosaicSectionResult.Ready -> result.value
-                    is MosaicSectionResult.Failed -> throw result.value.cause
-                }
             }
             val assignments = ready.assignments
             geometryRequest?.let { request ->
@@ -474,8 +450,7 @@ class TimelineMosaicCacheRepository(
                     columnCount = columnCount,
                     familiesKey = familiesKey,
                     assetFingerprint = fingerprint,
-                    assets = section.assets,
-                    assignments = assignments,
+                    displayItems = displayItems,
                     request = request,
                     now = now
                 ) else null
@@ -571,25 +546,6 @@ private data class TimelineMosaicSection(
     val assets: List<Asset>
 )
 
-internal fun buildTimelineMosaicDisplayItemsForGeometry(
-    assets: List<Asset>,
-    assignments: List<com.udnahc.immichgallery.domain.model.MosaicBandAssignment>,
-    columnCount: Int,
-    request: TimelineMosaicGeometryRequest,
-    sectionLabel: String
-): List<PhotoGridDisplayItem> {
-    val displayLayoutSpec = mosaicLayoutSpecForColumnCount(request.availableWidth, columnCount) ?: return emptyList()
-    return MosaicRenderEngine().projectSection(
-        assets = assets,
-        assignments = assignments,
-        bucketIndex = 0,
-        sectionLabel = sectionLabel,
-        layoutSpec = displayLayoutSpec,
-        spacing = request.spacing,
-        maxRowHeight = request.maxRowHeight
-    )
-}
-
 internal fun shouldRejectUnsyncedEmptyTimelineBucket(
     actualAssetCount: Int,
     expectedBucketCount: Int?
@@ -633,21 +589,11 @@ private fun computeTimelineMosaicDisplayCacheEntity(
     columnCount: Int,
     familiesKey: String,
     assetFingerprint: String,
-    assets: List<Asset>,
-    assignments: List<com.udnahc.immichgallery.domain.model.MosaicBandAssignment>,
+    displayItems: List<PhotoGridDisplayItem>,
     request: TimelineMosaicGeometryRequest,
     now: Long
 ): TimelineMosaicDisplayCacheEntity? {
-    val layoutSpec = mosaicLayoutSpecForColumnCount(request.availableWidth, columnCount) ?: return null
-    val displayItems = MosaicRenderEngine().projectSection(
-        assets = assets,
-        assignments = assignments,
-        bucketIndex = 0,
-        sectionLabel = sectionKey,
-        layoutSpec = layoutSpec,
-        spacing = request.spacing,
-        maxRowHeight = request.maxRowHeight
-    )
+    if (mosaicLayoutSpecForColumnCount(request.availableWidth, columnCount) == null) return null
     val bands = displayItems.filterIsInstance<MosaicBandItem>()
     if (bands.isEmpty()) return null
     val placeholderHeight = estimatePhotoGridDisplayItemsHeight(displayItems, request.spacing)

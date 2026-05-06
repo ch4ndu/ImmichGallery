@@ -3,7 +3,9 @@ package com.udnahc.immichgallery.data.repository
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
+import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
+import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -30,24 +32,29 @@ class TimelineMosaicGeometryTest {
             spacing = GRID_SPACING_DP
         )
         val wideRequest = narrowRequest.copy(availableWidth = 1000f)
+        val engine = MosaicRenderEngine()
 
         val narrowHeight = estimatePhotoGridDisplayItemsHeight(
-            buildTimelineMosaicDisplayItemsForGeometry(
+            engine.projectSection(
                 assets = assets,
                 assignments = emptyList(),
-                columnCount = 5,
-                request = narrowRequest,
-                sectionLabel = "section"
+                bucketIndex = 0,
+                sectionLabel = "section",
+                layoutSpec = requireNotNull(mosaicLayoutSpecForColumnCount(narrowRequest.availableWidth, 5)),
+                spacing = narrowRequest.spacing,
+                maxRowHeight = narrowRequest.maxRowHeight
             ),
             GRID_SPACING_DP
         )
         val wideHeight = estimatePhotoGridDisplayItemsHeight(
-            buildTimelineMosaicDisplayItemsForGeometry(
+            engine.projectSection(
                 assets = assets,
                 assignments = emptyList(),
-                columnCount = 5,
-                request = wideRequest,
-                sectionLabel = "section"
+                bucketIndex = 0,
+                sectionLabel = "section",
+                layoutSpec = requireNotNull(mosaicLayoutSpecForColumnCount(wideRequest.availableWidth, 5)),
+                spacing = wideRequest.spacing,
+                maxRowHeight = wideRequest.maxRowHeight
             ),
             GRID_SPACING_DP
         )

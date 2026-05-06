@@ -51,4 +51,34 @@ class TimelineStartupModeTest {
             )
         )
     }
+
+    @Test
+    fun cacheOnlyExperimentAllowsOnlyColdAndManualServerRefresh() {
+        TimelineServerRefreshSource.entries.forEach { source ->
+            val expected = source == TimelineServerRefreshSource.ColdSync ||
+                source == TimelineServerRefreshSource.ManualRefresh
+            assertEquals(
+                expected,
+                allowTimelineServerRefresh(
+                    disableNonManualServerSync = true,
+                    source = source
+                ),
+                "source=$source"
+            )
+        }
+    }
+
+    @Test
+    fun disabledCacheOnlyExperimentAllowsEveryServerRefreshSource() {
+        TimelineServerRefreshSource.entries.forEach { source ->
+            assertEquals(
+                true,
+                allowTimelineServerRefresh(
+                    disableNonManualServerSync = false,
+                    source = source
+                ),
+                "source=$source"
+            )
+        }
+    }
 }

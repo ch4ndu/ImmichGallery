@@ -82,6 +82,23 @@ data class TimelineMosaicPrecomputeResult(
     val bucketGeometrySummaries: List<TimelineBucketGeometrySummary> = emptyList()
 )
 
+data class TimelineMosaicSectionPrecomputeRequest(
+    val timeBucket: String,
+    val sectionKey: String,
+    val sectionLabel: String,
+    val assets: List<Asset>,
+    val bucketIndex: Int,
+    val columnCount: Int,
+    val familiesKey: String,
+    val contentFingerprint: String,
+    val generation: Long,
+    val assignmentLayoutSpec: MosaicLayoutSpec,
+    val displayLayoutSpec: MosaicLayoutSpec,
+    val spacing: Float,
+    val maxRowHeight: Float,
+    val enabledFamilies: Set<MosaicTemplateFamily>
+)
+
 data class TimelineMosaicProgressChunk(
     val timeBucket: String,
     val sectionKey: String,

@@ -15,9 +15,9 @@ read `docs/ai/timeline-sync.md`.
   state, overlay selection, shared-element transition state, visible bucket
   reporting, scrollbar drag callbacks, and width/height reporting.
 - `TimelineViewModel` owns Timeline screen state. It observes Room bucket
-  metadata, materializes visible bucket assets, queues server refreshes, reads
-  persisted Mosaic assignments, builds `TimelineState`, and keeps derived
-  display-item caches.
+  metadata, materializes visible bucket assets, optionally queues server
+  refreshes according to the Timeline sync policy, reads persisted Mosaic
+  assignments, builds `TimelineState`, and keeps derived display-item caches.
 - Timeline use cases/actions keep the ViewModel out of repositories:
   `GetTimelineBucketsUseCase`, `GetBucketAssetsUseCase`,
   `LoadBucketAssetsAction`, `SyncAllTimelineAssetsAction`,
@@ -60,8 +60,10 @@ In short:
 - Cold sync is blocking and writes the cold-complete marker only after required
   asset sync succeeds and, when cache results are enabled, Mosaic geometry is
   prepared.
-- Warm launch is cached-first: it refreshes metadata, keeps cached refs visible,
-  and materializes/refetches only visible or targeted bucket assets.
+- Warm launch is cached-first: it keeps cached refs visible and materializes
+  only visible or targeted bucket assets. Current cache-only warm policy skips
+  non-manual server refresh; if that policy is disabled, warm launch may also
+  refresh metadata and visible bucket assets in the background.
 - Manual refresh blocks the visible-refresh queue, refreshes every metadata
   bucket while preserving cached rows on failure, and clears all Mosaic caches
   first when `cacheMosaicResults = false`.
@@ -89,21 +91,25 @@ structure; it must not wait for every bucket's server refresh.
 5. Cached aggregate geometry can provide accurate placeholder heights for
    unloaded Mosaic buckets. Missing geometry falls back to projected or count-
    based placeholders.
-6. The background server sync refreshes bucket metadata and records stale or
-   removed buckets. It does not fetch every bucket's assets.
+6. Under the current cache-only warm policy, no background server sync runs on
+   warm launch. If warm server refresh is enabled, a background sync refreshes
+   bucket metadata and records stale or removed buckets without fetching every
+   bucket's assets.
 7. Visible bucket reporting starts immediately from `TimelineContent`. The
    screen maps visible display indexes through `TimelineDisplayIndex` to bucket
    indexes, then calls `onVisibleBucketsChanged(...)`.
 8. The ViewModel expands visible buckets to the nearby prefetch window and
-   materializes cached assets for those buckets from Room before waiting on the
-   network.
+   materializes cached assets for those buckets from Room before any optional
+   network work.
 9. Materialized buckets update `bucketAssetsCache`, become loaded in
    `_bucketData`, and rebuild only their derived display items. If Mosaic is
    disabled, this is where standard RowPacking rows appear. If Mosaic is
    enabled, loaded sections render placeholders until current-config Mosaic
    state is ready.
-10. The same visible/nearby buckets are queued for serial server refresh. New
-   visible or targeted buckets move ahead of stale offscreen refresh work.
+10. Under cache-only warm policy, the flow stops here for server work; the next
+   server update comes from manual refresh. If warm server refresh is enabled,
+   the same visible/nearby buckets are queued for serial server refresh, with
+   visible or targeted buckets ahead of stale offscreen refresh work.
 11. If a server refresh returns unchanged ordered content for an already-loaded
    bucket, the screen keeps the existing rows/bands without bumping the bucket
    revision or re-requesting Mosaic.
@@ -122,18 +128,22 @@ graph TD
     materialize --> rows{"Mosaic enabled?"}
     rows -->|No| rowPacking["Build RowPacking rows"]
     rows -->|Yes| mosaicState["Show Mosaic placeholders or ready bands"]
-    visible --> queue["Queue serial visible server refresh"]
+    visible --> policy{"Cache-only warm policy?"}
+    policy -->|Yes| stop["Stop before server refresh"]
+    policy -->|No| queue["Queue serial visible server refresh"]
     queue --> server["Fetch bucket assets from server"]
     server --> changed{"Ordered content changed?"}
     changed -->|No| keep["Keep current display state"]
     changed -->|Yes| invalidate["Reload assets and invalidate bucket layout"]
 ```
 
-Warm sync should feel like a cached screen with background repair. The user can
-scroll, open the overlay, use the scrollbar, and load targeted buckets while
-metadata sync and visible bucket refreshes continue. Network work should never
-collapse already cached rows into unloaded placeholders unless that bucket's
-content actually changes or no cached rows exist.
+Warm sync should feel like a cached screen. The user can scroll, open the
+overlay, use the scrollbar, and load targeted buckets while Room-backed assets
+materialize. Under cache-only warm policy there is no background repair until
+manual refresh; when warm server refresh is enabled, metadata sync and visible
+bucket refreshes continue in the background. Network work should never collapse
+already cached rows into unloaded placeholders unless that bucket's content
+actually changes or no cached rows exist.
 
 ## Cache And Invalidation Model
 
@@ -362,7 +372,11 @@ sequenceDiagram
     UI->>VM: report visible buckets
     VM->>VM: expand to nearby bucket indexes
     VM->>DB: materialize cached assets if available
-    VM->>VM: queue serial visible server refresh
+    alt cache-only warm policy
+        VM->>VM: stop before server refresh queue
+    else warm server refresh enabled
+        VM->>VM: queue serial visible server refresh
+    end
     VM->>Repo: request persisted Mosaic rows
     Repo->>DB: read Mosaic assignment rows
     Repo->>DB: validate asset fingerprints
@@ -452,13 +466,14 @@ Column count changes happen through the Mosaic settings dialog, not pinch or
 desktop zoom. When cache results is enabled, applying Mosaic changes blocks in
 the dialog while every current Timeline metadata bucket is prepared for the
 requested group/column/family/full-screen-geometry key. The blocking prepare
-path first materializes buckets with asset sync, retrying failures once, then
-runs explicit Mosaic cache preparation before cache readiness is reported. The
-previous requested layout stays visible until preparation succeeds. If any
-bucket fails, the draft config is not persisted or applied. The Timeline grouping
-control is disabled while Mosaic is enabled. Width and scroll changes may
-request persisted rows, but they must not compute assignments or write cache
-rows on the hot scroll path.
+path normally materializes buckets with asset sync, retrying failures once, then
+runs explicit Mosaic cache preparation before cache readiness is reported. Under
+cache-only warm policy, blocking prepare uses cached bucket rows only and does
+not perform non-manual asset sync. The previous requested layout stays visible
+until preparation succeeds. If any bucket fails, the draft config is not
+persisted or applied. The Timeline grouping control is disabled while Mosaic is
+enabled. Width and scroll changes may request persisted rows, but they must not
+compute assignments or write cache rows on the hot scroll path.
 `activeMosaicConfig` lets the ViewModel keep using a previously complete config
 until the requested config is complete.
 

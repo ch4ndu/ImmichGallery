@@ -51,6 +51,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import org.lighthousegames.logging.logging
@@ -114,6 +116,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private var resumeMosaicJob: Job? = null
     private var resumeRequestedAgain = false
     private var requestedResumeDelayMs = 0L
+    private val mosaicRuntimeStateMutex = Mutex()
     private val persistentCacheRenderer = CachedPhotoGridMosaicRenderer()
     private val runtimeRenderer = RuntimePhotoGridMosaicRenderer()
     private val runtimeGroupStates = mutableMapOf<DetailGroupDisplayCacheKey, DetailRuntimeMosaicGroupState>()
@@ -287,7 +290,9 @@ class PhotoGridDetailLayoutCoordinator<S>(
         if (next == visibleBucketIndexes) return
         visibleBucketIndexes = next
         if (snapshotOf(getState()).viewConfig.mosaicEnabled) {
-            flushDeferredMosaicGroups(visibleWindowOnly = true)
+            scope.launch {
+                flushDeferredMosaicGroups(visibleWindowOnly = true)
+            }
             scope.launch {
                 mosaicWorkScheduler.reprioritizePending(
                     ownerKey = ownerKey,
@@ -396,25 +401,48 @@ class PhotoGridDetailLayoutCoordinator<S>(
         }
         val keyedGroups = keyedGroupsForSnapshot(snapshot, layoutSpec)
         val currentKeys = keyedGroups.map { it.cacheKey }.toSet()
-        removeRuntimeGroupStates { it !in currentKeys }
-        val initialItems = keyedGroups.flatMap { keyed ->
-            groupDisplayCache[keyed.cacheKey]
-                ?: persistentCacheRenderer.cachedGroupItems(
-                    group = keyed.group,
-                    assetFingerprint = keyed.assetFingerprint,
-                    cachedEntries = persistentCacheByGroup
-                )?.also { items -> groupDisplayCache[keyed.cacheKey] = items }
-                ?: runtimeItemsForGroup(snapshot, layoutSpec, keyed)
-                ?: placeholderItemsForGroup(
-                bucketIndex = keyed.group.index,
-                sectionLabel = keyed.group.label,
-                assets = keyed.group.assets,
-                availableWidth = snapshot.availableWidth,
-                targetRowHeight = layoutSpec.cellHeight,
-                cachedPlaceholderHeight = persistentCacheByGroup[
-                    DetailPersistentGroupKey(keyed.group.index, keyed.group.label, keyed.assetFingerprint)
-                ]?.placeholderHeight
-            )
+        val activeScrollRunnableIndexes = if (isScrollInProgress) {
+            visibleBucketIndexes.toSet()
+        } else {
+            null
+        }
+        val initialItems = mosaicRuntimeStateMutex.withLock {
+            removeRuntimeGroupStatesLocked { it !in currentKeys }
+            keyedGroups.flatMap { keyed ->
+                groupDisplayCache[keyed.cacheKey]
+                    ?: persistentCacheRenderer.cachedGroupItems(
+                        group = keyed.group,
+                        assetFingerprint = keyed.assetFingerprint,
+                        cachedEntries = persistentCacheByGroup
+                    )?.also { items -> groupDisplayCache[keyed.cacheKey] = items }
+                    ?: runtimeItemsForGroup(snapshot, layoutSpec, keyed)
+                    ?: placeholderItemsForGroup(
+                        bucketIndex = keyed.group.index,
+                        sectionLabel = keyed.group.label,
+                        assets = keyed.group.assets,
+                        availableWidth = snapshot.availableWidth,
+                        targetRowHeight = layoutSpec.cellHeight,
+                        cachedPlaceholderHeight = persistentCacheByGroup[
+                            DetailPersistentGroupKey(keyed.group.index, keyed.group.label, keyed.assetFingerprint)
+                        ]?.placeholderHeight
+                    )
+            }.also {
+                if (activeScrollRunnableIndexes != null) {
+                    keyedGroups
+                        .filter { keyed ->
+                            keyed.group.index !in activeScrollRunnableIndexes &&
+                                groupDisplayCache[keyed.cacheKey] == null &&
+                                runtimeGroupStates[keyed.cacheKey] == null
+                        }
+                        .forEach { keyed ->
+                            runtimeGroupStates[keyed.cacheKey] = DetailRuntimeMosaicGroupState.InFlight(
+                                checkpoint = emptyMosaicCheckpoint(),
+                                chunks = emptyList(),
+                                attempts = 0
+                            )
+                        }
+                }
+            }
         }
         if (layoutRunner.isCurrent(runnerGeneration) &&
             mosaicGeneration == mosaicLayoutGeneration &&
@@ -422,33 +450,15 @@ class PhotoGridDetailLayoutCoordinator<S>(
         ) {
             updateState { state -> withDisplayItems(state, initialItems) }
         }
-        val activeScrollRunnableIndexes = if (isScrollInProgress) {
-            visibleBucketIndexes.toSet()
-        } else {
-            null
-        }
-        if (activeScrollRunnableIndexes != null) {
+        val remainingGroups = mosaicRuntimeStateMutex.withLock {
             keyedGroups
                 .filter { keyed ->
-                    keyed.group.index !in activeScrollRunnableIndexes &&
-                        groupDisplayCache[keyed.cacheKey] == null &&
-                        runtimeGroupStates[keyed.cacheKey] == null
+                    groupDisplayCache[keyed.cacheKey] == null &&
+                        (activeScrollRunnableIndexes == null || keyed.group.index in activeScrollRunnableIndexes) &&
+                        runtimeGroupStates[keyed.cacheKey] !is DetailRuntimeMosaicGroupState.RetryableFailure
                 }
-                .forEach { keyed ->
-                    runtimeGroupStates[keyed.cacheKey] = DetailRuntimeMosaicGroupState.InFlight(
-                        checkpoint = emptyMosaicCheckpoint(),
-                        chunks = emptyList(),
-                        attempts = 0
-                    )
-                }
+                .toMutableList()
         }
-        val remainingGroups = keyedGroups
-            .filter { keyed ->
-                groupDisplayCache[keyed.cacheKey] == null &&
-                    (activeScrollRunnableIndexes == null || keyed.group.index in activeScrollRunnableIndexes) &&
-                    runtimeGroupStates[keyed.cacheKey] !is DetailRuntimeMosaicGroupState.RetryableFailure
-            }
-            .toMutableList()
         while (remainingGroups.isNotEmpty()) {
             val keyedGroup = nextMosaicGroup(remainingGroups)
             remainingGroups.remove(keyedGroup)
@@ -485,21 +495,25 @@ class PhotoGridDetailLayoutCoordinator<S>(
         keyedGroups: List<KeyedAssetGroup>,
         allowRetryable: Boolean
     ) {
-        val existingState = runtimeGroupStates[keyedGroup.cacheKey]
+        val existingState = mosaicRuntimeStateMutex.withLock {
+            val current = runtimeGroupStates[keyedGroup.cacheKey]
+            if (current == null) {
+                val checkpoint = emptyMosaicCheckpoint()
+                runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.InFlight(
+                    checkpoint = checkpoint,
+                    chunks = emptyList(),
+                    attempts = 0
+                )
+                runtimeGroupStates[keyedGroup.cacheKey]
+            } else {
+                current
+            }
+        }
         if (existingState is DetailRuntimeMosaicGroupState.RetryableFailure && !allowRetryable) return
         val group = keyedGroup.group
         var latestCheckpoint = existingState?.checkpoint
         var progressChunks = existingState?.chunks.orEmpty()
         val existingAttempts = existingState?.attempts ?: 0
-        if (existingState == null) {
-            val checkpoint = emptyMosaicCheckpoint()
-            latestCheckpoint = checkpoint
-            runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.InFlight(
-                checkpoint = checkpoint,
-                chunks = emptyList(),
-                attempts = 0
-            )
-        }
         val priority = if (group.index in visibleBucketIndexes) {
             MosaicWorkPriority.ForegroundVisible
         } else {
@@ -527,11 +541,13 @@ class PhotoGridDetailLayoutCoordinator<S>(
                         if (!isCurrentMosaicRun(runnerGeneration, mosaicGeneration, revision)) return@progress
                         progressChunks = mergeProgressChunks(progressChunks, listOf(chunk))
                         val checkpoint = latestCheckpoint ?: return@progress
-                        runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.Partial(
-                            checkpoint = checkpoint,
-                            chunks = progressChunks,
-                            attempts = existingAttempts
-                        )
+                        mosaicRuntimeStateMutex.withLock {
+                            runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.Partial(
+                                checkpoint = checkpoint,
+                                chunks = progressChunks,
+                                attempts = existingAttempts
+                            )
+                        }
                         publishOrDeferGroupItems(
                             groupIndex = group.index,
                             items = partialItemsForGroup(snapshot, layoutSpec, group, progressChunks)
@@ -558,11 +574,13 @@ class PhotoGridDetailLayoutCoordinator<S>(
             }
             if (!groupItems.isFinalMosaicGroupDisplay()) {
                 val attempts = existingAttempts + 1
-                runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.RetryableFailure(
-                    checkpoint = latestCheckpoint ?: emptyMosaicCheckpoint(),
-                    chunks = progressChunks,
-                    attempts = attempts
-                )
+                mosaicRuntimeStateMutex.withLock {
+                    runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.RetryableFailure(
+                        checkpoint = latestCheckpoint ?: emptyMosaicCheckpoint(),
+                        chunks = progressChunks,
+                        attempts = attempts
+                    )
+                }
                 publishOrDeferGroupItems(
                     groupIndex = group.index,
                     items = placeholderItemsForGroup(
@@ -576,8 +594,10 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 scheduleIncompleteMosaicResume(delayMs = detailRetryDelayMs(attempts))
                 return
             }
-            runtimeGroupStates.remove(keyedGroup.cacheKey)
-            groupDisplayCache[keyedGroup.cacheKey] = groupItems
+            mosaicRuntimeStateMutex.withLock {
+                runtimeGroupStates.remove(keyedGroup.cacheKey)
+                groupDisplayCache[keyedGroup.cacheKey] = groupItems
+            }
             publishOrDeferGroupItems(group.index, groupItems)
             persistentCacheLookup?.let { lookup ->
                 writeArtifactsAsync(
@@ -605,17 +625,21 @@ class PhotoGridDetailLayoutCoordinator<S>(
             if (!isCurrentMosaicRun(runnerGeneration, mosaicGeneration, revision)) return
             val checkpoint = latestCheckpoint ?: emptyMosaicCheckpoint()
             if (progressChunks.isEmpty()) {
-                runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.InFlight(
-                    checkpoint = checkpoint,
-                    chunks = emptyList(),
-                    attempts = existingAttempts
-                )
+                mosaicRuntimeStateMutex.withLock {
+                    runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.InFlight(
+                        checkpoint = checkpoint,
+                        chunks = emptyList(),
+                        attempts = existingAttempts
+                    )
+                }
             } else {
-                runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.Partial(
-                    checkpoint = checkpoint,
-                    chunks = progressChunks,
-                    attempts = existingAttempts
-                )
+                mosaicRuntimeStateMutex.withLock {
+                    runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.Partial(
+                        checkpoint = checkpoint,
+                        chunks = progressChunks,
+                        attempts = existingAttempts
+                    )
+                }
             }
             scheduleIncompleteMosaicResume()
         } catch (e: CancellationException) {
@@ -625,11 +649,13 @@ class PhotoGridDetailLayoutCoordinator<S>(
             log.e(e) { "Mosaic assignments failed for $logTag owner=$ownerKey section=${group.label}" }
             val checkpoint = latestCheckpoint ?: emptyMosaicCheckpoint()
             val attempts = existingAttempts + 1
-            runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.RetryableFailure(
-                checkpoint = checkpoint,
-                chunks = progressChunks,
-                attempts = attempts
-            )
+            mosaicRuntimeStateMutex.withLock {
+                runtimeGroupStates[keyedGroup.cacheKey] = DetailRuntimeMosaicGroupState.RetryableFailure(
+                    checkpoint = checkpoint,
+                    chunks = progressChunks,
+                    attempts = attempts
+                )
+            }
             publishOrDeferGroupItems(
                 group.index,
                 placeholderItemsForGroup(
@@ -733,16 +759,24 @@ class PhotoGridDetailLayoutCoordinator<S>(
             maxRowHeight = snapshot.rowHeightBounds.max
         )
 
-    private fun publishOrDeferGroupItems(
+    private suspend fun publishOrDeferGroupItems(
         groupIndex: Int,
         items: List<PhotoGridDisplayItem>
     ) {
-        if (!items.isFinalMosaicGroupDisplay() && readyCachedItemsForGroupIndex(groupIndex) != null) return
-        if (shouldPublishMosaicGroupImmediately(groupIndex)) {
-            deferredMosaicGroupItems.remove(groupIndex)
+        val publishNow = mosaicRuntimeStateMutex.withLock {
+            if (!items.isFinalMosaicGroupDisplay() && readyCachedItemsForGroupIndex(groupIndex) != null) {
+                null
+            } else if (shouldPublishMosaicGroupImmediately(groupIndex)) {
+                deferredMosaicGroupItems.remove(groupIndex)
+                true
+            } else {
+                deferredMosaicGroupItems[groupIndex] = items
+                false
+            }
+        } ?: return
+        if (publishNow) {
             publishMosaicGroupItems(mapOf(groupIndex to items))
         } else {
-            deferredMosaicGroupItems[groupIndex] = items
             scheduleDeferredMosaicFlush()
         }
     }
@@ -778,24 +812,28 @@ class PhotoGridDetailLayoutCoordinator<S>(
             lastEmittedBandCount = 0
         )
 
-    private fun cacheCurrentDisplayIfComplete(
+    private suspend fun cacheCurrentDisplayIfComplete(
         cacheKey: DetailDisplayCacheKey,
         keyedGroups: List<KeyedAssetGroup>
     ) {
         val currentKeys = keyedGroups.map { it.cacheKey }.toSet()
-        if (keyedGroups.any { groupDisplayCache[it.cacheKey] == null }) return
-        if (runtimeGroupStates.keys.toList().any { it in currentKeys }) return
-        if (deferredMosaicGroupItems.isNotEmpty()) return
         val currentItems = snapshotOf(getState()).displayItems
         if (currentItems.any { it is com.udnahc.immichgallery.domain.model.PlaceholderItem }) return
-        val allPublished = keyedGroups.all { keyed ->
-            val finalItems = groupDisplayCache[keyed.cacheKey] ?: return@all false
-            if (!finalItems.isFinalMosaicGroupDisplay()) return@all false
-            if (finalItems.any { it is com.udnahc.immichgallery.domain.model.PlaceholderItem }) return@all false
-            val firstIndex = currentItems.indexOfFirst { it.bucketIndex == keyed.group.index }
-            if (firstIndex < 0) return@all false
-            val lastIndex = currentItems.indexOfLast { it.bucketIndex == keyed.group.index }
-            currentItems.subList(firstIndex, lastIndex + 1) == finalItems
+        val allPublished = mosaicRuntimeStateMutex.withLock {
+            if (keyedGroups.any { groupDisplayCache[it.cacheKey] == null } ||
+                runtimeGroupStates.keys.toList().any { it in currentKeys } ||
+                deferredMosaicGroupItems.isNotEmpty()
+            ) {
+                false
+            } else keyedGroups.all { keyed ->
+                val finalItems = groupDisplayCache[keyed.cacheKey] ?: return@all false
+                if (!finalItems.isFinalMosaicGroupDisplay()) return@all false
+                if (finalItems.any { it is com.udnahc.immichgallery.domain.model.PlaceholderItem }) return@all false
+                val firstIndex = currentItems.indexOfFirst { it.bucketIndex == keyed.group.index }
+                if (firstIndex < 0) return@all false
+                val lastIndex = currentItems.indexOfLast { it.bucketIndex == keyed.group.index }
+                currentItems.subList(firstIndex, lastIndex + 1) == finalItems
+            }
         }
         if (allPublished) {
             displayCache = CachedDisplayItems(cacheKey, currentItems)
@@ -803,7 +841,6 @@ class PhotoGridDetailLayoutCoordinator<S>(
     }
 
     private fun scheduleIncompleteMosaicResume(delayMs: Long = 0L) {
-        if (runtimeGroupStates.isEmpty()) return
         if (resumeMosaicJob?.isActive == true) {
             resumeRequestedAgain = true
             if (delayMs > requestedResumeDelayMs) requestedResumeDelayMs = delayMs
@@ -817,19 +854,21 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 if (!snapshot.viewConfig.mosaicEnabled || snapshot.assets.isEmpty() || snapshot.availableWidth <= 0f) return@launch
                 val keyedGroups = keyedGroupsForSnapshot(snapshot, layoutSpec)
                 val keyedByKey = keyedGroups.associateBy { it.cacheKey }
-                removeRuntimeGroupStates { it !in keyedByKey.keys }
                 val visibleWindow = visibleBucketWindow()
                 val runnableIndexes = if (isScrollInProgress) {
                     visibleBucketIndexes.toSet()
                 } else {
                     null
                 }
-                val runtimeStateSnapshot = runtimeGroupStates.toMap()
+                val (runtimeStateSnapshot, cachedGroupKeys) = mosaicRuntimeStateMutex.withLock {
+                    removeRuntimeGroupStatesLocked { it !in keyedByKey.keys }
+                    runtimeGroupStates.toMap() to groupDisplayCache.keys.toSet()
+                }
                 val targets = runtimeStateSnapshot.entries
                     .mapNotNull { (key, runtimeState) ->
                         keyedByKey[key]?.let { keyed -> keyed to runtimeState }
                     }
-                    .filter { (keyed, _) -> groupDisplayCache[keyed.cacheKey] == null }
+                    .filter { (keyed, _) -> keyed.cacheKey !in cachedGroupKeys }
                     .filter { (keyed, runtimeState) ->
                         runnableIndexes == null || keyed.group.index in runnableIndexes
                     }
@@ -876,16 +915,18 @@ class PhotoGridDetailLayoutCoordinator<S>(
         }
     }
 
-    private fun maybeWriteAggregateGeometryAsync(
+    private suspend fun maybeWriteAggregateGeometryAsync(
         snapshot: PhotoGridDetailLayoutSnapshot,
         lookup: DetailMosaicCacheLookup,
         ownerFingerprint: String,
         keyedGroups: List<KeyedAssetGroup>,
         onFailure: (Throwable) -> Unit
     ) {
-        val orderedItems = keyedGroups.map { keyed ->
-            groupDisplayCache[keyed.cacheKey] ?: return
-        }.flatten()
+        val orderedItems = mosaicRuntimeStateMutex.withLock {
+            keyedGroups.map { keyed ->
+                groupDisplayCache[keyed.cacheKey] ?: return@withLock null
+            }.flatten()
+        } ?: return
         writeArtifactsAsync(
             artifacts = DetailMosaicArtifactsUpsert(
                 aggregateGeometry = aggregateGeometryEntry(
@@ -1088,7 +1129,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
             .toSet()
 
     private fun scheduleDeferredMosaicFlush() {
-        if (isScrollInProgress || deferredMosaicGroupItems.isEmpty()) return
+        if (isScrollInProgress) return
         if (deferredMosaicFlushJob?.isActive == true) return
         deferredMosaicFlushJob = scope.launch {
             delay(DEFERRED_MOSAIC_FLUSH_DELAY_MS)
@@ -1096,13 +1137,20 @@ class PhotoGridDetailLayoutCoordinator<S>(
         }
     }
 
-    private fun flushDeferredMosaicGroups(visibleWindowOnly: Boolean) {
-        if (deferredMosaicGroupItems.isEmpty()) return
+    private suspend fun flushDeferredMosaicGroups(visibleWindowOnly: Boolean) {
         val eligibleIndexes = if (visibleWindowOnly) visibleBucketWindow() else null
-        val updates = deferredMosaicGroupItems
-            .filterKeys { index -> eligibleIndexes == null || index in eligibleIndexes }
+        val updates = mosaicRuntimeStateMutex.withLock {
+            if (deferredMosaicGroupItems.isEmpty()) {
+                emptyMap()
+            } else {
+                deferredMosaicGroupItems
+                    .filterKeys { index -> eligibleIndexes == null || index in eligibleIndexes }
+                    .also { updates ->
+                        updates.keys.forEach(deferredMosaicGroupItems::remove)
+                    }
+            }
+        }
         if (updates.isEmpty()) return
-        updates.keys.forEach(deferredMosaicGroupItems::remove)
         publishMosaicGroupItems(updates)
         cacheCurrentDisplayIfCompleteForCurrentSnapshot()
     }
@@ -1133,7 +1181,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private fun mosaicLayoutSpecForSnapshot(snapshot: PhotoGridDetailLayoutSnapshot) =
         mosaicLayoutSpecForColumnCount(snapshot.availableWidth, snapshot.viewConfig.mosaicColumnCount)
 
-    private fun cacheCurrentDisplayIfCompleteForCurrentSnapshot() {
+    private suspend fun cacheCurrentDisplayIfCompleteForCurrentSnapshot() {
         val snapshot = snapshotOf(getState())
         val layoutSpec = mosaicLayoutSpecForSnapshot(snapshot) ?: return
         cacheCurrentDisplayIfComplete(
@@ -1171,21 +1219,35 @@ class PhotoGridDetailLayoutCoordinator<S>(
         // Display items include bucketIndex. If group order changes, cached
         // rows/Mosaic bands from unchanged labels may point at stale indexes.
         if (previous == null || previousOrder != nextOrder) {
-            groupDisplayCache.clear()
-            runtimeGroupStates.clear()
+            mutateMosaicRuntimeState {
+                groupDisplayCache.clear()
+                runtimeGroupStates.clear()
+            }
             return
         }
         val changedIndexes = (0 until maxOf(previous.size, next.size))
             .filter { index -> previous.getOrNull(index) != next.getOrNull(index) }
             .toSet()
         if (changedIndexes.isEmpty()) return
-        groupDisplayCache.keys.toList()
-            .filter { it.bucketIndex in changedIndexes }
-            .forEach(groupDisplayCache::remove)
+        mutateMosaicRuntimeState {
+            groupDisplayCache.keys.toList()
+                .filter { it.bucketIndex in changedIndexes }
+                .forEach(groupDisplayCache::remove)
+        }
         removeRuntimeGroupStates { it.bucketIndex in changedIndexes }
     }
 
     private fun removeRuntimeGroupStates(predicate: (DetailGroupDisplayCacheKey) -> Boolean) {
+        // Non-suspend callers clear generation-owned state before scheduling
+        // new work. Suspend runtime paths use removeRuntimeGroupStatesLocked.
+        mutateMosaicRuntimeState {
+            runtimeGroupStates.keys.toList()
+                .filter(predicate)
+                .forEach(runtimeGroupStates::remove)
+        }
+    }
+
+    private fun removeRuntimeGroupStatesLocked(predicate: (DetailGroupDisplayCacheKey) -> Boolean) {
         runtimeGroupStates.keys.toList()
             .filter(predicate)
             .forEach(runtimeGroupStates::remove)
@@ -1193,13 +1255,31 @@ class PhotoGridDetailLayoutCoordinator<S>(
 
     private fun clearLayoutCaches() {
         displayCache = null
-        groupDisplayCache.clear()
-        runtimeGroupStates.clear()
         resumeMosaicJob?.cancel()
         resumeMosaicJob = null
         deferredMosaicFlushJob?.cancel()
         deferredMosaicFlushJob = null
-        deferredMosaicGroupItems.clear()
+        mutateMosaicRuntimeState {
+            groupDisplayCache.clear()
+            runtimeGroupStates.clear()
+            deferredMosaicGroupItems.clear()
+        }
+    }
+
+    private inline fun mutateMosaicRuntimeState(crossinline block: () -> Unit) {
+        if (mosaicRuntimeStateMutex.tryLock()) {
+            try {
+                block()
+            } finally {
+                mosaicRuntimeStateMutex.unlock()
+            }
+        } else {
+            scope.launch {
+                mosaicRuntimeStateMutex.withLock {
+                    block()
+                }
+            }
+        }
     }
 
     private fun nextMosaicGroup(groups: List<KeyedAssetGroup>): KeyedAssetGroup {
