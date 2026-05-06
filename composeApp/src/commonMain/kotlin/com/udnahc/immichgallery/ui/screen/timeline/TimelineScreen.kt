@@ -350,27 +350,34 @@ fun TimelineContent(
                     val coroutineScope = rememberCoroutineScope()
                     val scrollbarScrollJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
                     val scrollbarTargetTracker = remember { TimelineScrollbarTargetTracker() }
-
-                    fun scrollToFractionTarget(fraction: Float, commit: Boolean) {
-                        val target = scrollTargetForFraction(fraction) ?: return
-                        scrollbarScrollJob[0]?.cancel()
-                        scrollbarScrollJob[0] = coroutineScope.launch {
-                            listState.scrollToItem(target.displayIndex)
-                        }
-                        if (commit) {
-                            if (scrollbarTargetTracker.shouldNotifyDragStop(target.bucketIndex)) {
-                                onViewportBucketTargeted(target.bucketIndex, TimelineBucketTargetReason.ScrollbarStop)
+                    // Route parameter callbacks through rememberUpdatedState so the
+                    // remembered scrollbar lambdas below stay identity-stable across
+                    // recompositions while still calling the freshest callback. This
+                    // stops ScrollbarOverlay from recomposing on every parent
+                    // recomposition (which fires often during the warmup wave when
+                    // _bucketData / _mosaicStates produce combine emissions).
+                    val latestScrollTargetForFraction by rememberUpdatedState(scrollTargetForFraction)
+                    val latestOnViewportBucketTargeted by rememberUpdatedState(onViewportBucketTargeted)
+                    val scrollToFractionTarget = remember<(Float, Boolean) -> Unit> {
+                        { fraction, commit ->
+                            val target = latestScrollTargetForFraction(fraction)
+                            if (target != null) {
+                                scrollbarScrollJob[0]?.cancel()
+                                scrollbarScrollJob[0] = coroutineScope.launch {
+                                    listState.scrollToItem(target.displayIndex)
+                                }
+                                if (commit) {
+                                    if (scrollbarTargetTracker.shouldNotifyDragStop(target.bucketIndex)) {
+                                        latestOnViewportBucketTargeted(target.bucketIndex, TimelineBucketTargetReason.ScrollbarStop)
+                                    }
+                                } else if (scrollbarTargetTracker.shouldNotifyDragTarget(target.bucketIndex)) {
+                                    latestOnViewportBucketTargeted(target.bucketIndex, TimelineBucketTargetReason.ScrollbarDrag)
+                                }
                             }
-                        } else if (scrollbarTargetTracker.shouldNotifyDragTarget(target.bucketIndex)) {
-                            onViewportBucketTargeted(target.bucketIndex, TimelineBucketTargetReason.ScrollbarDrag)
                         }
                     }
-
-                    ScrollbarOverlay(
-                        listState = listState,
-                        topPadding = statusBarPadding + Dimens.topBarHeight + Dimens.sectionHeaderHeight,
-                        bottomPadding = Dimens.bottomBarHeight + navBarPadding,
-                        scrollFractionProvider = {
+                    val scrollFractionProvider = remember<() -> Float> {
+                        {
                             val firstVisibleIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
                             if (firstVisibleIndex == null) {
                                 0f
@@ -381,10 +388,26 @@ fun TimelineContent(
                                     displayIndex = firstVisibleIndex
                                 ) ?: 0f
                             }
-                        },
-                        onScrollToFraction = { fraction -> scrollToFractionTarget(fraction, commit = false) },
-                        onDragStarted = { scrollbarTargetTracker.onDragStarted() },
-                        onDragStopped = { fraction -> scrollToFractionTarget(fraction, commit = true) },
+                        }
+                    }
+                    val onScrollToFractionCallback = remember<(Float) -> Unit> {
+                        { fraction -> scrollToFractionTarget(fraction, false) }
+                    }
+                    val onDragStartedCallback = remember<() -> Unit> {
+                        { scrollbarTargetTracker.onDragStarted() }
+                    }
+                    val onDragStoppedCallback = remember<(Float) -> Unit> {
+                        { fraction -> scrollToFractionTarget(fraction, true) }
+                    }
+
+                    ScrollbarOverlay(
+                        listState = listState,
+                        topPadding = statusBarPadding + Dimens.topBarHeight + Dimens.sectionHeaderHeight,
+                        bottomPadding = Dimens.bottomBarHeight + navBarPadding,
+                        scrollFractionProvider = scrollFractionProvider,
+                        onScrollToFraction = onScrollToFractionCallback,
+                        onDragStarted = onDragStartedCallback,
+                        onDragStopped = onDragStoppedCallback,
                         labelProvider = labelProvider,
                         yearMarkers = state.yearMarkers
                     ) {
