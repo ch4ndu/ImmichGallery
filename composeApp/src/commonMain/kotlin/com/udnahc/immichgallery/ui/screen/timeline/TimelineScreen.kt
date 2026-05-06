@@ -141,9 +141,7 @@ fun TimelineScreen(
         TimelineColdSyncLoading(
             loadingText = stringResource(Res.string.loading_timeline),
             mosaicColumnCount = state.viewConfig.mosaicColumnCount,
-            onAvailableWidthChanged = viewModel::setAvailableWidth,
-            onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
-            onMosaicColumnCountChanged = viewModel::setMosaicColumnCount
+            onTimelineLayoutMetricsChanged = viewModel::setTimelineLayoutMetrics
         )
         return
     }
@@ -173,9 +171,7 @@ fun TimelineScreen(
                 onScrollInProgressChanged = viewModel::onScrollInProgressChanged,
                 scrollTargetForFraction = viewModel::scrollTargetForFraction,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
-                onMosaicColumnCountChanged = viewModel::setMosaicColumnCount,
-                onAvailableWidthChanged = viewModel::setAvailableWidth,
-                onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
+                onTimelineLayoutMetricsChanged = viewModel::setTimelineLayoutMetrics,
                 onRetryBucket = viewModel::retryBucket,
                 onPhotoClick = onPhotoClick,
                 onRetry = viewModel::refreshAll,
@@ -213,16 +209,12 @@ fun TimelineScreen(
 private fun TimelineColdSyncLoading(
     loadingText: String,
     mosaicColumnCount: Int,
-    onAvailableWidthChanged: (Float) -> Unit,
-    onAvailableViewportHeightChanged: (Float) -> Unit,
-    onMosaicColumnCountChanged: (Int) -> Unit
+    onTimelineLayoutMetricsChanged: (Float, Float, Int) -> Unit
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val timelineMosaicColumnCount = mosaicColumnCount
         LaunchedEffect(maxWidth, maxHeight, timelineMosaicColumnCount) {
-            onAvailableWidthChanged(maxWidth.value)
-            onAvailableViewportHeightChanged(maxHeight.value)
-            onMosaicColumnCountChanged(timelineMosaicColumnCount)
+            onTimelineLayoutMetricsChanged(maxWidth.value, maxHeight.value, timelineMosaicColumnCount)
         }
 
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -251,9 +243,7 @@ fun TimelineContent(
     onScrollInProgressChanged: (Boolean) -> Unit = {},
     scrollTargetForFraction: (Float) -> TimelineScrollTarget?,
     onTargetRowHeightChanged: (Float) -> Unit = {},
-    onMosaicColumnCountChanged: (Int) -> Unit = {},
-    onAvailableWidthChanged: (Float) -> Unit = {},
-    onAvailableViewportHeightChanged: (Float) -> Unit = {},
+    onTimelineLayoutMetricsChanged: (Float, Float, Int) -> Unit = { _, _, _ -> },
     onRetryBucket: (String) -> Unit,
     onPhotoClick: (assetId: String) -> Unit,
     onRetry: () -> Unit,
@@ -339,9 +329,7 @@ fun TimelineContent(
                 // Report available width to ViewModel for row packing
                 val timelineMosaicColumnCount = state.viewConfig.mosaicColumnCount
                 LaunchedEffect(maxWidth, fullGridHeight, timelineMosaicColumnCount) {
-                    onAvailableWidthChanged(maxWidth.value)
-                    onAvailableViewportHeightChanged(fullGridHeight)
-                    onMosaicColumnCountChanged(timelineMosaicColumnCount)
+                    onTimelineLayoutMetricsChanged(maxWidth.value, fullGridHeight, timelineMosaicColumnCount)
                 }
 
                 val gridModifier = Modifier.fillMaxSize().let { base ->

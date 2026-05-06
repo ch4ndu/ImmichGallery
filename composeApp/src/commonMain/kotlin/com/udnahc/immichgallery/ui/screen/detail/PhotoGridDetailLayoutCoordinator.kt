@@ -14,6 +14,7 @@ import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.MosaicDisplayBandRecord
 import com.udnahc.immichgallery.domain.model.MosaicKeyScope
 import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
 import com.udnahc.immichgallery.domain.model.MosaicOwnerScope
@@ -40,12 +41,15 @@ import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheDimensionKey
 import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheFamiliesKey
 import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheWidthKey
 import com.udnahc.immichgallery.domain.model.packIntoRows
+import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayBandsOrEmpty
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
+import com.udnahc.immichgallery.domain.model.toMosaicDisplayItems
 import com.udnahc.immichgallery.ui.util.MosaicWorkCancelledException
 import com.udnahc.immichgallery.ui.util.MosaicWorkPriority
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -99,7 +103,9 @@ class PhotoGridDetailLayoutCoordinator<S>(
     },
     private val mosaicEngine: MosaicSectionComputer = MosaicRenderEngine(),
     private val layoutRunner: PhotoGridLayoutRunner = PhotoGridLayoutRunner(scope),
-    private val rowHeightPersistenceRunner: PhotoGridLayoutRunner = PhotoGridLayoutRunner(scope)
+    private val rowHeightPersistenceRunner: PhotoGridLayoutRunner = PhotoGridLayoutRunner(scope),
+    private val backgroundDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val log = logging(logTag)
     private var availableViewportHeight = 0f
@@ -109,6 +115,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private var renderedGroupFingerprints: List<DetailGroupFingerprint>? = null
     private var displayCache: CachedDisplayItems? = null
     private val groupDisplayCache = mutableMapOf<DetailGroupDisplayCacheKey, List<PhotoGridDisplayItem>>()
+    private val groupDisplayBandCache = mutableMapOf<DetailGroupDisplayCacheKey, List<MosaicDisplayBandRecord>>()
     private var visibleBucketIndexes: List<Int> = listOf(0)
     private var isScrollInProgress = false
     private val deferredMosaicGroupItems = mutableMapOf<Int, List<PhotoGridDisplayItem>>()
@@ -122,13 +129,13 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private val runtimeGroupStates = mutableMapOf<DetailGroupDisplayCacheKey, DetailRuntimeMosaicGroupState>()
 
     fun activateForegroundMosaic() {
-        scope.launch {
+        scope.launch(backgroundDispatcher) {
             mosaicWorkScheduler.setActiveForegroundOwner(ownerKey)
         }
     }
 
     fun deactivateForegroundMosaic() {
-        scope.launch {
+        scope.launch(backgroundDispatcher) {
             mosaicWorkScheduler.clearActiveForegroundOwner(ownerKey)
             mosaicWorkScheduler.cancelOwner(ownerKey)
         }
@@ -290,10 +297,10 @@ class PhotoGridDetailLayoutCoordinator<S>(
         if (next == visibleBucketIndexes) return
         visibleBucketIndexes = next
         if (snapshotOf(getState()).viewConfig.mosaicEnabled) {
-            scope.launch {
+            scope.launch(backgroundDispatcher) {
                 flushDeferredMosaicGroups(visibleWindowOnly = true)
             }
-            scope.launch {
+            scope.launch(backgroundDispatcher) {
                 mosaicWorkScheduler.reprioritizePending(
                     ownerKey = ownerKey,
                     visibleRequestKeys = next.map(::mosaicGroupRequestKey).toSet()
@@ -408,13 +415,22 @@ class PhotoGridDetailLayoutCoordinator<S>(
         }
         val initialItems = mosaicRuntimeStateMutex.withLock {
             removeRuntimeGroupStatesLocked { it !in currentKeys }
+            groupDisplayCache.keys.removeAll { it !in currentKeys }
+            groupDisplayBandCache.keys.removeAll { it !in currentKeys }
             keyedGroups.flatMap { keyed ->
                 groupDisplayCache[keyed.cacheKey]
-                    ?: persistentCacheRenderer.cachedGroupItems(
+                    ?: resolvedBandItemsForGroup(keyed.group, groupDisplayBandCache[keyed.cacheKey])
+                        ?.also { items -> groupDisplayCache[keyed.cacheKey] = items }
+                    ?: persistentCacheRenderer.cachedGroup(
                         group = keyed.group,
                         assetFingerprint = keyed.assetFingerprint,
                         cachedEntries = persistentCacheByGroup
-                    )?.also { items -> groupDisplayCache[keyed.cacheKey] = items }
+                    )?.also { cached ->
+                        groupDisplayCache[keyed.cacheKey] = cached.items
+                        if (cached.resolvedBands.isNotEmpty()) {
+                            groupDisplayBandCache[keyed.cacheKey] = cached.resolvedBands
+                        }
+                    }?.items
                     ?: runtimeItemsForGroup(snapshot, layoutSpec, keyed)
                     ?: placeholderItemsForGroup(
                         bucketIndex = keyed.group.index,
@@ -597,6 +613,12 @@ class PhotoGridDetailLayoutCoordinator<S>(
             mosaicRuntimeStateMutex.withLock {
                 runtimeGroupStates.remove(keyedGroup.cacheKey)
                 groupDisplayCache[keyedGroup.cacheKey] = groupItems
+                val resolvedBands = resolvedBandsForGroupItems(group, groupItems)
+                if (resolvedBands.isNotEmpty()) {
+                    groupDisplayBandCache[keyedGroup.cacheKey] = resolvedBands
+                } else {
+                    groupDisplayBandCache.remove(keyedGroup.cacheKey)
+                }
             }
             publishOrDeferGroupItems(group.index, groupItems)
             persistentCacheLookup?.let { lookup ->
@@ -676,7 +698,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         artifacts: DetailMosaicArtifactsUpsert,
         onFailure: (Throwable) -> Unit
     ) {
-        scope.launch {
+        scope.launch(ioDispatcher) {
             runCatching { upsertPersistentArtifacts(artifacts) }.onFailure(onFailure)
         }
     }
@@ -757,6 +779,30 @@ class PhotoGridDetailLayoutCoordinator<S>(
             layoutSpec = layoutSpec,
             spacing = GRID_SPACING_DP,
             maxRowHeight = snapshot.rowHeightBounds.max
+        )
+
+    private fun resolvedBandItemsForGroup(
+        group: IndexedAssetGroup,
+        resolvedBands: List<MosaicDisplayBandRecord>?
+    ): List<PhotoGridDisplayItem>? {
+        if (resolvedBands.isNullOrEmpty()) return null
+        val bandItems = resolvedBands.toMosaicDisplayItems(
+            assets = group.assets,
+            bucketIndex = group.index,
+            sectionLabel = group.label,
+            keyPrefix = "detail_mosaic_memory"
+        )
+        if (resolvedSectionDisplayBandsOrEmpty(bandItems, group.assets).isEmpty()) return null
+        return groupHeader(group) + bandItems
+    }
+
+    private fun resolvedBandsForGroupItems(
+        group: IndexedAssetGroup,
+        groupItems: List<PhotoGridDisplayItem>
+    ): List<MosaicDisplayBandRecord> =
+        resolvedSectionDisplayBandsOrEmpty(
+            displayItems = groupItems.filter { it !is HeaderItem },
+            assets = group.assets
         )
 
     private suspend fun publishOrDeferGroupItems(
@@ -846,7 +892,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
             if (delayMs > requestedResumeDelayMs) requestedResumeDelayMs = delayMs
             return
         }
-        resumeMosaicJob = scope.launch {
+        resumeMosaicJob = scope.launch(backgroundDispatcher) {
             if (delayMs > 0L) delay(delayMs)
             try {
                 val snapshot = snapshotOf(getState())
@@ -1131,7 +1177,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private fun scheduleDeferredMosaicFlush() {
         if (isScrollInProgress) return
         if (deferredMosaicFlushJob?.isActive == true) return
-        deferredMosaicFlushJob = scope.launch {
+        deferredMosaicFlushJob = scope.launch(backgroundDispatcher) {
             delay(DEFERRED_MOSAIC_FLUSH_DELAY_MS)
             flushDeferredMosaicGroups(visibleWindowOnly = false)
         }
@@ -1221,6 +1267,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         if (previous == null || previousOrder != nextOrder) {
             mutateMosaicRuntimeState {
                 groupDisplayCache.clear()
+                groupDisplayBandCache.clear()
                 runtimeGroupStates.clear()
             }
             return
@@ -1230,9 +1277,10 @@ class PhotoGridDetailLayoutCoordinator<S>(
             .toSet()
         if (changedIndexes.isEmpty()) return
         mutateMosaicRuntimeState {
-            groupDisplayCache.keys.toList()
+            val staleKeys = (groupDisplayCache.keys + groupDisplayBandCache.keys)
                 .filter { it.bucketIndex in changedIndexes }
-                .forEach(groupDisplayCache::remove)
+            staleKeys.forEach(groupDisplayCache::remove)
+            staleKeys.forEach(groupDisplayBandCache::remove)
         }
         removeRuntimeGroupStates { it.bucketIndex in changedIndexes }
     }
@@ -1261,6 +1309,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         deferredMosaicFlushJob = null
         mutateMosaicRuntimeState {
             groupDisplayCache.clear()
+            groupDisplayBandCache.clear()
             runtimeGroupStates.clear()
             deferredMosaicGroupItems.clear()
         }
@@ -1274,7 +1323,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 mosaicRuntimeStateMutex.unlock()
             }
         } else {
-            scope.launch {
+            scope.launch(backgroundDispatcher) {
                 mosaicRuntimeStateMutex.withLock {
                     block()
                 }

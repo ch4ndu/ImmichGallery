@@ -498,7 +498,9 @@ class PhotoGridDetailLayoutCoordinatorTest {
             upsertPersistentArtifacts = upsertPersistentArtifacts,
             mosaicEngine = mosaicEngine,
             layoutRunner = PhotoGridLayoutRunner(scope, StandardTestDispatcher(scheduler)),
-            rowHeightPersistenceRunner = PhotoGridLayoutRunner(scope, StandardTestDispatcher(scheduler))
+            rowHeightPersistenceRunner = PhotoGridLayoutRunner(scope, StandardTestDispatcher(scheduler)),
+            backgroundDispatcher = StandardTestDispatcher(scheduler),
+            ioDispatcher = StandardTestDispatcher(scheduler)
         )
 
     private fun TestDetailState.asCoordinatorSnapshot(): PhotoGridDetailLayoutSnapshot =

@@ -10,6 +10,8 @@ import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -28,6 +30,7 @@ class MainScreenViewModel(
     val timelineGroupSize: StateFlow<TimelineGroupSize> =
         getTimelineGroupSizeUseCase.observe()
             .map { saved -> saved.toTimelineGroupSize() }
+            .flowOn(Dispatchers.Default)
             .stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(5_000),

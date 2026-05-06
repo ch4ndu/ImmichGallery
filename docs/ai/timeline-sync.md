@@ -111,8 +111,9 @@ Warm launch is cached-first and non-blocking.
 1. Room bucket metadata is observed immediately.
 2. Cached bucket ids are read from existing `timeline_asset_refs`.
 3. `_bucketData.cachedBuckets` records buckets that have cached refs.
-4. The grid can render headers and placeholders without loading every bucket's asset rows.
-5. Visible or targeted buckets materialize assets from Room first. If the cache-only warm policy is disabled, they may then refresh from the server; if it is enabled, they stay cache-only until manual refresh.
+4. `_bucketData.loadedBuckets` means renderable assets are already in `bucketAssetsCache`; it is not a synonym for cached Room refs.
+5. Timeline display projection is in-memory only. `buildTimelineState()`, `buildDisplayItems()`, and bucket projection must never read Room. If cached refs exist but assets are not materialized, the grid renders headers/placeholders.
+6. Visible or targeted buckets materialize assets from Room first. The ViewModel publishes visible/target buckets before nearby prefetch buckets, then publishes the remaining current-radius prefetch work in bounded local chunks so launch does not trigger one RowPacking/display-index rebuild per bucket. If the cache-only warm policy is disabled, these buckets may then refresh from the server; if it is enabled, they stay cache-only until manual refresh.
 
 ### Background Metadata Refresh
 
@@ -134,10 +135,11 @@ When `DISABLE_TIMELINE_NON_MANUAL_SERVER_SYNC = true`, warm launch intentionally
 
 1. `syncFromServer(isFullRefresh = false)` still computes `CachedLaunch`, reads `lastSyncedAt`, clears transient syncing UI state, and logs that warm server sync was skipped.
 2. It does not call `GetTimelineBucketsUseCase.sync()`, so bucket metadata stays whatever cold sync or manual refresh last wrote.
-3. Visible, targeted, scrollbar, retry, and explicit bucket-load paths still call `materializeCachedBucketIfAvailable(...)` so Room-backed rows can render.
-4. After materialization, those paths return before queueing `pendingVisibleRefreshBuckets` or starting `visibleRefreshJob`.
-5. Blocking Timeline Mosaic settings preparation uses already-cached bucket assets; it must not call `SyncAllTimelineAssetsAction` under this policy.
-6. Manual refresh is the only warm-cache path that refreshes metadata and bucket assets from the server.
+3. Visible, targeted, scrollbar, retry, and explicit bucket-load paths still materialize cached buckets so Room-backed rows can render.
+4. Batch materialization reads Room assets outside the refresh mutex, claims duplicate in-flight buckets, writes `bucketAssetsCache`, and publishes `_bucketData.loadedBuckets` in bounded chunks. A bucket already marked loaded but missing in-memory assets is still materialization-eligible and repaints through a render-only materialization revision. In RowPacking mode this path must not request Mosaic reads, geometry reads, runtime Mosaic, or progressive Mosaic flushes.
+5. After materialization, those paths return before queueing `pendingVisibleRefreshBuckets` or starting `visibleRefreshJob`.
+6. Blocking Timeline Mosaic settings preparation uses already-cached bucket assets; it must not call `SyncAllTimelineAssetsAction` under this policy.
+7. Manual refresh is the only warm-cache path that refreshes metadata and bucket assets from the server.
 
 This policy is currently implemented as a compile-time experiment flag, but if it becomes permanent it should be promoted to a named Timeline sync mode rather than being treated as a transient optimization.
 

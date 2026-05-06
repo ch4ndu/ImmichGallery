@@ -11,6 +11,7 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Current Room data is a re-fetchable cache. `fallbackToDestructiveMigration(true)` is acceptable while that remains true.
 - If the app starts storing durable user-authored data, add explicit migrations and remove destructive fallback for those tables.
 - DAOs expose `Flow` for observed reads and `suspend` functions for writes and imperative reads.
+- Room builders set `setQueryCoroutineContext(Dispatchers.IO)` on every platform, and repositories still wrap imperative DAO reads/writes in `withContext(Dispatchers.IO)` at the call site. Do not rely on caller dispatcher for counts, sync metadata, cached asset reads, or cache clears.
 - Cache replacement should be transactional where multiple tables or relationship rows must stay in sync.
 - Stale relationship data should be replaced atomically: delete or replace refs for the scoped owner, then insert current refs. Timeline bucket metadata is the exception: count-changed buckets keep old refs until that bucket's asset refresh succeeds so cached launch rows do not collapse during background work; removed buckets still clear refs immediately.
 - Timeline Mosaic cache rows are split by purpose: assignments are width-independent, while section geometry, aggregate bucket geometry, and display-band cache rows are width/key/version dependent. `TimelineMosaicCacheRepository` persists, reads, and clears these rows; assignment/progress/fallback/geometry math goes through `MosaicRenderEngine`. `TimelineRepository` must stay bucket/asset-sync focused. `ViewConfig.cacheMosaicResults = false` disables sync-time Timeline Mosaic artifact preparation and disk reads for rendering; materialized Timeline buckets compute runtime Mosaic state for the requested config only from render-demand work after active scrolling settles instead of fetching old rows from disk.
@@ -25,6 +26,7 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - ViewModels do not inject repositories directly.
 - Network fetches that update cached data write through Room before exposing refreshed state where the feature depends on cached reads.
 - DB and network writes use `Dispatchers.IO`.
+- Imperative DB reads also use `Dispatchers.IO`; only pure entity-to-domain mapping may move to `Dispatchers.Default`.
 - Flow transforms that map entity lists to domain projections use `.flowOn(Dispatchers.Default)` where appropriate.
 - Reconstruct URLs from current server config and asset IDs where possible so cached rows do not retain stale server URLs.
 - Include `edited=true` on asset image URLs when non-destructive edit support requires edited variants.

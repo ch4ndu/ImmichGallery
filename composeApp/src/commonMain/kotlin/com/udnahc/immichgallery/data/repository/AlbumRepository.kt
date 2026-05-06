@@ -54,26 +54,38 @@ class AlbumRepository(
     // --- Suspend reads ---
 
     suspend fun hasCachedAlbums(): Boolean =
-        albumDao.getAlbumCount() > 0
+        withContext(Dispatchers.IO) {
+            albumDao.getAlbumCount() > 0
+        }
 
     suspend fun hasCachedAlbumAssets(albumId: String): Boolean =
-        albumDao.getAlbumAssetCount(albumId) > 0
+        withContext(Dispatchers.IO) {
+            albumDao.getAlbumAssetCount(albumId) > 0
+        }
 
     suspend fun getCachedAlbumName(albumId: String): String? {
-        return albumDao.getAlbum(albumId)?.name
+        return withContext(Dispatchers.IO) {
+            albumDao.getAlbum(albumId)?.name
+        }
     }
 
     suspend fun getAlbumAssets(albumId: String): List<Asset> {
         val base = baseUrl()
-        return albumDao.getAlbumAssets(albumId).map { it.toDomain(base) }
+        return withContext(Dispatchers.IO) {
+            albumDao.getAlbumAssets(albumId).map { it.toDomain(base) }
+        }
     }
 
     suspend fun getLastSyncedAt(): Long? {
-        return syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_ALBUMS)
+        return withContext(Dispatchers.IO) {
+            syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_ALBUMS)
+        }
     }
 
     suspend fun getAlbumDetailLastSyncedAt(albumId: String): Long? {
-        return syncMetadataDao.getLastSyncedAt("$SYNC_SCOPE_ALBUM_PREFIX$albumId")
+        return withContext(Dispatchers.IO) {
+            syncMetadataDao.getLastSyncedAt("$SYNC_SCOPE_ALBUM_PREFIX$albumId")
+        }
     }
 
     // --- Network sync ---

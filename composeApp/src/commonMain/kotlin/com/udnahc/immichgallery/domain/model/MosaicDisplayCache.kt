@@ -150,6 +150,17 @@ fun MosaicBandItem.toDisplayRecord(): MosaicDisplayBandRecord =
         }
     )
 
+fun resolvedSectionDisplayBandsOrEmpty(
+    displayItems: List<PhotoGridDisplayItem>,
+    assets: List<Asset>
+): List<MosaicDisplayBandRecord> {
+    val bands = displayItems.filterIsInstance<MosaicBandItem>()
+    if (bands.size != displayItems.size) return emptyList()
+    if (bands.any { it.kind != MosaicBandKind.REAL }) return emptyList()
+    val records = bands.map { it.toDisplayRecord() }
+    return records.takeIf { it.coversOrderedAssets(assets) }.orEmpty()
+}
+
 fun List<MosaicDisplayBandRecord>.toMosaicDisplayItems(
     assets: List<Asset>,
     bucketIndex: Int,

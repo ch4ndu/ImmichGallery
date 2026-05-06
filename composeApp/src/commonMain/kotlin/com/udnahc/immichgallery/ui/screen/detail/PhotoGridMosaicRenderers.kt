@@ -6,12 +6,16 @@ import com.udnahc.immichgallery.domain.model.DetailMosaicCacheLookup
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.MosaicDisplayBandRecord
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
 import com.udnahc.immichgallery.domain.model.coversOrderedAssets
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
+import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayBandsOrEmpty
 import com.udnahc.immichgallery.domain.model.toDisplayRecord
 import com.udnahc.immichgallery.domain.model.toMosaicDisplayItems
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.launch
 
 internal data class IndexedAssetGroup(
@@ -26,12 +30,17 @@ internal data class DetailPersistentGroupKey(
     val assetFingerprint: String
 )
 
+internal data class CachedPhotoGridMosaicGroup(
+    val items: List<PhotoGridDisplayItem>,
+    val resolvedBands: List<MosaicDisplayBandRecord>
+)
+
 internal class CachedPhotoGridMosaicRenderer {
-    fun cachedGroupItems(
+    fun cachedGroup(
         group: IndexedAssetGroup,
         assetFingerprint: String,
         cachedEntries: Map<DetailPersistentGroupKey, DetailMosaicCacheEntry>
-    ): List<PhotoGridDisplayItem>? {
+    ): CachedPhotoGridMosaicGroup? {
         val entry = cachedEntries[DetailPersistentGroupKey(group.index, group.label, assetFingerprint)] ?: return null
         if (!entry.bands.coversOrderedAssets(group.assets)) return null
         val bands = entry.bands.toMosaicDisplayItems(
@@ -41,8 +50,19 @@ internal class CachedPhotoGridMosaicRenderer {
             keyPrefix = "detail_mosaic_cache"
         )
         if (bands.isEmpty() && entry.displayItemCount > 0) return null
-        return groupHeaderItems(group) + bands
+        val items = groupHeaderItems(group) + bands
+        return CachedPhotoGridMosaicGroup(
+            items = items,
+            resolvedBands = resolvedSectionDisplayBandsOrEmpty(bands, group.assets)
+        )
     }
+
+    fun cachedGroupItems(
+        group: IndexedAssetGroup,
+        assetFingerprint: String,
+        cachedEntries: Map<DetailPersistentGroupKey, DetailMosaicCacheEntry>
+    ): List<PhotoGridDisplayItem>? =
+        cachedGroup(group, assetFingerprint, cachedEntries)?.items
 }
 
 internal class RuntimePhotoGridMosaicRenderer {
@@ -86,7 +106,7 @@ internal class RuntimePhotoGridMosaicRenderer {
         onFailure: (Throwable) -> Unit
     ) {
         val entry = groupCacheEntry(group, groupItems, assetFingerprint, lookup) ?: return
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             runCatching { upsert(entry) }.onFailure(onFailure)
         }
     }

@@ -25,7 +25,8 @@ Repository/Room/API -> ordered Asset list -> ViewModel/coordinator grouping
 - ViewModels/coordinators decide the section or bucket boundary and call `packIntoRows(...)`.
 - `packIntoRows(...)` returns display-ready `RowItem`s, each containing `PhotoItem`s.
 - Compose renders the returned rows and should not regroup assets, recompute row heights, or inspect future assets.
-- Timeline caches derived display rows per bucket and asset revision so unchanged background refreshes do not repack rows.
+- Timeline row projection uses only already-materialized in-memory assets. It must not read Room while building display items; cached but unmaterialized buckets render placeholders until the materialization queue publishes assets.
+- Timeline caches derived display rows per bucket, asset revision, and render materialization revision so unchanged background refreshes do not repack rows.
 
 ## Inputs
 

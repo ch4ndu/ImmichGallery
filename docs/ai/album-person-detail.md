@@ -197,6 +197,7 @@ It owns:
 - `assetRevision` and group fingerprints;
 - full display cache for final complete output;
 - per-group ready display cache;
+- per-group resolved real Mosaic display-band cache;
 - runtime Mosaic group states;
 - deferred offscreen Mosaic publications;
 - resume/retry jobs;
@@ -228,6 +229,7 @@ Layout invalidation rules:
 - Content-change signals set `pendingSyncedContentRevision` when Room has not emitted the changed assets yet.
 - If group order changes, all per-group display/runtime caches are cleared because `bucketIndex` is part of item identity.
 - If only some groups changed, only those group caches and runtime states are removed.
+- The resolved display-band cache is invalidated with the matching per-group display cache. It is keyed by the same group/config/fingerprint identity and is never allowed to outlive width, grouping, config, or ordered-content changes.
 
 ## Mosaic Settings
 
@@ -367,14 +369,16 @@ When Mosaic is enabled and width/assets are ready, the coordinator builds one Mo
 Initial group item selection is ordered by group index:
 
 1. Use in-memory `groupDisplayCache` if final ready output exists for the exact group/config/fingerprint.
-2. Else use validated persistent display artifacts if cache results are enabled and the owner snapshot is complete.
-3. Else use runtime partial/in-flight state if available.
-4. Else render placeholders for the group.
+2. Else rebuild final ready output from in-memory resolved real display-band records if they validate against the current ordered group assets.
+3. Else use validated persistent display artifacts if cache results are enabled and the owner snapshot is complete. Persistent reads also seed the in-memory resolved-band cache when the stored bands are all real and fully cover the group.
+4. Else use runtime partial/in-flight state if available.
+5. Else render placeholders for the group.
 
 ```mermaid
 flowchart TD
     Group[Keyed detail group]
     Memory{Final groupDisplayCache?}
+    MemoryBands{Resolved real band records?}
     Persistent{Strict persistent artifacts?}
     Runtime{Runtime state?}
     Placeholder[PlaceholderItem rows]
@@ -383,7 +387,9 @@ flowchart TD
 
     Group --> Memory
     Memory -- yes --> Ready
-    Memory -- no --> Persistent
+    Memory -- no --> MemoryBands
+    MemoryBands -- yes --> Ready
+    MemoryBands -- no --> Persistent
     Persistent -- yes --> Ready
     Persistent -- no --> Runtime
     Runtime -- InFlight/Failure --> Placeholder
@@ -401,10 +407,13 @@ The runtime group pipeline:
 6. Call `MosaicRenderEngine.computeSection(...)` with checkpoint, progress chunk, and cancellation callbacks.
 7. Publish valid partial chunks through `projectPartialSectionWithPlaceholders(...)`.
 8. Publish completed ready output immediately for visible groups or defer offscreen replacement.
-9. Write assignments, display bands, section geometry, and eventually aggregate geometry when persistent cache is eligible.
-10. Cache the full display list only after every current group has final ready output and no placeholders remain.
+9. Store completed ready group items in `groupDisplayCache`. If the ready output is made entirely of real `MosaicBandItem` records and covers the current ordered group assets, also store portable `MosaicDisplayBandRecord` values in `groupDisplayBandCache`.
+10. Write assignments, display bands, section geometry, and eventually aggregate geometry when persistent cache is eligible.
+11. Cache the full display list only after every current group has final ready output and no placeholders remain.
 
 Mosaic-enabled incomplete runtime states must render placeholders, not row-packing fallback and not fallback-thumbnail bands. Completed ready projection may contain fallback Mosaic bands if the engine produced them for the active config.
+
+`groupDisplayBandCache` is an optimization only. Assignments and ready display items remain the canonical state for the current render pass, and fallback ready bands are deliberately excluded from the resolved-band cache. If resolved records are missing or fail coverage validation, the coordinator continues through persistent cache, runtime state, or placeholders rather than trusting stale geometry.
 
 ## Mosaic Scheduling
 

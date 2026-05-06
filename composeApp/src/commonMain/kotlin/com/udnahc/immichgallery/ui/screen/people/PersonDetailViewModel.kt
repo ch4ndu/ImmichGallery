@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.lighthousegames.logging.logging
 
 @Immutable
@@ -149,7 +150,7 @@ class PersonDetailViewModel(
             }
         }
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             getViewConfigUseCase.observe().collect { saved ->
                 val config = saved.normalized
                 if (config != _state.value.viewConfig) {
@@ -181,12 +182,12 @@ class PersonDetailViewModel(
         layoutCoordinator.setViewConfig(config)
     }
 
-    suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> {
+    suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> = withContext(Dispatchers.Default) {
         val normalized = config.normalized
-        if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return Result.success(Unit)
+        if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@withContext Result.success(Unit)
         if (_state.value.hasMore) {
             val result = getPersonAssetsUseCase.syncAll(personId)
-                .onFailure { return Result.failure(it) }
+                .onFailure { return@withContext Result.failure(it) }
                 .getOrNull()
             val assets = getPersonAssetsUseCase.getAssets(personId)
             _state.update {
@@ -199,7 +200,7 @@ class PersonDetailViewModel(
             }
             handleSyncedContentChange(result?.changed == true)
         }
-        return layoutCoordinator.prepareMosaicViewConfig(normalized)
+        return@withContext layoutCoordinator.prepareMosaicViewConfig(normalized)
     }
 
     fun setVisibleBucketIndexes(indexes: List<Int>) {

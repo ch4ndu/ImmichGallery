@@ -100,11 +100,15 @@ structure; it must not wait for every bucket's server refresh.
    indexes, then calls `onVisibleBucketsChanged(...)`.
 8. The ViewModel expands visible buckets to the nearby prefetch window and
    materializes cached assets for those buckets from Room before any optional
-   network work.
+   network work. Materialization is batched: visible/target buckets publish
+   first, then nearby prefetch buckets publish in small chunks with cooperative
+   yields between chunks.
 9. Materialized buckets update `bucketAssetsCache`, become loaded in
-   `_bucketData`, and rebuild only their derived display items. If Mosaic is
-   disabled, this is where standard RowPacking rows appear. If Mosaic is
-   enabled, loaded sections render placeholders until current-config Mosaic
+   `_bucketData`, bump a render-only materialization revision, and rebuild only
+   their derived display items. Batched publication avoids one RowPacking/
+   display-index rebuild per nearby bucket during the first scroll window. If
+   Mosaic is disabled, this is where standard RowPacking rows appear. If Mosaic
+   is enabled, loaded sections render placeholders until current-config Mosaic
    state is ready.
 10. Under cache-only warm policy, the flow stops here for server work; the next
    server update comes from manual refresh. If warm server refresh is enabled,
@@ -461,6 +465,12 @@ version. Assignment rows remain width-independent. Replacing or clearing a
 bucket Mosaic config must clear assignments, display cache, section geometry,
 and aggregate bucket geometry together.
 
+Runtime Timeline Mosaic also keeps validated resolved real display-band records
+inside in-memory `Ready` section state when final projection covers the ordered
+section assets. These records avoid repeated assignment projection during state
+rebuilds. Assignments remain canonical, partial chunks remain transient, and an
+empty resolved-record list means the renderer projects from assignments later.
+
 Timeline Mosaic uses the global `ViewConfig.mosaicColumnCount` while enabled.
 Column count changes happen through the Mosaic settings dialog, not pinch or
 desktop zoom. When cache results is enabled, applying Mosaic changes blocks in
@@ -493,12 +503,25 @@ graph TD
     state --> compose["Timeline content lazy list"]
 ```
 
-`buildDisplayItems()` caches derived items per bucket. The cache identity
+`buildDisplayItems()` is a pure in-memory projection over bucket metadata,
+Mosaic state, geometry state, and `bucketAssetsCache`; it must not read Room.
+If a bucket has cached refs but no in-memory assets, projection emits
+placeholders and waits for the materialization queue. `buildDisplayItems()`
+caches derived items per bucket. The cache identity
 includes group size, available width, target row height, max row height, Mosaic
 column count, view config, bucket order, load/failure state, per-bucket asset
-revision, and relevant Mosaic section state. Bucket order is part of the cache
-identity because display items store `bucketIndex`; reusing items across bucket
-insert/remove/reorder would corrupt scroll, click, and return targeting.
+revision, render-only materialization revision, and relevant Mosaic section
+state. Bucket order is part of the cache identity because display items store
+`bucketIndex`; reusing items across bucket insert/remove/reorder would corrupt
+scroll, click, and return targeting.
+Timeline launch reports measured width, viewport height, and Mosaic column count
+through one combined ViewModel update so the first normal render does not clear
+layout/Mosaic state three times. When Mosaic is disabled, launch metric changes
+only rebuild RowPacking display state and do not request Mosaic reads.
+The ViewModel also caches the derived page index, scrollbar data, and display
+index by their input identities. Launch-time state emissions that do not change
+bucket counts, loaded asset identities, labels, or display items reuse those
+derived structures instead of rescanning the whole Timeline.
 
 For each bucket, display items start with a header. Then the bucket renders one
 of the following:

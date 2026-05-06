@@ -63,12 +63,14 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Cache-off Timeline sync is runtime-only from the UI perspective: cold sync, any enabled warm changed-bucket sync, and manual sync must not prepare persisted Mosaic artifacts or fall through to runtime compute. Runtime compute is allowed only from explicit render-demand requests such as visible buckets, targeted buckets, and scroll-settled resume. Under cache-only warm policy, warm changed-bucket sync does not run because non-manual Timeline server refresh is disabled.
 - Manual Timeline sync with cache results off clears Timeline and Detail Mosaic artifacts before refreshing buckets, then clears in-memory Timeline Mosaic state so stale assignments or geometry cannot remain active.
 - Runtime Timeline Mosaic uses an ordered single-bucket worker and the dedicated Mosaic dispatcher so assignment work does not compete with image loading.
+- Runtime Timeline Mosaic stores complete `Ready` assignments plus validated in-memory real display-band records when section projection can produce full source coverage. Assignments remain canonical; invalid or missing resolved records fall back to assignment projection during rendering.
 - Timeline Mosaic requests are mergeable, not cancel-and-replace. Visible buckets and explicit scrollbar targets are ordered ahead of neighbors and previously deferred work. Offscreen work may wait, but it must not cancel or overtake visible work.
 - While the Timeline is actively scrolling:
   - Runtime Mosaic compute is paused.
   - Persisted reads are limited to visible or explicitly targeted buckets.
   - Mosaic display replacement is deferred until scroll settles.
 - Complete ready rows supersede partial chunks. Stale chunks are ignored by owner/config/fingerprint/generation.
+- Partial chunks remain transient progress state; they are not converted into resolved display-band records.
 - Timeline pending sections, partial gaps, cache misses, interrupted chunks, and failed sections render placeholders while Mosaic is enabled. They must not render fallback-thumbnail bands or `RowItem`s.
 - Timeline may display `MosaicBandItem(kind = FALLBACK)` only as completed ready output for the active config, or from a completed display-cache row that independently validates source coverage against the current ordered assets.
 - Persisted Timeline display cache rows must cover `0 until assets.size` with no gaps, overlaps, duplicate ids, unknown ids, non-positive tile dimensions, or mismatched source slices. Invalid display rows make the bucket a cache miss and runtime compute is enqueued for the requested config.
@@ -89,6 +91,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Detail runtime thumbnails may appear only from real ready assignments, valid completed progressive chunks, or fallback Mosaic bands produced by a completed ready projection for the current group.
 - Repeated runtime failure must not become final fallback display. It remains placeholder plus retry when visible.
 - `groupDisplayCache` stores final ready group items only. It must not store placeholders, partial output, or retry state; completed fallback Mosaic bands are allowed because they are part of ready projection.
+- `groupDisplayBandCache` stores validated resolved real display-band records for the same detail group/config/fingerprint keys. It is seeded from completed runtime ready output and from strict persistent display-cache reads, but only when every display item is a real `MosaicBandItem` and the records cover the current ordered group assets. It is cleared with `groupDisplayCache`.
 - Full in-memory `displayCache` may be set only when every current group has final ready output, no current runtime state remains, deferred updates are empty, and the display contains no placeholders while Mosaic is enabled.
 
 ## Persistent Cache Artifacts

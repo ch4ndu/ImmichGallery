@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.ui.util
 
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineMosaicWorkSource
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
@@ -71,7 +72,7 @@ internal class TimelineMosaicQueueActor(
     private var nextToken = 1L
 
     init {
-        scope.launch {
+        scope.launch(Dispatchers.Default) {
             for (command in commands) {
                 handle(command)
             }

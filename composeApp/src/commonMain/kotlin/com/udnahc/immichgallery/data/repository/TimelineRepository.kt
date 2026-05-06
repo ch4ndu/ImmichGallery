@@ -57,29 +57,41 @@ class TimelineRepository(
 
     suspend fun getAssetsForBucket(timeBucket: String): List<Asset> {
         val base = baseUrl()
-        return assetDao.getTimelineAssets(timeBucket).map { it.toDomain(base) }
+        return withContext(Dispatchers.IO) {
+            assetDao.getTimelineAssets(timeBucket).map { it.toDomain(base) }
+        }
     }
 
     suspend fun hasCachedBuckets(): Boolean =
-        timelineDao.getBucketCount() > 0
+        withContext(Dispatchers.IO) {
+            timelineDao.getBucketCount() > 0
+        }
 
     suspend fun hasCompletedColdTimelineSync(): Boolean =
-        syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_TIMELINE_COLD_COMPLETE) != null
+        withContext(Dispatchers.IO) {
+            syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_TIMELINE_COLD_COMPLETE) != null
+        }
 
     suspend fun markColdTimelineSyncComplete() {
-        syncMetadataDao.upsert(
-            SyncMetadataEntity(
-                SYNC_SCOPE_TIMELINE_COLD_COMPLETE,
-                currentEpochMillis()
+        withContext(Dispatchers.IO) {
+            syncMetadataDao.upsert(
+                SyncMetadataEntity(
+                    SYNC_SCOPE_TIMELINE_COLD_COMPLETE,
+                    currentEpochMillis()
+                )
             )
-        )
+        }
     }
 
     suspend fun getLoadedBucketIds(): Set<String> =
-        assetDao.getLoadedTimelineBuckets().toSet()
+        withContext(Dispatchers.IO) {
+            assetDao.getLoadedTimelineBuckets().toSet()
+        }
 
     suspend fun getLastSyncedAt(): Long? {
-        return syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_TIMELINE_BUCKETS)
+        return withContext(Dispatchers.IO) {
+            syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_TIMELINE_BUCKETS)
+        }
     }
 
     // --- Network sync (writes to Room, Flows auto-emit) ---

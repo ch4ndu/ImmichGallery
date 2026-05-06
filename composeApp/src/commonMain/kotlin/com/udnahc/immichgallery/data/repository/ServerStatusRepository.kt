@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.data.repository
 
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +22,7 @@ class ServerStatusRepository(
         // Idempotent: a previous call's job is still running, don't start a
         // second one. Must be called from a single thread (DI / app init).
         if (monitoringJob?.isActive == true) return
-        monitoringJob = scope.launch {
+        monitoringJob = scope.launch(Dispatchers.IO) {
             while (true) {
                 _isOnline.value = try {
                     apiService.ping()

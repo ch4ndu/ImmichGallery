@@ -40,7 +40,7 @@ class PeopleViewModel(
     val state: StateFlow<PeopleState> = _state.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             combine(getPeopleUseCase.observe(), query) { people, query ->
                 people to people.filterByQuery(query)
             }

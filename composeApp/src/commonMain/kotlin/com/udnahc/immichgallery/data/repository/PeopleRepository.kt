@@ -54,22 +54,32 @@ class PeopleRepository(
     // --- Suspend reads ---
 
     suspend fun hasCachedPeople(): Boolean =
-        personDao.getPeopleCount() > 0
+        withContext(Dispatchers.IO) {
+            personDao.getPeopleCount() > 0
+        }
 
     suspend fun hasCachedPersonAssets(personId: String): Boolean =
-        personDao.getPersonAssetCount(personId) > 0
+        withContext(Dispatchers.IO) {
+            personDao.getPersonAssetCount(personId) > 0
+        }
 
     suspend fun getPersonAssets(personId: String): List<Asset> {
         val base = baseUrl()
-        return personDao.getPersonAssets(personId).map { it.toDomain(base) }
+        return withContext(Dispatchers.IO) {
+            personDao.getPersonAssets(personId).map { it.toDomain(base) }
+        }
     }
 
     suspend fun getLastSyncedAt(): Long? {
-        return syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_PEOPLE)
+        return withContext(Dispatchers.IO) {
+            syncMetadataDao.getLastSyncedAt(SYNC_SCOPE_PEOPLE)
+        }
     }
 
     suspend fun getPersonDetailLastSyncedAt(personId: String): Long? {
-        return syncMetadataDao.getLastSyncedAt("$SYNC_SCOPE_PERSON_PREFIX$personId")
+        return withContext(Dispatchers.IO) {
+            syncMetadataDao.getLastSyncedAt("$SYNC_SCOPE_PERSON_PREFIX$personId")
+        }
     }
 
     // --- Network sync ---

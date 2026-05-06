@@ -35,6 +35,7 @@ For a new persisted cache entity or schema change:
 - Put derived and filtered flows in UseCases where possible.
 - Put screen-specific projections, row packing, pagination state, and overlay source lists in the screen ViewModel.
 - ViewModels should expose typed UI message values for user-visible errors and banners; composables resolve them with `stringResource()`.
+- ViewModel work must not inherit the UI dispatcher by accident. Use `Dispatchers.IO` for network/DB actions, `Dispatchers.Default` for collectors, schedulers, state projection, row packing, Mosaic preparation, and other CPU/scheduling work. UI-only composable animation scopes may stay on the composition dispatcher.
 - Persisted view preferences such as row height and Mosaic settings should flow through settings UseCases/Actions and `ServerConfigRepository`, not direct repository access from ViewModels.
 - Mosaic is enabled by default for new installs so Timeline first sync can precompute persisted Mosaic assignments. Existing saved user preferences must still win over the default.
 - For direct photo-grid screens, use `PhotoGridLayoutRunner` for expensive zoom-driven row or detail Mosaic projection work. Keep the runner as coroutine orchestration only; do not move screen projection ownership out of the ViewModel.

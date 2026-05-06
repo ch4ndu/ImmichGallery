@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.lighthousegames.logging.logging
 
 @Immutable
@@ -139,7 +140,7 @@ class AlbumDetailViewModel(
             }
         }
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             getViewConfigUseCase.observe().collect { saved ->
                 val config = saved.normalized
                 if (config != _state.value.viewConfig) {
@@ -172,7 +173,9 @@ class AlbumDetailViewModel(
     }
 
     suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
-        layoutCoordinator.prepareMosaicViewConfig(config)
+        withContext(Dispatchers.Default) {
+            layoutCoordinator.prepareMosaicViewConfig(config)
+        }
 
     fun setVisibleBucketIndexes(indexes: List<Int>) {
         layoutCoordinator.setVisibleBucketIndexes(indexes)

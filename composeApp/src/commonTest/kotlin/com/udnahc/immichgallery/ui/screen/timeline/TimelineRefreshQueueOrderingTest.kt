@@ -124,6 +124,67 @@ class TimelineRefreshQueueOrderingTest {
     }
 
     @Test
+    fun cachedMaterializationChunksVisibleBucketsBeforePrefetchBuckets() {
+        val chunks = timelineCachedMaterializationChunks(
+            requestedBuckets = listOf("neighbor_before", "visible", "neighbor_after", "target"),
+            priorityBuckets = listOf("visible", "target"),
+            prefetchChunkSize = 2
+        )
+
+        assertEquals(
+            listOf(
+                listOf("visible", "target"),
+                listOf("neighbor_before", "neighbor_after")
+            ),
+            chunks
+        )
+    }
+
+    @Test
+    fun cachedMaterializationChunksDeduplicateAndBoundPrefetchWork() {
+        val chunks = timelineCachedMaterializationChunks(
+            requestedBuckets = listOf("visible", "near_1", "near_2", "near_1", "near_3", "near_4"),
+            priorityBuckets = listOf("visible", "visible"),
+            prefetchChunkSize = 2
+        )
+
+        assertEquals(
+            listOf(
+                listOf("visible"),
+                listOf("near_1", "near_2"),
+                listOf("near_3", "near_4")
+            ),
+            chunks
+        )
+    }
+
+    @Test
+    fun cachedMaterializationClaimsCachedBucketsMissingMemory() {
+        val claims = timelineCachedMaterializationClaims(
+            requestedBuckets = listOf("cached", "loaded_missing", "memory", "unknown"),
+            cachedBuckets = setOf("cached"),
+            loadedBuckets = setOf("loaded_missing", "memory"),
+            materializingBuckets = emptySet(),
+            inMemoryBuckets = setOf("memory")
+        )
+
+        assertEquals(listOf("cached", "loaded_missing"), claims)
+    }
+
+    @Test
+    fun cachedMaterializationClaimsSkipInMemoryAndInFlightBuckets() {
+        val claims = timelineCachedMaterializationClaims(
+            requestedBuckets = listOf("cached", "loaded_missing", "in_flight", "memory"),
+            cachedBuckets = setOf("cached", "in_flight"),
+            loadedBuckets = setOf("loaded_missing", "memory"),
+            materializingBuckets = setOf("in_flight"),
+            inMemoryBuckets = setOf("memory")
+        )
+
+        assertEquals(listOf("cached", "loaded_missing"), claims)
+    }
+
+    @Test
     fun scrollSettleMergesVisibleBucketsBeforeDeferredMosaicWork() {
         val requestOrder = mergeTimelineMosaicRequestOrder(
             priorityBuckets = listOf("visible", "target", "neighbor"),
