@@ -9,6 +9,10 @@ Read this file first. Do not eagerly load every AI instruction document. Load on
 | Task                                      | Load                                |
 |-------------------------------------------|-------------------------------------|
 | Architecture, source layout, data flow    | `docs/ai/architecture.md`           |
+| Mosaic rendering, cache artifacts, scheduling | `docs/ai/mosaic-rendering.md`; follow links to `docs/ai/mosaic-assignment.md` or `docs/ai/mosaic-runtime.md` only when needed |
+| Standard row packing, justified rows          | `docs/ai/row-packing.md`           |
+| Timeline cold/warm/manual sync                | `docs/ai/timeline-sync.md`         |
+| Album/Person detail screen behavior           | `docs/ai/album-person-detail.md`   |
 | Feature implementation, bug fixes, refactors | `docs/ai/feature-implementation.md` |
 | Code review or architecture audit         | `docs/ai/audit.md`                  |
 | UI, Compose, previews, recomposition      | `docs/ai/ui.md`                     |
@@ -26,6 +30,30 @@ Read this file first. Do not eagerly load every AI instruction document. Load on
 - Keep changes scoped. Do not refactor unrelated code while implementing a feature or fix.
 - When durable architecture, workflow, or verification rules change, update the relevant `docs/ai/*` file. Do not duplicate those rules in tool-specific shims.
 - After running Gradle, stop Gradle daemons with `./gradlew --stop` before finishing the task to avoid orphaned processes.
+
+## Documentation Update Rule
+
+When changing behavior, architecture, cache shape, scheduler policy, UI layout rules, or verification workflow:
+
+1. Identify the feature area before editing.
+2. Load the matching `docs/ai/*` document from the table above.
+3. Update every doc whose durable rules changed.
+4. In the final response, list the docs updated or state `No docs updated; behavior/rules unchanged.`
+
+Feature-specific routing:
+
+- Mosaic overview/cache rules: `docs/ai/mosaic-rendering.md`
+- Mosaic assignment/projection details: `docs/ai/mosaic-assignment.md`
+- Mosaic runtime scheduling/chunks: `docs/ai/mosaic-runtime.md`
+- Standard row packing/justified rows: `docs/ai/row-packing.md`
+- Timeline cold/warm/manual sync: `docs/ai/timeline-sync.md`
+- Album/Person detail screen behavior: `docs/ai/album-person-detail.md`
+- Timeline-specific behavior: `docs/timeline.md`
+- Data/cache/Room/API/time: `docs/ai/data-cache-time.md`
+- UI/Compose/layout/recomposition: `docs/ai/ui.md`
+- Architecture/layering/source ownership: `docs/ai/architecture.md`
+- Audit/review rules: `docs/ai/audit.md`
+- General implementation workflow: `docs/ai/feature-implementation.md`
 
 ## Karpathy-Style Coding Discipline
 

@@ -6,6 +6,10 @@ For any UI, Compose, or screen audit, also load `docs/ai/ui.md` and apply its Co
 
 For Room, repository, cache, API, or date/time audits, also load `docs/ai/data-cache-time.md`.
 
+For Mosaic rendering, cache artifact, scheduler, or fallback audits, also load `docs/ai/mosaic-rendering.md`.
+
+For standard row packing or justified row audits, also load `docs/ai/row-packing.md`.
+
 ## ViewModel And Domain Checks
 
 - ViewModels are screen-specific and do not own another screen's behavior.
@@ -19,6 +23,8 @@ For Room, repository, cache, API, or date/time audits, also load `docs/ai/data-c
 - UI state flows use `WhileSubscribed(5000)` where state is exposed as `StateFlow`.
 - Row packing is performed in ViewModels, never in composables.
 - Mosaic assignment is performed in domain/ViewModel code, never in composables.
+- Mosaic assignment, progress chunks, assignment checkpoints, fallback projection, section geometry, and aggregate geometry for Timeline, Album Detail, and Person Detail go through `MosaicRenderEngine`. Flag any reintroduced split Timeline/detail renderer or repository-owned Mosaic math as an architecture violation.
+- Mosaic fallback bands are completed-output artifacts only. Flag fallback Mosaic bands in pending, partial-gap, interrupted, cache-miss, or failed display states, and flag persisted display rows that are replayed without current ordered-asset coverage validation.
 - Row computation happens atomically with related data or layout state changes.
 - Zoom-driven photo-grid layout work uses cancellable/debounced orchestration such as `PhotoGridLayoutRunner`; it should not recompute expensive row/Mosaic projections directly on every gesture step.
 - Persisted view settings are accessed through UseCases/Actions, not direct ViewModel repository injection.

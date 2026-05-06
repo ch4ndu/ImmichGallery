@@ -24,7 +24,7 @@ class MosaicWorkToken internal constructor(
     private val isActive: () -> Boolean
 ) {
     fun ensureActive() {
-        if (!isActive()) throw CancellationException("Mosaic work is no longer active")
+        if (!isActive()) throw MosaicWorkCancelledException("Mosaic work is no longer active")
     }
 }
 

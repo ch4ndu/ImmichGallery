@@ -3,18 +3,37 @@ package com.udnahc.immichgallery.ui.screen.detail
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
+import com.udnahc.immichgallery.domain.model.DetailMosaicAggregateGeometryEntry
+import com.udnahc.immichgallery.domain.model.DetailMosaicArtifacts
+import com.udnahc.immichgallery.domain.model.DetailMosaicArtifactsUpsert
+import com.udnahc.immichgallery.domain.model.DetailMosaicAssignmentEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheLookup
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
+import com.udnahc.immichgallery.domain.model.DetailMosaicSectionGeometryEntry
 import com.udnahc.immichgallery.domain.model.GroupSize
+import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
+import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
+import com.udnahc.immichgallery.domain.model.MosaicBandKind
+import com.udnahc.immichgallery.domain.model.MosaicLayoutSpec
+import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
+import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
+import com.udnahc.immichgallery.domain.model.MosaicSectionComputer
+import com.udnahc.immichgallery.domain.model.MosaicSectionRequest
+import com.udnahc.immichgallery.domain.model.MosaicSectionResult
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
+import com.udnahc.immichgallery.domain.model.ProgressChunk
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
 import com.udnahc.immichgallery.domain.model.RowHeightScope
+import com.udnahc.immichgallery.domain.model.AggregateGeometry
+import com.udnahc.immichgallery.domain.model.SectionGeometry
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.buildPhotoGridDisplayIndex
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
+import com.udnahc.immichgallery.ui.util.MosaicWorkCancelledException
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +46,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class PhotoGridDetailLayoutCoordinatorTest {
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -223,6 +243,37 @@ class PhotoGridDetailLayoutCoordinatorTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun activeScrollComputesOnlyVisibleRuntimeMosaicGroups() = runTest {
+        val mosaicComputer = RecordingMosaicSectionComputer()
+        var state = coordinatorState(
+            assets = multiMonthAssets(),
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            mosaicEngine = mosaicComputer
+        )
+
+        coordinator.setScrollInProgress(true)
+        coordinator.setVisibleBucketIndexes(listOf(0))
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0), mosaicComputer.groupIndexes)
+
+        coordinator.setScrollInProgress(false)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1, 2), mosaicComputer.groupIndexes)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun offscreenRuntimePlaceholderUsesCachedHeightWhenAvailable() = runTest {
         val cachedHeight = 777f
         val assets = multiMonthAssets()
@@ -236,14 +287,13 @@ class PhotoGridDetailLayoutCoordinatorTest {
             getState = { state },
             updateState = { transform -> state = transform(state) },
             cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
-            readPersistentCache = {
-                listOf(
-                    detailCacheEntry(
-                        sectionIndex = 2,
-                        sectionKey = "January 2026",
-                        assets = assets.filter { it.id.startsWith("jan_") },
-                        placeholderHeight = cachedHeight
-                    )
+            readPersistentArtifacts = {
+                detailArtifacts(
+                    ownerAssets = assets,
+                    sectionIndex = 2,
+                    sectionKey = "January 2026",
+                    sectionAssets = assets.filter { it.id.startsWith("jan_") },
+                    placeholderHeight = cachedHeight
                 )
             }
         )
@@ -261,6 +311,148 @@ class PhotoGridDetailLayoutCoordinatorTest {
         assertEquals(cachedHeight, placeholder.estimatedHeight)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun cacheDisabledDoesNotReadPersistentArtifactsAndStillComputesRuntimeMosaic() = runTest {
+        var readCount = 0
+        var writeCount = 0
+        var state = coordinatorState(
+            assets = List(8) { index -> asset("a$index") },
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
+            readPersistentArtifacts = {
+                readCount++
+                DetailMosaicArtifacts()
+            },
+            upsertPersistentArtifacts = {
+                writeCount++
+            }
+        )
+
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+
+        assertEquals(0, readCount)
+        assertEquals(0, writeCount)
+        assertEquals(true, state.displayItems.hasFallbackMosaicBands())
+        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun incompleteRuntimeMosaicGroupResumesFromCheckpointWhenScrollSettles() = runTest {
+        val mosaicComputer = CancelOnceMosaicSectionComputer()
+        var state = coordinatorState(
+            assets = List(12) { index -> asset("a$index") },
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            mosaicEngine = mosaicComputer
+        )
+
+        coordinator.setScrollInProgress(true)
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+
+        assertEquals(2, mosaicComputer.computeCalls)
+        assertEquals(true, mosaicComputer.receivedResumeCheckpoint)
+
+        coordinator.setScrollInProgress(false)
+        advanceUntilIdle()
+
+        assertEquals(2, mosaicComputer.computeCalls)
+        assertEquals(true, mosaicComputer.receivedResumeCheckpoint)
+        assertEquals(true, state.displayItems.hasFallbackMosaicBands())
+        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun retryableRuntimeFallbackIsRecomputedInsteadOfBecomingFinalDisplayCache() = runTest {
+        val mosaicComputer = FailOnceMosaicSectionComputer()
+        var state = coordinatorState(
+            assets = List(12) { index -> asset("a$index") },
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            mosaicEngine = mosaicComputer
+        )
+
+        coordinator.setScrollInProgress(true)
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+
+        assertEquals(2, mosaicComputer.computeCalls)
+        assertEquals(true, state.displayItems.hasFallbackMosaicBands())
+
+        coordinator.setScrollInProgress(false)
+        advanceUntilIdle()
+
+        assertEquals(2, mosaicComputer.computeCalls)
+        assertEquals(true, state.displayItems.hasFallbackMosaicBands())
+        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun stalePersistentArtifactsForAnotherColumnCountDoNotProvidePlaceholderHeight() = runTest {
+        val staleHeight = 777f
+        val assets = multiMonthAssets()
+        var state = coordinatorState(
+            assets = assets,
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = true, mosaicColumnCount = 4)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
+            readPersistentArtifacts = {
+                detailArtifacts(
+                    ownerAssets = assets,
+                    sectionIndex = 2,
+                    sectionKey = "January 2026",
+                    sectionAssets = assets.filter { it.id.startsWith("jan_") },
+                    placeholderHeight = staleHeight,
+                    columnCount = 3
+                )
+            }
+        )
+
+        coordinator.setScrollInProgress(true)
+        coordinator.setVisibleBucketIndexes(listOf(0))
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+
+        val placeholder = state.displayItems
+            .filterIsInstance<PlaceholderItem>()
+            .first { it.bucketIndex == 2 }
+        assertNotEquals(staleHeight, placeholder.estimatedHeight)
+    }
+
     private fun coordinator(
         scope: CoroutineScope,
         scheduler: TestCoroutineScheduler,
@@ -269,7 +461,14 @@ class PhotoGridDetailLayoutCoordinatorTest {
         cacheOwnerType: DetailMosaicCacheOwnerType? = null,
         isPersistentCacheComplete: () -> Boolean = { true },
         readPersistentCache: suspend (DetailMosaicCacheLookup) -> List<DetailMosaicCacheEntry> = { emptyList() },
-        upsertPersistentCache: suspend (DetailMosaicCacheEntry) -> Unit = {}
+        upsertPersistentCache: suspend (DetailMosaicCacheEntry) -> Unit = {},
+        readPersistentArtifacts: suspend (DetailMosaicCacheLookup) -> DetailMosaicArtifacts = { lookup ->
+            DetailMosaicArtifacts(displayCache = readPersistentCache(lookup))
+        },
+        upsertPersistentArtifacts: suspend (DetailMosaicArtifactsUpsert) -> Unit = { artifacts ->
+            artifacts.displayCache.forEach { upsertPersistentCache(it) }
+        },
+        mosaicEngine: MosaicSectionComputer = MosaicRenderEngine()
     ): PhotoGridDetailLayoutCoordinator<TestDetailState> =
         PhotoGridDetailLayoutCoordinator(
             scope = scope,
@@ -295,6 +494,9 @@ class PhotoGridDetailLayoutCoordinatorTest {
             isPersistentCacheComplete = isPersistentCacheComplete,
             readPersistentCache = readPersistentCache,
             upsertPersistentCache = upsertPersistentCache,
+            readPersistentArtifacts = { lookup, _ -> readPersistentArtifacts(lookup) },
+            upsertPersistentArtifacts = upsertPersistentArtifacts,
+            mosaicEngine = mosaicEngine,
             layoutRunner = PhotoGridLayoutRunner(scope, StandardTestDispatcher(scheduler)),
             rowHeightPersistenceRunner = PhotoGridLayoutRunner(scope, StandardTestDispatcher(scheduler))
         )
@@ -333,12 +535,14 @@ class PhotoGridDetailLayoutCoordinatorTest {
         sectionIndex: Int,
         sectionKey: String,
         assets: List<Asset>,
-        placeholderHeight: Float
+        placeholderHeight: Float,
+        columnCount: Int = 4
     ): DetailMosaicCacheEntry =
         DetailMosaicCacheEntry(
             ownerType = DetailMosaicCacheOwnerType.ALBUM,
             ownerId = "test",
             groupSize = GroupSize.MONTH,
+            columnCount = columnCount,
             sectionIndex = sectionIndex,
             sectionKey = sectionKey,
             familiesKey = "four|five|six",
@@ -353,6 +557,78 @@ class PhotoGridDetailLayoutCoordinatorTest {
             placeholderHeight = placeholderHeight,
             updatedAt = 0L
         )
+
+    private fun detailArtifacts(
+        ownerAssets: List<Asset>,
+        sectionIndex: Int,
+        sectionKey: String,
+        sectionAssets: List<Asset>,
+        placeholderHeight: Float,
+        columnCount: Int = 4
+    ): DetailMosaicArtifacts {
+        val sectionFingerprint = sectionAssets.detailPersistentFingerprint()
+        return DetailMosaicArtifacts(
+            assignments = listOf(
+                DetailMosaicAssignmentEntry(
+                    ownerType = DetailMosaicCacheOwnerType.ALBUM,
+                    ownerId = "test",
+                    groupSize = GroupSize.MONTH,
+                    columnCount = columnCount,
+                    sectionIndex = sectionIndex,
+                    sectionKey = sectionKey,
+                    familiesKey = "four|five|six",
+                    assetFingerprint = sectionFingerprint,
+                    assignments = emptyList(),
+                    updatedAt = 0L
+                )
+            ),
+            displayCache = listOf(
+                detailCacheEntry(
+                    sectionIndex = sectionIndex,
+                    sectionKey = sectionKey,
+                    assets = sectionAssets,
+                    placeholderHeight = placeholderHeight,
+                    columnCount = columnCount
+                )
+            ),
+            sectionGeometry = listOf(
+                DetailMosaicSectionGeometryEntry(
+                    ownerType = DetailMosaicCacheOwnerType.ALBUM,
+                    ownerId = "test",
+                    groupSize = GroupSize.MONTH,
+                    columnCount = columnCount,
+                    sectionIndex = sectionIndex,
+                    sectionKey = sectionKey,
+                    familiesKey = "four|five|six",
+                    assetFingerprint = sectionFingerprint,
+                    availableWidthKey = 360,
+                    cellHeightKey = 6000,
+                    maxRowHeightKey = 60000,
+                    spacingKey = 400,
+                    geometryVersion = 1,
+                    placeholderHeight = placeholderHeight,
+                    displayItemCount = 1,
+                    updatedAt = 0L
+                )
+            ),
+            aggregateGeometry = DetailMosaicAggregateGeometryEntry(
+                ownerType = DetailMosaicCacheOwnerType.ALBUM,
+                ownerId = "test",
+                groupSize = GroupSize.MONTH,
+                columnCount = columnCount,
+                familiesKey = "four|five|six",
+                assetFingerprint = ownerAssets.detailPersistentFingerprint(),
+                availableWidthKey = 360,
+                cellHeightKey = 6000,
+                maxRowHeightKey = 60000,
+                spacingKey = 400,
+                geometryVersion = 1,
+                placeholderHeight = placeholderHeight,
+                displayItemCount = 1,
+                updatedAt = 0L
+            )
+        )
+    }
 
     private fun List<Asset>.detailPersistentFingerprint(): String {
         var hash = -3750763034362895579L
@@ -405,3 +681,171 @@ private data class TestDetailState(
     val displayItems: List<PhotoGridDisplayItem> = emptyList(),
     val displayIndex: TimelineDisplayIndex = TimelineDisplayIndex()
 )
+
+private class CancelOnceMosaicSectionComputer : DelegatingTestMosaicSectionComputer() {
+    var computeCalls = 0
+        private set
+    var receivedResumeCheckpoint = false
+        private set
+
+    override suspend fun computeSection(
+        request: MosaicSectionRequest,
+        resumeCheckpoint: MosaicAssignmentCheckpoint?,
+        onProgressChunk: suspend (ProgressChunk) -> Unit,
+        onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+        shouldContinue: () -> Unit
+    ): MosaicSectionResult {
+        computeCalls++
+        receivedResumeCheckpoint = receivedResumeCheckpoint || resumeCheckpoint != null
+        if (computeCalls == 1) {
+            emitPartial(request, onCheckpoint, onProgressChunk)
+            throw MosaicWorkCancelledException("test cancellation")
+        }
+        return super.computeSection(request, resumeCheckpoint, onProgressChunk, onCheckpoint, shouldContinue)
+    }
+}
+
+private class FailOnceMosaicSectionComputer : DelegatingTestMosaicSectionComputer() {
+    var computeCalls = 0
+        private set
+
+    override suspend fun computeSection(
+        request: MosaicSectionRequest,
+        resumeCheckpoint: MosaicAssignmentCheckpoint?,
+        onProgressChunk: suspend (ProgressChunk) -> Unit,
+        onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+        shouldContinue: () -> Unit
+    ): MosaicSectionResult {
+        computeCalls++
+        if (computeCalls == 1) {
+            emitPartial(request, onCheckpoint, onProgressChunk)
+            throw IllegalStateException("test failure")
+        }
+        return super.computeSection(request, resumeCheckpoint, onProgressChunk, onCheckpoint, shouldContinue)
+    }
+}
+
+private class RecordingMosaicSectionComputer : DelegatingTestMosaicSectionComputer() {
+    val groupIndexes = mutableListOf<Int>()
+
+    override suspend fun computeSection(
+        request: MosaicSectionRequest,
+        resumeCheckpoint: MosaicAssignmentCheckpoint?,
+        onProgressChunk: suspend (ProgressChunk) -> Unit,
+        onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+        shouldContinue: () -> Unit
+    ): MosaicSectionResult {
+        groupIndexes.add(request.bucketIndex)
+        return super.computeSection(request, resumeCheckpoint, onProgressChunk, onCheckpoint, shouldContinue)
+    }
+}
+
+private fun List<PhotoGridDisplayItem>.hasFallbackMosaicBands(): Boolean =
+    any { item -> item is MosaicBandItem && item.kind == MosaicBandKind.FALLBACK }
+
+private open class DelegatingTestMosaicSectionComputer : MosaicSectionComputer {
+    private val delegate = MosaicRenderEngine()
+
+    protected suspend fun emitPartial(
+        request: MosaicSectionRequest,
+        onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+        onProgressChunk: suspend (ProgressChunk) -> Unit
+    ) {
+        val sourceEnd = minOf(4, request.assets.size)
+        val checkpoint = MosaicAssignmentCheckpoint(
+            assignments = emptyList(),
+            sourceIndex = sourceEnd,
+            bandIndex = 0,
+            chunkStartIndex = sourceEnd,
+            lastEmittedBandCount = 0
+        )
+        onCheckpoint(checkpoint)
+        onProgressChunk(
+            ProgressChunk(
+                keyScope = request.keyScope,
+                sectionLabel = request.sectionLabel,
+                sourceStartIndex = 0,
+                sourceEndExclusive = sourceEnd,
+                assignments = emptyList()
+            )
+        )
+    }
+
+    override suspend fun computeSection(
+        request: MosaicSectionRequest,
+        resumeCheckpoint: MosaicAssignmentCheckpoint?,
+        onProgressChunk: suspend (ProgressChunk) -> Unit,
+        onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+        shouldContinue: () -> Unit
+    ): MosaicSectionResult =
+        delegate.computeSection(request, resumeCheckpoint, onProgressChunk, onCheckpoint, shouldContinue)
+
+    override fun projectPartialSectionWithPlaceholders(
+        assets: List<Asset>,
+        chunks: List<ProgressChunk>,
+        bucketIndex: Int,
+        sectionLabel: String,
+        layoutSpec: MosaicLayoutSpec,
+        spacing: Float,
+        maxRowHeight: Float
+    ): List<PhotoGridDisplayItem> =
+        delegate.projectPartialSectionWithPlaceholders(
+            assets = assets,
+            chunks = chunks,
+            bucketIndex = bucketIndex,
+            sectionLabel = sectionLabel,
+            layoutSpec = layoutSpec,
+            spacing = spacing,
+            maxRowHeight = maxRowHeight
+        )
+
+    override fun projectSection(
+        assets: List<Asset>,
+        assignments: List<MosaicBandAssignment>,
+        bucketIndex: Int,
+        sectionLabel: String,
+        layoutSpec: MosaicLayoutSpec,
+        spacing: Float,
+        maxRowHeight: Float
+    ): List<PhotoGridDisplayItem> =
+        delegate.projectSection(assets, assignments, bucketIndex, sectionLabel, layoutSpec, spacing, maxRowHeight)
+
+    override fun projectReadySection(
+        assets: List<Asset>,
+        assignments: List<MosaicBandAssignment>,
+        bucketIndex: Int,
+        sectionLabel: String,
+        layoutSpec: MosaicLayoutSpec,
+        spacing: Float,
+        maxRowHeight: Float
+    ): List<PhotoGridDisplayItem> =
+        delegate.projectReadySection(assets, assignments, bucketIndex, sectionLabel, layoutSpec, spacing, maxRowHeight)
+
+    override fun projectPartialSection(
+        assets: List<Asset>,
+        chunks: List<ProgressChunk>,
+        bucketIndex: Int,
+        sectionLabel: String,
+        layoutSpec: MosaicLayoutSpec,
+        spacing: Float,
+        maxRowHeight: Float
+    ): List<PhotoGridDisplayItem> =
+        delegate.projectPartialSection(assets, chunks, bucketIndex, sectionLabel, layoutSpec, spacing, maxRowHeight)
+
+    override fun computeSectionGeometry(
+        keyScope: com.udnahc.immichgallery.domain.model.MosaicKeyScope,
+        displayItems: List<PhotoGridDisplayItem>,
+        spacing: Float
+    ): SectionGeometry =
+        delegate.computeSectionGeometry(keyScope, displayItems, spacing)
+
+    override fun computeAggregateGeometry(
+        owner: MosaicOwnerKey,
+        key: String,
+        sectionGeometries: List<SectionGeometry>,
+        headerCount: Int,
+        headerEstimatedHeight: Float,
+        spacing: Float
+    ): AggregateGeometry =
+        delegate.computeAggregateGeometry(owner, key, sectionGeometries, headerCount, headerEstimatedHeight, spacing)
+}

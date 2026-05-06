@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicCacheAction
+import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
 import com.udnahc.immichgallery.domain.model.Asset
@@ -24,7 +24,7 @@ import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
-import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicCacheUseCase
+import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicArtifactsUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
@@ -69,8 +69,8 @@ class AlbumDetailViewModel(
     private val setTargetRowHeightAction: SetTargetRowHeightAction,
     private val setViewConfigAction: SetViewConfigAction,
     private val mosaicWorkScheduler: MosaicWorkScheduler,
-    private val getDetailMosaicCacheUseCase: GetDetailMosaicCacheUseCase,
-    private val upsertDetailMosaicCacheAction: UpsertDetailMosaicCacheAction,
+    private val getDetailMosaicArtifactsUseCase: GetDetailMosaicArtifactsUseCase,
+    private val upsertDetailMosaicArtifactsAction: UpsertDetailMosaicArtifactsAction,
     private val albumId: String
 ) : ViewModel() {
 
@@ -110,8 +110,8 @@ class AlbumDetailViewModel(
         persistViewConfig = setViewConfigAction::invoke,
         cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
         cacheOwnerId = albumId,
-        readPersistentCache = getDetailMosaicCacheUseCase::invoke,
-        upsertPersistentCache = upsertDetailMosaicCacheAction::invoke
+        readPersistentArtifacts = getDetailMosaicArtifactsUseCase::invoke,
+        upsertPersistentArtifacts = upsertDetailMosaicArtifactsAction::invoke
     )
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =

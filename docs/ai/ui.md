@@ -2,6 +2,9 @@
 
 Load this for Compose UI, screens, bottom sheets, previews, theme work, or recomposition-sensitive changes.
 
+For Mosaic-specific rendering, placeholder, fallback, and scheduling rules, load `docs/ai/mosaic-rendering.md`.
+For standard justified row packing and `RowItem` behavior, load `docs/ai/row-packing.md`.
+
 ## Theme And Resources
 
 - Use Material3 with the custom theme in `ui/theme/`.
@@ -56,19 +59,20 @@ Load this for Compose UI, screens, bottom sheets, previews, theme work, or recom
 - Use `lastSelectedAssetId` or equivalent retained state so overlay content survives dismiss transitions.
 - Slideshow auto-advance loops must re-check slideshow and page state after suspending.
 - Grid ViewModels own row-height bounds, effective target height, persisted view config, and photo-grid display items.
-- Mosaic assignment and row packing belong in domain/ViewModel code; composables should only render display items. Timeline is the exception for assignment timing: assignments are precomputed after sync and persisted, while the ViewModel loads those cached assignments.
+- Mosaic assignment, progress chunks, fallback projection, and geometry belong behind `MosaicRenderEngine`; composables should only render display items. Timeline is the exception for assignment timing: assignments are precomputed after sync and persisted, while the ViewModel loads those cached assignments.
 - When Mosaic is enabled, keep it available at all zoom densities for every supported column count; do not add target-row-height or group-mode UI gates.
 - Mosaic-enabled Timeline, Album, and Person grids use the global `ViewConfig.mosaicColumnCount` for `MosaicLayoutSpec`; Mosaic bands, placeholders, and fallback rows use `availableWidth / columnCount` as cell height. Row-height zoom must not silently change cached Mosaic columns.
 - Mosaic-enabled Album and Person detail screens should render shared `PlaceholderItem` rows while foreground Mosaic assignment work is queued or while a cache miss falls back to runtime construction; do not leave the grid blank when assets and width are known.
 - The Mosaic settings dialog owns Mosaic enablement, template families, column count, `Cache results`, and `Disable zoom`. When cache results is enabled, applying Mosaic changes is a blocking dialog operation: prepare the full applicable Timeline library or detail owner cache first, then persist/apply the config. If preparation fails, keep the old config.
 - Detail screens report visible Mosaic group indexes from `LazyListState.layoutInfo` so `MosaicWorkScheduler` can prioritize visible groups before prefetch.
-- Album/Person detail Mosaic rendering should use the extracted cached/runtime renderer classes in the UI detail package. `PhotoGridDetailLayoutCoordinator` owns layout state, generation guards, visible-group priority, scroll-state-aware runtime publishing, and deferred offscreen flushes; renderers own cached row mapping, runtime Mosaic row construction, and cache-entry creation/writes.
-- Timeline Mosaic-enabled fallback must render `MosaicBandItem` bands, not justified `RowItem`s. Missing, invalid, failed, or unassigned ranges use deterministic full-width fallback bands with fit-style thumbnails and accepted blank space. Album and Person detail Mosaic fallback may keep their existing justified-row policy unless that screen family is explicitly changed.
+- Album/Person detail Mosaic rendering should use `MosaicRenderEngine` through `PhotoGridDetailLayoutCoordinator`. The coordinator owns layout state, generation guards, visible-group priority, progressive chunk publication, in-memory assignment checkpoints, retryable runtime failure state, scroll-state-aware runtime publishing, and deferred offscreen flushes; renderers own cached band mapping and cache-entry creation/writes.
+- Mosaic-enabled Album and Person detail runtime rendering must not show fallback-thumbnail bands for pending, cancelled, failed, or partial-gap work. Completed real chunks render as Mosaic bands; unresolved or invalid ranges render `PlaceholderItem`s and remain resumable. Timeline fallback remains `MosaicBandItem` based until its runtime path is explicitly tightened.
 - Use `PhotoGridLayoutRunner` for expensive zoom-driven row or detail Mosaic projection work. Cached Mosaic column changes come from the settings dialog apply path, not pinch/desktop zoom.
 - Persist row-height changes through UseCases/Actions, but debounce gesture-driven writes in the ViewModel.
 - Timeline scrollbar custom targeting must keep handle position, labels, year markers, and drag target mapping on the same fraction coordinate system.
 - Timeline scroll and visibility effects should read the precomputed display index from `TimelineState` instead of scanning `displayItems` in `snapshotFlow`. Keep those effects keyed on stable owners such as `LazyListState`, and use `rememberUpdatedState` for the latest display lookup.
-- Album and Person detail visible-group effects should follow the same stable display-index pattern. Visibility changes may reprioritize or preempt pending/offscreen Mosaic work, but must not restart layout projection or emit a fresh placeholder list just because the user scrolled. While active scrolling is in progress, publish completed visible or near-visible runtime Mosaic groups immediately and defer offscreen group replacement until scrolling settles.
+- Timeline scroll state is an input to Mosaic scheduling. While the list is actively scrolling, visible asset rows and thumbnails take priority: runtime Mosaic compute is paused, persisted Mosaic reads are limited to visible/target buckets, and Mosaic display replacement is deferred until scroll settles.
+- Album and Person detail visible-group effects should follow the same stable display-index pattern. Visibility changes may reprioritize or preempt pending/offscreen Mosaic work, but must not restart layout projection or emit a fresh placeholder list just because the user scrolled. Runtime work may continue through `MosaicWorkScheduler` during scroll; completed visible or near-visible groups publish immediately and offscreen replacement is deferred until scrolling settles. When an incomplete group becomes eligible again, resume from its in-memory assignment checkpoint rather than discarding the group or rereading disk cache.
 
 ## Previews
 

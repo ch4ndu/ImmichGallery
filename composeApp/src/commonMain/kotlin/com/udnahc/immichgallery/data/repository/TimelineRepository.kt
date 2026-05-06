@@ -3,6 +3,7 @@ package com.udnahc.immichgallery.data.repository
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.dao.TimelineDao
+import com.udnahc.immichgallery.data.local.entity.AssetEntity
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
@@ -152,6 +153,24 @@ class TimelineRepository(
             val crossRefs = filtered.mapIndexed { index, response ->
                 TimelineAssetCrossRef(timeBucket, response.id, index)
             }
+            val editedAssetIdsWithDimensions = filtered
+                .filter { it.isEdited && it.width != null && it.height != null }
+                .map { it.id }
+                .toSet()
+            if (shouldSkipTimelineBucketAssetWrite(
+                    before = before,
+                    candidateAssets = assetEntities,
+                    editedAssetIdsWithDimensions = editedAssetIdsWithDimensions
+                )
+            ) {
+                log.d {
+                    "Timeline bucket asset sync skipped unchanged write bucket=$timeBucket assets=${assetEntities.size}"
+                }
+                return Result.success(TimelineBucketAssetSyncResult(
+                    timeBucket = timeBucket,
+                    changed = false
+                ))
+            }
             withContext(Dispatchers.IO) {
                 assetDao.upsertAssets(assetEntities)
                 timelineDao.replaceBucketRefs(timeBucket, crossRefs)
@@ -283,3 +302,18 @@ internal fun timelineBucketAssetsChanged(
     after: List<com.udnahc.immichgallery.data.local.entity.AssetEntity>
 ): Boolean =
     orderedAssetsChanged(before, after)
+
+internal fun shouldSkipTimelineBucketAssetWrite(
+    before: List<AssetEntity>,
+    candidateAssets: List<AssetEntity>,
+    editedAssetIdsWithDimensions: Set<String>
+): Boolean {
+    val orderedSame = !orderedAssetsChanged(before, candidateAssets)
+    val refsSame = before.map { it.id } == candidateAssets.map { it.id }
+    if (!orderedSame || !refsSame) return false
+    val cachedById = before.associateBy { it.id }
+    val needsEditEnrichment = editedAssetIdsWithDimensions.any { assetId ->
+        cachedById[assetId]?.editsResolved != true
+    }
+    return !needsEditEnrichment
+}

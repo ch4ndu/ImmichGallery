@@ -1,0 +1,191 @@
+package com.udnahc.immichgallery.domain.model
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
+
+class MosaicRenderEngineTest {
+    private val engine = MosaicRenderEngine()
+
+    @Test
+    fun progressiveChunksUseSharedEngineAndProjectFallbackBands() = runTest {
+        val chunks = mutableListOf<ProgressChunk>()
+        val request = request(sampleAssets(80))
+
+        val result = engine.computeSection(
+            request = request,
+            onProgressChunk = chunks::add
+        )
+
+        val ready = assertIs<MosaicSectionResult.Ready>(result).value
+        assertTrue(chunks.size > 1)
+        assertEquals(ready.assignments, chunks.flatMap { it.assignments })
+
+        val partialItems = engine.projectPartialSection(
+            assets = request.assets,
+            chunks = chunks.take(1),
+            bucketIndex = request.bucketIndex,
+            sectionLabel = request.sectionLabel,
+            layoutSpec = request.displayLayoutSpec,
+            spacing = request.spacing,
+            maxRowHeight = request.maxRowHeight
+        )
+
+        assertTrue(partialItems.all { it is MosaicBandItem })
+        assertEquals(
+            request.assets.map { it.id }.toSet(),
+            partialItems.flatMap { item -> (item as MosaicBandItem).tiles.map { it.photo.asset.id } }.toSet()
+        )
+    }
+
+    @Test
+    fun sectionAndAggregateGeometryAreStableForIdenticalInputs() = runTest {
+        val request = request(sampleAssets(12))
+        val ready = assertIs<MosaicSectionResult.Ready>(engine.computeSection(request)).value
+
+        val first = engine.computeSectionGeometry(request.keyScope, ready.displayItems, request.spacing)
+        val second = engine.computeSectionGeometry(request.keyScope, ready.displayItems, request.spacing)
+        val aggregate = engine.computeAggregateGeometry(
+            owner = request.keyScope.owner,
+            key = "album",
+            sectionGeometries = listOf(first, second),
+            spacing = request.spacing
+        )
+
+        assertEquals(first, second)
+        assertEquals(first.placeholderHeight * 2 + request.spacing, aggregate.placeholderHeight)
+        assertEquals(first.displayItemCount * 2, aggregate.displayItemCount)
+    }
+
+    @Test
+    fun partialProjectionUsesAbsoluteFallbackKeysAcrossChunks() {
+        val request = request(sampleAssets(12))
+        val chunks = listOf(
+            ProgressChunk(
+                keyScope = request.keyScope,
+                sectionLabel = request.sectionLabel,
+                sourceStartIndex = 0,
+                sourceEndExclusive = 4,
+                assignments = emptyList()
+            ),
+            ProgressChunk(
+                keyScope = request.keyScope,
+                sectionLabel = request.sectionLabel,
+                sourceStartIndex = 4,
+                sourceEndExclusive = 8,
+                assignments = emptyList()
+            )
+        )
+
+        val items = engine.projectPartialSection(
+            assets = request.assets,
+            chunks = chunks,
+            bucketIndex = request.bucketIndex,
+            sectionLabel = request.sectionLabel,
+            layoutSpec = request.displayLayoutSpec,
+            spacing = request.spacing,
+            maxRowHeight = request.maxRowHeight
+        )
+        val bands = items.filterIsInstance<MosaicBandItem>()
+
+        assertEquals(bands.size, bands.map { it.gridKey }.toSet().size)
+        assertEquals(listOf(0, 4, 8), bands.map { it.sourceStartIndex })
+        assertEquals(
+            request.assets.map { it.id },
+            bands.flatMap { band -> band.tiles.map { it.photo.asset.id } }
+        )
+    }
+
+    @Test
+    fun strictPartialProjectionUsesPlaceholdersForInvalidChunks() {
+        val request = request(sampleAssets(12))
+        val chunks = listOf(
+            ProgressChunk(
+                keyScope = request.keyScope,
+                sectionLabel = request.sectionLabel,
+                sourceStartIndex = 0,
+                sourceEndExclusive = 4,
+                assignments = emptyList()
+            )
+        )
+
+        val items = engine.projectPartialSectionWithPlaceholders(
+            assets = request.assets,
+            chunks = chunks,
+            bucketIndex = request.bucketIndex,
+            sectionLabel = request.sectionLabel,
+            layoutSpec = request.displayLayoutSpec,
+            spacing = request.spacing,
+            maxRowHeight = request.maxRowHeight
+        )
+
+        assertTrue(items.any { it is PlaceholderItem })
+        assertTrue(items.none { it is MosaicBandItem && it.kind == MosaicBandKind.FALLBACK })
+        assertTrue(items.none { it is RowItem })
+    }
+
+    @Test
+    fun readyProjectionMayUseFallbackBandsAfterCompletion() {
+        val request = request(sampleAssets(5))
+
+        val items = engine.projectReadySection(
+            assets = request.assets,
+            assignments = emptyList(),
+            bucketIndex = request.bucketIndex,
+            sectionLabel = request.sectionLabel,
+            layoutSpec = request.displayLayoutSpec,
+            spacing = request.spacing,
+            maxRowHeight = request.maxRowHeight
+        )
+
+        assertTrue(items.isNotEmpty())
+        assertTrue(items.all { it is MosaicBandItem })
+        assertTrue(items.any { it is MosaicBandItem && it.kind == MosaicBandKind.FALLBACK })
+        assertEquals(
+            request.assets.map { it.id },
+            items.filterIsInstance<MosaicBandItem>().flatMap { band -> band.tiles.map { it.photo.asset.id } }
+        )
+    }
+
+    private fun request(assets: List<Asset>): MosaicSectionRequest {
+        val layoutSpec = MosaicLayoutSpec(
+            columnCount = 4,
+            availableWidth = 400f,
+            cellHeight = 100f
+        )
+        return MosaicSectionRequest(
+            keyScope = MosaicKeyScope(
+                owner = MosaicOwnerKey(MosaicOwnerScope.ALBUM, "album_1"),
+                sectionKey = "section_1",
+                columnCount = 4,
+                familiesKey = mosaicDisplayCacheFamiliesKey(MosaicTemplateFamily.defaultSet()),
+                contentFingerprint = assets.joinToString("|") { it.id }
+            ),
+            assets = assets,
+            bucketIndex = 0,
+            sectionLabel = "May 2026",
+            assignmentLayoutSpec = layoutSpec,
+            displayLayoutSpec = layoutSpec,
+            spacing = GRID_SPACING_DP,
+            maxRowHeight = 500f,
+            progressBandBatchSize = 2
+        )
+    }
+
+    private fun sampleAssets(count: Int): List<Asset> {
+        val aspects = listOf(1f, 1.4f, 0.75f, 1.8f, 0.9f, 1.2f, 1f, 1.6f)
+        return List(count) { index ->
+            Asset(
+                id = "asset_$index",
+                type = AssetType.IMAGE,
+                fileName = "asset_$index.jpg",
+                createdAt = "2026-05-03T00:00:00Z",
+                thumbnailUrl = "",
+                originalUrl = "",
+                aspectRatio = aspects[index % aspects.size]
+            )
+        }
+    }
+}

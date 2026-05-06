@@ -170,6 +170,7 @@ fun TimelineScreen(
                 hiddenAssetId = hiddenAssetId,
                 onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
                 onViewportBucketTargeted = viewModel::onViewportBucketTargeted,
+                onScrollInProgressChanged = viewModel::onScrollInProgressChanged,
                 scrollTargetForFraction = viewModel::scrollTargetForFraction,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 onMosaicColumnCountChanged = viewModel::setMosaicColumnCount,
@@ -247,6 +248,7 @@ fun TimelineContent(
     hiddenAssetId: String? = null,
     onVisibleBucketsChanged: (List<Int>, TimelineBucketTargetReason) -> Unit,
     onViewportBucketTargeted: (Int, TimelineBucketTargetReason) -> Unit,
+    onScrollInProgressChanged: (Boolean) -> Unit = {},
     scrollTargetForFraction: (Float) -> TimelineScrollTarget?,
     onTargetRowHeightChanged: (Float) -> Unit = {},
     onMosaicColumnCountChanged: (Int) -> Unit = {},
@@ -315,6 +317,7 @@ fun TimelineContent(
                 snapshotFlow { listState.isScrollInProgress }
                     .distinctUntilChanged()
                     .collectLatest { isScrollInProgress ->
+                        onScrollInProgressChanged(isScrollInProgress)
                         if (!isScrollInProgress) {
                             val buckets = visibleBucketIndexesForDisplayIndexes(
                                 latestDisplayIndex,

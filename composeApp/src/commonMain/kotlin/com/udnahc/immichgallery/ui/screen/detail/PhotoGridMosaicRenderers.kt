@@ -7,6 +7,7 @@ import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
+import com.udnahc.immichgallery.domain.model.coversOrderedAssets
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.toDisplayRecord
 import com.udnahc.immichgallery.domain.model.toMosaicDisplayItems
@@ -32,6 +33,7 @@ internal class CachedPhotoGridMosaicRenderer {
         cachedEntries: Map<DetailPersistentGroupKey, DetailMosaicCacheEntry>
     ): List<PhotoGridDisplayItem>? {
         val entry = cachedEntries[DetailPersistentGroupKey(group.index, group.label, assetFingerprint)] ?: return null
+        if (!entry.bands.coversOrderedAssets(group.assets)) return null
         val bands = entry.bands.toMosaicDisplayItems(
             assets = group.assets,
             bucketIndex = group.index,
@@ -57,6 +59,7 @@ internal class RuntimePhotoGridMosaicRenderer {
             ownerType = lookup.ownerType,
             ownerId = lookup.ownerId,
             groupSize = lookup.groupSize,
+            columnCount = lookup.columnCount,
             sectionIndex = group.index,
             sectionKey = group.label,
             familiesKey = lookup.familiesKey,

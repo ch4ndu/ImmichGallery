@@ -19,6 +19,7 @@ import com.udnahc.immichgallery.domain.action.auth.ClearServerConfigAction
 import com.udnahc.immichgallery.domain.action.auth.MonitorServerStatusAction
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
 import com.udnahc.immichgallery.domain.action.detail.ClearDetailMosaicCacheAction
+import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
@@ -35,6 +36,7 @@ import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
+import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicArtifactsUseCase
 import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicCacheUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
@@ -57,6 +59,7 @@ import com.udnahc.immichgallery.ui.screen.people.PersonDetailViewModel
 import com.udnahc.immichgallery.ui.screen.search.SearchViewModel
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineViewModel
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
+import com.udnahc.immichgallery.ui.util.TimelineMosaicDispatcherProvider
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -65,6 +68,7 @@ val sharedModule = module {
     single { Settings() }
     single { ServerConfigRepository(get()) }
     single { MosaicWorkScheduler() }
+    factory { TimelineMosaicDispatcherProvider() }
 
     // Networking
     single { createHttpClientEngine() }
@@ -104,6 +108,7 @@ val sharedModule = module {
     factory { GetTimelineGroupSizeUseCase(get()) }
     factory { GetTargetRowHeightUseCase(get()) }
     factory { GetViewConfigUseCase(get()) }
+    factory { GetDetailMosaicArtifactsUseCase(get()) }
     factory { GetDetailMosaicCacheUseCase(get()) }
 
     // Actions
@@ -117,13 +122,14 @@ val sharedModule = module {
     factory { SetTimelineGroupSizeAction(get()) }
     factory { SetTargetRowHeightAction(get()) }
     factory { SetViewConfigAction(get()) }
+    factory { UpsertDetailMosaicArtifactsAction(get()) }
     factory { UpsertDetailMosaicCacheAction(get()) }
     factory { ClearDetailMosaicCacheAction(get()) }
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel { AlbumListViewModel(get()) }
     viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), params.get()) }
     viewModel { PeopleViewModel(get()) }

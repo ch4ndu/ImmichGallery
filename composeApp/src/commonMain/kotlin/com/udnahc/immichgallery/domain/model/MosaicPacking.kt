@@ -359,78 +359,130 @@ suspend fun buildMosaicAssignmentsWithProgress(
     bandHeightLimit: Float = MOSAIC_CANONICAL_CELL_SIZE * MOSAIC_MAX_BAND_HEIGHT_TARGET_MULTIPLIER,
     progressBandBatchSize: Int = TIMELINE_MOSAIC_PROGRESS_BAND_BATCH_SIZE,
     maxRowHeight: Float,
+    resumeCheckpoint: MosaicAssignmentCheckpoint? = null,
     onProgressChunk: suspend (MosaicAssignmentProgressChunk) -> Unit,
+    onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit = {},
     shouldContinue: () -> Unit = {}
 ): List<MosaicBandAssignment> {
     if (assets.size < MIN_MOSAIC_ASSETS ||
         layoutSpec.columnCount !in SUPPORTED_MOSAIC_COLUMN_COUNTS ||
         enabledFamilies.isEmpty()
     ) return emptyList()
-    val assignments = mutableListOf<MosaicBandAssignment>()
-    var sourceIndex = 0
-    var bandIndex = 0
-    var chunkStartIndex = 0
-    var lastEmittedBandCount = 0
+    val checkpoint = resumeCheckpoint?.takeIf { it.isValidFor(assets) }
+    val assignments = checkpoint?.assignments?.toMutableList() ?: mutableListOf()
+    var sourceIndex = checkpoint?.sourceIndex ?: 0
+    var bandIndex = checkpoint?.bandIndex ?: 0
+    var chunkStartIndex = checkpoint?.chunkStartIndex ?: 0
+    var lastEmittedBandCount = checkpoint?.lastEmittedBandCount ?: 0
     val width = layoutSpec.columnCount * MOSAIC_CANONICAL_CELL_SIZE
-    while (sourceIndex <= assets.size - MIN_MOSAIC_ASSETS) {
-        shouldContinue()
-        val candidate = bestCandidate(
-            assets = assets,
-            sourceStartIndex = sourceIndex,
+    fun currentCheckpoint(): MosaicAssignmentCheckpoint =
+        MosaicAssignmentCheckpoint(
+            assignments = assignments.toList(),
+            sourceIndex = sourceIndex,
             bandIndex = bandIndex,
-            width = width,
-            spacing = spacing,
-            bandHeightLimit = bandHeightLimit,
-            enabledFamilies = enabledFamilies,
-            shouldContinue = shouldContinue
+            chunkStartIndex = chunkStartIndex,
+            lastEmittedBandCount = lastEmittedBandCount
         )
-        if (candidate != null) {
-            assignments.add(candidate.assignment)
-            sourceIndex += candidate.assignment.sourceCount
-            bandIndex++
-            val batchSize = progressBandBatchSize.coerceAtLeast(1)
-            val pendingBandCount = assignments.size - lastEmittedBandCount
-            if (pendingBandCount >= batchSize && pendingBandCount % batchSize == 0) {
-                val chunkAssignments = assignments.drop(lastEmittedBandCount)
-                val chunkEndIndex = candidate.assignment.sourceStartIndex + candidate.assignment.sourceCount
-                if (isStableProgressChunk(
-                        assets = assets,
-                        sourceStartIndex = chunkStartIndex,
-                        sourceEndExclusive = chunkEndIndex,
-                        assignments = chunkAssignments,
-                        layoutSpec = layoutSpec,
-                        spacing = spacing,
-                        maxRowHeight = maxRowHeight
-                    )
-                ) {
-                    onProgressChunk(
-                        MosaicAssignmentProgressChunk(
+    try {
+        while (sourceIndex <= assets.size - MIN_MOSAIC_ASSETS) {
+            shouldContinue()
+            val candidate = bestCandidate(
+                assets = assets,
+                sourceStartIndex = sourceIndex,
+                bandIndex = bandIndex,
+                width = width,
+                spacing = spacing,
+                bandHeightLimit = bandHeightLimit,
+                enabledFamilies = enabledFamilies,
+                shouldContinue = shouldContinue
+            )
+            if (candidate != null) {
+                assignments.add(candidate.assignment)
+                sourceIndex += candidate.assignment.sourceCount
+                bandIndex++
+                val batchSize = progressBandBatchSize.coerceAtLeast(1)
+                val pendingBandCount = assignments.size - lastEmittedBandCount
+                if (pendingBandCount >= batchSize && pendingBandCount % batchSize == 0) {
+                    val chunkAssignments = assignments.drop(lastEmittedBandCount)
+                    val chunkEndIndex = candidate.assignment.sourceStartIndex + candidate.assignment.sourceCount
+                    if (isStableProgressChunk(
+                            assets = assets,
                             sourceStartIndex = chunkStartIndex,
                             sourceEndExclusive = chunkEndIndex,
-                            assignments = chunkAssignments
+                            assignments = chunkAssignments,
+                            layoutSpec = layoutSpec,
+                            spacing = spacing,
+                            maxRowHeight = maxRowHeight
                         )
-                    )
-                    chunkStartIndex = chunkEndIndex
-                    lastEmittedBandCount = assignments.size
+                    ) {
+                        val emittedStartIndex = chunkStartIndex
+                        chunkStartIndex = chunkEndIndex
+                        lastEmittedBandCount = assignments.size
+                        onCheckpoint(currentCheckpoint())
+                        onProgressChunk(
+                            MosaicAssignmentProgressChunk(
+                                sourceStartIndex = emittedStartIndex,
+                                sourceEndExclusive = chunkEndIndex,
+                                assignments = chunkAssignments
+                            )
+                        )
+                    }
                 }
+            } else {
+                sourceIndex += 1
             }
-        } else {
-            sourceIndex += 1
         }
-    }
-    val remainingAssignments = assignments.drop(lastEmittedBandCount)
-    val remainingEndIndex = remainingAssignments.lastOrNull()
-        ?.let { it.sourceStartIndex + it.sourceCount }
-    if (remainingAssignments.isNotEmpty() && remainingEndIndex != null && remainingEndIndex > chunkStartIndex) {
-        onProgressChunk(
-            MosaicAssignmentProgressChunk(
-                sourceStartIndex = chunkStartIndex,
-                sourceEndExclusive = remainingEndIndex,
-                assignments = remainingAssignments
+        val remainingAssignments = assignments.drop(lastEmittedBandCount)
+        val remainingEndIndex = remainingAssignments.lastOrNull()
+            ?.let { it.sourceStartIndex + it.sourceCount }
+        if (remainingAssignments.isNotEmpty() && remainingEndIndex != null && remainingEndIndex > chunkStartIndex) {
+            val emittedStartIndex = chunkStartIndex
+            chunkStartIndex = remainingEndIndex
+            lastEmittedBandCount = assignments.size
+            onCheckpoint(currentCheckpoint())
+            onProgressChunk(
+                MosaicAssignmentProgressChunk(
+                    sourceStartIndex = emittedStartIndex,
+                    sourceEndExclusive = remainingEndIndex,
+                    assignments = remainingAssignments
+                )
             )
-        )
+        }
+        return assignments
+    } catch (e: Exception) {
+        onCheckpoint(currentCheckpoint())
+        throw e
     }
-    return assignments
+}
+
+private fun MosaicAssignmentCheckpoint.isValidFor(assets: List<Asset>): Boolean {
+    if (sourceIndex < 0 ||
+        bandIndex < 0 ||
+        chunkStartIndex < 0 ||
+        lastEmittedBandCount < 0 ||
+        sourceIndex > assets.size ||
+        chunkStartIndex > sourceIndex ||
+        lastEmittedBandCount > assignments.size
+    ) {
+        return false
+    }
+    if (assignments.isEmpty()) return bandIndex == 0
+    val sortedAssignments = assignments.sortedBy { it.sourceStartIndex }
+    if (assignments != sortedAssignments) return false
+    var previousEnd = 0
+    assignments.forEach { assignment ->
+        if (assignment.sourceStartIndex < previousEnd) return false
+        if (assignment.sourceStartIndex < 0 || assignment.sourceCount <= 0) return false
+        val endExclusive = assignment.sourceStartIndex + assignment.sourceCount
+        if (endExclusive > assets.size) return false
+        val expectedIds = assets.subList(assignment.sourceStartIndex, endExclusive).map { it.id }.toSet()
+        val actualIds = assignment.tiles.map { it.assetId }.toSet()
+        if (expectedIds != actualIds || actualIds.size != assignment.sourceCount) return false
+        previousEnd = endExclusive
+    }
+    val maxBandIndex = assignments.maxOf { it.bandIndex }
+    val maxEnd = assignments.maxOf { it.sourceStartIndex + it.sourceCount }
+    return bandIndex == maxBandIndex + 1 && sourceIndex >= maxEnd
 }
 
 fun buildPhotoGridItemsWithMosaic(

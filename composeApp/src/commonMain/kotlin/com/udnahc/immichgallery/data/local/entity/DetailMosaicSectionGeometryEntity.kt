@@ -4,7 +4,7 @@ import androidx.room.Entity
 import androidx.room.Index
 
 @Entity(
-    tableName = "detail_mosaic_display_cache",
+    tableName = "detail_mosaic_section_geometry",
     primaryKeys = [
         "ownerType",
         "ownerId",
@@ -18,7 +18,7 @@ import androidx.room.Index
         "cellHeightKey",
         "maxRowHeightKey",
         "spacingKey",
-        "displayVersion"
+        "geometryVersion"
     ],
     indices = [
         Index("ownerType", "ownerId"),
@@ -32,11 +32,11 @@ import androidx.room.Index
             "cellHeightKey",
             "maxRowHeightKey",
             "spacingKey",
-            "displayVersion"
+            "geometryVersion"
         )
     ]
 )
-data class DetailMosaicDisplayCacheEntity(
+data class DetailMosaicSectionGeometryEntity(
     val ownerType: String,
     val ownerId: String,
     val groupSize: String,
@@ -49,9 +49,8 @@ data class DetailMosaicDisplayCacheEntity(
     val cellHeightKey: Int,
     val maxRowHeightKey: Int,
     val spacingKey: Int,
-    val displayVersion: Int,
-    val bandsJson: String,
-    val displayItemCount: Int,
+    val geometryVersion: Int,
     val placeholderHeight: Float,
+    val displayItemCount: Int,
     val updatedAt: Long
 )

@@ -6,7 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicCacheAction
+import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
 import com.udnahc.immichgallery.domain.model.Asset
@@ -23,7 +23,7 @@ import com.udnahc.immichgallery.domain.model.buildPhotoGridDisplayIndex
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
-import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicCacheUseCase
+import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicArtifactsUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
@@ -80,8 +80,8 @@ class PersonDetailViewModel(
     private val setTargetRowHeightAction: SetTargetRowHeightAction,
     private val setViewConfigAction: SetViewConfigAction,
     private val mosaicWorkScheduler: MosaicWorkScheduler,
-    private val getDetailMosaicCacheUseCase: GetDetailMosaicCacheUseCase,
-    private val upsertDetailMosaicCacheAction: UpsertDetailMosaicCacheAction,
+    private val getDetailMosaicArtifactsUseCase: GetDetailMosaicArtifactsUseCase,
+    private val upsertDetailMosaicArtifactsAction: UpsertDetailMosaicArtifactsAction,
     private val personId: String
 ) : ViewModel() {
 
@@ -125,8 +125,8 @@ class PersonDetailViewModel(
         cacheOwnerType = DetailMosaicCacheOwnerType.PERSON,
         cacheOwnerId = personId,
         isPersistentCacheComplete = { _state.value.hasMore == false },
-        readPersistentCache = getDetailMosaicCacheUseCase::invoke,
-        upsertPersistentCache = upsertDetailMosaicCacheAction::invoke
+        readPersistentArtifacts = getDetailMosaicArtifactsUseCase::invoke,
+        upsertPersistentArtifacts = upsertDetailMosaicArtifactsAction::invoke
     )
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =

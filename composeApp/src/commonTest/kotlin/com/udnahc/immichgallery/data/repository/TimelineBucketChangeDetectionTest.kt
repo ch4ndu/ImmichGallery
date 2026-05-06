@@ -57,6 +57,48 @@ class OrderedAssetChangeDetectionTest {
     }
 
     @Test
+    fun unchangedResolvedBucketSkipsTimelineAssetWrite() {
+        val before = listOf(asset("a", isEdited = true, editsResolved = true), asset("b"))
+        val candidate = listOf(asset("a", isEdited = true, editsResolved = false), asset("b"))
+
+        assertTrue(
+            shouldSkipTimelineBucketAssetWrite(
+                before = before,
+                candidateAssets = candidate,
+                editedAssetIdsWithDimensions = setOf("a")
+            )
+        )
+    }
+
+    @Test
+    fun unresolvedEditedAssetDoesNotSkipTimelineAssetWrite() {
+        val before = listOf(asset("a", isEdited = true, editsResolved = false), asset("b"))
+        val candidate = listOf(asset("a", isEdited = true, editsResolved = false), asset("b"))
+
+        assertFalse(
+            shouldSkipTimelineBucketAssetWrite(
+                before = before,
+                candidateAssets = candidate,
+                editedAssetIdsWithDimensions = setOf("a")
+            )
+        )
+    }
+
+    @Test
+    fun changedTimelineBucketDoesNotSkipAssetWrite() {
+        val before = listOf(asset("a"), asset("b"))
+        val candidate = listOf(asset("b"), asset("a"))
+
+        assertFalse(
+            shouldSkipTimelineBucketAssetWrite(
+                before = before,
+                candidateAssets = candidate,
+                editedAssetIdsWithDimensions = emptySet()
+            )
+        )
+    }
+
+    @Test
     fun timelineBucketCountChangeIsStaleButNotRemoved() {
         val changes = timelineBucketMetadataChanges(
             oldEntities = listOf(bucket("2026-05", count = 10)),

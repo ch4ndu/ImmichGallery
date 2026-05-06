@@ -1,6 +1,9 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
+import com.udnahc.immichgallery.domain.model.MosaicKeyScope
+import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
+import com.udnahc.immichgallery.domain.model.MosaicOwnerScope
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -88,6 +91,13 @@ class TimelineProgressiveMosaicBufferTest {
         bandIndex: Int = 0
     ): RuntimeMosaicProgressChunk =
         RuntimeMosaicProgressChunk(
+            keyScope = MosaicKeyScope(
+                owner = MosaicOwnerKey(MosaicOwnerScope.TIMELINE_BUCKET, "2026-01"),
+                sectionKey = "2026-01|month",
+                columnCount = 4,
+                familiesKey = MosaicTemplateFamily.FOUR_TILE.persistedId,
+                contentFingerprint = "1"
+            ),
             sectionLabel = "January 2026",
             sourceStartIndex = sourceStartIndex,
             sourceEndExclusive = sourceEndExclusive,
