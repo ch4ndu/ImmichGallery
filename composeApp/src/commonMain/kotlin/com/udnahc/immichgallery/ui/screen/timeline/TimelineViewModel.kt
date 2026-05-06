@@ -81,6 +81,7 @@ import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketGeometryUseCase
+import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicSectionGeometryUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import com.udnahc.immichgallery.ui.util.TimelineMosaicDispatcherProvider
@@ -90,6 +91,7 @@ import com.udnahc.immichgallery.ui.util.TimelineMosaicQueueEffect
 import com.udnahc.immichgallery.ui.util.TimelineMosaicQueueRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
@@ -452,6 +454,11 @@ internal data class MosaicCacheKey(
     val familiesKey: String
 )
 
+internal data class TimelineMosaicSectionGeometry(
+    val placeholderHeight: Float,
+    val bandHeights: List<Float>
+)
+
 private data class ActiveMosaicConfig(
     val groupSize: TimelineGroupSize,
     val columnCount: Int,
@@ -582,6 +589,7 @@ class TimelineViewModel(
     private val prepareTimelineMosaicCacheAction: PrepareTimelineMosaicCacheAction,
     private val getTimelineMosaicCacheStatusUseCase: GetTimelineMosaicCacheStatusUseCase,
     private val getTimelineBucketGeometryUseCase: GetTimelineBucketGeometryUseCase,
+    private val getTimelineMosaicSectionGeometryUseCase: GetTimelineMosaicSectionGeometryUseCase,
     private val clearTimelineMosaicCacheAction: ClearTimelineMosaicCacheAction,
     private val clearDetailMosaicCacheAction: ClearDetailMosaicCacheAction,
     getApiKeyUseCase: GetApiKeyUseCase,
@@ -629,7 +637,7 @@ class TimelineViewModel(
     private val _bucketData = MutableStateFlow(BucketData())
     private val _uiConfig: MutableStateFlow<UiConfig>
     private val _mosaicStates = MutableStateFlow<Map<MosaicCacheKey, RuntimeMosaicState>>(emptyMap())
-    private val _mosaicGeometryStates = MutableStateFlow<Map<MosaicCacheKey, Float>>(emptyMap())
+    private val _mosaicGeometryStates = MutableStateFlow<Map<MosaicCacheKey, TimelineMosaicSectionGeometry>>(emptyMap())
     private val _bucketGeometryStates = MutableStateFlow<Map<MosaicCacheKey, Float>>(emptyMap())
     private val progressiveMosaicBuffer = TimelineProgressiveMosaicBuffer()
     private var progressiveMosaicFlushJob: Job? = null
@@ -685,10 +693,14 @@ class TimelineViewModel(
     private val activeTimelineMosaicJobs = mutableMapOf<Long, Job>()
     private val isTimelineScrollActive = MutableStateFlow(false)
     private val deferredScrollMosaicStateUpdates = mutableMapOf<MosaicCacheKey, RuntimeMosaicState>()
-    private val deferredScrollMosaicGeometryUpdates = mutableMapOf<MosaicCacheKey, Float>()
+    private val deferredScrollMosaicGeometryUpdates = mutableMapOf<MosaicCacheKey, TimelineMosaicSectionGeometry>()
+    // Materialization runs that complete during active scroll route their
+    // _bucketData publishes through this buffer instead of firing combine
+    // mid-gesture. Drained in onScrollInProgressChanged(false).
+    private val deferredScrollMaterializedBuckets = mutableSetOf<String>()
     private data class PendingMosaicPublish(
         val stateUpdates: Map<MosaicCacheKey, RuntimeMosaicState>,
-        val geometryUpdates: Map<MosaicCacheKey, Float>
+        val geometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>
     )
     // Coalesces per-bucket publishMosaicUpdates calls so the
     // _bucketData/_uiConfig/_mosaicStates combine fires once per drain cycle
@@ -713,6 +725,10 @@ class TimelineViewModel(
     private val runtimeMosaicResumeStates = mutableMapOf<MosaicCacheKey, TimelineRuntimeMosaicResumeState>()
     private var bucketGeometryCacheJob: Job? = null
     private var bucketGeometryCacheGeneration = 0L
+    // Closed (false) until a coordinated bucket+section geometry read completes
+    // for the current cached buckets. The mosaic queue's first request waits on
+    // this gate so placeholders use exact per-band heights before bands arrive.
+    private val timelineGeometryReady = MutableStateFlow(false)
     private var manualRefreshActive = false
 
     val state: StateFlow<TimelineState>
@@ -807,7 +823,7 @@ class TimelineViewModel(
         viewModelScope.launch(Dispatchers.Default) {
             for (firstItem in mosaicPublishChannel) {
                 val accumulatedStates = LinkedHashMap<MosaicCacheKey, RuntimeMosaicState>(firstItem.stateUpdates)
-                val accumulatedGeometry = LinkedHashMap<MosaicCacheKey, Float>(firstItem.geometryUpdates)
+                val accumulatedGeometry = LinkedHashMap<MosaicCacheKey, TimelineMosaicSectionGeometry>(firstItem.geometryUpdates)
                 while (true) {
                     val next = mosaicPublishChannel.tryReceive().getOrNull() ?: break
                     accumulatedStates.putAll(next.stateUpdates)
@@ -1134,11 +1150,25 @@ class TimelineViewModel(
             log.d { "Timeline Mosaic work paused for active scroll" }
         } else {
             publishDeferredScrollMosaicUpdates()
+            drainDeferredScrollMaterialization()
             val priorityBuckets = orderedVisibleLoadedTimelineBuckets()
             timelineMosaicQueue.send(TimelineMosaicQueueCommand.ResumeAfterScroll(priorityBuckets))
             log.d { "Timeline Mosaic work resumed after scroll priorityBuckets=${priorityBuckets.size}" }
             requestPersistedBucketGeometryForCachedBuckets()
             scheduleProgressiveMosaicFlush(immediate = true)
+        }
+    }
+
+    private fun drainDeferredScrollMaterialization() {
+        if (deferredScrollMaterializedBuckets.isEmpty()) return
+        val pending = deferredScrollMaterializedBuckets.toSet()
+        deferredScrollMaterializedBuckets.clear()
+        val published = publishMaterializedCachedBuckets(pending)
+        if (published.isNotEmpty() && _uiConfig.value.viewConfig.mosaicEnabled) {
+            requestTimelineMosaicCacheReadForBuckets(
+                timeBuckets = published,
+                source = TimelineMosaicWorkSource.SyncPrecompute
+            )
         }
     }
 
@@ -1148,10 +1178,13 @@ class TimelineViewModel(
     }
 
     private fun updateMosaicAnchor(bucketIndex: Int, reason: TimelineBucketTargetReason) {
-        if (bucketIndex != _uiConfig.value.mosaicAnchorBucketIndex) {
-            _uiConfig.update { it.copy(mosaicAnchorBucketIndex = bucketIndex) }
-            log.d { "Timeline mosaic anchor changed reason=$reason bucket=$bucketIndex" }
-        }
+        // Intentional no-op. mosaicAnchorBucketIndex is no longer read by any
+        // scheduling or rendering decision. Earlier this function called
+        // _uiConfig.update which fired the debounced combine pipeline on every
+        // visibility change during scroll — a state-rebuild + recomposition
+        // for no behavioral effect. Kept as a function (not deleted at the
+        // call sites) so the existing onVisibleBucketsChanged / on*Targeted
+        // callers don't need to change.
     }
 
     private fun clearProgressiveMosaicState() {
@@ -1191,6 +1224,9 @@ class TimelineViewModel(
         _bucketData.update { data -> data.copy(geometryReadyBuckets = emptySet()) }
         ++bucketGeometryCacheGeneration
         readyMosaicMemoByKey.clear()
+        // Force the next mosaic queue request to wait for fresh geometry so
+        // post-clear placeholders are not built from stale or empty heights.
+        timelineGeometryReady.value = false
     }
 
     private fun loadBucketIndexes(
@@ -1789,6 +1825,18 @@ class TimelineViewModel(
 
     private suspend fun materializeCachedBucketsIfAvailable(timeBuckets: List<String>): Set<String> {
         if (timeBuckets.isEmpty()) return emptySet()
+        // Materialization runs Room reads, writes bucketAssetsCache, and
+        // publishes _bucketData updates. Each publish fires the combine flow
+        // and triggers buildDisplayItems + LazyColumn re-measurement on Main —
+        // the dominant cause of jank during fast list scrolling. Mosaic queue
+        // work is already paused during active scroll; defer materialization
+        // the same way. When the scroll settles, TimelineScreen's
+        // ScrollSettled visibility callback re-routes through
+        // onVisibleBucketsChanged → enqueueVisibleBucketRefreshes →
+        // materializeCachedBucketsIfAvailable, which then does the work.
+        // Unloaded buckets render exact aggregate-geometry placeholders during
+        // scroll so the visible content height stays stable.
+        if (isTimelineScrollActive.value) return emptySet()
         val mark = TimeSource.Monotonic.markNow()
         val requestedBuckets = timeBuckets.distinct()
         val chunks = timelineCachedMaterializationChunks(
@@ -1904,6 +1952,15 @@ class TimelineViewModel(
 
     private fun publishMaterializedCachedBuckets(timeBuckets: Set<String>): Set<String> {
         if (timeBuckets.isEmpty()) return emptySet()
+        // If a materialization run finishes while the user is actively
+        // scrolling, the _bucketData.update would otherwise fire combine
+        // mid-gesture and cause LazyColumn re-measurement during scroll. Defer
+        // the publish to onScrollInProgressChanged(false) where it drains
+        // alongside mosaic publishes — same pattern.
+        if (isTimelineScrollActive.value) {
+            deferredScrollMaterializedBuckets.addAll(timeBuckets)
+            return emptySet()
+        }
         _bucketData.update { data ->
             data.copy(
                 cachedBuckets = data.cachedBuckets + timeBuckets,
@@ -2106,7 +2163,7 @@ class TimelineViewModel(
         data: BucketData,
         config: UiConfig,
         mosaicStates: Map<MosaicCacheKey, RuntimeMosaicState>,
-        mosaicGeometryStates: Map<MosaicCacheKey, Float>,
+        mosaicGeometryStates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>,
         bucketGeometryStates: Map<MosaicCacheKey, Float>
     ): TimelineState {
         val mark = TimeSource.Monotonic.markNow()
@@ -2235,7 +2292,7 @@ class TimelineViewModel(
         mosaicLayoutSpec: MosaicLayoutSpec?,
         viewConfig: ViewConfig,
         mosaicStates: Map<MosaicCacheKey, RuntimeMosaicState>,
-        mosaicGeometryStates: Map<MosaicCacheKey, Float>,
+        mosaicGeometryStates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>,
         bucketGeometryStates: Map<MosaicCacheKey, Float>
     ): List<TimelineDisplayItem> {
         val mosaicColumnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT
@@ -2476,7 +2533,7 @@ class TimelineViewModel(
         assetRevision: Int,
         viewConfig: ViewConfig,
         useMosaic: Boolean,
-        mosaicGeometryStates: Map<MosaicCacheKey, Float>,
+        mosaicGeometryStates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>,
         bucketGeometryStates: Map<MosaicCacheKey, Float>,
         bucketGeometryRequest: TimelineMosaicGeometryRequest?
     ): String {
@@ -2502,7 +2559,7 @@ class TimelineViewModel(
                 assetRevision = assetRevision,
                 familiesKey = familiesKey
             )
-            return "geometry_${mosaicGeometryStates[key] ?: "missing"}"
+            return "geometry_${mosaicGeometryStates[key]?.let { "${it.placeholderHeight}|${it.bandHeights.size}" } ?: "missing"}"
         }
         val assets = bucketAssetsCache[timeBucket] ?: return "geometry_days_unloaded"
         val dayGroups = dayGroupsForBucket(timeBucket, assetRevision, assets)
@@ -2517,7 +2574,7 @@ class TimelineViewModel(
                 assetRevision = assetRevision,
                 familiesKey = familiesKey
             )
-            "${dayGroup.label}:${mosaicGeometryStates[key] ?: "missing"}"
+            "${dayGroup.label}:${mosaicGeometryStates[key]?.let { "${it.placeholderHeight}|${it.bandHeights.size}" } ?: "missing"}"
         }
     }
 
@@ -2533,7 +2590,7 @@ class TimelineViewModel(
         viewConfig: ViewConfig,
         useMosaic: Boolean,
         mosaicStates: Map<MosaicCacheKey, RuntimeMosaicState>,
-        mosaicGeometryStates: Map<MosaicCacheKey, Float>,
+        mosaicGeometryStates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>,
         bucketGeometryStates: Map<MosaicCacheKey, Float>,
         bucketGeometryRequest: TimelineMosaicGeometryRequest?
     ): List<TimelineDisplayItem> {
@@ -2655,7 +2712,7 @@ class TimelineViewModel(
                                         sectionLabel = dayLabel,
                                         assets = dayGroup.assets,
                                         mosaicLayoutSpec = mosaicLayoutSpec,
-                                        placeholderHeight = mosaicGeometryStates[dayMosaicKey]
+                                        sectionGeometry = mosaicGeometryStates[dayMosaicKey]
                                     )
                                 }
                                 useMosaic && dayMosaicState is RuntimeMosaicState.Partial && mosaicLayoutSpec != null -> {
@@ -2698,7 +2755,7 @@ class TimelineViewModel(
                                         sectionLabel = dayLabel,
                                         assets = dayGroup.assets,
                                         mosaicLayoutSpec = mosaicLayoutSpec,
-                                        placeholderHeight = mosaicGeometryStates[dayMosaicKey]
+                                        sectionGeometry = mosaicGeometryStates[dayMosaicKey]
                                     )
                                 }
                                 useMosaic -> {
@@ -2765,7 +2822,7 @@ class TimelineViewModel(
                                 sectionLabel = monthLabel,
                                 assets = assets,
                                 mosaicLayoutSpec = mosaicLayoutSpec,
-                                placeholderHeight = mosaicGeometryStates[monthMosaicKey]
+                                sectionGeometry = mosaicGeometryStates[monthMosaicKey]
                             )
                             return items
                         }
@@ -2809,7 +2866,7 @@ class TimelineViewModel(
                                 sectionLabel = monthLabel,
                                 assets = assets,
                                 mosaicLayoutSpec = mosaicLayoutSpec,
-                                placeholderHeight = mosaicGeometryStates[monthMosaicKey]
+                                sectionGeometry = mosaicGeometryStates[monthMosaicKey]
                             )
                         } else if (useMosaic) {
                             addPlaceholderItems(
@@ -3038,9 +3095,18 @@ class TimelineViewModel(
         sectionLabel: String,
         assets: List<Asset>,
         mosaicLayoutSpec: MosaicLayoutSpec,
-        placeholderHeight: Float?
+        sectionGeometry: TimelineMosaicSectionGeometry?
     ) {
-        val height = placeholderHeight
+        // We render a single placeholder per section sized to the aggregate
+        // placeholderHeight (sum of band heights + internal spacing). The
+        // disk row also carries per-band heights, which we previously used to
+        // emit one placeholder per band — that pushed LazyColumn item count up
+        // ~10-15x per section and made fast scrolling janky on warm regions.
+        // The aggregate height already matches the eventual sum of bands, so
+        // the section's total height is preserved across the placeholder→bands
+        // transition; the only loss is item-level identity continuity, which
+        // LazyColumn handles cleanly when total height doesn't shift.
+        val height = sectionGeometry?.placeholderHeight
         if (height != null && height > 0f) {
             addGeometryPlaceholderItems(
                 items = items,
@@ -3279,6 +3345,20 @@ class TimelineViewModel(
     }
 
     private fun requestVisibleTimelineMosaicCacheRead() {
+        if (!timelineGeometryReady.value) {
+            // Defer the queue request until exact per-band geometry is loaded.
+            // Once the geometry phase completes, this re-fires and the queue
+            // proceeds normally. Subsequent calls (post-init) bypass the gate
+            // because timelineGeometryReady remains true.
+            viewModelScope.launch(Dispatchers.Default) {
+                timelineGeometryReady.first { it }
+                requestTimelineMosaicCacheReadForBuckets(
+                    timeBuckets = orderedVisibleLoadedTimelineBuckets(),
+                    source = TimelineMosaicWorkSource.RenderDemand
+                )
+            }
+            return
+        }
         requestTimelineMosaicCacheReadForBuckets(
             timeBuckets = orderedVisibleLoadedTimelineBuckets(),
             source = TimelineMosaicWorkSource.RenderDemand
@@ -3318,35 +3398,65 @@ class TimelineViewModel(
         } else {
             data.cachedBuckets
         }
-        if (buckets.isEmpty()) return
+        if (buckets.isEmpty()) {
+            timelineGeometryReady.value = true
+            return
+        }
         val config = _uiConfig.value
-        if (!config.viewConfig.mosaicEnabled) return
-        if (!config.viewConfig.cacheMosaicResults) return
-        val geometryRequest = timelineMosaicGeometryRequest(config, config.mosaicColumnCount) ?: return
+        if (!config.viewConfig.mosaicEnabled) {
+            timelineGeometryReady.value = true
+            return
+        }
+        if (!config.viewConfig.cacheMosaicResults) {
+            timelineGeometryReady.value = true
+            return
+        }
+        val geometryRequest = timelineMosaicGeometryRequest(config, config.mosaicColumnCount) ?: run {
+            timelineGeometryReady.value = true
+            return
+        }
+        // Close the gate while the new geometry phase runs. The mosaic queue
+        // will defer its first request until both bucket-aggregate and
+        // per-section reads complete.
+        timelineGeometryReady.value = false
         val generation = ++bucketGeometryCacheGeneration
         bucketGeometryCacheJob?.cancel()
         bucketGeometryCacheJob = viewModelScope.launch(Dispatchers.IO) {
-            getTimelineBucketGeometryUseCase(
-                timeBuckets = buckets,
-                groupSize = config.groupSize,
-                columnCount = config.mosaicColumnCount,
-                families = config.viewConfig.mosaicFamilies,
-                geometryRequest = geometryRequest
-            ).onFailure { e ->
+            val bucketDeferred = async {
+                getTimelineBucketGeometryUseCase(
+                    timeBuckets = buckets,
+                    groupSize = config.groupSize,
+                    columnCount = config.mosaicColumnCount,
+                    families = config.viewConfig.mosaicFamilies,
+                    geometryRequest = geometryRequest
+                )
+            }
+            val sectionDeferred = async {
+                getTimelineMosaicSectionGeometryUseCase(
+                    timeBuckets = buckets,
+                    groupSize = config.groupSize,
+                    columnCount = config.mosaicColumnCount,
+                    families = config.viewConfig.mosaicFamilies,
+                    geometryRequest = geometryRequest
+                )
+            }
+            val bucketResult = bucketDeferred.await()
+            val sectionResult = sectionDeferred.await()
+            if (generation != bucketGeometryCacheGeneration) {
+                log.d {
+                    "Timeline geometry read ignored due to stale generation " +
+                        "expected=$generation actual=$bucketGeometryCacheGeneration"
+                }
+                return@launch
+            }
+            if (!sameBucketGeometryReadConfig(config, geometryRequest, _uiConfig.value)) {
+                log.d { "Timeline geometry read ignored due to stale config" }
+                return@launch
+            }
+            bucketResult.onFailure { e ->
                 if (e is CancellationException) throw e
                 log.e(e) { "Failed to load persisted Timeline bucket geometry" }
             }.onSuccess { summaries ->
-                if (generation != bucketGeometryCacheGeneration) {
-                    log.d {
-                        "Timeline bucket geometry read ignored due to stale generation " +
-                            "expected=$generation actual=$bucketGeometryCacheGeneration"
-                    }
-                    return@onSuccess
-                }
-                if (!sameBucketGeometryReadConfig(config, geometryRequest, _uiConfig.value)) {
-                    log.d { "Timeline bucket geometry read ignored due to stale config" }
-                    return@onSuccess
-                }
                 publishBucketGeometrySummaries(
                     summaries = summaries,
                     groupSize = config.groupSize,
@@ -3355,7 +3465,41 @@ class TimelineViewModel(
                     geometryRequest = geometryRequest
                 )
             }
+            sectionResult.onFailure { e ->
+                if (e is CancellationException) throw e
+                log.e(e) { "Failed to load persisted Timeline section geometry" }
+            }.onSuccess { summaries ->
+                publishSectionGeometrySummaries(
+                    summaries = summaries,
+                    columnCount = config.mosaicColumnCount,
+                    families = config.viewConfig.mosaicFamilies
+                )
+            }
+            timelineGeometryReady.value = true
+            log.d { "Timeline geometry phase complete buckets=${buckets.size}" }
         }
+    }
+
+    private fun publishSectionGeometrySummaries(
+        summaries: List<com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary>,
+        columnCount: Int,
+        families: Set<MosaicTemplateFamily>
+    ) {
+        if (summaries.isEmpty()) return
+        val revisions = _bucketData.value.assetRevisions
+        val updates = summaries.associate { summary ->
+            mosaicCacheKey(
+                timeBucket = summary.timeBucket,
+                sectionKey = summary.sectionKey,
+                columnCount = columnCount,
+                assetRevision = revisions[summary.timeBucket] ?: 0,
+                families = families
+            ) to TimelineMosaicSectionGeometry(
+                placeholderHeight = summary.placeholderHeight,
+                bandHeights = summary.bandHeights
+            )
+        }
+        _mosaicGeometryStates.update { states -> states + updates }
     }
 
     private fun sameBucketGeometryReadConfig(
@@ -3729,7 +3873,7 @@ class TimelineViewModel(
         val revisions = _bucketData.value.assetRevisions
         val bucketIndexes = _bucketData.value.buckets.mapIndexed { index, bucket -> bucket.timeBucket to index }.toMap()
         val stateUpdates = mutableMapOf<MosaicCacheKey, RuntimeMosaicState>()
-        val geometryUpdates = mutableMapOf<MosaicCacheKey, Float>()
+        val geometryUpdates = mutableMapOf<MosaicCacheKey, TimelineMosaicSectionGeometry>()
         val failedBuckets = mutableSetOf<String>()
         for (timeBucket in timeBuckets) {
             if (!isActiveTimelineMosaicWorker(expectedWorkToken)) return failedBuckets
@@ -3801,7 +3945,12 @@ class TimelineViewModel(
                                     assets = section.assets
                                 )
                             )
-                            geometryUpdates[key] = result.value.geometry.placeholderHeight
+                            geometryUpdates[key] = TimelineMosaicSectionGeometry(
+                                placeholderHeight = result.value.geometry.placeholderHeight,
+                                bandHeights = result.value.displayItems
+                                    .filterIsInstance<MosaicBandItem>()
+                                    .map { it.bandHeight }
+                            )
                         }
                         is MosaicSectionResult.Failed -> {
                             runtimeMosaicResumeStates.remove(key)
@@ -3834,7 +3983,7 @@ class TimelineViewModel(
 
     private fun publishMosaicUpdates(
         stateUpdates: Map<MosaicCacheKey, RuntimeMosaicState>,
-        geometryUpdates: Map<MosaicCacheKey, Float> = emptyMap(),
+        geometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry> = emptyMap(),
         activeConfig: ActiveMosaicConfig? = null
     ) {
         if (stateUpdates.isEmpty() && geometryUpdates.isEmpty()) return
@@ -3966,7 +4115,10 @@ class TimelineViewModel(
                     columnCount = columnCount,
                     assetRevision = revisions[geometry.timeBucket] ?: 0,
                     families = families
-                ) to geometry.placeholderHeight
+                ) to TimelineMosaicSectionGeometry(
+                    placeholderHeight = geometry.placeholderHeight,
+                    bandHeights = geometry.bandHeights
+                )
             }
             val displayBandsBySection = status.displaySections.associateBy { it.timeBucket to it.sectionKey }
             val updates = publishableAssignments.associate { assignment ->

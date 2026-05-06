@@ -104,6 +104,41 @@ class TimelineMosaicCacheRepository(
         }
     }
 
+    suspend fun getPersistedSectionGeometry(
+        timeBuckets: Set<String>,
+        groupSize: TimelineGroupSize,
+        columnCount: Int,
+        families: Set<MosaicTemplateFamily>,
+        geometryRequest: TimelineMosaicGeometryRequest
+    ): Result<List<TimelineMosaicGeometrySummary>> {
+        if (timeBuckets.isEmpty()) return Result.success(emptyList())
+        return try {
+            val familiesKey = timelineMosaicFamiliesKey(families.normalizedMosaicFamilies())
+            val widthKey = timelineMosaicGeometryWidthKey(geometryRequest.availableWidth)
+            val maxRowHeightKey = timelineMosaicGeometryDimensionKey(geometryRequest.maxRowHeight)
+            val spacingKey = timelineMosaicGeometryDimensionKey(geometryRequest.spacing)
+            val rows = withContext(Dispatchers.IO) {
+                timelineDao.getMosaicGeometry(
+                    timeBuckets = timeBuckets.toList(),
+                    groupMode = groupSize.apiValue,
+                    columnCount = columnCount,
+                    familiesKey = familiesKey,
+                    availableWidthKey = widthKey,
+                    geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION
+                )
+            }
+            Result.success(
+                rows
+                    .filter { it.maxRowHeightKey == maxRowHeightKey && it.spacingKey == spacingKey }
+                    .map { it.toDomain() }
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun getPersistedMosaicCacheStatus(
         timeBuckets: Set<String>,
         groupSize: TimelineGroupSize,
@@ -565,6 +600,7 @@ private fun computeTimelineMosaicGeometryEntity(
     if (mosaicLayoutSpecForColumnCount(request.availableWidth, columnCount) == null) return null
     val placeholderHeight = estimatePhotoGridDisplayItemsHeight(displayItems, request.spacing)
     if (placeholderHeight <= 0f) return null
+    val bandHeights = displayItems.filterIsInstance<MosaicBandItem>().map { it.bandHeight }
     return TimelineMosaicGeometryEntity(
         timeBucket = timeBucket,
         groupMode = groupMode,
@@ -578,6 +614,7 @@ private fun computeTimelineMosaicGeometryEntity(
         displayItemCount = displayItems.size,
         maxRowHeightKey = timelineMosaicGeometryDimensionKey(request.maxRowHeight),
         spacingKey = timelineMosaicGeometryDimensionKey(request.spacing),
+        bandHeightsJson = json.encodeToString(bandHeights),
         updatedAt = now
     )
 }
@@ -650,7 +687,16 @@ private fun TimelineMosaicGeometryEntity.toDomain(): TimelineMosaicGeometrySumma
         timeBucket = timeBucket,
         sectionKey = sectionKey,
         placeholderHeight = placeholderHeight,
-        displayItemCount = displayItemCount
+        displayItemCount = displayItemCount,
+        bandHeights = if (bandHeightsJson.isEmpty()) {
+            emptyList()
+        } else {
+            try {
+                json.decodeFromString<List<Float>>(bandHeightsJson)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
     )
 
 private fun TimelineBucketGeometryEntity.toDomain(): TimelineBucketGeometrySummary =
@@ -757,7 +803,7 @@ private val json = Json {
 }
 
 private const val TIMELINE_MOSAIC_PRECOMPUTE_PARALLELISM = 4
-private const val TIMELINE_MOSAIC_GEOMETRY_VERSION = 2
+private const val TIMELINE_MOSAIC_GEOMETRY_VERSION = 3
 private const val TIMELINE_MOSAIC_DISPLAY_CACHE_VERSION = 1
 
 internal fun timelineMosaicGeometryWidthKey(width: Float): Int =

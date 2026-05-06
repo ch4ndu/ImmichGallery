@@ -90,7 +90,12 @@ structure; it must not wait for every bucket's server refresh.
    `bucketAssetsCache`.
 5. Cached aggregate geometry can provide accurate placeholder heights for
    unloaded Mosaic buckets. Missing geometry falls back to projected or count-
-   based placeholders.
+   based placeholders. The bucket-aggregate read and the per-section read run
+   together as a single warm-launch geometry phase that closes a
+   `timelineGeometryReady` gate while in flight; the first mosaic queue read
+   defers until the gate opens so placeholders never update twice for the same
+   bucket. Other (post-init) callers fire normally — the gate only matters at
+   warm launch and after explicit cache clears.
 6. Under the current cache-only warm policy, no background server sync runs on
    warm launch. If warm server refresh is enabled, a background sync refreshes
    bucket metadata and records stale or removed buckets without fetching every
@@ -163,7 +168,11 @@ Timeline uses multiple cache layers, each with a different purpose.
 - Room `timeline_mosaic_geometry`: width-keyed placeholder geometry summaries
   for persisted Mosaic sections. Geometry rows are keyed by assignment identity,
   rounded Timeline width, and geometry version; max row height and spacing are
-  validation fields and stale rows are recomputed.
+  validation fields and stale rows are recomputed. Each row stores both the
+  aggregate `placeholderHeight` for the section and a `bandHeightsJson` array of
+  per-band pixel heights. Per-band heights enable rendering N exact placeholder
+  items per section so the placeholder→band transition swaps each item in place
+  with zero height delta.
 - Room `timeline_bucket_geometry`: width-keyed aggregate placeholder geometry
   for whole buckets. Unloaded buckets use this after cold sync and on warm
   launch, including day group mode where the aggregate includes day headers and
@@ -456,6 +465,14 @@ cached assets are available but assignments are still missing, placeholders use
 exact section geometry when available and otherwise use count/width estimates.
 Count-only bucket metadata estimates are used only when asset rows have not been
 materialized yet.
+
+When the persisted section geometry row carries `bandHeights`, the placeholder
+phase emits one `PlaceholderItem` per band — each placeholder uses the exact
+`bandHeight` of the band that will replace it. The mosaic Ready transition then
+swaps each placeholder for a `MosaicBandItem` of identical height, item by item,
+with zero LazyColumn re-anchor and zero visible vertical shift. When
+`bandHeights` is empty (legacy rows or before the geometry phase completes), the
+placeholder falls back to a single chunk sized to the aggregate section height.
 
 Timeline Mosaic display cache is width-dependent and requested-config scoped. It
 stores portable band records, not Compose display objects, keyed by bucket,

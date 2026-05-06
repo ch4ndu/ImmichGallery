@@ -100,6 +100,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
   - Assignments are width-independent.
   - Display bands, section geometry, and aggregate bucket geometry are width/config/version dependent.
   - Rows are scoped by bucket/section, grouping, column count, families, ordered asset fingerprint, and geometry identity as appropriate.
+  - Section geometry rows store both the aggregate `placeholderHeight` and a `bandHeights` array of per-band pixel heights. Per-band heights are extracted from the section's projected `MosaicBandItem`s at write time and used at render time to emit one placeholder per band so the placeholder→band transition swaps each item in place.
 - Detail artifacts:
   - Owner-scoped assignments, display bands, section geometry, and aggregate geometry are keyed by owner type/id, grouping, section index/key, column count, families, ordered asset fingerprint, geometry keys, and artifact versions.
   - Album Detail may read/write owner cache when cache is enabled and the album owner snapshot is complete.
@@ -111,11 +112,13 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 
 ## Geometry And Placeholders
 
-- Section geometry is the placeholder height for one Mosaic section at a specific config/geometry identity.
+- Section geometry is the placeholder height for one Mosaic section at a specific config/geometry identity. Timeline section geometry rows additionally carry a `bandHeights` list — the per-band pixel heights for that section.
 - Aggregate geometry is the owner or bucket placeholder height across ordered sections for the current grouping/config/content generation.
 - Exact persisted geometry should be used when it matches the active config. Stale geometry must miss.
 - Count-only placeholders are the last fallback when exact geometry and materialized asset data are unavailable.
 - Placeholder-to-ready replacement should preserve scroll position, shared element return targets, and hidden-asset behavior as much as possible.
+- When per-band heights are available for a section, the placeholder phase emits one `PlaceholderItem` per band sized to that band's exact `bandHeight`. The mosaic Ready transition swaps each placeholder for a `MosaicBandItem` of identical height with no LazyColumn re-anchor. Per-band placeholders use stable keys distinct from single-chunk placeholders so the transition does not collide. Without per-band heights, the placeholder is a single chunk sized to the aggregate section height.
+- Timeline `TimelineViewModel` runs a coordinated bucket-aggregate + per-section geometry read at warm launch and after cache invalidation. A `timelineGeometryReady` gate stays closed while the read is in flight; the first mosaic queue read defers behind it so a section never transitions through two placeholder shapes (count-estimate then exact, or aggregate-only then per-band) before its bands arrive. Other (post-init) callers do not wait on the gate.
 
 ## Invalidation And Staleness
 

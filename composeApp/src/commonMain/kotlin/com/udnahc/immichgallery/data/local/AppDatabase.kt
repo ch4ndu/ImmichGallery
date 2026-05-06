@@ -46,7 +46,7 @@ import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
         DetailMosaicSectionGeometryEntity::class,
         DetailMosaicAggregateGeometryEntity::class
     ],
-    version = 15
+    version = 16
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {

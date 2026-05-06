@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListItemInfo
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -378,15 +379,26 @@ fun TimelineContent(
                     }
                     val scrollFractionProvider = remember<() -> Float> {
                         {
-                            val firstVisibleIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
+                            val info = listState.layoutInfo
+                            val firstVisibleIndex = info.visibleItemsInfo.firstOrNull()?.index
                             if (firstVisibleIndex == null) {
                                 0f
                             } else {
+                                // The semantic page-based fraction returns null on
+                                // transient warmup state mismatches (LazyColumn's
+                                // firstVisibleItemIndex has advanced past the
+                                // currently-published TimelineDisplayIndex). Falling
+                                // back to 0f made the spring-animated scrollbar
+                                // handle warp to the top and back. Use the
+                                // LazyColumn-native pixel fraction as a
+                                // close-enough approximation in that window — it's
+                                // always defined, continuous, and independent of
+                                // the lagging snapshot.
                                 timelineScrollFractionForDisplayIndex(
                                     pageIndex = latestPageIndex,
                                     timelineDisplayIndex = latestDisplayIndex,
                                     displayIndex = firstVisibleIndex
-                                ) ?: 0f
+                                ) ?: nativeListScrollFraction(info)
                             }
                         }
                     }
@@ -484,6 +496,17 @@ fun TimelineContent(
             }
         }
     }
+}
+
+private fun nativeListScrollFraction(info: LazyListLayoutInfo): Float {
+    val total = info.totalItemsCount
+    if (total == 0) return 0f
+    val first = info.visibleItemsInfo.firstOrNull() ?: return 0f
+    val itemFraction = first.index.toFloat() / total
+    val pixelFraction = if (first.size > 0) {
+        -first.offset.toFloat() / first.size / total
+    } else 0f
+    return (itemFraction + pixelFraction).coerceIn(0f, 1f)
 }
 
 private fun firstVisibleAssetAnchor(

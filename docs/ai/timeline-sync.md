@@ -76,6 +76,11 @@ Cold sync is the only blocking Timeline sync path. It runs when there is no warm
    - mark cold sync complete;
    - clear the blocking state.
 
+   Each section geometry row written here carries the per-band pixel heights of
+   the section's projected bands (`bandHeightsJson`), so the warm-launch render
+   can use exact per-band placeholders before the mosaic queue resolves a
+   bucket. Manual refresh per-bucket precompute writes the same field.
+
 ### Bucket Asset Sync
 
 For each bucket:
@@ -104,7 +109,13 @@ The returned `changed` value is a layout/content invalidation signal, not merely
 
 ## Warm Launch Sync
 
-Warm launch is cached-first and non-blocking.
+Warm launch is cached-first and non-blocking. After the cached bucket metadata
+observation, `TimelineViewModel` runs a coordinated geometry phase:
+bucket-aggregate and per-section geometry rows are read together for all cached
+buckets, gated by `timelineGeometryReady`. The first mosaic queue request waits
+for the gate so per-section placeholders use exact persisted heights from the
+moment the LazyColumn first renders. Subsequent (post-warmup) mosaic requests
+do not wait on the gate.
 
 ### Startup Shape
 

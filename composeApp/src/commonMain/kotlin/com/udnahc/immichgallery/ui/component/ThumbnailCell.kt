@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -97,8 +98,13 @@ fun ThumbnailCell(
         Box(modifier = boxModifier) {
             if (LocalAppActive.current) {
                 val imageModifier = Modifier.matchParentSize()
-                val painter = rememberAsyncImagePainter(
-                    model = ImageRequest.Builder(LocalPlatformContext.current)
+                val context = LocalPlatformContext.current
+                // Stabilize the ImageRequest construction so we don't allocate
+                // a new request + Builder per recomposition. ThumbnailCells
+                // compose by the dozen as the user scrolls bands into view; on
+                // every recomposition this constructor used to re-run.
+                val request = remember(context, asset.thumbnailUrl, asset.thumbnailCacheKey) {
+                    ImageRequest.Builder(context)
                         .data(asset.thumbnailUrl)
                         .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
                         .precision(Precision.EXACT)
@@ -107,7 +113,8 @@ fun ThumbnailCell(
                         .memoryCacheKey(asset.thumbnailCacheKey)
                         .diskCacheKey(asset.thumbnailCacheKey)
                         .build()
-                )
+                }
+                val painter = rememberAsyncImagePainter(model = request)
                 Image(
                     painter = painter,
                     contentDescription = asset.fileName,
