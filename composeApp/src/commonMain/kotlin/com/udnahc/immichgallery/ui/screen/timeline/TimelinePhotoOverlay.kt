@@ -32,11 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
@@ -217,23 +213,12 @@ fun TimelinePhotoOverlay(
         pagerState.animateScrollToPage(next)
     }
 
-    fun currentDismissContext(
-        mode: PhotoOverlayDismissMode,
-        releasePosition: Offset? = null,
-        overlayBounds: Rect? = null,
-    ): PhotoOverlayDismissContext {
-        val preferredAnchor = if (releasePosition != null && overlayBounds != null) {
-            Offset(overlayBounds.left + releasePosition.x, overlayBounds.top + releasePosition.y)
-        } else {
-            releasePosition
-        }
-        return PhotoOverlayDismissContext(
+    fun currentDismissContext(mode: PhotoOverlayDismissMode): PhotoOverlayDismissContext =
+        PhotoOverlayDismissContext(
             assetId = currentAsset?.id,
             bucketKey = currentBucketKey,
             mode = mode,
-            preferredAnchorInRoot = preferredAnchor,
         )
-    }
 
     PlatformBackHandler(enabled = true, onBack = {
         onDismiss(currentDismissContext(PhotoOverlayDismissMode.Back))
@@ -303,11 +288,9 @@ fun TimelinePhotoOverlay(
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
     }
 
-    var overlayBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .onGloballyPositioned { overlayBoundsInRoot = it.boundsInRoot() }
             .background(Color.Black.copy(alpha = dragState.scrimAlpha))
             .dragToDismiss(
                 state = dragState,
@@ -315,16 +298,13 @@ fun TimelinePhotoOverlay(
                 isZoomed = { isCurrentPageZoomed },
                 dismissThresholdPx = dismissThresholdPx,
                 flickVelocityPx = flickVelocityPx,
-                onDismiss = { releasePosition ->
+                onDismiss = {
                     slideshowConfig = null
                     onDismiss(
                         PhotoOverlayDismissContext(
                             assetId = latestCurrentAssetId,
                             bucketKey = latestCurrentBucketKey,
                             mode = PhotoOverlayDismissMode.Drag,
-                            preferredAnchorInRoot = overlayBoundsInRoot?.let {
-                                Offset(it.left + releasePosition.x, it.top + releasePosition.y)
-                            } ?: releasePosition,
                         )
                     )
                 },

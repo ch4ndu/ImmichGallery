@@ -44,10 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -87,7 +84,6 @@ fun SearchScreen(
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     val sourcePositions = remember { mutableStateMapOf<String, PhotoOverlaySourcePosition>() }
-    var listBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
     var preparedDismissReturnKey by remember { mutableStateOf<String?>(null) }
 
     // Scroll back to last viewed asset when returning from detail
@@ -118,8 +114,6 @@ fun SearchScreen(
             sourcePositions.remove(assetId)
             listState.prepareOverlayDismissSource(
                 displayIndex = viewModel.getDisplayItemIndexForReturn(),
-                context = context,
-                listBoundsInRoot = { listBoundsInRoot },
                 isSourceReady = { sourcePositions[assetId]?.generation == context.sourceGeneration },
                 clearSourceReady = { sourcePositions.remove(assetId) },
             )
@@ -143,7 +137,6 @@ fun SearchScreen(
                 onSetAvailableViewportHeight = viewModel::setAvailableViewportHeight,
                 onSetTargetRowHeight = viewModel::setTargetRowHeight,
                 onLoadMore = viewModel::loadMore,
-                onListBoundsInRootChanged = { listBoundsInRoot = it },
                 listState = listState,
                 sharedTransitionScope = this,
             )
@@ -182,7 +175,6 @@ fun SearchContent(
     onSetAvailableViewportHeight: (Float) -> Unit = {},
     onSetTargetRowHeight: (Float) -> Unit = {},
     onLoadMore: () -> Unit,
-    onListBoundsInRootChanged: (Rect) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
     sharedTransitionScope: SharedTransitionScope? = null,
 ) {
@@ -310,9 +302,6 @@ fun SearchContent(
                             }
                             LazyColumn(
                                 state = listState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .onGloballyPositioned { onListBoundsInRootChanged(it.boundsInRoot()) },
                                 contentPadding = contentPadding,
                                 verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
                             ) {

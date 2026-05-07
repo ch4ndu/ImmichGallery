@@ -45,9 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -118,7 +115,6 @@ fun TimelineScreen(
     val buildError by viewModel.buildError.collectAsState()
     val listState = rememberLazyListState()
     val sourcePositions = remember { mutableStateMapOf<String, PhotoOverlaySourcePosition>() }
-    var timelineListBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
     var preparedDismissReturnKey by remember { mutableStateOf<String?>(null) }
 
     // Report refresh callback and syncing state to parent
@@ -187,8 +183,6 @@ fun TimelineScreen(
             sourcePositions.remove(assetId)
             listState.prepareOverlayDismissSource(
                 displayIndex = viewModel.getDisplayItemIndexForReturn(assetId, context.bucketKey),
-                context = context,
-                listBoundsInRoot = { timelineListBoundsInRoot },
                 isSourceReady = { sourcePositions[assetId]?.generation == context.sourceGeneration },
                 clearSourceReady = { sourcePositions.remove(assetId) },
             )
@@ -219,7 +213,6 @@ fun TimelineScreen(
                 onRetry = viewModel::refreshAll,
                 onDismissBannerError = viewModel::dismissBannerError,
                 onDismissBannerSuccess = viewModel::dismissBannerSuccess,
-                onListBoundsInRootChanged = { timelineListBoundsInRoot = it },
                 labelProvider = viewModel.labelProvider,
                 sharedTransitionScope = this,
             )
@@ -291,7 +284,6 @@ fun TimelineContent(
     onRetry: () -> Unit,
     onDismissBannerError: () -> Unit = {},
     onDismissBannerSuccess: () -> Unit = {},
-    onListBoundsInRootChanged: (Rect) -> Unit = {},
     labelProvider: (Float) -> String?,
     sharedTransitionScope: SharedTransitionScope? = null,
 ) {
@@ -486,9 +478,7 @@ fun TimelineContent(
                     ) {
                         LazyColumn(
                             state = listState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .onGloballyPositioned { onListBoundsInRootChanged(it.boundsInRoot()) },
+                            modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
                             contentPadding = remember(statusBarPadding, navBarPadding) {
                                 PaddingValues(
