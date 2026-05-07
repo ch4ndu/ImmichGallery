@@ -35,6 +35,7 @@ fun PhotoOverlayHost(
     resolveInitialIndex: suspend (assetId: String) -> Int?,
     content: @Composable SharedTransitionScope.(
         showOverlay: Boolean,
+        transitionAssetId: String?,
         hiddenAssetId: String?,
         onPhotoClick: (String) -> Unit
     ) -> Unit,
@@ -62,17 +63,25 @@ fun PhotoOverlayHost(
 
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
+    var lastOverlayInitialIndex by remember { mutableStateOf<Int?>(null) }
+    var transitionAssetIdForGrid by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(selectedAssetId, initialIndexKey) {
         val id = selectedAssetId
         if (id != null) {
-            overlayInitialIndex = resolveInitialIndex(id) ?: 0
+            val resolvedIndex = resolveInitialIndex(id) ?: 0
+            overlayInitialIndex = resolvedIndex
+            lastOverlayInitialIndex = resolvedIndex
             currentViewedAssetId = id
         } else {
             currentViewedAssetId = null
             overlayInitialIndex = null
         }
     }
-    val showOverlay = selectedAssetId != null && overlayInitialIndex != null
+    val overlayVisible = selectedAssetId != null && overlayInitialIndex != null
+    // Dismiss must reveal the grid-side shared-element source in the same
+    // composition that starts AnimatedVisibility exit; otherwise the overlay
+    // image appears to pause while the grid cell is still hidden.
+    val hiddenAssetIdForGrid = if (overlayVisible) currentViewedAssetId else null
 
     var stlTransitionActive by remember { mutableStateOf(false) }
     var overlayAnimActive by remember { mutableStateOf(false) }
@@ -86,10 +95,16 @@ fun PhotoOverlayHost(
         snapshotFlow { stlTransitionActive }.first { !it }
         overlayAnimActive = false
     }
+    LaunchedEffect(selectedAssetId, overlayVisible, overlayAnimActive) {
+        if (selectedAssetId == null && !overlayVisible && !overlayAnimActive) {
+            transitionAssetIdForGrid = null
+        }
+    }
 
-    LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
-    PlatformBackHandler(enabled = showOverlay) {
+    LaunchedEffect(overlayVisible) { onOverlayActiveChange(overlayVisible) }
+    PlatformBackHandler(enabled = overlayVisible) {
         overlayAnimActive = true
+        overlayInitialIndex = null
         selectedAssetId = null
     }
 
@@ -98,30 +113,38 @@ fun PhotoOverlayHost(
             androidx.compose.runtime.key(selectionEpoch) {
                 SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
                     content(
-                        showOverlay,
-                        currentViewedAssetId,
+                        overlayVisible,
+                        transitionAssetIdForGrid,
+                        hiddenAssetIdForGrid,
                         remember {
                             { id: String ->
                                 overlayInitialIndex = null
                                 overlayAnimActive = true
+                                transitionAssetIdForGrid = id
                                 selectedAssetId = id
                             }
                         }
                     )
 
                     AnimatedVisibility(
-                        visible = showOverlay,
+                        visible = overlayVisible,
                         enter = photoTransitionFadeIn,
                         exit = photoTransitionFadeOut,
                     ) {
                         lastSelectedAssetId ?: return@AnimatedVisibility
                         overlay(
-                            overlayInitialIndex ?: 0,
+                            overlayInitialIndex ?: lastOverlayInitialIndex ?: 0,
                             {
                                 overlayAnimActive = true
+                                overlayInitialIndex = null
                                 selectedAssetId = null
                             },
-                            { id -> currentViewedAssetId = id },
+                            { id ->
+                                if (overlayVisible) {
+                                    currentViewedAssetId = id
+                                    transitionAssetIdForGrid = id
+                                }
+                            },
                             { active -> stlTransitionActive = active },
                             this@SharedTransitionLayout
                         )
@@ -130,6 +153,6 @@ fun PhotoOverlayHost(
             }
         }
 
-        chrome(showOverlay)
+        chrome(overlayVisible)
     }
 }

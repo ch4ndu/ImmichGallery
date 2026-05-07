@@ -26,6 +26,7 @@ fun JustifiedPhotoRow(
     spacing: Dp,
     onPhotoClick: (assetId: String) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
+    transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
 ) {
     Row(
@@ -48,6 +49,7 @@ fun JustifiedPhotoRow(
                 onClick = onClick,
                 modifier = cellModifier,
                 sharedTransitionScope = sharedTransitionScope,
+                transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
             )
         }

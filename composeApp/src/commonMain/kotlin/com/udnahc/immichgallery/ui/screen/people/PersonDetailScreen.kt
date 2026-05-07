@@ -75,9 +75,10 @@ fun PersonDetailScreen(
     PhotoOverlayHost(
         initialIndexKey = state.assets,
         resolveInitialIndex = { id -> state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
-        content = { _, hiddenAssetId, onPhotoClick ->
+        content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
             PersonDetailContent(
                 state = state,
+                transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 onPhotoClick = onPhotoClick,
                 onRetry = viewModel::refreshAll,
@@ -139,6 +140,7 @@ fun PersonDetailScreen(
 @Composable
 fun PersonDetailContent(
     state: PersonDetailState,
+    transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
     onPhotoClick: (String) -> Unit,
     onRetry: () -> Unit,
@@ -164,6 +166,7 @@ fun PersonDetailContent(
         displayIndex = state.displayIndex,
         bannerMessage = state.bannerError?.asText(),
         lastSyncedAt = state.lastSyncedAt,
+        transitionAssetId = transitionAssetId,
         hiddenAssetId = hiddenAssetId,
         targetRowHeight = state.targetRowHeight,
         rowHeightBounds = state.rowHeightBounds,

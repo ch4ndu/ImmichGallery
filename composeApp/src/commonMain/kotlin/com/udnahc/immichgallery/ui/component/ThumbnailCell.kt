@@ -56,11 +56,11 @@ fun ThumbnailCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,
+    transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
 ) {
     val transitionScope = sharedTransitionScope
-    val useTween = LocalPhotoBoundsTween.current
-    if (transitionScope != null && (useTween || hiddenAssetId == asset.id)) {
+    if (transitionScope != null && transitionAssetId == asset.id) {
         // Per-cell AnimatedVisibility is only needed for cells participating in
         // the shared-element transition. Normal scrolling uses the plain path
         // below to avoid transition bookkeeping for every thumbnail.

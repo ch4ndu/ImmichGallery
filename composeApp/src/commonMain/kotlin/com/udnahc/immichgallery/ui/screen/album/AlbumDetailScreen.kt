@@ -74,9 +74,10 @@ fun AlbumDetailScreen(
     PhotoOverlayHost(
         initialIndexKey = state.assets,
         resolveInitialIndex = { id -> state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
-        content = { showOverlay, hiddenAssetId, onPhotoClick ->
+        content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
             AlbumDetailContent(
                 state = state,
+                transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 onPhotoClick = onPhotoClick,
                 onRetry = viewModel::refreshAll,
@@ -137,6 +138,7 @@ fun AlbumDetailScreen(
 @Composable
 fun AlbumDetailContent(
     state: AlbumDetailState,
+    transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
     onPhotoClick: (String) -> Unit,
     onRetry: () -> Unit,
@@ -161,6 +163,7 @@ fun AlbumDetailContent(
         displayIndex = state.displayIndex,
         bannerMessage = state.bannerError?.asText(),
         lastSyncedAt = state.lastSyncedAt,
+        transitionAssetId = transitionAssetId,
         hiddenAssetId = hiddenAssetId,
         targetRowHeight = state.targetRowHeight,
         rowHeightBounds = state.rowHeightBounds,

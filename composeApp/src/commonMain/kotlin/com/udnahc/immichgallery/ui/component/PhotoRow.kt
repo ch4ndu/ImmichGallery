@@ -23,6 +23,7 @@ fun PhotoRow(
     onPhotoClick: (List<Asset>, Int) -> Unit,
     columns: Int = DEFAULT_GRID_COLUMN_COUNT,
     sharedTransitionScope: SharedTransitionScope? = null,
+    transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
 ) {
     Row(
@@ -41,6 +42,7 @@ fun PhotoRow(
                 onClick = onClick,
                 modifier = Modifier.weight(1f),
                 sharedTransitionScope = sharedTransitionScope,
+                transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
             )
         }

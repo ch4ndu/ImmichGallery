@@ -18,6 +18,7 @@ fun MosaicPhotoBand(
     band: MosaicBandItem,
     onPhotoClick: (assetId: String) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
+    transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
 ) {
     // Stabilize the band-width computation so the maxOfOrNull walk doesn't
@@ -47,6 +48,7 @@ fun MosaicPhotoBand(
                         .offset(x = tile.x.dp, y = tile.y.dp)
                         .size(width = tile.width.dp, height = tile.height.dp),
                     sharedTransitionScope = sharedTransitionScope,
+                    transitionAssetId = transitionAssetId,
                     hiddenAssetId = hiddenAssetId,
                 )
             }

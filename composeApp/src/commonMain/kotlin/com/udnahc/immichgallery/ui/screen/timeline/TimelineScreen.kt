@@ -165,7 +165,7 @@ fun TimelineScreen(
     PhotoOverlayHost(
         onOverlayActiveChange = onOverlayActiveChange,
         resolveInitialIndex = { assetId -> viewModel.getGlobalPhotoIndex(assetId) },
-        content = { showOverlay, hiddenAssetId, onPhotoClick ->
+        content = { showOverlay, transitionAssetId, hiddenAssetId, onPhotoClick ->
             // Grid is no longer wrapped in its own AnimatedVisibility — it stays
             // composed behind the overlay so drag-to-dismiss reveals it.
             // Per-cell AVs in ThumbnailCell drive the shared-element animation.
@@ -173,6 +173,7 @@ fun TimelineScreen(
                 state = state,
                 listState = listState,
                 showOverlay = showOverlay,
+                transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
                 onViewportBucketTargeted = viewModel::onViewportBucketTargeted,
@@ -245,6 +246,7 @@ fun TimelineContent(
     state: TimelineState,
     listState: LazyListState = rememberLazyListState(),
     showOverlay: Boolean = false,
+    transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
     onVisibleBucketsChanged: (List<Int>, TimelineBucketTargetReason) -> Unit,
     onViewportBucketTargeted: (Int, TimelineBucketTargetReason) -> Unit,
@@ -467,6 +469,7 @@ fun TimelineContent(
                             ) { item ->
                                 TimelineDisplayItemRenderer(
                                     item = item,
+                                    transitionAssetId = transitionAssetId,
                                     hiddenAssetId = hiddenAssetId,
                                     onPhotoClick = onPhotoClick,
                                     onRetryBucket = onRetryBucket,
@@ -562,6 +565,7 @@ private fun TimelineDisplayItem.firstAssetId(): String? =
 @Composable
 private fun TimelineDisplayItemRenderer(
     item: TimelineDisplayItem,
+    transitionAssetId: String?,
     hiddenAssetId: String?,
     onPhotoClick: (String) -> Unit,
     onRetryBucket: (String) -> Unit,
@@ -574,12 +578,14 @@ private fun TimelineDisplayItemRenderer(
             spacing = Dimens.gridSpacing,
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
+            transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
         )
         is MosaicBandItem -> MosaicPhotoBand(
             band = item,
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
+            transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
         )
         is PlaceholderItem -> PlaceholderRow(estimatedHeight = item.estimatedHeight)

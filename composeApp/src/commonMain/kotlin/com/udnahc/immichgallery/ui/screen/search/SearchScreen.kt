@@ -97,10 +97,11 @@ fun SearchScreen(
         initialIndexKey = state.results,
         onOverlayActiveChange = onOverlayActiveChange,
         resolveInitialIndex = { id -> state.results.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
-        content = { showOverlay, hiddenAssetId, onPhotoClick ->
+        content = { showOverlay, transitionAssetId, hiddenAssetId, onPhotoClick ->
             SearchContent(
                 state = state,
                 showOverlay = showOverlay,
+                transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 onQueryChange = viewModel::updateQuery,
                 onSearchTypeChange = viewModel::updateSearchType,
@@ -139,6 +140,7 @@ fun SearchScreen(
 fun SearchContent(
     state: SearchState,
     showOverlay: Boolean = false,
+    transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
     onQueryChange: (String) -> Unit,
     onSearchTypeChange: (SearchType) -> Unit,
@@ -287,6 +289,7 @@ fun SearchContent(
                                         spacing = Dimens.gridSpacing,
                                         onPhotoClick = onPhotoClick,
                                         sharedTransitionScope = sharedTransitionScope,
+                                        transitionAssetId = transitionAssetId,
                                         hiddenAssetId = hiddenAssetId,
                                     )
                                 }

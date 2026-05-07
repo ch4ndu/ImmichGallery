@@ -53,6 +53,7 @@ fun PhotoGridDetailContent(
     displayIndex: TimelineDisplayIndex,
     bannerMessage: String?,
     lastSyncedAt: Long?,
+    transitionAssetId: String?,
     hiddenAssetId: String?,
     targetRowHeight: Float,
     rowHeightBounds: RowHeightBounds,
@@ -131,6 +132,7 @@ fun PhotoGridDetailContent(
                         ) { index ->
                             PhotoGridDisplayItemRenderer(
                                 item = displayItems[index],
+                                transitionAssetId = transitionAssetId,
                                 hiddenAssetId = hiddenAssetId,
                                 onPhotoClick = onPhotoClick,
                                 sharedTransitionScope = sharedTransitionScope
@@ -199,6 +201,7 @@ fun ScrollInProgressReporter(
 @Composable
 fun PhotoGridDisplayItemRenderer(
     item: PhotoGridDisplayItem,
+    transitionAssetId: String?,
     hiddenAssetId: String?,
     onPhotoClick: (String) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -211,12 +214,14 @@ fun PhotoGridDisplayItemRenderer(
             spacing = Dimens.gridSpacing,
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
+            transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
         )
         is MosaicBandItem -> MosaicPhotoBand(
             band = item,
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
+            transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
         )
         is PlaceholderItem -> PlaceholderRow(estimatedHeight = item.estimatedHeight)

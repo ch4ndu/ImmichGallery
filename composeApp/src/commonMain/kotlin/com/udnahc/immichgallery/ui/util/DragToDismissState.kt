@@ -49,6 +49,9 @@ class DragToDismissState(
     /** Latched once [onDrag] sees dy past [dismissThresholdPx]; resets on cancel. */
     private var committed by mutableStateOf(false)
 
+    var dismissCommitted: Boolean by mutableStateOf(false)
+        private set
+
     /**
      * Pivot for scaling the page content, normalized to the page bounds.
      * Defaults to center; set by [onDragStart] to the finger's down position
@@ -81,6 +84,7 @@ class DragToDismissState(
             )
         } else TransformOrigin.Center
         committed = false
+        dismissCommitted = false
         // Scrim fades to fully transparent as soon as drag begins.
         scope.launch { scrimAlphaAnim.snapTo(0f) }
     }
@@ -124,11 +128,13 @@ class DragToDismissState(
     fun onRelease(velocityY: Float): DismissOutcome {
         val dismiss = committed || velocityY > flickVelocityPx
         if (dismiss) {
+            dismissCommitted = true
             // Keep the committed drag rect frozen while the overlay exits.
             // Resetting translation/scale here races the shared-element exit
             // capture and shows up as a small image jump on release.
             scope.launch { scrimAlphaAnim.animateTo(0f, exitSpec) }
         } else {
+            dismissCommitted = false
             scope.launch { translationAnim.animateTo(Offset.Zero, offsetSpec(snapBackSpec)) }
             scope.launch { scaleAnim.animateTo(1f, snapBackSpec) }
             scope.launch { scrimAlphaAnim.animateTo(1f, snapBackSpec) }
@@ -139,6 +145,7 @@ class DragToDismissState(
     /** Snap back to identity (e.g. multi-touch cancellation). */
     fun cancel() {
         committed = false
+        dismissCommitted = false
         scope.launch { translationAnim.animateTo(Offset.Zero, offsetSpec(snapBackSpec)) }
         scope.launch { scaleAnim.animateTo(1f, snapBackSpec) }
         scope.launch { scrimAlphaAnim.animateTo(1f, snapBackSpec) }

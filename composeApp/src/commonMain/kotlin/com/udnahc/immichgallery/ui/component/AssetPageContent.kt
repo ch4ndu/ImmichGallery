@@ -47,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -61,8 +62,11 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
+import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Precision
+import coil3.size.Size
 import com.github.panpf.zoomimage.CoilZoomAsyncImage
 import com.github.panpf.zoomimage.rememberCoilZoomState
 import com.udnahc.immichgallery.LocalAppActive
@@ -101,6 +105,7 @@ private val log = logging("AssetPageContent")
 private const val THUMBNAIL_HIDE_DELAY_MS = 500L
 private const val IMAGE_CROSSFADE_MS = 200
 private const val PHOTO_LAYER_HANDOFF_FADE_MS = 100
+private const val THUMBNAIL_DECODE_SIZE = 256
 
 @Immutable
 internal data class PhotoDragTransform(
@@ -108,6 +113,7 @@ internal data class PhotoDragTransform(
     val scale: Float = 1f,
     val translation: Offset = Offset.Zero,
     val startPosition: Offset = Offset.Zero,
+    val dismissCommitted: Boolean = false,
 ) {
     companion object {
         val Idle = PhotoDragTransform()
@@ -317,27 +323,27 @@ internal fun AssetPage(
                         )
                     }
                 }
-            } else if (asset.type == AssetType.VIDEO && !isTransitionActive) {
+            } else if (asset.type == AssetType.VIDEO && (dragTransform.active || !isTransitionActive)) {
                 PaddedTransformableMediaLayer(
                     asset = asset,
                     dragTransform = dragTransform,
                     useDragBounds = dragTransform.active,
                 ) { mediaModifier ->
                     Box(modifier = mediaModifier) {
-                        VideoContent(
-                            playbackUrl = asset.videoPlaybackUrl,
-                            originalUrl = asset.originalUrl,
-                            apiKey = apiKey,
-                            isCurrentPage = isCurrentPage,
-                            onTap = onTap,
+                        VideoDragThumbnailLayer(
+                            asset = asset,
+                            dragTransform = dragTransform,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
                             modifier = Modifier.fillMaxSize(),
                         )
-                        if (dragTransform.active) {
-                            SharedPhotoThumbnailLayer(
-                                asset = asset,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                coverThumbnail = effectiveCoverThumbnail,
+                        if (!dragTransform.dismissCommitted) {
+                            VideoContent(
+                                playbackUrl = asset.videoPlaybackUrl,
+                                originalUrl = asset.originalUrl,
+                                apiKey = apiKey,
+                                isCurrentPage = isCurrentPage,
+                                onTap = onTap,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -345,6 +351,26 @@ internal fun AssetPage(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun VideoDragThumbnailLayer(
+    asset: Asset,
+    dragTransform: PhotoDragTransform,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    modifier: Modifier,
+) {
+    if (dragTransform.active) {
+        SharedPhotoThumbnailLayer(
+            asset = asset,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            coverThumbnail = false,
+            modifier = modifier,
+        )
     }
 }
 
@@ -485,20 +511,29 @@ private fun ThumbnailImageLayer(
     asset: Asset,
     modifier: Modifier,
 ) {
-    val thumbnailContext = LocalPlatformContext.current
-    val thumbnailRequest = remember(thumbnailContext, asset.thumbnailUrl, asset.thumbnailCacheKey) {
-        ImageRequest.Builder(thumbnailContext)
-            .data(asset.thumbnailUrl)
-            .memoryCacheKey(asset.thumbnailCacheKey)
-            .diskCacheKey(asset.thumbnailCacheKey)
-            .build()
+    Box(modifier = modifier) {
+        if (LocalAppActive.current) {
+            val thumbnailContext = LocalPlatformContext.current
+            val thumbnailRequest = remember(thumbnailContext, asset.thumbnailUrl, asset.thumbnailCacheKey) {
+                ImageRequest.Builder(thumbnailContext)
+                    .data(asset.thumbnailUrl)
+                    .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
+                    .precision(Precision.EXACT)
+                    .memoryCacheKey(asset.thumbnailCacheKey)
+                    .diskCacheKey(asset.thumbnailCacheKey)
+                    .build()
+            }
+            val painter = rememberAsyncImagePainter(model = thumbnailRequest)
+            Image(
+                painter = painter,
+                contentDescription = asset.fileName,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
+        }
     }
-    AsyncImage(
-        model = thumbnailRequest,
-        contentDescription = asset.fileName,
-        contentScale = ContentScale.Fit,
-        modifier = modifier.fillMaxSize()
-    )
 }
 
 @Composable

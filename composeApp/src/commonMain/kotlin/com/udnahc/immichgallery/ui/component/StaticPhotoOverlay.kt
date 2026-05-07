@@ -273,6 +273,7 @@ fun StaticPhotoOverlay(
                     scale = dragState.scale,
                     translation = dragState.translation,
                     startPosition = dragState.startPosition,
+                    dismissCommitted = dragState.dismissCommitted,
                 )
             } else PhotoDragTransform.Idle
             Box(
