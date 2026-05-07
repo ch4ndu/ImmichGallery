@@ -95,6 +95,7 @@ data class DetailMosaicSectionGeometryEntry(
     val geometryVersion: Int,
     val placeholderHeight: Float,
     val displayItemCount: Int,
+    val bands: List<MosaicSectionGeometryBand> = emptyList(),
     val updatedAt: Long
 )
 

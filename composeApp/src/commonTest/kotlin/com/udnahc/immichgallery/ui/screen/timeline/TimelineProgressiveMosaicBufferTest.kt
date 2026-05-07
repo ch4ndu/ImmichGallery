@@ -4,10 +4,13 @@ import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
 import com.udnahc.immichgallery.domain.model.MosaicKeyScope
 import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
 import com.udnahc.immichgallery.domain.model.MosaicOwnerScope
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
+import com.udnahc.immichgallery.domain.model.MosaicSectionState
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TimelineProgressiveMosaicBufferTest {
@@ -76,6 +79,77 @@ class TimelineProgressiveMosaicBufferTest {
         )
     }
 
+    @Test
+    fun publishBufferDropsStaleGlobalGeneration() {
+        val buffer = TimelineMosaicPublishBuffer()
+        val key = key("2026-01")
+        val publish = pendingPublish(
+            key = key,
+            globalGeneration = 1L,
+            bucketGeneration = 0L
+        )
+
+        assertNull(
+            buffer.coalesceCurrent(
+                pending = listOf(publish),
+                currentGlobalGeneration = 2L,
+                currentBucketGenerations = emptyMap()
+            )
+        )
+    }
+
+    @Test
+    fun publishBufferDropsOnlyStaleBucketGeneration() {
+        val buffer = TimelineMosaicPublishBuffer()
+        val stale = key("2026-01")
+        val current = key("2026-02")
+        val publish = PendingMosaicPublish(
+            stateUpdates = mapOf(
+                stale to MosaicSectionState.Failed,
+                current to MosaicSectionState.Failed
+            ),
+            geometryUpdates = mapOf(
+                stale to TimelineMosaicSectionGeometry(100f, geometryBands(40f, 60f)),
+                current to TimelineMosaicSectionGeometry(200f, geometryBands(80f, 120f))
+            ),
+            stamp = TimelineMosaicPublishStamp(
+                globalGeneration = 1L,
+                bucketGenerations = mapOf("2026-01" to 1L, "2026-02" to 0L)
+            )
+        )
+
+        val result = buffer.coalesceCurrent(
+            pending = listOf(publish),
+            currentGlobalGeneration = 1L,
+            currentBucketGenerations = mapOf("2026-01" to 2L)
+        )
+
+        assertEquals(mapOf(current to MosaicSectionState.Failed), result?.stateUpdates)
+        assertEquals(
+            mapOf(current to TimelineMosaicSectionGeometry(200f, geometryBands(80f, 120f))),
+            result?.geometryUpdates
+        )
+    }
+
+    @Test
+    fun publishBufferCoalescesCurrentPublishes() {
+        val buffer = TimelineMosaicPublishBuffer()
+        val first = key("2026-01")
+        val second = key("2026-02")
+
+        val result = buffer.coalesceCurrent(
+            pending = listOf(
+                pendingPublish(first, globalGeneration = 3L, bucketGeneration = 0L),
+                pendingPublish(second, globalGeneration = 3L, bucketGeneration = 4L)
+            ),
+            currentGlobalGeneration = 3L,
+            currentBucketGenerations = mapOf("2026-02" to 4L)
+        )
+
+        assertEquals(setOf(first, second), result?.stateUpdates?.keys)
+        assertEquals(setOf(first, second), result?.geometryUpdates?.keys)
+    }
+
     private fun key(timeBucket: String): MosaicCacheKey =
         MosaicCacheKey(
             timeBucket = timeBucket,
@@ -111,4 +185,29 @@ class TimelineProgressiveMosaicBufferTest {
                 )
             )
         )
+
+    private fun pendingPublish(
+        key: MosaicCacheKey,
+        globalGeneration: Long,
+        bucketGeneration: Long
+    ): PendingMosaicPublish =
+        PendingMosaicPublish(
+            stateUpdates = mapOf(key to MosaicSectionState.Failed),
+            geometryUpdates = mapOf(key to TimelineMosaicSectionGeometry(100f, geometryBands(100f))),
+            stamp = TimelineMosaicPublishStamp(
+                globalGeneration = globalGeneration,
+                bucketGenerations = mapOf(key.timeBucket to bucketGeneration)
+            )
+        )
+
+    private fun geometryBands(vararg heights: Float): List<MosaicSectionGeometryBand> {
+        var cursor = 0
+        return heights.map { height ->
+            MosaicSectionGeometryBand(
+                sourceStartIndex = cursor,
+                sourceCount = 1,
+                height = height
+            ).also { cursor += it.sourceCount }
+        }
+    }
 }

@@ -8,10 +8,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -34,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,11 +48,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -74,6 +85,7 @@ import immichgallery.composeapp.generated.resources.ic_info
 import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.retry
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.lighthousegames.logging.logging
@@ -88,6 +100,25 @@ private val log = logging("AssetPageContent")
 
 private const val THUMBNAIL_HIDE_DELAY_MS = 500L
 private const val IMAGE_CROSSFADE_MS = 200
+private const val PHOTO_LAYER_HANDOFF_FADE_MS = 100
+
+@Immutable
+internal data class PhotoDragTransform(
+    val active: Boolean = false,
+    val scale: Float = 1f,
+    val translation: Offset = Offset.Zero,
+    val startPosition: Offset = Offset.Zero,
+) {
+    companion object {
+        val Idle = PhotoDragTransform()
+    }
+}
+
+private data class AnchoredMediaLayout(
+    val widthPx: Float,
+    val heightPx: Float,
+    val offset: Offset,
+)
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -100,7 +131,7 @@ internal fun AssetPage(
     onTap: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    pageTransform: Modifier = Modifier,
+    dragTransform: PhotoDragTransform = PhotoDragTransform.Idle,
     isDragging: Boolean = false,
     onZoomStateChanged: ((Boolean) -> Unit)? = null,
 ) {
@@ -115,12 +146,27 @@ internal fun AssetPage(
     val isTransitionActive =
         useTween && (sharedTransitionScope?.isTransitionActive ?: false)
     var coverThumbnail by remember { mutableStateOf(false) }
+    val effectiveCoverThumbnail = coverThumbnail && !useTween
+    val fullImageAlpha = remember(asset.id) { Animatable(if (useTween) 0f else 1f) }
+    var fullImageBecameVisible by remember(asset.id) { mutableStateOf(!useTween) }
+    LaunchedEffect(asset.id, useTween) {
+        if (useTween) {
+            if (fullImageBecameVisible) {
+                fullImageAlpha.animateTo(0f, tween(PHOTO_LAYER_HANDOFF_FADE_MS))
+            } else {
+                fullImageAlpha.snapTo(0f)
+            }
+        } else {
+            fullImageAlpha.animateTo(1f, tween(PHOTO_LAYER_HANDOFF_FADE_MS))
+            fullImageBecameVisible = true
+        }
+    }
 
     // - During open/dismiss: reveal thumbnail (sharedElement source).
-    // - During drag-before-dismiss: COVER thumbnail immediately — otherwise the
-    //   sharedBounds thumbnail and the full-res ImageContent both render under
-    //   the page's drag graphicsLayer at slightly different rects, producing a
-    //   visible "duplicate image" behind the one following the finger.
+    // - During drag-before-dismiss: COVER thumbnail immediately. It stays
+    //   mounted inside the same fitted container as the full-res image so the
+    //   release handoff keeps one set of bounds, but only the sharp image is
+    //   visible while following the finger.
     // - Slideshow: cover immediately — KenBurnsImage uses the cached thumbnail
     //   as its own placeholder via placeholderMemoryCacheKey, so the separate
     //   thumbnail layer would only introduce a 1→0 alpha snap at the 500ms
@@ -147,85 +193,105 @@ internal fun AssetPage(
     }
 
     Box(
-        modifier = Modifier.fillMaxSize().then(pageTransform),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        // Base layer: thumbnail with shared bounds modifier — always in composition
-        // so the exit animation can find it. The sharedBounds container is sized to
-        // the asset's aspect ratio (same as the grid cell), so both sides of the
-        // transition have identical layout shape and the cross-fade renders no
-        // visible difference.
-        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-            val boundsTransform = rememberPhotoBoundsTransform()
-            // Same hoist gating as ThumbnailCell: only hoist during real
-            // open/dismiss animations so mid-browse AV state changes don't
-            // render a ghost thumbnail over the detail image.
-            val hoistInOverlay = LocalPhotoBoundsTween.current
-            val sharedModifier = with(sharedTransitionScope) {
-                // NOTE: DO NOT chain .fillMaxSize() before .aspectRatio() —
-                // fillMaxSize locks min=max=parent size, which forces aspectRatio
-                // to fall back to the fullscreen size and the sharedBounds ends up
-                // being the whole screen rather than the image-aspect rect. That
-                // produces a visible second animation where the detail thumbnail
-                // scales 0→1 in the center while the grid rect flies to center.
-                Modifier
-                    .aspectRatio(asset.aspectRatio)
-                    .sharedElement(
-                        sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = boundsTransform,
-                        renderInOverlayDuringTransition = hoistInOverlay,
-                    )
+        if (!isSlideshow && asset.type != AssetType.VIDEO) {
+            // Image with zoom — draw under system bars when zoomed/panned.
+            val zoomState = rememberCoilZoomState()
+            val userTransform = zoomState.zoomable.userTransform
+            val isZoomed = userTransform.scaleX > 1.01f ||
+                userTransform.offsetX != 0f || userTransform.offsetY != 0f
+            LaunchedEffect(isZoomed, isCurrentPage) {
+                if (isCurrentPage) onZoomStateChanged?.invoke(isZoomed)
             }
-            // Pad the sharedBounds container with the same status/nav-bar
-            // insets as the (non-zoomed) full-image container below, so the
-            // thumbnail's aspect-fit rect matches the full image's aspect-fit
-            // rect exactly. Without this the thumbnail flies to a full-screen
-            // rect and then the full image loads in a smaller padded rect,
-            // producing a visible "jump" on load and a flash on pager swipe
-            // whenever isTransitionActive briefly toggles.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding(),
-                contentAlignment = Alignment.Center,
-            ) {
-            // alpha instead of a black cover Box: keeps the sharedElement
-            // modifier in the tree so bounds stay captured for the exit
-            // animation, but makes the thumbnail layer invisible during drag
-            // and steady-state viewing. The previous black cover drew its own
-            // rect and, under the page's drag graphicsLayer, didn't line up
-            // perfectly with the full-res ImageContent → visible as a duplicate.
-            Box(modifier = sharedModifier.alpha(if (coverThumbnail) 0f else 1f)) {
-                // No padding here — the content inside sharedBounds must match the
-                // grid-side thumbnail's layout exactly (same Fit, same fillMaxSize,
-                // no bar padding). Any layout mismatch makes the sharedBounds
-                // cross-fade visible as a "second animation".
-                // Explicit cache keys keep this thumbnail entry aligned with
-                // the grid's ThumbnailCell cache key — the full-image request in
-                // ImageContent references it via placeholderMemoryCacheKey.
-                val thumbnailContext = LocalPlatformContext.current
-                val thumbnailRequest = remember(thumbnailContext, asset.thumbnailUrl, asset.thumbnailCacheKey) {
-                    ImageRequest.Builder(thumbnailContext)
-                        .data(asset.thumbnailUrl)
-                        .memoryCacheKey(asset.thumbnailCacheKey)
-                        .diskCacheKey(asset.thumbnailCacheKey)
-                        .build()
-                }
-                AsyncImage(
-                    model = thumbnailRequest,
-                    contentDescription = asset.fileName,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            }
-        }
 
-        // Content layer: full-res image or video, layered on top after transition completes
-        if (!isTransitionActive) {
-            if (isSlideshow) {
+            if (!dragTransform.active) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    SharedPhotoThumbnailLayer(
+                        asset = asset,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        coverThumbnail = effectiveCoverThumbnail,
+                        modifier = Modifier.aspectRatio(asset.aspectRatio),
+                    )
+                }
+            }
+
+            if (dragTransform.active) {
+                PaddedTransformableMediaLayer(
+                    asset = asset,
+                    dragTransform = dragTransform,
+                    useDragBounds = true,
+                ) { mediaModifier ->
+                    Box(modifier = mediaModifier) {
+                        SharedPhotoThumbnailLayer(
+                            asset = asset,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            coverThumbnail = effectiveCoverThumbnail,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        ImageContent(
+                            url = asset.originalUrl,
+                            thumbnailCacheKey = asset.thumbnailCacheKey,
+                            onTap = onTap,
+                            zoomState = zoomState,
+                            modifier = Modifier.alpha(fullImageAlpha.value)
+                        )
+                    }
+                }
+            } else if (!isTransitionActive) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (!isZoomed) {
+                                Modifier
+                                    .statusBarsPadding()
+                                    .navigationBarsPadding()
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ImageContent(
+                        url = asset.originalUrl,
+                        thumbnailCacheKey = asset.thumbnailCacheKey,
+                        onTap = onTap,
+                        zoomState = zoomState,
+                        modifier = Modifier.alpha(fullImageAlpha.value)
+                    )
+                }
+            }
+        } else {
+            if (!dragTransform.active) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    SharedPhotoThumbnailLayer(
+                        asset = asset,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        coverThumbnail = effectiveCoverThumbnail,
+                        modifier = Modifier.aspectRatio(asset.aspectRatio),
+                    )
+                }
+            }
+
+            // Content layer: full-res image or video, layered on top after transition completes.
+            if (!isTransitionActive && isSlideshow) {
                 val imageUrl = if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
                 val durationMs = (slideshowConfig?.durationSeconds ?: 5) * 1000
                 Box(
@@ -251,52 +317,188 @@ internal fun AssetPage(
                         )
                     }
                 }
-            } else if (asset.type == AssetType.VIDEO) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    VideoContent(
-                        playbackUrl = asset.videoPlaybackUrl,
-                        originalUrl = asset.originalUrl,
-                        apiKey = apiKey,
-                        isCurrentPage = isCurrentPage,
-                        onTap = onTap
-                    )
-                }
-            } else {
-                // Image with zoom — draw under system bars when zoomed/panned
-                val zoomState = rememberCoilZoomState()
-                val userTransform = zoomState.zoomable.userTransform
-                val isZoomed = userTransform.scaleX > 1.01f ||
-                    userTransform.offsetX != 0f || userTransform.offsetY != 0f
-                LaunchedEffect(isZoomed, isCurrentPage) {
-                    if (isCurrentPage) onZoomStateChanged?.invoke(isZoomed)
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(
-                            if (!isZoomed) Modifier
-                                .statusBarsPadding()
-                                .navigationBarsPadding()
-                            else Modifier
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    ImageContent(
-                        url = asset.originalUrl,
-                        thumbnailCacheKey = asset.thumbnailCacheKey,
-                        onTap = onTap,
-                        zoomState = zoomState
-                    )
+            } else if (asset.type == AssetType.VIDEO && !isTransitionActive) {
+                PaddedTransformableMediaLayer(
+                    asset = asset,
+                    dragTransform = dragTransform,
+                    useDragBounds = dragTransform.active,
+                ) { mediaModifier ->
+                    Box(modifier = mediaModifier) {
+                        VideoContent(
+                            playbackUrl = asset.videoPlaybackUrl,
+                            originalUrl = asset.originalUrl,
+                            apiKey = apiKey,
+                            isCurrentPage = isCurrentPage,
+                            onTap = onTap,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        if (dragTransform.active) {
+                            SharedPhotoThumbnailLayer(
+                                asset = asset,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                coverThumbnail = effectiveCoverThumbnail,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PaddedTransformableMediaLayer(
+    asset: Asset,
+    dragTransform: PhotoDragTransform,
+    useDragBounds: Boolean,
+    content: @Composable (Modifier) -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+    ) {
+        var containerRoot by remember { mutableStateOf(Offset.Zero) }
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    containerRoot = coordinates.positionInRoot()
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            val density = LocalDensity.current
+            val mediaModifier = if (useDragBounds) {
+                val layout = computeAnchoredMediaLayout(
+                    containerSize = IntSize(constraints.maxWidth, constraints.maxHeight),
+                    mediaAspectRatio = asset.aspectRatio,
+                    tapInContainer = dragTransform.startPosition - containerRoot,
+                    translation = dragTransform.translation,
+                    scale = dragTransform.scale,
+                )
+                Modifier
+                    .size(
+                        width = with(density) { layout.widthPx.toDp() },
+                        height = with(density) { layout.heightPx.toDp() },
+                    )
+                    .offset {
+                        IntOffset(
+                            x = layout.offset.x.roundToInt(),
+                            y = layout.offset.y.roundToInt(),
+                        )
+                    }
+            } else {
+                Modifier.fillMaxSize()
+            }
+            content(mediaModifier)
+        }
+    }
+}
+
+private fun computeAnchoredMediaLayout(
+    containerSize: IntSize,
+    mediaAspectRatio: Float,
+    tapInContainer: Offset,
+    translation: Offset,
+    scale: Float,
+): AnchoredMediaLayout {
+    val containerWidth = containerSize.width.coerceAtLeast(0).toFloat()
+    val containerHeight = containerSize.height.coerceAtLeast(0).toFloat()
+    if (containerWidth == 0f || containerHeight == 0f) {
+        return AnchoredMediaLayout(widthPx = 0f, heightPx = 0f, offset = Offset.Zero)
+    }
+
+    val safeAspectRatio = mediaAspectRatio.takeIf { it > 0f } ?: 1f
+    val containerAspectRatio = containerWidth / containerHeight
+    val fittedWidth = if (containerAspectRatio > safeAspectRatio) {
+        containerHeight * safeAspectRatio
+    } else {
+        containerWidth
+    }
+    val fittedHeight = if (containerAspectRatio > safeAspectRatio) {
+        containerHeight
+    } else {
+        containerWidth / safeAspectRatio
+    }
+    val fittedTopLeft = Offset(
+        x = (containerWidth - fittedWidth) / 2f,
+        y = (containerHeight - fittedHeight) / 2f,
+    )
+    val clampedTap = Offset(
+        x = tapInContainer.x.coerceIn(fittedTopLeft.x, fittedTopLeft.x + fittedWidth),
+        y = tapInContainer.y.coerceIn(fittedTopLeft.y, fittedTopLeft.y + fittedHeight),
+    )
+    // Keep the original touched media point under the finger while the
+    // fitted box scales. The returned offset is relative to Box's normal
+    // centered placement of the scaled media box.
+    val localAnchor = clampedTap - fittedTopLeft
+    val fingerNow = clampedTap + translation
+    val safeScale = scale.coerceAtLeast(0f)
+    val scaledWidth = fittedWidth * safeScale
+    val scaledHeight = fittedHeight * safeScale
+    val scaledTopLeft = fingerNow - Offset(
+        x = localAnchor.x * safeScale,
+        y = localAnchor.y * safeScale,
+    )
+    val centeredScaledTopLeft = Offset(
+        x = (containerWidth - scaledWidth) / 2f,
+        y = (containerHeight - scaledHeight) / 2f,
+    )
+    return AnchoredMediaLayout(
+        widthPx = scaledWidth,
+        heightPx = scaledHeight,
+        offset = scaledTopLeft - centeredScaledTopLeft,
+    )
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun SharedPhotoThumbnailLayer(
+    asset: Asset,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    coverThumbnail: Boolean,
+    modifier: Modifier,
+) {
+    if (sharedTransitionScope == null || animatedVisibilityScope == null) return
+    val boundsTransform = rememberPhotoBoundsTransform()
+    val hoistInOverlay = LocalPhotoBoundsTween.current
+    val sharedModifier = with(sharedTransitionScope) {
+        modifier.sharedElement(
+            sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
+            animatedVisibilityScope = animatedVisibilityScope,
+            boundsTransform = boundsTransform,
+            renderInOverlayDuringTransition = hoistInOverlay,
+        )
+    }
+    ThumbnailImageLayer(
+        asset = asset,
+        modifier = sharedModifier.alpha(if (coverThumbnail) 0f else 1f)
+    )
+}
+
+@Composable
+private fun ThumbnailImageLayer(
+    asset: Asset,
+    modifier: Modifier,
+) {
+    val thumbnailContext = LocalPlatformContext.current
+    val thumbnailRequest = remember(thumbnailContext, asset.thumbnailUrl, asset.thumbnailCacheKey) {
+        ImageRequest.Builder(thumbnailContext)
+            .data(asset.thumbnailUrl)
+            .memoryCacheKey(asset.thumbnailCacheKey)
+            .diskCacheKey(asset.thumbnailCacheKey)
+            .build()
+    }
+    AsyncImage(
+        model = thumbnailRequest,
+        contentDescription = asset.fileName,
+        contentScale = ContentScale.Fit,
+        modifier = modifier.fillMaxSize()
+    )
 }
 
 @Composable
@@ -422,7 +624,8 @@ private fun ImageContent(
     url: String,
     thumbnailCacheKey: String,
     onTap: () -> Unit,
-    zoomState: com.github.panpf.zoomimage.CoilZoomState
+    zoomState: com.github.panpf.zoomimage.CoilZoomState,
+    modifier: Modifier = Modifier
 ) {
     var hasError by remember { mutableStateOf(false) }
 
@@ -450,14 +653,14 @@ private fun ImageContent(
         CoilZoomAsyncImage(
             model = imageRequest,
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = modifier.fillMaxSize(),
             zoomState = zoomState,
             scrollBar = null,
             onTap = { onTap() }
         )
     } else {
         Box(
-            Modifier.fillMaxSize()
+            modifier.fillMaxSize()
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         )
     }
@@ -469,7 +672,8 @@ private fun VideoContent(
     originalUrl: String,
     apiKey: String,
     isCurrentPage: Boolean,
-    onTap: () -> Unit
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     log.d { "VideoContent: loading video from $playbackUrl" }
 
@@ -486,7 +690,7 @@ private fun VideoContent(
         apiKey = apiKey,
         isCurrentPage = isCurrentPage,
         onTap = onTap,
-        modifier = Modifier.fillMaxSize()
+        modifier = modifier.fillMaxSize()
     )
 }
 

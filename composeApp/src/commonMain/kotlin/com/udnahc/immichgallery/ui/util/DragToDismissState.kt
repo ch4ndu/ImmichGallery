@@ -57,6 +57,9 @@ class DragToDismissState(
     var pivot: TransformOrigin by mutableStateOf(TransformOrigin.Center)
         private set
 
+    var startPosition: Offset by mutableStateOf(Offset.Zero)
+        private set
+
     val translation: Offset get() = translationAnim.value
     val scale: Float get() = scaleAnim.value
 
@@ -70,6 +73,7 @@ class DragToDismissState(
 
     /** Called on touch-down, before any movement. */
     fun onDragStart(downPosition: Offset, containerSize: IntSize) {
+        startPosition = downPosition
         pivot = if (containerSize.width > 0 && containerSize.height > 0) {
             TransformOrigin(
                 downPosition.x / containerSize.width.toFloat(),
@@ -120,8 +124,9 @@ class DragToDismissState(
     fun onRelease(velocityY: Float): DismissOutcome {
         val dismiss = committed || velocityY > flickVelocityPx
         if (dismiss) {
-            scope.launch { translationAnim.animateTo(Offset.Zero, offsetSpec(exitSpec)) }
-            scope.launch { scaleAnim.animateTo(1f, exitSpec) }
+            // Keep the committed drag rect frozen while the overlay exits.
+            // Resetting translation/scale here races the shared-element exit
+            // capture and shows up as a small image jump on release.
             scope.launch { scrimAlphaAnim.animateTo(0f, exitSpec) }
         } else {
             scope.launch { translationAnim.animateTo(Offset.Zero, offsetSpec(snapBackSpec)) }

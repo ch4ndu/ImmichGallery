@@ -19,6 +19,7 @@ import com.udnahc.immichgallery.domain.model.MosaicBandKind
 import com.udnahc.immichgallery.domain.model.MosaicLayoutSpec
 import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
 import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
 import com.udnahc.immichgallery.domain.model.MosaicSectionComputer
 import com.udnahc.immichgallery.domain.model.MosaicSectionRequest
 import com.udnahc.immichgallery.domain.model.MosaicSectionResult
@@ -313,6 +314,46 @@ class PhotoGridDetailLayoutCoordinatorTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun sectionGeometryIsUsedWhenAggregateGeometryIsMissing() = runTest {
+        val cachedHeight = 777f
+        val assets = multiMonthAssets()
+        var state = coordinatorState(
+            assets = assets,
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = true)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
+            readPersistentArtifacts = {
+                detailArtifacts(
+                    ownerAssets = assets,
+                    sectionIndex = 2,
+                    sectionKey = "January 2026",
+                    sectionAssets = assets.filter { it.id.startsWith("jan_") },
+                    placeholderHeight = cachedHeight,
+                    includeAggregateGeometry = false
+                )
+            }
+        )
+
+        coordinator.setScrollInProgress(true)
+        coordinator.setVisibleBucketIndexes(listOf(0))
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+
+        val placeholder = state.displayItems
+            .filterIsInstance<PlaceholderItem>()
+            .first { it.bucketIndex == 2 }
+        assertEquals(cachedHeight, placeholder.estimatedHeight)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun cacheDisabledDoesNotReadPersistentArtifactsAndStillComputesRuntimeMosaic() = runTest {
         var readCount = 0
         var writeCount = 0
@@ -566,7 +607,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
         sectionKey: String,
         sectionAssets: List<Asset>,
         placeholderHeight: Float,
-        columnCount: Int = 4
+        columnCount: Int = 4,
+        includeAggregateGeometry: Boolean = true
     ): DetailMosaicArtifacts {
         val sectionFingerprint = sectionAssets.detailPersistentFingerprint()
         return DetailMosaicArtifacts(
@@ -610,10 +652,17 @@ class PhotoGridDetailLayoutCoordinatorTest {
                     geometryVersion = 1,
                     placeholderHeight = placeholderHeight,
                     displayItemCount = 1,
+                    bands = listOf(
+                        MosaicSectionGeometryBand(
+                            sourceStartIndex = 0,
+                            sourceCount = sectionAssets.size,
+                            height = placeholderHeight
+                        )
+                    ),
                     updatedAt = 0L
                 )
             ),
-            aggregateGeometry = DetailMosaicAggregateGeometryEntry(
+            aggregateGeometry = if (includeAggregateGeometry) DetailMosaicAggregateGeometryEntry(
                 ownerType = DetailMosaicCacheOwnerType.ALBUM,
                 ownerId = "test",
                 groupSize = GroupSize.MONTH,
@@ -628,7 +677,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
                 placeholderHeight = placeholderHeight,
                 displayItemCount = 1,
                 updatedAt = 0L
-            )
+            ) else null
         )
     }
 
@@ -794,6 +843,27 @@ private open class DelegatingTestMosaicSectionComputer : MosaicSectionComputer {
         delegate.projectPartialSectionWithPlaceholders(
             assets = assets,
             chunks = chunks,
+            bucketIndex = bucketIndex,
+            sectionLabel = sectionLabel,
+            layoutSpec = layoutSpec,
+            spacing = spacing,
+            maxRowHeight = maxRowHeight
+        )
+
+    override fun projectPartialSectionWithGeometry(
+        assets: List<Asset>,
+        chunks: List<ProgressChunk>,
+        geometryBands: List<MosaicSectionGeometryBand>,
+        bucketIndex: Int,
+        sectionLabel: String,
+        layoutSpec: MosaicLayoutSpec,
+        spacing: Float,
+        maxRowHeight: Float
+    ): List<PhotoGridDisplayItem>? =
+        delegate.projectPartialSectionWithGeometry(
+            assets = assets,
+            chunks = chunks,
+            geometryBands = geometryBands,
             bucketIndex = bucketIndex,
             sectionLabel = sectionLabel,
             layoutSpec = layoutSpec,

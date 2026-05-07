@@ -42,7 +42,7 @@ data class TimelineMosaicGeometrySummary(
     val sectionKey: String,
     val placeholderHeight: Float,
     val displayItemCount: Int,
-    val bandHeights: List<Float> = emptyList()
+    val bands: List<MosaicSectionGeometryBand> = emptyList()
 )
 
 data class TimelineBucketGeometrySummary(

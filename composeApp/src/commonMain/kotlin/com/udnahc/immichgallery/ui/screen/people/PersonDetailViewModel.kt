@@ -35,11 +35,8 @@ import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -67,10 +64,6 @@ data class PersonDetailState(
     val isSyncing: Boolean = false
 )
 
-enum class PersonDetailSnackbarMessage {
-    SyncInProgress
-}
-
 class PersonDetailViewModel(
     private val getPersonAssetsUseCase: GetPersonAssetsUseCase,
     private val getPersonAssetsPageUseCase: GetPersonAssetsPageUseCase,
@@ -95,8 +88,6 @@ class PersonDetailViewModel(
     private val mosaicOwnerKey = "person:$personId"
     private var syncJob: Job? = null
     private var loadMoreJob: Job? = null
-    private val _snackbarEvents = MutableSharedFlow<PersonDetailSnackbarMessage>(extraBufferCapacity = 1)
-    val snackbarEvents: SharedFlow<PersonDetailSnackbarMessage> = _snackbarEvents.asSharedFlow()
     private val _state = MutableStateFlow(
         PersonDetailState(
             targetRowHeight = savedTargetRowHeight,
@@ -218,10 +209,7 @@ class PersonDetailViewModel(
         // it, and both would launch duplicate requests — and both would try
         // to advance nextPage, skipping or refetching pages.
         val prev = _state.value
-        if (syncJob?.isActive == true || prev.isSyncing || prev.isBuilding) {
-            emitSyncInProgressSnackbar()
-            return
-        }
+        if (syncJob?.isActive == true || prev.isSyncing || prev.isBuilding) return
         if (prev.isLoadingMore || !prev.hasMore) return
         if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
 
@@ -338,9 +326,6 @@ class PersonDetailViewModel(
         layoutCoordinator.handleSyncedContentChange(changed)
     }
 
-    private fun emitSyncInProgressSnackbar() {
-        _snackbarEvents.tryEmit(PersonDetailSnackbarMessage.SyncInProgress)
-    }
 }
 
 private fun PersonDetailState.withDisplayItems(items: List<PhotoGridDisplayItem>): PersonDetailState =

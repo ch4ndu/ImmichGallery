@@ -52,5 +52,6 @@ data class DetailMosaicSectionGeometryEntity(
     val geometryVersion: Int,
     val placeholderHeight: Float,
     val displayItemCount: Int,
+    val geometryBandsJson: String,
     val updatedAt: Long
 )

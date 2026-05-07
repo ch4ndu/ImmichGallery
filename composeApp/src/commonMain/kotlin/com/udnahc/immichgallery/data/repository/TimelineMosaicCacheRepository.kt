@@ -14,6 +14,7 @@ import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignmentDto
 import com.udnahc.immichgallery.domain.model.MosaicBandKind
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
 import com.udnahc.immichgallery.domain.model.SectionReady
@@ -124,13 +125,24 @@ class TimelineMosaicCacheRepository(
                     columnCount = columnCount,
                     familiesKey = familiesKey,
                     availableWidthKey = widthKey,
-                    geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION
+                        geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION
                 )
             }
+            val assetsByBucket = withContext(Dispatchers.IO) {
+                timeBuckets.associateWith { timeBucket ->
+                    assetDao.getTimelineAssets(timeBucket)
+                }
+            }
             Result.success(
-                rows
-                    .filter { it.maxRowHeightKey == maxRowHeightKey && it.spacingKey == spacingKey }
-                    .map { it.toDomain() }
+                validatedTimelineMosaicGeometrySummaries(
+                    rows = rows,
+                    assetsByBucket = assetsByBucket,
+                    requestedTimeBuckets = timeBuckets,
+                    groupSize = groupSize,
+                    maxRowHeightKey = maxRowHeightKey,
+                    spacingKey = spacingKey,
+                    baseUrl = baseUrl()
+                )
             )
         } catch (e: CancellationException) {
             throw e
@@ -575,6 +587,33 @@ class TimelineMosaicCacheRepository(
     }
 }
 
+internal fun validatedTimelineMosaicGeometrySummaries(
+    rows: List<TimelineMosaicGeometryEntity>,
+    assetsByBucket: Map<String, List<AssetEntity>>,
+    requestedTimeBuckets: Set<String>,
+    groupSize: TimelineGroupSize,
+    maxRowHeightKey: Int,
+    spacingKey: Int,
+    baseUrl: String
+): List<TimelineMosaicGeometrySummary> {
+    val rowsByBucketSection = rows
+        .filter { it.maxRowHeightKey == maxRowHeightKey && it.spacingKey == spacingKey }
+        .associateBy { it.timeBucket to it.sectionKey }
+    return buildList {
+        requestedTimeBuckets.forEach { timeBucket ->
+            val entities = assetsByBucket[timeBucket].orEmpty()
+            val fingerprint = orderedAssetsFingerprint(entities)
+            val assets = entities.map { it.toDomain(baseUrl) }
+            timelineMosaicSections(timeBucket, groupSize, assets).forEach { section ->
+                rowsByBucketSection[timeBucket to section.sectionKey]
+                    ?.takeIf { it.assetFingerprint == fingerprint }
+                    ?.toDomain()
+                    ?.let(::add)
+            }
+        }
+    }
+}
+
 private data class TimelineMosaicSection(
     val sectionKey: String,
     val label: String,
@@ -600,7 +639,15 @@ private fun computeTimelineMosaicGeometryEntity(
     if (mosaicLayoutSpecForColumnCount(request.availableWidth, columnCount) == null) return null
     val placeholderHeight = estimatePhotoGridDisplayItemsHeight(displayItems, request.spacing)
     if (placeholderHeight <= 0f) return null
-    val bandHeights = displayItems.filterIsInstance<MosaicBandItem>().map { it.bandHeight }
+    val geometryBands = displayItems.filterIsInstance<MosaicBandItem>()
+        .filter { it.kind == MosaicBandKind.REAL }
+        .map { band ->
+            MosaicSectionGeometryBand(
+                sourceStartIndex = band.sourceStartIndex,
+                sourceCount = band.sourceCount,
+                height = band.bandHeight
+            )
+        }
     return TimelineMosaicGeometryEntity(
         timeBucket = timeBucket,
         groupMode = groupMode,
@@ -614,7 +661,7 @@ private fun computeTimelineMosaicGeometryEntity(
         displayItemCount = displayItems.size,
         maxRowHeightKey = timelineMosaicGeometryDimensionKey(request.maxRowHeight),
         spacingKey = timelineMosaicGeometryDimensionKey(request.spacing),
-        bandHeightsJson = json.encodeToString(bandHeights),
+        geometryBandsJson = json.encodeToString(geometryBands),
         updatedAt = now
     )
 }
@@ -688,11 +735,11 @@ private fun TimelineMosaicGeometryEntity.toDomain(): TimelineMosaicGeometrySumma
         sectionKey = sectionKey,
         placeholderHeight = placeholderHeight,
         displayItemCount = displayItemCount,
-        bandHeights = if (bandHeightsJson.isEmpty()) {
+        bands = if (geometryBandsJson.isEmpty()) {
             emptyList()
         } else {
             try {
-                json.decodeFromString<List<Float>>(bandHeightsJson)
+                json.decodeFromString<List<MosaicSectionGeometryBand>>(geometryBandsJson)
             } catch (_: Exception) {
                 emptyList()
             }

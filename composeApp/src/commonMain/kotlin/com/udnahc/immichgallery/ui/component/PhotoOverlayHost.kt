@@ -77,6 +77,10 @@ fun PhotoOverlayHost(
     var stlTransitionActive by remember { mutableStateOf(false) }
     var overlayAnimActive by remember { mutableStateOf(false) }
     LaunchedEffect(selectedAssetId, selectionEpoch) {
+        if (selectedAssetId == null && lastSelectedAssetId == null) {
+            overlayAnimActive = false
+            return@LaunchedEffect
+        }
         overlayAnimActive = true
         delay(PHOTO_TRANSITION_DURATION_MS.toLong())
         snapshotFlow { stlTransitionActive }.first { !it }
@@ -84,7 +88,10 @@ fun PhotoOverlayHost(
     }
 
     LaunchedEffect(showOverlay) { onOverlayActiveChange(showOverlay) }
-    PlatformBackHandler(enabled = showOverlay) { selectedAssetId = null }
+    PlatformBackHandler(enabled = showOverlay) {
+        overlayAnimActive = true
+        selectedAssetId = null
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
@@ -93,7 +100,13 @@ fun PhotoOverlayHost(
                     content(
                         showOverlay,
                         currentViewedAssetId,
-                        remember { { id: String -> selectedAssetId = id } }
+                        remember {
+                            { id: String ->
+                                overlayInitialIndex = null
+                                overlayAnimActive = true
+                                selectedAssetId = id
+                            }
+                        }
                     )
 
                     AnimatedVisibility(
@@ -104,7 +117,10 @@ fun PhotoOverlayHost(
                         lastSelectedAssetId ?: return@AnimatedVisibility
                         overlay(
                             overlayInitialIndex ?: 0,
-                            { selectedAssetId = null },
+                            {
+                                overlayAnimActive = true
+                                selectedAssetId = null
+                            },
                             { id -> currentViewedAssetId = id },
                             { active -> stlTransitionActive = active },
                             this@SharedTransitionLayout

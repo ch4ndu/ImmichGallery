@@ -29,7 +29,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
@@ -268,18 +267,14 @@ fun StaticPhotoOverlay(
         ) { page ->
             val asset = assets.getOrNull(page)
             val isSettledPage = pagerState.settledPage == page
-            // Only apply graphicsLayer while a drag is actually in flight —
-            // an always-on identity layer adds a compositing boundary that
-            // interacts badly with sharedBounds promotion/demotion.
-            val transformForPage = if (isSettledPage && dragState.isActive) {
-                Modifier.graphicsLayer {
-                    scaleX = dragState.scale
-                    scaleY = dragState.scale
-                    translationX = dragState.translation.x
-                    translationY = dragState.translation.y
-                    transformOrigin = dragState.pivot
-                }
-            } else Modifier
+            val photoDragTransform = if (isSettledPage && dragState.isActive) {
+                PhotoDragTransform(
+                    active = true,
+                    scale = dragState.scale,
+                    translation = dragState.translation,
+                    startPosition = dragState.startPosition,
+                )
+            } else PhotoDragTransform.Idle
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -294,7 +289,7 @@ fun StaticPhotoOverlay(
                         onTap = onTap,
                         sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
                         animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
-                        pageTransform = transformForPage,
+                        dragTransform = photoDragTransform,
                         isDragging = isSettledPage && dragState.isActive,
                         onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
                     )

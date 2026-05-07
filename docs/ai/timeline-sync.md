@@ -76,10 +76,12 @@ Cold sync is the only blocking Timeline sync path. It runs when there is no warm
    - mark cold sync complete;
    - clear the blocking state.
 
-   Each section geometry row written here carries the per-band pixel heights of
-   the section's projected bands (`bandHeightsJson`), so the warm-launch render
-   can use exact per-band placeholders before the mosaic queue resolves a
-   bucket. Manual refresh per-bucket precompute writes the same field.
+   Each section geometry row written here carries the aggregate section
+   `placeholderHeight` plus `geometryBandsJson`. Geometry bands store the source
+   range and layout height for each final real Mosaic band. Timeline renders one
+   aggregate placeholder per pending section to keep LazyColumn item count low,
+   and uses geometry bands to keep partial runtime placeholders height-exact.
+   Manual refresh per-bucket precompute writes the same field.
 
 ### Bucket Asset Sync
 
@@ -110,12 +112,12 @@ The returned `changed` value is a layout/content invalidation signal, not merely
 ## Warm Launch Sync
 
 Warm launch is cached-first and non-blocking. After the cached bucket metadata
-observation, `TimelineViewModel` runs a coordinated geometry phase:
-bucket-aggregate and per-section geometry rows are read together for all cached
-buckets, gated by `timelineGeometryReady`. The first mosaic queue request waits
-for the gate so per-section placeholders use exact persisted heights from the
-moment the LazyColumn first renders. Subsequent (post-warmup) mosaic requests
-do not wait on the gate.
+observation, `TimelineViewModel` runs a visible-first geometry phase:
+bucket-aggregate and per-section geometry rows are read together for the
+visible/target buckets plus radius neighbors. `timelineGeometryReady` gates only
+that priority read, and opens even if the read fails so visible Mosaic work
+cannot stall indefinitely. Remaining cached bucket geometry hydrates afterward
+in small offscreen chunks.
 
 ### Startup Shape
 

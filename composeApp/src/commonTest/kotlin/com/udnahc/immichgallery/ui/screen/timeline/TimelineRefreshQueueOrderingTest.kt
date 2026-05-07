@@ -193,4 +193,38 @@ class TimelineRefreshQueueOrderingTest {
 
         assertEquals(listOf("visible", "target", "neighbor", "old_deferred", "offscreen"), requestOrder)
     }
+
+    @Test
+    fun geometrySelectionPrioritizesVisibleTargetAndRadiusBeforeOffscreen() {
+        val buckets = (0..9).map { "b$it" }
+        val selection = selectTimelineGeometryBuckets(
+            orderedBuckets = buckets,
+            cachedBuckets = buckets.toSet(),
+            visibleBucketIndexes = listOf(4),
+            targetBucketIndex = 6,
+            fallbackVisibleBucketIndexes = emptyList(),
+            radius = 2,
+            backgroundChunkSize = 2
+        )
+
+        assertEquals(listOf("b4", "b6", "b3", "b5", "b2", "b7", "b8"), selection.priorityBuckets)
+        assertEquals(listOf(listOf("b0", "b1"), listOf("b9")), selection.backgroundChunks)
+    }
+
+    @Test
+    fun geometrySelectionFallsBackToFirstCachedBatchWhenVisibilityUnknown() {
+        val buckets = (0..9).map { "b$it" }
+        val selection = selectTimelineGeometryBuckets(
+            orderedBuckets = buckets,
+            cachedBuckets = buckets.toSet(),
+            visibleBucketIndexes = emptyList(),
+            targetBucketIndex = null,
+            fallbackVisibleBucketIndexes = emptyList(),
+            radius = 2,
+            backgroundChunkSize = 2
+        )
+
+        assertEquals(listOf("b0", "b1", "b2", "b3", "b4"), selection.priorityBuckets)
+        assertEquals(listOf(listOf("b5", "b6"), listOf("b7", "b8"), listOf("b9")), selection.backgroundChunks)
+    }
 }

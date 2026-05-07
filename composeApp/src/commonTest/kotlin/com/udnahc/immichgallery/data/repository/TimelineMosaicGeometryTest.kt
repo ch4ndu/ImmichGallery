@@ -1,9 +1,13 @@
 package com.udnahc.immichgallery.data.repository
 
+import com.udnahc.immichgallery.data.local.entity.AssetEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
+import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
 import kotlin.test.Test
@@ -74,6 +78,58 @@ class TimelineMosaicGeometryTest {
         assertEquals(false, shouldRejectUnsyncedEmptyTimelineBucket(actualAssetCount = 3, expectedBucketCount = 12))
     }
 
+    @Test
+    fun sectionGeometryValidationOmitsMismatchedAssetFingerprint() {
+        val entities = listOf(assetEntity("a"), assetEntity("b"))
+        val staleRow = geometryEntity(
+            timeBucket = "2026-01",
+            sectionKey = "2026-01|month",
+            assetFingerprint = "stale"
+        )
+
+        val summaries = validatedTimelineMosaicGeometrySummaries(
+            rows = listOf(staleRow),
+            assetsByBucket = mapOf("2026-01" to entities),
+            requestedTimeBuckets = setOf("2026-01"),
+            groupSize = TimelineGroupSize.MONTH,
+            maxRowHeightKey = 100000,
+            spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
+            baseUrl = "https://server"
+        )
+
+        assertEquals(emptyList(), summaries)
+    }
+
+    @Test
+    fun sectionGeometryValidationPreservesMatchingGeometryBands() {
+        val entities = listOf(assetEntity("a"), assetEntity("b"))
+        val row = geometryEntity(
+            timeBucket = "2026-01",
+            sectionKey = "2026-01|month",
+            assetFingerprint = orderedAssetsFingerprint(entities)
+        )
+
+        val summaries = validatedTimelineMosaicGeometrySummaries(
+            rows = listOf(row),
+            assetsByBucket = mapOf("2026-01" to entities),
+            requestedTimeBuckets = setOf("2026-01"),
+            groupSize = TimelineGroupSize.MONTH,
+            maxRowHeightKey = 100000,
+            spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
+            baseUrl = "https://server"
+        )
+
+        assertEquals(1, summaries.size)
+        assertEquals(300f, summaries.first().placeholderHeight)
+        assertEquals(
+            listOf(
+                MosaicSectionGeometryBand(sourceStartIndex = 0, sourceCount = 1, height = 100f),
+                MosaicSectionGeometryBand(sourceStartIndex = 1, sourceCount = 1, height = 200f)
+            ),
+            summaries.first().bands
+        )
+    }
+
     private fun asset(id: String): Asset =
         Asset(
             id = id,
@@ -83,5 +139,43 @@ class TimelineMosaicGeometryTest {
             thumbnailUrl = "thumb/$id",
             originalUrl = "original/$id",
             aspectRatio = 1f
+        )
+
+    private fun assetEntity(id: String): AssetEntity =
+        AssetEntity(
+            id = id,
+            type = "IMAGE",
+            fileName = "$id.jpg",
+            createdAt = "2026-01-01T00:00:00Z",
+            isFavorite = false,
+            stackCount = 1,
+            aspectRatio = 1f
+        )
+
+    private fun geometryEntity(
+        timeBucket: String,
+        sectionKey: String,
+        assetFingerprint: String
+    ): TimelineMosaicGeometryEntity =
+        TimelineMosaicGeometryEntity(
+            timeBucket = timeBucket,
+            groupMode = TimelineGroupSize.MONTH.apiValue,
+            sectionKey = sectionKey,
+            columnCount = 5,
+            familiesKey = "four_tile",
+            assetFingerprint = assetFingerprint,
+            availableWidthKey = 1000,
+            geometryVersion = 3,
+            placeholderHeight = 300f,
+            displayItemCount = 2,
+            maxRowHeightKey = 100000,
+            spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
+            geometryBandsJson = """
+                [
+                  {"sourceStartIndex":0,"sourceCount":1,"height":100.0},
+                  {"sourceStartIndex":1,"sourceCount":1,"height":200.0}
+                ]
+            """.trimIndent(),
+            updatedAt = 1L
         )
 }

@@ -33,7 +33,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
@@ -42,6 +41,7 @@ import com.udnahc.immichgallery.ui.component.AssetDetailSheet
 import com.udnahc.immichgallery.ui.component.AssetPage
 import com.udnahc.immichgallery.ui.component.DetailBottomHandle
 import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
+import com.udnahc.immichgallery.ui.component.PhotoDragTransform
 import com.udnahc.immichgallery.ui.component.SlideshowOptionsDialog
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
@@ -349,18 +349,14 @@ fun TimelinePhotoOverlay(
                 }
             }
 
-            // Only apply graphicsLayer while a drag is actually in flight —
-            // an always-on identity layer adds a compositing boundary that
-            // interacts badly with sharedBounds promotion/demotion.
-            val transformForPage = if (isSettledPage && dragState.isActive) {
-                Modifier.graphicsLayer {
-                    scaleX = dragState.scale
-                    scaleY = dragState.scale
-                    translationX = dragState.translation.x
-                    translationY = dragState.translation.y
-                    transformOrigin = dragState.pivot
-                }
-            } else Modifier
+            val photoDragTransform = if (isSettledPage && dragState.isActive) {
+                PhotoDragTransform(
+                    active = true,
+                    scale = dragState.scale,
+                    translation = dragState.translation,
+                    startPosition = dragState.startPosition,
+                )
+            } else PhotoDragTransform.Idle
 
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -376,7 +372,7 @@ fun TimelinePhotoOverlay(
                         onTap = onTap,
                         sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
                         animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
-                        pageTransform = transformForPage,
+                        dragTransform = photoDragTransform,
                         isDragging = isSettledPage && dragState.isActive,
                         onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
                     )

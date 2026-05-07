@@ -58,109 +58,122 @@ fun ThumbnailCell(
     sharedTransitionScope: SharedTransitionScope? = null,
     hiddenAssetId: String? = null,
 ) {
-    // Per-cell AnimatedVisibility: only the viewed asset's cell transitions.
-    // Its scope drives the sharedElement bounds animation while the rest of
-    // the grid stays composed and visible behind the detail overlay.
-    AnimatedVisibility(
-        visible = hiddenAssetId != asset.id,
-        // Snap on both enter and exit. The shared element hoists the cell's
-        // content into the overlay during transitions, so the in-place cell
-        // can appear/disappear instantly without a visible fade. Fading here
-        // (especially on exit during pager swipes) leaves cells mid-animation
-        // when dismiss fires, producing visible "flashes" on the grid.
-        enter = EnterTransition.None,
-        exit = ExitTransition.None,
-        modifier = modifier,
-    ) {
-        // sharedElement is attached to the Box (with fillMaxSize) rather than
-        // the Image (with matchParentSize). The matchParentSize + sharedElement
-        // combination caused the grid-side source bounds to be miscaptured at
-        // 2×cell_Y in screens that re-enter the nav composable (Album), which
-        // made the open transition fly in from off-screen below.
-        val boundsTransform = rememberPhotoBoundsTransform()
-        // Only hoist the shared element to the overlay layer during genuine
-        // open/dismiss animations; otherwise (steady-state / pager swipe)
-        // keep it in-place so a mid-browse AV transition can't render a
-        // "ghost" thumbnail above the detail image.
-        val hoistInOverlay = LocalPhotoBoundsTween.current
-        val boxModifier = if (sharedTransitionScope != null) {
-            with(sharedTransitionScope) {
+    val transitionScope = sharedTransitionScope
+    val useTween = LocalPhotoBoundsTween.current
+    if (transitionScope != null && (useTween || hiddenAssetId == asset.id)) {
+        // Per-cell AnimatedVisibility is only needed for cells participating in
+        // the shared-element transition. Normal scrolling uses the plain path
+        // below to avoid transition bookkeeping for every thumbnail.
+        AnimatedVisibility(
+            visible = hiddenAssetId != asset.id,
+            // Snap on both enter and exit. The shared element hoists the cell's
+            // content into the overlay during transitions, so the in-place cell
+            // can appear/disappear instantly without a visible fade. Fading here
+            // (especially on exit during pager swipes) leaves cells mid-animation
+            // when dismiss fires, producing visible "flashes" on the grid.
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
+            modifier = modifier,
+        ) {
+            // sharedElement is attached to the Box (with fillMaxSize) rather than
+            // the Image (with matchParentSize). The matchParentSize + sharedElement
+            // combination caused the grid-side source bounds to be miscaptured at
+            // 2×cell_Y in screens that re-enter the nav composable (Album), which
+            // made the open transition fly in from off-screen below.
+            val boundsTransform = rememberPhotoBoundsTransform()
+            // Only hoist the shared element to the overlay layer during genuine
+            // open/dismiss animations; otherwise (steady-state / pager swipe)
+            // keep it in-place so a mid-browse AV transition can't render a
+            // "ghost" thumbnail above the detail image.
+            val hoistInOverlay = LocalPhotoBoundsTween.current
+            val boxModifier = with(transitionScope) {
                 Modifier.fillMaxSize().sharedElement(
-                    sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
+                    transitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                     animatedVisibilityScope = this@AnimatedVisibility,
                     boundsTransform = boundsTransform,
                     renderInOverlayDuringTransition = hoistInOverlay,
                 ).clickable(onClick = onClick)
             }
-        } else {
-            Modifier.fillMaxSize().clickable(onClick = onClick)
+            ThumbnailCellContent(asset = asset, modifier = boxModifier)
         }
-        Box(modifier = boxModifier) {
-            if (LocalAppActive.current) {
-                val imageModifier = Modifier.matchParentSize()
-                val context = LocalPlatformContext.current
-                // Stabilize the ImageRequest construction so we don't allocate
-                // a new request + Builder per recomposition. ThumbnailCells
-                // compose by the dozen as the user scrolls bands into view; on
-                // every recomposition this constructor used to re-run.
-                val request = remember(context, asset.thumbnailUrl, asset.thumbnailCacheKey) {
-                    ImageRequest.Builder(context)
-                        .data(asset.thumbnailUrl)
-                        .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
-                        .precision(Precision.EXACT)
-                        // Stable key so the full-image request can reference this
-                        // cached thumbnail as its placeholder (see AssetPage).
-                        .memoryCacheKey(asset.thumbnailCacheKey)
-                        .diskCacheKey(asset.thumbnailCacheKey)
-                        .build()
-                }
-                val painter = rememberAsyncImagePainter(model = request)
-                Image(
-                    painter = painter,
-                    contentDescription = asset.fileName,
-                    contentScale = ContentScale.Fit,
-                    modifier = imageModifier
-                )
-            } else {
-                Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.surfaceVariant))
+    } else {
+        ThumbnailCellContent(
+            asset = asset,
+            modifier = modifier.clickable(onClick = onClick)
+        )
+    }
+}
+
+@Composable
+private fun ThumbnailCellContent(
+    asset: Asset,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier) {
+        if (LocalAppActive.current) {
+            val imageModifier = Modifier.matchParentSize()
+            val context = LocalPlatformContext.current
+            // Stabilize the ImageRequest construction so we don't allocate
+            // a new request + Builder per recomposition. ThumbnailCells
+            // compose by the dozen as the user scrolls bands into view; on
+            // every recomposition this constructor used to re-run.
+            val request = remember(context, asset.thumbnailUrl, asset.thumbnailCacheKey) {
+                ImageRequest.Builder(context)
+                    .data(asset.thumbnailUrl)
+                    .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
+                    .precision(Precision.EXACT)
+                    // Stable key so the full-image request can reference this
+                    // cached thumbnail as its placeholder (see AssetPage).
+                    .memoryCacheKey(asset.thumbnailCacheKey)
+                    .diskCacheKey(asset.thumbnailCacheKey)
+                    .build()
             }
-            if (asset.type == AssetType.VIDEO) {
+            val painter = rememberAsyncImagePainter(model = request)
+            Image(
+                painter = painter,
+                contentDescription = asset.fileName,
+                contentScale = ContentScale.Fit,
+                modifier = imageModifier
+            )
+        } else {
+            Box(Modifier.matchParentSize().background(MaterialTheme.colorScheme.surfaceVariant))
+        }
+        if (asset.type == AssetType.VIDEO) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_play),
+                contentDescription = stringResource(Res.string.detail_video),
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(Dimens.playIconSize)
+                    .background(Color.Black.copy(alpha = VIDEO_OVERLAY_ALPHA), CircleShape)
+                    .padding(Dimens.playIconPadding)
+            )
+        }
+        if (asset.stackCount > 1) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(Dimens.smallSpacing)
+                    .background(
+                        Color.Black.copy(alpha = STACK_BADGE_ALPHA),
+                        RoundedCornerShape(Dimens.smallSpacing)
+                    )
+                    .padding(horizontal = Dimens.smallSpacing, vertical = Dimens.stackBadgePaddingVertical),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
-                    painter = painterResource(Res.drawable.ic_play),
-                    contentDescription = stringResource(Res.string.detail_video),
+                    painter = painterResource(Res.drawable.ic_stack),
+                    contentDescription = stringResource(Res.string.stack_count),
                     tint = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(Dimens.playIconSize)
-                        .background(Color.Black.copy(alpha = VIDEO_OVERLAY_ALPHA), CircleShape)
-                        .padding(Dimens.playIconPadding)
+                    modifier = Modifier.size(Dimens.stackBadgeIconSize)
                 )
-            }
-            if (asset.stackCount > 1) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(Dimens.smallSpacing)
-                        .background(
-                            Color.Black.copy(alpha = STACK_BADGE_ALPHA),
-                            RoundedCornerShape(Dimens.smallSpacing)
-                        )
-                        .padding(horizontal = Dimens.smallSpacing, vertical = Dimens.stackBadgePaddingVertical),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(Res.drawable.ic_stack),
-                        contentDescription = stringResource(Res.string.stack_count),
-                        tint = Color.White,
-                        modifier = Modifier.size(Dimens.stackBadgeIconSize)
-                    )
-                    Text(
-                        text = "${asset.stackCount}",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(start = Dimens.stackBadgePaddingVertical)
-                    )
-                }
+                Text(
+                    text = "${asset.stackCount}",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(start = Dimens.stackBadgePaddingVertical)
+                )
             }
         }
     }

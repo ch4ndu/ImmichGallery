@@ -90,12 +90,11 @@ structure; it must not wait for every bucket's server refresh.
    `bucketAssetsCache`.
 5. Cached aggregate geometry can provide accurate placeholder heights for
    unloaded Mosaic buckets. Missing geometry falls back to projected or count-
-   based placeholders. The bucket-aggregate read and the per-section read run
-   together as a single warm-launch geometry phase that closes a
-   `timelineGeometryReady` gate while in flight; the first mosaic queue read
-   defers until the gate opens so placeholders never update twice for the same
-   bucket. Other (post-init) callers fire normally — the gate only matters at
-   warm launch and after explicit cache clears.
+   based placeholders. Bucket-aggregate and per-section geometry read together
+   for visible/target buckets plus radius neighbors first. `timelineGeometryReady`
+   gates only that priority phase and opens even on read failure so visible
+   Mosaic work cannot stall; remaining cached bucket geometry hydrates afterward
+   in small offscreen chunks.
 6. Under the current cache-only warm policy, no background server sync runs on
    warm launch. If warm server refresh is enabled, a background sync refreshes
    bucket metadata and records stale or removed buckets without fetching every
@@ -169,10 +168,11 @@ Timeline uses multiple cache layers, each with a different purpose.
   for persisted Mosaic sections. Geometry rows are keyed by assignment identity,
   rounded Timeline width, and geometry version; max row height and spacing are
   validation fields and stale rows are recomputed. Each row stores both the
-  aggregate `placeholderHeight` for the section and a `bandHeightsJson` array of
-  per-band pixel heights. Per-band heights enable rendering N exact placeholder
-  items per section so the placeholder→band transition swaps each item in place
-  with zero height delta.
+  aggregate `placeholderHeight` for the section and `geometryBandsJson`.
+  Geometry bands store source range plus layout height for each final real
+  Mosaic band. Timeline renders one aggregate placeholder per pending section
+  to keep LazyColumn item count low; geometry bands are used for exact-height
+  partial projection.
 - Room `timeline_bucket_geometry`: width-keyed aggregate placeholder geometry
   for whole buckets. Unloaded buckets use this after cold sync and on warm
   launch, including day group mode where the aggregate includes day headers and
@@ -311,13 +311,14 @@ assignments replace the partial runtime chunks.
 
 Partial rendering must preserve source order: valid ready chunks render final
 real Mosaic bands, invalid chunks render placeholders, and pending source ranges
-render placeholders.
-Those placeholders use range-specific keys so LazyColumn identity does not
-collide with full-section placeholders. Exact aggregate bucket geometry still
-protects unloaded bucket height; partial section placeholders are best-effort
-until the remaining Mosaic bands are computed, so the screen anchors the first
-visible real asset when chunks replace placeholders above or inside the
-viewport.
+render placeholders. When cached section geometry exists, partial output maps
+chunk ranges onto `geometryBandsJson`; unresolved final geometry bands collapse
+into exact-height placeholders and the mixed partial output must preserve the
+final ready section height within `0.5f`. If validation fails, Timeline keeps
+the exact full-section placeholder until ready output arrives. Without cached
+geometry, partial placeholders remain provisional estimates until the remaining
+Mosaic bands are computed, so the screen anchors the first visible real asset
+when chunks replace placeholders above or inside the viewport.
 
 Progressive chunks are buffered in the ViewModel before entering
 `_mosaicStates`. The buffer is protected by a mutex, deduplicates chunks by
@@ -466,13 +467,13 @@ exact section geometry when available and otherwise use count/width estimates.
 Count-only bucket metadata estimates are used only when asset rows have not been
 materialized yet.
 
-When the persisted section geometry row carries `bandHeights`, the placeholder
-phase emits one `PlaceholderItem` per band — each placeholder uses the exact
-`bandHeight` of the band that will replace it. The mosaic Ready transition then
-swaps each placeholder for a `MosaicBandItem` of identical height, item by item,
-with zero LazyColumn re-anchor and zero visible vertical shift. When
-`bandHeights` is empty (legacy rows or before the geometry phase completes), the
-placeholder falls back to a single chunk sized to the aggregate section height.
+When persisted section geometry exists, the placeholder phase emits one
+aggregate `PlaceholderItem` sized to the section's `placeholderHeight`.
+`geometryBandsJson` is used to keep progressive partial output height-exact,
+but current Timeline rendering deliberately does not expand pending sections
+into one LazyColumn item per final band. When section geometry is missing, the
+placeholder falls back to cached-asset projection or count/width estimates and
+may resize once after exact geometry is first computed.
 
 Timeline Mosaic display cache is width-dependent and requested-config scoped. It
 stores portable band records, not Compose display objects, keyed by bucket,
@@ -552,8 +553,13 @@ of the following:
   unresolved, invalid, or cache-miss Mosaic ranges become placeholders.
 
 `TimelineContent` renders a `LazyColumn` with stable `gridKey` values and
-content types based on display-item class. It also owns visible bucket reporting,
-scrollbar callbacks, sticky header overlay, and sync banners.
+shape-aware content types from `photoGridDisplayItemContentType(...)`. `RowItem`
+content type includes photo count and complete/incomplete state, while
+`MosaicBandItem` includes tile count and band kind. This keeps Compose slot
+reuse within compatible row/band child shapes and avoids rebuilding a reused
+item tree from a different thumbnail count while scrolling large buckets.
+`TimelineContent` also owns visible bucket reporting, scrollbar callbacks,
+sticky header overlay, and sync banners.
 
 Timeline remaps placeholder and Mosaic band keys into Timeline-local keys that
 include bucket and section identity. Shared grid builders may produce keys that
@@ -586,6 +592,13 @@ drag-to-dismiss can reveal the grid. The overlay receives:
   materialized asset source.
 - `onBucketNeeded`, so paging into an unloaded bucket can trigger lazy load.
 
+Grid thumbnails are shared-element sources, but normal scrolling cells must use
+the plain `ThumbnailCell` path. Per-cell `AnimatedVisibility` and
+`sharedElement` wiring are enabled only for the active open/dismiss transition
+or the currently hidden/transitioning asset. Applying shared-element machinery
+to every thumbnail in a large bucket caused first-scroll jank even when image
+loading was disabled.
+
 When a photo opens, `getGlobalPhotoIndex()` first uses `TimelinePageIndex` and
 `bucketAssetsCache` to find the asset without a Room round trip. On dismiss,
 the overlay reports the current asset id and bucket. The screen asks the
@@ -610,7 +623,8 @@ materialized yet.
 - Placeholder heights should match final cached geometry as closely as possible:
   exact persisted geometry first, cached-asset aspect projection second,
   count-only metadata estimates last. Missing geometry is repaired by explicit
-  prepare/precompute actions, not by read-side backfill.
+  prepare/precompute actions, not by read-side backfill. Once exact section
+  geometry exists, rough placeholders must not replace it.
 - Placeholder and Mosaic item keys must remain stable across placeholder,
   partial, and ready transitions. Include Timeline bucket and section identity
   when shared grid builders return section-local keys.
@@ -620,9 +634,9 @@ materialized yet.
 - Progressive Mosaic chunks should be throttled before publishing to UI state,
   but visibility and scrollbar-target changes must flush eligible chunks
   immediately. Do not debounce visible/target bucket loading.
-- Aggregate geometry reads for warm launch are generation/config guarded. Stale
-  reads from a previous group, Mosaic family set, column count, width, or
-  full-screen height must be ignored.
+- Geometry reads for warm launch are visible-first and generation/config
+  guarded. Stale reads from a previous group, Mosaic family set, column count,
+  width, or full-screen height must be ignored.
 - Bucket-load display updates must remain immediate for shared-element return
   transitions. Debounce zoom/config work, not bucket materialization signals.
 - No-op syncs must not bump revisions or repack unchanged buckets.
@@ -633,7 +647,10 @@ materialized yet.
   partially assigned ranges render placeholders, not `RowItem`s or fallback
   thumbnail bands. Fallback `MosaicBandItem` bands are allowed only in completed
   ready output or validated completed display-cache rows.
-- Stale Mosaic cache reads must not publish after generation/config changes.
+- Stale Mosaic cache reads and queued runtime publishes must not publish after
+  generation/config changes. Timeline publish application is guarded by a global
+  Mosaic runtime generation plus per-bucket generations, so one changed bucket
+  cannot resurrect stale bands and does not invalidate unrelated visible work.
   Runtime Mosaic cancellation from active scroll is expected and must leave the
   bucket deferred/resumable.
 - Room asset rows should not store stale server URLs; domain assets reconstruct

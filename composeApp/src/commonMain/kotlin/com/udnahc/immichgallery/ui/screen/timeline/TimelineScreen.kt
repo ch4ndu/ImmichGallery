@@ -66,6 +66,7 @@ import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.MosaicPhotoBand
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.PlaceholderRow
+import com.udnahc.immichgallery.ui.component.photoGridDisplayItemContentType
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.model.asText
@@ -87,6 +88,12 @@ import org.koin.compose.viewmodel.koinViewModel
 private data class TimelineScrollAnchor(
     val assetId: String,
     val scrollOffset: Int
+)
+
+private data class TimelineBucketScrollAnchor(
+    val bucketIndex: Int,
+    val itemKey: String?,
+    val scrollOffset: Int = 0
 )
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -259,6 +266,7 @@ fun TimelineContent(
     val latestDisplayIndex by rememberUpdatedState(state.displayIndex)
     val latestPageIndex by rememberUpdatedState(state.pageIndex)
     var scrollAnchor by remember { mutableStateOf<TimelineScrollAnchor?>(null) }
+    var bucketScrollAnchor by remember { mutableStateOf<TimelineBucketScrollAnchor?>(null) }
 
     LoadingErrorContent(
         isLoading = state.isLoading && displayItems.isEmpty(),
@@ -272,25 +280,38 @@ fun TimelineContent(
                         displayItems = latestDisplayItems,
                         visibleItems = listState.layoutInfo.visibleItemsInfo
                     )
-                }
+                    }
                     .distinctUntilChanged()
                     .collectLatest { anchor ->
+                        scrollAnchor = anchor
                         if (anchor != null) {
-                            scrollAnchor = anchor
+                            bucketScrollAnchor = null
                         }
                     }
             }
             LaunchedEffect(state.displayIndex) {
-                val anchor = scrollAnchor ?: return@LaunchedEffect
                 if (listState.isScrollInProgress) return@LaunchedEffect
-                val targetIndex = latestDisplayIndex.assetDisplayIndexById[anchor.assetId] ?: return@LaunchedEffect
-                val currentAnchor = firstVisibleAssetAnchor(
-                    displayItems = latestDisplayItems,
-                    visibleItems = listState.layoutInfo.visibleItemsInfo
-                )
-                if (currentAnchor?.assetId != anchor.assetId) {
-                    listState.scrollToItem(targetIndex, anchor.scrollOffset)
+                val anchor = scrollAnchor
+                if (anchor != null) {
+                    val targetIndex = latestDisplayIndex.assetDisplayIndexById[anchor.assetId] ?: return@LaunchedEffect
+                    val currentAnchor = firstVisibleAssetAnchor(
+                        displayItems = latestDisplayItems,
+                        visibleItems = listState.layoutInfo.visibleItemsInfo
+                    )
+                    if (currentAnchor?.assetId != anchor.assetId) {
+                        listState.scrollToItem(targetIndex, anchor.scrollOffset)
+                    }
+                    return@LaunchedEffect
                 }
+                val bucketAnchor = bucketScrollAnchor ?: return@LaunchedEffect
+                val currentFirstIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
+                val currentFirstBucket = currentFirstIndex?.let { latestDisplayIndex.bucketByDisplayIndex.getOrNull(it) }
+                if (currentFirstBucket == bucketAnchor.bucketIndex) return@LaunchedEffect
+                val targetIndex = bucketAnchor.itemKey
+                    ?.let { itemKey -> latestDisplayItems.indexOfFirst { it.gridKey == itemKey }.takeIf { it >= 0 } }
+                    ?: latestDisplayIndex.displayIndexesByBucket[bucketAnchor.bucketIndex]?.firstOrNull()
+                    ?: return@LaunchedEffect
+                listState.scrollToItem(targetIndex, bucketAnchor.scrollOffset)
             }
             LaunchedEffect(listState) {
                 snapshotFlow {
@@ -363,6 +384,11 @@ fun TimelineContent(
                         { fraction, commit ->
                             val target = latestScrollTargetForFraction(fraction)
                             if (target != null) {
+                                scrollAnchor = null
+                                bucketScrollAnchor = TimelineBucketScrollAnchor(
+                                    bucketIndex = target.bucketIndex,
+                                    itemKey = latestDisplayItems.getOrNull(target.displayIndex)?.gridKey
+                                )
                                 scrollbarScrollJob[0]?.cancel()
                                 scrollbarScrollJob[0] = coroutineScope.launch {
                                     listState.scrollToItem(target.displayIndex)
@@ -437,7 +463,7 @@ fun TimelineContent(
                             items(
                                 items = displayItems,
                                 key = { item -> item.gridKey },
-                                contentType = { item -> item::class }
+                                contentType = ::photoGridDisplayItemContentType
                             ) { item ->
                                 TimelineDisplayItemRenderer(
                                     item = item,

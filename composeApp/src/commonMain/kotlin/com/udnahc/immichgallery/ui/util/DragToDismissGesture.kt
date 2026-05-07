@@ -2,15 +2,16 @@ package com.udnahc.immichgallery.ui.util
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import kotlin.math.abs
 
 /**
  * Google-Photos-style drag-to-dismiss for the photo detail overlay.
@@ -45,10 +46,11 @@ fun Modifier.dragToDismiss(
         if (isZoomed()) return@awaitEachGesture
 
         var slopOverflow = 0f
-        val initialDrag = awaitVerticalTouchSlopOrCancellation(down.id) { change, overSlop ->
-            slopOverflow = overSlop
-            change.consume()
-        } ?: return@awaitEachGesture
+        val initialDrag =
+            awaitVerticalTouchSlopOrMultiTouchCancellation(down) { change, overSlop ->
+                slopOverflow = overSlop
+                change.consume()
+            } ?: return@awaitEachGesture
 
         if (slopOverflow > 0f) {
             state.onDragStart(down.position, size)
@@ -67,6 +69,36 @@ fun Modifier.dragToDismiss(
                 thresholdPx = dismissThresholdPx,
                 onOpenDetailSheet = onOpenDetailSheet,
             )
+        }
+    }
+}
+
+private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope
+    .awaitVerticalTouchSlopOrMultiTouchCancellation(
+        down: PointerInputChange,
+        onTouchSlopReached: (PointerInputChange, Float) -> Unit,
+    ): PointerInputChange? {
+    val pointerId = down.id
+    val touchSlop = viewConfiguration.touchSlop
+    var total = Offset.Zero
+
+    while (true) {
+        val event = awaitPointerEvent()
+        if (event.changes.count { it.pressed } > 1) return null
+        val change = event.changes.firstOrNull { it.id == pointerId } ?: return null
+        if (change.changedToUp()) return null
+
+        val delta = change.positionChange()
+        if (delta == Offset.Zero) continue
+        total += delta
+
+        val absX = abs(total.x)
+        val absY = abs(total.y)
+        if (absX > touchSlop && absX > absY) return null
+        if (absY > touchSlop) {
+            val overSlop = total.y - if (total.y > 0f) touchSlop else -touchSlop
+            onTouchSlopReached(change, overSlop)
+            return change
         }
     }
 }

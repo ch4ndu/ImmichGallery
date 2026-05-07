@@ -16,6 +16,7 @@ import com.udnahc.immichgallery.domain.model.DetailMosaicSectionGeometryEntry
 import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.MosaicDisplayBandRecord
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignmentDto
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDto
 import kotlinx.coroutines.Dispatchers
@@ -226,6 +227,12 @@ private fun DetailMosaicSectionGeometryEntity.toSectionGeometryDomainOrNull(): D
         geometryVersion = geometryVersion,
         placeholderHeight = placeholderHeight,
         displayItemCount = displayItemCount,
+        bands = if (geometryBandsJson.isEmpty()) {
+            emptyList()
+        } else {
+            runCatching { json.decodeFromString<List<MosaicSectionGeometryBand>>(geometryBandsJson) }
+                .getOrDefault(emptyList())
+        },
         updatedAt = updatedAt
     )
 }
@@ -303,6 +310,7 @@ private fun DetailMosaicSectionGeometryEntry.toEntity(): DetailMosaicSectionGeom
         geometryVersion = geometryVersion,
         placeholderHeight = placeholderHeight,
         displayItemCount = displayItemCount,
+        geometryBandsJson = json.encodeToString(bands),
         updatedAt = updatedAt
     )
 

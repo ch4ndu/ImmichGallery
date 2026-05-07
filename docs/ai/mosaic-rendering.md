@@ -22,7 +22,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - `MosaicSectionResult.Failed` is a compute failure. Screens decide retry/display state; failure must not imply repository writes.
 - `MosaicSectionState` is the shared state vocabulary for pending, partial, ready, and failed section state.
 - `ProgressChunk` owns a contiguous source-asset range and a set of assignments for that range. Chunks are memory-only runtime state.
-- `SectionGeometry` is per section. `AggregateGeometry` is owner-level placeholder height across ordered sections for a grouping/config/content generation.
+- `SectionGeometry` is per section. It stores the section `placeholderHeight` plus `MosaicSectionGeometryBand(sourceStartIndex, sourceCount, height)` records for each final real Mosaic band. `AggregateGeometry` is owner-level placeholder height across ordered sections for a grouping/config/content generation.
 
 ## Layout And Display Items
 
@@ -51,6 +51,11 @@ For the broader Album Detail and Person Detail screen experience around cached-f
   - Gaps and invalid chunks render `PlaceholderItem`s.
   - It must not emit `RowItem`.
   - It must not emit `MosaicBandItem(kind = FALLBACK)`.
+- `projectPartialSectionWithGeometry(...)` is the exact-height strict runtime projection:
+  - It accepts cached section geometry bands and completed progress chunks.
+  - Real chunk bands may publish only when their projected height matches the corresponding geometry-band range within tolerance.
+  - Unresolved or invalid geometry-band ranges collapse into exact-height placeholders.
+  - The projected partial section must preserve the final ready section height within `0.5f`, otherwise callers keep the exact full-section placeholder.
 - A chunk is valid for strict display only when the projected output is all real Mosaic bands and covers the chunk source range without source overlap.
 - Empty-assignment progress chunks are not completed visual chunks; strict projection renders their range as placeholders.
 
@@ -100,25 +105,28 @@ For the broader Album Detail and Person Detail screen experience around cached-f
   - Assignments are width-independent.
   - Display bands, section geometry, and aggregate bucket geometry are width/config/version dependent.
   - Rows are scoped by bucket/section, grouping, column count, families, ordered asset fingerprint, and geometry identity as appropriate.
-  - Section geometry rows store both the aggregate `placeholderHeight` and a `bandHeights` array of per-band pixel heights. Per-band heights are extracted from the section's projected `MosaicBandItem`s at write time and used at render time to emit one placeholder per band so the placeholder→band transition swaps each item in place.
+  - Section geometry rows store both the aggregate `placeholderHeight` and serialized geometry bands. Geometry bands record each final band's source range and layout height, and are extracted from projected real `MosaicBandItem`s at write time.
 - Detail artifacts:
   - Owner-scoped assignments, display bands, section geometry, and aggregate geometry are keyed by owner type/id, grouping, section index/key, column count, families, ordered asset fingerprint, geometry keys, and artifact versions.
+  - Detail section geometry uses the same geometry-band payload as Timeline so Album/Person partial chunks can reserve exact unresolved heights.
   - Album Detail may read/write owner cache when cache is enabled and the album owner snapshot is complete.
   - Person Detail may read/write owner cache only after the full person asset set is known (`hasMore == false`).
-- Cache readiness requires matching assignments, section geometry, and aggregate geometry. Display-band rows are additionally required only when `cacheMosaicResults = true`.
+- Full-owner cache readiness requires matching assignments, section geometry, and aggregate geometry. Per-section display recovery may use valid matching assignment, section geometry, and display-band rows even when the owner aggregate geometry row is missing after an interrupted cache build.
 - Cache-disabled runtime rendering must not read or reuse disk Mosaic artifacts even if matching rows exist.
 - Applying Mosaic settings with cache enabled is blocking: prepare the applicable Timeline/detail cache first, then persist/apply the config. On preparation failure, keep the previous `ViewConfig`.
 - Cache schema changes may use destructive migration while this remains a pre-alpha cache-only project.
 
 ## Geometry And Placeholders
 
-- Section geometry is the placeholder height for one Mosaic section at a specific config/geometry identity. Timeline section geometry rows additionally carry a `bandHeights` list — the per-band pixel heights for that section.
+- Section geometry is the placeholder height for one Mosaic section at a specific config/geometry identity. It stores Compose layout-unit heights, not physical pixels, so density is not part of the cache key.
+- Section geometry bands record final Mosaic source ranges and band heights. They are required for exact partial projection because heights alone cannot tell which unresolved source range a placeholder replaces.
 - Aggregate geometry is the owner or bucket placeholder height across ordered sections for the current grouping/config/content generation.
 - Exact persisted geometry should be used when it matches the active config. Stale geometry must miss.
 - Count-only placeholders are the last fallback when exact geometry and materialized asset data are unavailable.
 - Placeholder-to-ready replacement should preserve scroll position, shared element return targets, and hidden-asset behavior as much as possible.
-- When per-band heights are available for a section, the placeholder phase emits one `PlaceholderItem` per band sized to that band's exact `bandHeight`. The mosaic Ready transition swaps each placeholder for a `MosaicBandItem` of identical height with no LazyColumn re-anchor. Per-band placeholders use stable keys distinct from single-chunk placeholders so the transition does not collide. Without per-band heights, the placeholder is a single chunk sized to the aggregate section height.
-- Timeline `TimelineViewModel` runs a coordinated bucket-aggregate + per-section geometry read at warm launch and after cache invalidation. A `timelineGeometryReady` gate stays closed while the read is in flight; the first mosaic queue read defers behind it so a section never transitions through two placeholder shapes (count-estimate then exact, or aggregate-only then per-band) before its bands arrive. Other (post-init) callers do not wait on the gate.
+- Timeline and detail screens render one aggregate `PlaceholderItem` per pending Mosaic section when exact section geometry is available. Partial rendering may replace that placeholder only if the mixed real-band/placeholder output preserves the exact section height.
+- When cache results are enabled but no geometry has been computed yet, screens may show a provisional count-based placeholder and accept one first-time resize. Once exact geometry exists, rough placeholders must not overwrite it.
+- Timeline `TimelineViewModel` reads bucket-aggregate + per-section geometry in a visible-first phase at warm launch and after cache invalidation. A `timelineGeometryReady` gate stays closed only for visible/target buckets plus radius neighbors; the gate opens even when that priority read fails so visible Mosaic work cannot stall indefinitely. Offscreen cached geometry hydrates afterward in small background chunks.
 
 ## Invalidation And Staleness
 
@@ -126,7 +134,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Config identity includes Mosaic enablement, column count, normalized template families, grouping where applicable, and geometry keys where display/geometry artifacts are width-dependent.
 - Asset/order/content changes clear matching assignments, display bands, section geometry, aggregate geometry, in-memory runtime state, and progressive chunks for the affected owner/bucket/section.
 - Width or settings changes must not recompute unchanged Timeline buckets opportunistically. They should read matching requested-config artifacts or show placeholders according to the screen policy; they must not fetch or display older Mosaic configs as substitutes.
-- Stale async work must be ignored when owner, generation, config, fingerprint, or geometry identity no longer matches.
+- Stale async work must be ignored when owner, generation, config, fingerprint, bucket generation, or geometry identity no longer matches. Timeline queued Mosaic publishes are guarded by both a global runtime generation and per-bucket generations.
 - `Ready` supersedes partial/in-flight/retry state. `Failed` or retry state must not replace an existing valid ready state for the active config.
 
 ## Audit Rules

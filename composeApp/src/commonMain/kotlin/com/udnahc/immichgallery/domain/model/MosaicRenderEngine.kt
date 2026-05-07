@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.domain.model
 
 import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.Serializable
 import kotlin.math.ceil
 import kotlin.time.measureTimedValue
 import org.lighthousegames.logging.logging
@@ -43,10 +44,19 @@ data class ProgressChunk(
 )
 
 @Immutable
+@Serializable
+data class MosaicSectionGeometryBand(
+    val sourceStartIndex: Int,
+    val sourceCount: Int,
+    val height: Float
+)
+
+@Immutable
 data class SectionGeometry(
     val keyScope: MosaicKeyScope,
     val placeholderHeight: Float,
-    val displayItemCount: Int
+    val displayItemCount: Int,
+    val bands: List<MosaicSectionGeometryBand> = emptyList()
 )
 
 @Immutable
@@ -172,6 +182,17 @@ interface MosaicSectionComputer {
         spacing: Float,
         maxRowHeight: Float
     ): List<PhotoGridDisplayItem>
+
+    fun projectPartialSectionWithGeometry(
+        assets: List<Asset>,
+        chunks: List<ProgressChunk>,
+        geometryBands: List<MosaicSectionGeometryBand>,
+        bucketIndex: Int,
+        sectionLabel: String,
+        layoutSpec: MosaicLayoutSpec,
+        spacing: Float,
+        maxRowHeight: Float
+    ): List<PhotoGridDisplayItem>?
 
     fun computeSectionGeometry(
         keyScope: MosaicKeyScope,
@@ -394,6 +415,59 @@ class MosaicRenderEngine : MosaicSectionComputer {
         return items
     }
 
+    override fun projectPartialSectionWithGeometry(
+        assets: List<Asset>,
+        chunks: List<ProgressChunk>,
+        geometryBands: List<MosaicSectionGeometryBand>,
+        bucketIndex: Int,
+        sectionLabel: String,
+        layoutSpec: MosaicLayoutSpec,
+        spacing: Float,
+        maxRowHeight: Float
+    ): List<PhotoGridDisplayItem>? {
+        if (assets.isEmpty()) return emptyList()
+        if (!geometryBands.coversGeometrySourceRange(0, assets.size)) return null
+        val items = mutableListOf<PhotoGridDisplayItem>()
+        var cursor = 0
+        chunks.sortedBy { it.sourceStartIndex }.forEach { chunk ->
+            val chunkStart = chunk.sourceStartIndex.coerceIn(0, assets.size)
+            val chunkEnd = chunk.sourceEndExclusive.coerceIn(chunkStart, assets.size)
+            if (chunkStart < cursor) return null
+            if (chunkStart > cursor) {
+                items.addAll(projectGeometryPlaceholderRange(geometryBands, cursor, chunkStart, bucketIndex, sectionLabel, spacing) ?: return null)
+            }
+            if (chunkEnd > chunkStart) {
+                val expectedHeight = geometryBands.heightForSourceRange(chunkStart, chunkEnd, spacing) ?: return null
+                val shiftedAssignments = chunk.assignments.map { assignment ->
+                    assignment.copy(sourceStartIndex = assignment.sourceStartIndex - chunkStart)
+                }
+                val projected = projectSection(
+                    assets = assets.subList(chunkStart, chunkEnd),
+                    assignments = shiftedAssignments,
+                    bucketIndex = bucketIndex,
+                    sectionLabel = sectionLabel,
+                    layoutSpec = layoutSpec,
+                    spacing = spacing,
+                    maxRowHeight = maxRowHeight
+                ).withAbsoluteMosaicSourceKeys(chunkStart, bucketIndex, sectionLabel)
+                if (projected.all { it is MosaicBandItem && it.kind == MosaicBandKind.REAL } &&
+                    projected.filterIsInstance<MosaicBandItem>().coversSourceRange(chunkStart, chunkEnd) &&
+                    heightsMatch(estimatePhotoGridDisplayItemsHeight(projected, spacing), expectedHeight)
+                ) {
+                    items.addAll(projected)
+                } else {
+                    items.addAll(projectGeometryPlaceholderRange(geometryBands, chunkStart, chunkEnd, bucketIndex, sectionLabel, spacing) ?: return null)
+                }
+            }
+            cursor = chunkEnd
+        }
+        if (cursor < assets.size) {
+            items.addAll(projectGeometryPlaceholderRange(geometryBands, cursor, assets.size, bucketIndex, sectionLabel, spacing) ?: return null)
+        }
+        val expectedTotalHeight = geometryBands.heightForSourceRange(0, assets.size, spacing) ?: return null
+        return items.takeIf { heightsMatch(estimatePhotoGridDisplayItemsHeight(it, spacing), expectedTotalHeight) }
+    }
+
     fun projectFallbackSectionRange(
         assets: List<Asset>,
         sourceStartIndex: Int,
@@ -427,7 +501,16 @@ class MosaicRenderEngine : MosaicSectionComputer {
         SectionGeometry(
             keyScope = keyScope,
             placeholderHeight = estimatePhotoGridDisplayItemsHeight(displayItems, spacing),
-            displayItemCount = displayItems.size
+            displayItemCount = displayItems.size,
+            bands = displayItems.filterIsInstance<MosaicBandItem>()
+                .filter { it.kind == MosaicBandKind.REAL }
+                .map { band ->
+                    MosaicSectionGeometryBand(
+                        sourceStartIndex = band.sourceStartIndex,
+                        sourceCount = band.sourceCount,
+                        height = band.bandHeight
+                    )
+                }
         )
 
     override fun computeAggregateGeometry(
@@ -448,6 +531,58 @@ class MosaicRenderEngine : MosaicSectionComputer {
             displayItemCount = sectionGeometries.sumOf { it.displayItemCount } + headerCount
         )
     }
+}
+
+private const val GEOMETRY_HEIGHT_TOLERANCE = 0.5f
+
+private fun heightsMatch(actual: Float, expected: Float): Boolean =
+    kotlin.math.abs(actual - expected) <= GEOMETRY_HEIGHT_TOLERANCE
+
+private fun List<MosaicSectionGeometryBand>.coversGeometrySourceRange(
+    sourceStartIndex: Int,
+    sourceEndExclusive: Int
+): Boolean {
+    if (sourceStartIndex == sourceEndExclusive) return true
+    var cursor = sourceStartIndex
+    filter { it.sourceStartIndex >= sourceStartIndex && it.sourceStartIndex < sourceEndExclusive }
+        .sortedBy { it.sourceStartIndex }
+        .forEach { band ->
+            if (band.sourceCount <= 0 || band.height <= 0f) return false
+            if (band.sourceStartIndex != cursor) return false
+            cursor += band.sourceCount
+            if (cursor > sourceEndExclusive) return false
+        }
+    return cursor == sourceEndExclusive
+}
+
+private fun List<MosaicSectionGeometryBand>.heightForSourceRange(
+    sourceStartIndex: Int,
+    sourceEndExclusive: Int,
+    spacing: Float
+): Float? {
+    if (!coversGeometrySourceRange(sourceStartIndex, sourceEndExclusive)) return null
+    val bands = filter { it.sourceStartIndex >= sourceStartIndex && it.sourceStartIndex < sourceEndExclusive }
+        .sortedBy { it.sourceStartIndex }
+    if (bands.isEmpty()) return 0f
+    return bands.sumOf { it.height.toDouble() }.toFloat() +
+        spacing * (bands.size - 1).coerceAtLeast(0)
+}
+
+private fun projectGeometryPlaceholderRange(
+    geometryBands: List<MosaicSectionGeometryBand>,
+    sourceStartIndex: Int,
+    sourceEndExclusive: Int,
+    bucketIndex: Int,
+    sectionLabel: String,
+    spacing: Float
+): List<PlaceholderItem>? {
+    val height = geometryBands.heightForSourceRange(sourceStartIndex, sourceEndExclusive, spacing) ?: return null
+    return buildPhotoGridPlaceholderItemsForHeight(
+        bucketIndex = bucketIndex,
+        sectionLabel = sectionLabel,
+        estimatedHeight = height,
+        externalSpacing = spacing
+    )
 }
 
 private fun projectPlaceholderSectionRange(

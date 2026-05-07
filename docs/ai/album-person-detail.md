@@ -65,6 +65,14 @@ The screens do not group assets, pack rows, compute Mosaic bands, read cache art
 - active scroll state from `LazyListState.isScrollInProgress`;
 - near-end load-more triggers for Person Detail.
 
+`PhotoGridDetailContent` renders the same shared photo-grid display surface as
+Timeline. Its `LazyColumn` must use stable `gridKey` values and
+`photoGridDisplayItemContentType(...)` so `RowItem` and `MosaicBandItem` slots
+are reused only across compatible child shapes. Shared grid thumbnails should
+keep the normal scroll path plain; per-cell `AnimatedVisibility` and
+`sharedElement` wiring belong only to the active open/dismiss transition or the
+currently hidden asset.
+
 Zoom behavior is shared:
 
 - row-packing mode supports pinch and desktop wheel zoom;
@@ -371,8 +379,9 @@ Initial group item selection is ordered by group index:
 1. Use in-memory `groupDisplayCache` if final ready output exists for the exact group/config/fingerprint.
 2. Else rebuild final ready output from in-memory resolved real display-band records if they validate against the current ordered group assets.
 3. Else use validated persistent display artifacts if cache results are enabled and the owner snapshot is complete. Persistent reads also seed the in-memory resolved-band cache when the stored bands are all real and fully cover the group.
-4. Else use runtime partial/in-flight state if available.
-5. Else render placeholders for the group.
+4. Else use valid section geometry, from memory or persistence, to size placeholders exactly.
+5. Else use runtime partial/in-flight state if available.
+6. Else render provisional placeholders for the group.
 
 ```mermaid
 flowchart TD
@@ -381,7 +390,9 @@ flowchart TD
     MemoryBands{Resolved real band records?}
     Persistent{Strict persistent artifacts?}
     Runtime{Runtime state?}
+    Geometry{Section geometry?}
     Placeholder[PlaceholderItem rows]
+    ExactPlaceholder[Exact-height PlaceholderItem]
     Ready[MosaicBandItem ready output]
     Partial[Real partial Mosaic bands + placeholders]
 
@@ -391,7 +402,9 @@ flowchart TD
     MemoryBands -- yes --> Ready
     MemoryBands -- no --> Persistent
     Persistent -- yes --> Ready
-    Persistent -- no --> Runtime
+    Persistent -- no --> Geometry
+    Geometry -- yes --> ExactPlaceholder
+    Geometry -- no --> Runtime
     Runtime -- InFlight/Failure --> Placeholder
     Runtime -- Partial --> Partial
     Runtime -- none --> Placeholder
@@ -405,13 +418,13 @@ The runtime group pipeline:
 4. Outside active scroll, compute groups in visible-first order.
 5. Run CPU work through `MosaicWorkScheduler`.
 6. Call `MosaicRenderEngine.computeSection(...)` with checkpoint, progress chunk, and cancellation callbacks.
-7. Publish valid partial chunks through `projectPartialSectionWithPlaceholders(...)`.
+7. Publish valid partial chunks through `projectPartialSectionWithGeometry(...)` when section geometry exists; otherwise use `projectPartialSectionWithPlaceholders(...)`.
 8. Publish completed ready output immediately for visible groups or defer offscreen replacement.
-9. Store completed ready group items in `groupDisplayCache`. If the ready output is made entirely of real `MosaicBandItem` records and covers the current ordered group assets, also store portable `MosaicDisplayBandRecord` values in `groupDisplayBandCache`.
+9. Store completed ready group items in `groupDisplayCache` and section geometry in `groupSectionGeometryCache`. If the ready output is made entirely of real `MosaicBandItem` records and covers the current ordered group assets, also store portable `MosaicDisplayBandRecord` values in `groupDisplayBandCache`.
 10. Write assignments, display bands, section geometry, and eventually aggregate geometry when persistent cache is eligible.
 11. Cache the full display list only after every current group has final ready output and no placeholders remain.
 
-Mosaic-enabled incomplete runtime states must render placeholders, not row-packing fallback and not fallback-thumbnail bands. Completed ready projection may contain fallback Mosaic bands if the engine produced them for the active config.
+Mosaic-enabled incomplete runtime states must render placeholders, not row-packing fallback and not fallback-thumbnail bands. If exact section geometry exists, placeholders use the stored section height; partial output may publish only when real chunks plus unresolved placeholders preserve the final section height within tolerance. Completed ready projection may contain fallback Mosaic bands if the engine produced them for the active config.
 
 `groupDisplayBandCache` is an optimization only. Assignments and ready display items remain the canonical state for the current render pass, and fallback ready bands are deliberately excluded from the resolved-band cache. If resolved records are missing or fail coverage validation, the coordinator continues through persistent cache, runtime state, or placeholders rather than trusting stale geometry.
 
@@ -478,18 +491,17 @@ Artifacts:
 
 - assignment rows store engine assignments;
 - display rows store serialized ready `MosaicBandItem` bands;
-- section geometry stores per-group placeholder height;
+- section geometry stores per-group placeholder height plus geometry bands. Geometry bands record source range and layout height for each final real Mosaic band, enabling exact-height partial placeholders;
 - aggregate geometry stores owner-level placeholder height for the complete ordered display.
 
-Readiness requires matching assignment, section geometry, and aggregate geometry. Display rows are additionally required when `cacheMosaicResults = true`.
+Per-group display readiness requires matching assignment, section geometry, and, when `cacheMosaicResults = true`, display rows for that group/config/fingerprint. Aggregate geometry is not allowed to invalidate otherwise valid per-group display artifacts; an interrupted cache build may have useful section rows even when the owner aggregate row is missing.
 
 Strict persistent display read:
 
-1. Aggregate geometry must match owner fingerprint and column count.
-2. Assignment keys and section geometry keys must match the group key.
-3. Display row column count must match.
-4. Display bands must cover current ordered assets with no gaps, overlaps, duplicate ids, unknown ids, invalid dimensions, or mismatched source slices.
-5. Invalid rows are treated as cache misses and runtime placeholders/compute take over.
+1. Assignment keys and section geometry keys must match the group key.
+2. Display row column count must match.
+3. Display bands must cover current ordered assets with no gaps, overlaps, duplicate ids, unknown ids, invalid dimensions, or mismatched source slices.
+4. Invalid rows are treated as cache misses and runtime placeholders/compute take over.
 
 Album cache policy:
 

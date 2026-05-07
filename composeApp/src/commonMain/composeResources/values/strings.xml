@@ -89,7 +89,6 @@
 
     <!-- People -->
     <string name="people_search_placeholder">Search people…</string>
-    <string name="person_detail_sync_in_progress">Sync in progress. More photos will load when it finishes.</string>
 
     <!-- Search -->
     <string name="search_placeholder">Search photos…</string>

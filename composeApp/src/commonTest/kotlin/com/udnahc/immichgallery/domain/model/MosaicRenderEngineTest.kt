@@ -60,6 +60,33 @@ class MosaicRenderEngineTest {
     }
 
     @Test
+    fun geometryBackedPartialProjectionPreservesReadyHeight() {
+        val request = request(sampleAssets(4))
+        val geometryBands = listOf(
+            MosaicSectionGeometryBand(sourceStartIndex = 0, sourceCount = 2, height = 140f),
+            MosaicSectionGeometryBand(sourceStartIndex = 2, sourceCount = 2, height = 160f)
+        )
+        val expectedHeight = 140f + request.spacing + 160f
+        val partialItems = engine.projectPartialSectionWithGeometry(
+            assets = request.assets,
+            chunks = emptyList(),
+            geometryBands = geometryBands,
+            bucketIndex = request.bucketIndex,
+            sectionLabel = request.sectionLabel,
+            layoutSpec = request.displayLayoutSpec,
+            spacing = request.spacing,
+            maxRowHeight = request.maxRowHeight
+        )
+
+        assertTrue(requireNotNull(partialItems).any { it is PlaceholderItem })
+        assertEquals(
+            expectedHeight,
+            estimatePhotoGridDisplayItemsHeight(partialItems, request.spacing),
+            absoluteTolerance = 0.5f
+        )
+    }
+
+    @Test
     fun partialProjectionUsesAbsoluteFallbackKeysAcrossChunks() {
         val request = request(sampleAssets(12))
         val chunks = listOf(

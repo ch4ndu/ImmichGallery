@@ -47,6 +47,8 @@ For standard justified row packing and `RowItem` behavior, load `docs/ai/row-pac
 - Use `snapshotFlow` for frequently-changing state such as scroll position.
 - Wrap composition-time `layoutInfo` reads in `remember { derivedStateOf { ... } }`.
 - Use stable keys in lazy layouts, usually `key = { it.id }`.
+- Photo-grid lazy lists should use `photoGridDisplayItemContentType(...)` so rows and Mosaic bands are reused only across compatible child shapes.
+- Grid thumbnails should keep shared-element and per-cell `AnimatedVisibility` wiring limited to the active photo transition path; normal scrolling cells should use the plain thumbnail path.
 - Do not wrap large repeated rows inside one lazy item with `Column { items.forEach { ... } }`; emit keyed lazy `items(...)` where virtualization matters.
 - Stabilize lambdas created inside `items()` or `for` loops with `remember(key)` when they capture changing state or callbacks.
 - Lambdas passed from Screen to Content composables that capture snapshot state should be wrapped in `remember { }` where practical.
@@ -57,6 +59,7 @@ For standard justified row packing and `RowItem` behavior, load `docs/ai/row-pac
 - `setAvailableWidth` should return early when width has not changed.
 - Compute rows atomically inside the state update that changes the related data.
 - Use `lastSelectedAssetId` or equivalent retained state so overlay content survives dismiss transitions.
+- Detail still-photo viewing should keep one stable zoomable full-resolution image path visible outside active transition/drag. Drag-dismiss transforms belong on the fitted media container, using tap-anchored layout size/offset so the touched media point stays under the finger; do not rely on draw-only `graphicsLayer` for the exit source rect. Pinch zoom takes precedence over drag before vertical dismiss commits. Freeze committed dismiss transforms until overlay unmount, use a short full-image alpha handoff for still-photo open/dismiss transitions, keep the shared thumbnail synchronously visible during real transitions, and only reset transforms to identity for snap-back/cancel. Video drag keeps the live video player composed and playing while the fitted media container follows the finger.
 - Slideshow auto-advance loops must re-check slideshow and page state after suspending.
 - Grid ViewModels own row-height bounds, effective target height, persisted view config, and photo-grid display items.
 - Mosaic assignment, progress chunks, fallback projection, and geometry belong behind `MosaicRenderEngine`; composables should only render display items. Timeline is the exception for assignment timing: assignments are precomputed after sync and persisted, while the ViewModel loads those cached assignments.

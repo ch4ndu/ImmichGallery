@@ -127,7 +127,7 @@ fun PhotoGridDetailContent(
                         items(
                             count = displayItems.size,
                             key = { displayItems[it].gridKey },
-                            contentType = { displayItems[it]::class }
+                            contentType = { photoGridDisplayItemContentType(displayItems[it]) }
                         ) { index ->
                             PhotoGridDisplayItemRenderer(
                                 item = displayItems[index],
