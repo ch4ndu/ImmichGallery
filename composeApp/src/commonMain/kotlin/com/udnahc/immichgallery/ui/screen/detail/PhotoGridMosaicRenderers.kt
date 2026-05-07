@@ -5,14 +5,13 @@ import com.udnahc.immichgallery.domain.model.DetailMosaicCacheEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheLookup
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.HeaderItem
-import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.MosaicDisplayBandRecord
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
-import com.udnahc.immichgallery.domain.model.coversOrderedAssets
+import com.udnahc.immichgallery.domain.model.displayRecordsCoverOrderedAssets
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
-import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayBandsOrEmpty
-import com.udnahc.immichgallery.domain.model.toDisplayRecord
-import com.udnahc.immichgallery.domain.model.toMosaicDisplayItems
+import com.udnahc.immichgallery.domain.model.resolvedRealDisplayBandsOrEmpty
+import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayRecordsOrEmpty
+import com.udnahc.immichgallery.domain.model.toPhotoGridDisplayItems
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -42,18 +41,18 @@ internal class CachedPhotoGridMosaicRenderer {
         cachedEntries: Map<DetailPersistentGroupKey, DetailMosaicCacheEntry>
     ): CachedPhotoGridMosaicGroup? {
         val entry = cachedEntries[DetailPersistentGroupKey(group.index, group.label, assetFingerprint)] ?: return null
-        if (!entry.bands.coversOrderedAssets(group.assets)) return null
-        val bands = entry.bands.toMosaicDisplayItems(
+        if (!entry.displayRecords.displayRecordsCoverOrderedAssets(group.assets)) return null
+        val projectedItems = entry.displayRecords.toPhotoGridDisplayItems(
             assets = group.assets,
             bucketIndex = group.index,
             sectionLabel = group.label,
             keyPrefix = "detail_mosaic_cache"
         )
-        if (bands.isEmpty() && entry.displayItemCount > 0) return null
-        val items = groupHeaderItems(group) + bands
+        if (projectedItems.isEmpty() && entry.displayItemCount > 0) return null
+        val items = groupHeaderItems(group) + projectedItems
         return CachedPhotoGridMosaicGroup(
             items = items,
-            resolvedBands = resolvedSectionDisplayBandsOrEmpty(bands, group.assets)
+            resolvedBands = resolvedRealDisplayBandsOrEmpty(projectedItems, group.assets)
         )
     }
 
@@ -72,9 +71,11 @@ internal class RuntimePhotoGridMosaicRenderer {
         assetFingerprint: String,
         lookup: DetailMosaicCacheLookup
     ): DetailMosaicCacheEntry? {
-        val bands = groupItems.filterIsInstance<MosaicBandItem>()
-            .map { it.toDisplayRecord() }
-        if (bands.isEmpty()) return null
+        val displayRecords = resolvedSectionDisplayRecordsOrEmpty(
+            displayItems = groupItems.filter { it !is HeaderItem },
+            assets = group.assets
+        )
+        if (displayRecords.isEmpty()) return null
         return DetailMosaicCacheEntry(
             ownerType = lookup.ownerType,
             ownerId = lookup.ownerId,
@@ -89,7 +90,7 @@ internal class RuntimePhotoGridMosaicRenderer {
             maxRowHeightKey = lookup.maxRowHeightKey,
             spacingKey = lookup.spacingKey,
             displayVersion = lookup.displayVersion,
-            bands = bands,
+            displayRecords = displayRecords,
             displayItemCount = groupItems.size,
             placeholderHeight = estimatePhotoGridDisplayItemsHeight(groupItems, GRID_SPACING_DP),
             updatedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()

@@ -4,7 +4,7 @@ import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
 import com.udnahc.immichgallery.domain.model.MosaicKeyScope
 import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
 import com.udnahc.immichgallery.domain.model.MosaicOwnerScope
-import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.MosaicSectionState
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import kotlinx.coroutines.test.runTest
@@ -109,8 +109,8 @@ class TimelineProgressiveMosaicBufferTest {
                 current to MosaicSectionState.Failed
             ),
             geometryUpdates = mapOf(
-                stale to TimelineMosaicSectionGeometry(100f, geometryBands(40f, 60f)),
-                current to TimelineMosaicSectionGeometry(200f, geometryBands(80f, 120f))
+                stale to TimelineMosaicSectionGeometry(100f, geometryRanges(40f, 60f)),
+                current to TimelineMosaicSectionGeometry(200f, geometryRanges(80f, 120f))
             ),
             stamp = TimelineMosaicPublishStamp(
                 globalGeneration = 1L,
@@ -126,7 +126,7 @@ class TimelineProgressiveMosaicBufferTest {
 
         assertEquals(mapOf(current to MosaicSectionState.Failed), result?.stateUpdates)
         assertEquals(
-            mapOf(current to TimelineMosaicSectionGeometry(200f, geometryBands(80f, 120f))),
+            mapOf(current to TimelineMosaicSectionGeometry(200f, geometryRanges(80f, 120f))),
             result?.geometryUpdates
         )
     }
@@ -193,17 +193,17 @@ class TimelineProgressiveMosaicBufferTest {
     ): PendingMosaicPublish =
         PendingMosaicPublish(
             stateUpdates = mapOf(key to MosaicSectionState.Failed),
-            geometryUpdates = mapOf(key to TimelineMosaicSectionGeometry(100f, geometryBands(100f))),
+            geometryUpdates = mapOf(key to TimelineMosaicSectionGeometry(100f, geometryRanges(100f))),
             stamp = TimelineMosaicPublishStamp(
                 globalGeneration = globalGeneration,
                 bucketGenerations = mapOf(key.timeBucket to bucketGeneration)
             )
         )
 
-    private fun geometryBands(vararg heights: Float): List<MosaicSectionGeometryBand> {
+    private fun geometryRanges(vararg heights: Float): List<MosaicSectionGeometryRange> {
         var cursor = 0
         return heights.map { height ->
-            MosaicSectionGeometryBand(
+            MosaicSectionGeometryRange(
                 sourceStartIndex = cursor,
                 sourceCount = 1,
                 height = height

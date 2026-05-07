@@ -26,17 +26,18 @@ const val MOSAIC_CANONICAL_CELL_SIZE = 100f
 // more tall Mosaic bands; decreasing it makes Mosaic fail over more often.
 const val MOSAIC_MAX_BAND_HEIGHT_TARGET_MULTIPLIER = 5f
 
-// Lower bound for Mosaic fallback band sizing when there are no valid Mosaic
+// Lower bound for Mosaic fallback row sizing when there are no valid Mosaic
 // bands, or when bands are smaller than this floor. It is multiplied by the real
-// Mosaic cell height. Increasing it makes fallback bands taller and less dense;
-// decreasing it allows smaller bands between/around Mosaic bands.
+// Mosaic cell height. Increasing it makes fallback rows taller and less dense;
+// decreasing it allows smaller rows between/around Mosaic bands.
 const val MOSAIC_FALLBACK_MIN_ROW_HEIGHT_CELL_MULTIPLIER = 0.75f
 
-// Additional fallback-band target based on the representative valid Mosaic band
+// Additional fallback-row target based on the representative valid Mosaic band
 // height in the current group. The fallback target is max(cell floor, median
-// band height * this value). Increasing it makes fallback bands closer to
-// Mosaic band height; decreasing it makes fallback bands denser.
+// band height * this value). Increasing it makes fallback rows closer to
+// Mosaic band height; decreasing it makes fallback rows denser.
 const val MOSAIC_FALLBACK_TARGET_ROW_HEIGHT_BAND_MULTIPLIER = 1f
+const val MOSAIC_FALLBACK_ROW_MEDIAN_BAND_FRACTION = 0.75f
 
 // Small Mosaic groups cannot form a real 4-6 asset Mosaic band. Using a normal
 // one-cell fallback row makes 1-4 asset buckets look like thumbnails, so empty
@@ -45,13 +46,10 @@ const val MOSAIC_FALLBACK_TARGET_ROW_HEIGHT_BAND_MULTIPLIER = 1f
 const val MOSAIC_SMALL_GROUP_MAX_ASSETS = 4
 const val MOSAIC_SMALL_GROUP_FALLBACK_ROW_HEIGHT_CELL_MULTIPLIER = 2f
 
-// Legacy Album/Person Mosaic fallback policy. Timeline Mosaic does not render
-// standard RowItem fallback while Mosaic is enabled, but these constants remain
-// part of shared call signatures used by existing detail screens/tests.
+// Mosaic fallback rows keep row-packing membership but render as cropped
+// Mosaic-owned rows, not standard rows.
 const val MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES = false
 
-// Legacy Album/Person Mosaic fallback policy. Timeline fallback bands keep
-// photos visible as MosaicBandItem output instead of completing justified rows.
 const val MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS = 2
 
 // Supported resolved Mosaic densities. The row-height preference is converted
@@ -299,6 +297,34 @@ fun mosaicFallbackMinRowHeight(layoutSpec: MosaicLayoutSpec, mosaicBandHeights: 
     return maxOf(cellFloor, bandFloor)
 }
 
+fun mosaicFallbackRowMinHeight(
+    layoutSpec: MosaicLayoutSpec,
+    assetCount: Int,
+    realMosaicBandHeights: List<Float>,
+    maxRowHeight: Float = Float.MAX_VALUE
+): Float {
+    val mixedFloor = realMosaicBandHeights
+        .filter { it > 0f }
+        .sorted()
+        .let { heights ->
+            when {
+                heights.isEmpty() -> null
+                heights.size % 2 == 1 -> heights[heights.size / 2]
+                else -> {
+                    val upper = heights.size / 2
+                    (heights[upper - 1] + heights[upper]) / 2f
+                }
+            }
+        }
+        ?.let { it * MOSAIC_FALLBACK_ROW_MEDIAN_BAND_FRACTION }
+    val fallbackOnlyFloor = if (assetCount in 1..MOSAIC_SMALL_GROUP_MAX_ASSETS) {
+        mosaicSmallGroupFallbackRowHeight(layoutSpec, maxRowHeight)
+    } else {
+        layoutSpec.cellHeight * MOSAIC_FALLBACK_ROW_MEDIAN_BAND_FRACTION
+    }
+    return (mixedFloor ?: fallbackOnlyFloor).coerceAtMost(maxRowHeight)
+}
+
 fun buildMosaicAssignments(
     assets: List<Asset>,
     layoutSpec: MosaicLayoutSpec,
@@ -504,8 +530,8 @@ fun buildPhotoGridItemsWithMosaic(
      * can be produced by previous async work and then consumed after dimensions,
      * families, or asset metadata have changed. Each assignment is replayed into
      * real display geometry and validated before it is allowed to reserve source
-     * assets. Invalid bands become fallback Mosaic bands so Mosaic-enabled
-     * Timeline never renders standard justified RowItem fallback.
+     * assets. Invalid bands become Mosaic fallback rows so Mosaic-enabled
+     * screens never render standard justified RowItem fallback.
      */
     val byStart = assignments
         .mapNotNull { assignment ->
@@ -533,6 +559,12 @@ fun buildPhotoGridItemsWithMosaic(
     } else {
         mosaicFallbackMinRowHeight(layoutSpec, byStart.values.map { it.item.bandHeight })
     }
+    val fallbackMinRowHeight = mosaicFallbackRowMinHeight(
+        layoutSpec = layoutSpec,
+        assetCount = assets.size,
+        realMosaicBandHeights = byStart.values.map { it.item.bandHeight },
+        maxRowHeight = maxRowHeight
+    )
     val items = mutableListOf<PhotoGridDisplayItem>()
     var sourceIndex = 0
     /*
@@ -550,21 +582,23 @@ fun buildPhotoGridItemsWithMosaic(
             val nextMosaicStart = byStart.keys
                 .filter { it > sourceIndex }
                 .minOrNull() ?: assets.size
-            val fallbackBands = buildFallbackMosaicBands(
+            val fallbackRows = buildFallbackMosaicRows(
                 assets = assets,
                 sourceStartIndex = sourceIndex,
                 sourceEndIndex = nextMosaicStart,
                 bucketIndex = bucketIndex,
                 sectionLabel = sectionLabel,
-                layoutSpec = layoutSpec,
                 spacing = spacing,
-                bandHeight = fallbackTargetRowHeight.coerceAtMost(maxRowHeight)
+                availableWidth = layoutSpec.availableWidth,
+                targetRowHeight = maxOf(fallbackTargetRowHeight, fallbackMinRowHeight),
+                maxRowHeight = maxRowHeight,
+                minCompleteRowHeight = fallbackMinRowHeight
             )
-            if (fallbackBands.isEmpty()) {
+            if (fallbackRows.isEmpty()) {
                 sourceIndex = assets.size
             } else {
-                items.addAll(fallbackBands)
-                sourceIndex += fallbackBands.sumOf { it.sourceCount }.coerceAtLeast(1)
+                items.addAll(fallbackRows)
+                sourceIndex += fallbackRows.sumOf { it.sourceCount }.coerceAtLeast(1)
             }
         }
     }
@@ -602,59 +636,34 @@ private fun isStableProgressChunk(
         }
 }
 
-fun buildFallbackMosaicBands(
+fun buildFallbackMosaicRows(
     assets: List<Asset>,
     sourceStartIndex: Int,
     sourceEndIndex: Int,
     bucketIndex: Int,
     sectionLabel: String,
-    layoutSpec: MosaicLayoutSpec,
     spacing: Float,
-    bandHeight: Float = mosaicFallbackRowHeight(layoutSpec, sourceEndIndex - sourceStartIndex)
-): List<MosaicBandItem> {
+    availableWidth: Float,
+    targetRowHeight: Float,
+    maxRowHeight: Float,
+    minCompleteRowHeight: Float
+): List<RowItem> {
     if (sourceEndIndex <= sourceStartIndex) return emptyList()
-    val result = mutableListOf<MosaicBandItem>()
-    var cursor = sourceStartIndex
-    var bandIndex = 0
-    while (cursor < sourceEndIndex) {
-        val count = minOf(layoutSpec.columnCount, sourceEndIndex - cursor).coerceAtLeast(1)
-        val tileWidth = if (count == 1) {
-            layoutSpec.availableWidth
-        } else {
-            (layoutSpec.availableWidth - spacing * (count - 1)) / count
-        }.coerceAtLeast(1f)
-        val tiles = (0 until count).map { offset ->
-            val asset = assets[cursor + offset]
-            MosaicTile(
-                photo = PhotoItem(
-                    gridKey = "p_${asset.id}",
-                    bucketIndex = bucketIndex,
-                    sectionLabel = sectionLabel,
-                    asset = asset
-                ),
-                x = offset * (tileWidth + spacing),
-                y = 0f,
-                width = tileWidth,
-                height = bandHeight.coerceAtLeast(1f),
-                visualOrder = offset
-            )
-        }
-        result.add(
-            MosaicBandItem(
-                gridKey = "mosaic_fallback_${bucketIndex}_${sectionLabel}_${sourceStartIndex}_$bandIndex",
-                bucketIndex = bucketIndex,
-                sectionLabel = sectionLabel,
-                tiles = tiles,
-                bandHeight = bandHeight.coerceAtLeast(1f),
-                sourceStartIndex = cursor,
-                sourceCount = count,
-                kind = MosaicBandKind.FALLBACK
-            )
-        )
-        cursor += count
-        bandIndex++
-    }
-    return result
+    return packIntoRows(
+        assets = assets.subList(sourceStartIndex, sourceEndIndex),
+        bucketIndex = bucketIndex,
+        sectionLabel = sectionLabel,
+        availableWidth = availableWidth,
+        targetRowHeight = targetRowHeight,
+        spacing = spacing,
+        maxRowHeight = maxRowHeight,
+        promoteWideImages = MOSAIC_FALLBACK_PROMOTE_WIDE_IMAGES,
+        minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS,
+        kind = RowItemKind.MOSAIC_FALLBACK,
+        sourceStartIndexOffset = sourceStartIndex,
+        minCompleteRowHeight = minCompleteRowHeight,
+        rowKeyPrefix = "mosaic_fallback_row"
+    )
 }
 
 private fun bestCandidate(

@@ -22,7 +22,7 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.ErrorItem
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
-import com.udnahc.immichgallery.domain.model.MosaicDisplayBandRecord
+import com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecord
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
 import com.udnahc.immichgallery.domain.model.MosaicKeyScope
@@ -32,7 +32,7 @@ import com.udnahc.immichgallery.domain.model.MosaicLayoutSpec
 import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
 import com.udnahc.immichgallery.domain.model.MosaicOwnerScope
 import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
-import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.MosaicSectionRequest
 import com.udnahc.immichgallery.domain.model.MosaicSectionResult
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
@@ -49,7 +49,6 @@ import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelinePageIndex
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
-import com.udnahc.immichgallery.domain.model.TimelineMosaicDisplayBandRecord
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicProgressChunk
 import com.udnahc.immichgallery.domain.model.ViewConfig
@@ -68,11 +67,11 @@ import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
 import com.udnahc.immichgallery.domain.model.normalizedMosaicFamilies
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
-import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayBandsOrEmpty
+import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayRecordsOrEmpty
 import com.udnahc.immichgallery.domain.model.timelineScrollTargetForFraction
 import com.udnahc.immichgallery.domain.model.bucketIndexForTimelineFraction
-import com.udnahc.immichgallery.domain.model.coversOrderedAssets
-import com.udnahc.immichgallery.domain.model.toMosaicDisplayItems
+import com.udnahc.immichgallery.domain.model.displayRecordsCoverOrderedAssets
+import com.udnahc.immichgallery.domain.model.toPhotoGridDisplayItems
 import com.udnahc.immichgallery.domain.model.MosaicSectionState as RuntimeMosaicState
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
@@ -458,7 +457,7 @@ internal data class MosaicCacheKey(
 
 internal data class TimelineMosaicSectionGeometry(
     val placeholderHeight: Float,
-    val bands: List<MosaicSectionGeometryBand>
+    val ranges: List<MosaicSectionGeometryRange>
 )
 
 internal data class TimelineMosaicPublishStamp(
@@ -632,7 +631,7 @@ private fun RuntimeMosaicState?.cacheToken(): String =
         null -> "missing"
         RuntimeMosaicState.Pending -> "pending"
         is RuntimeMosaicState.Partial -> "partial_${chunks.size}_${chunks.lastOrNull()?.sourceEndExclusive ?: 0}"
-        is RuntimeMosaicState.Ready -> "ready_${assignments.size}_${assignments.hashCode()}_${displayBands.size}_${displayBands.hashCode()}"
+        is RuntimeMosaicState.Ready -> "ready_${assignments.size}_${assignments.hashCode()}_${displayRecords.size}_${displayRecords.hashCode()}"
         RuntimeMosaicState.Failed -> "failed"
     }
 
@@ -796,15 +795,15 @@ class TimelineViewModel(
     private val mosaicPublishChannel = Channel<PendingMosaicPublish>(Channel.UNLIMITED)
     private val mosaicPublishBuffer = TimelineMosaicPublishBuffer()
     private data class TimelineMosaicReadyMemo(
-        val bandsRef: List<MosaicDisplayBandRecord>,
+        val recordsRef: List<MosaicDisplayItemRecord>,
         val assetsRef: List<Asset>,
         val items: List<TimelineDisplayItem>,
         val covers: Boolean
     )
-    // Memoizes the result of toMosaicDisplayItems + coversOrderedAssets per
-    // Ready section. Reference identity on bands and assets means the memo is
+    // Memoizes the result of toPhotoGridDisplayItems + coverage validation per
+    // Ready section. Reference identity on display records and assets means the memo is
     // hit whenever the underlying state has not been replaced; replacing a
-    // Ready entry produces a new displayBands list, and replacing materialized
+    // Ready entry produces a new displayRecords list, and replacing materialized
     // assets produces a new asset list, so identity diverging is exactly the
     // invalidation signal we want.
     private val readyMosaicMemoByKey = mutableMapOf<MosaicCacheKey, TimelineMosaicReadyMemo>()
@@ -2675,7 +2674,7 @@ class TimelineViewModel(
                 assetRevision = assetRevision,
                 familiesKey = familiesKey
             )
-            return "geometry_${mosaicGeometryStates[key]?.let { "${it.placeholderHeight}|${it.bands.size}" } ?: "missing"}"
+            return "geometry_${mosaicGeometryStates[key]?.let { "${it.placeholderHeight}|${it.ranges.size}" } ?: "missing"}"
         }
         val assets = bucketAssetsCache[timeBucket] ?: return "geometry_days_unloaded"
         val dayGroups = dayGroupsForBucket(timeBucket, assetRevision, assets)
@@ -2690,7 +2689,7 @@ class TimelineViewModel(
                 assetRevision = assetRevision,
                 familiesKey = familiesKey
             )
-            "${dayGroup.label}:${mosaicGeometryStates[key]?.let { "${it.placeholderHeight}|${it.bands.size}" } ?: "missing"}"
+            "${dayGroup.label}:${mosaicGeometryStates[key]?.let { "${it.placeholderHeight}|${it.ranges.size}" } ?: "missing"}"
         }
     }
 
@@ -3125,15 +3124,15 @@ class TimelineViewModel(
         families: Set<MosaicTemplateFamily>
     ): List<TimelineDisplayItem> {
         val memo = readyMosaicMemoByKey[cacheKey]
-        if (memo != null && memo.bandsRef === state.displayBands && memo.assetsRef === assets) {
+        if (memo != null && memo.recordsRef === state.displayRecords && memo.assetsRef === assets) {
             return memo.items
         }
-        val cachedItems = state.displayBands.toMosaicDisplayItems(
+        val cachedItems = state.displayRecords.toPhotoGridDisplayItems(
             assets = assets,
             bucketIndex = bucketIndex,
             sectionLabel = sectionLabel
         )
-        val covers = state.displayBands.coversOrderedAssets(assets)
+        val covers = state.displayRecords.displayRecordsCoverOrderedAssets(assets)
         val resolved = if (covers && cachedItems.isNotEmpty()) {
             cachedItems
         } else {
@@ -3148,7 +3147,7 @@ class TimelineViewModel(
             )
         }
         readyMosaicMemoByKey[cacheKey] = TimelineMosaicReadyMemo(
-            bandsRef = state.displayBands,
+            recordsRef = state.displayRecords,
             assetsRef = assets,
             items = resolved,
             covers = covers
@@ -3190,12 +3189,12 @@ class TimelineViewModel(
         sectionGeometry: TimelineMosaicSectionGeometry?
     ) {
         val exactPartialItems = sectionGeometry
-            ?.takeIf { it.bands.isNotEmpty() }
+            ?.takeIf { it.ranges.isNotEmpty() }
             ?.let { geometry ->
                 mosaicRenderEngine.projectPartialSectionWithGeometry(
                     assets = assets,
                     chunks = partial.chunks,
-                    geometryBands = geometry.bands,
+                    geometryRanges = geometry.ranges,
                     bucketIndex = bucketIndex,
                     sectionLabel = sectionLabel,
                     layoutSpec = mosaicLayoutSpec,
@@ -3684,7 +3683,7 @@ class TimelineViewModel(
                 families = families
             ) to TimelineMosaicSectionGeometry(
                 placeholderHeight = summary.placeholderHeight,
-                bands = summary.bands
+                ranges = summary.ranges
             )
         }
         _mosaicGeometryStates.update { states -> states + updates }
@@ -4128,14 +4127,14 @@ class TimelineViewModel(
                             runtimeMosaicResumeStates.remove(key)
                             stateUpdates[key] = RuntimeMosaicState.Ready(
                                 assignments = result.value.assignments,
-                                displayBands = resolvedSectionDisplayBandsOrEmpty(
+                                displayRecords = resolvedSectionDisplayRecordsOrEmpty(
                                     displayItems = result.value.displayItems,
                                     assets = section.assets
                                 )
                             )
                             geometryUpdates[key] = TimelineMosaicSectionGeometry(
                                 placeholderHeight = result.value.geometry.placeholderHeight,
-                                bands = result.value.geometry.bands
+                                ranges = result.value.geometry.ranges
                             )
                         }
                         is MosaicSectionResult.Failed -> {
@@ -4304,10 +4303,10 @@ class TimelineViewModel(
                     families = families
                 ) to TimelineMosaicSectionGeometry(
                     placeholderHeight = geometry.placeholderHeight,
-                    bands = geometry.bands
+                    ranges = geometry.ranges
                 )
             }
-            val displayBandsBySection = status.displaySections.associateBy { it.timeBucket to it.sectionKey }
+            val displayRecordsBySection = status.displaySections.associateBy { it.timeBucket to it.sectionKey }
             val updates = publishableAssignments.associate { assignment ->
                 mosaicCacheKey(
                     timeBucket = assignment.timeBucket,
@@ -4317,8 +4316,8 @@ class TimelineViewModel(
                     families = families
                 ) to RuntimeMosaicState.Ready(
                     assignments = assignment.assignments,
-                    displayBands = displayBandsBySection[assignment.timeBucket to assignment.sectionKey]
-                        ?.bands
+                    displayRecords = displayRecordsBySection[assignment.timeBucket to assignment.sectionKey]
+                        ?.displayRecords
                         .orEmpty()
                 )
             }

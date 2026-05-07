@@ -49,9 +49,17 @@ data class RowItem(
     override val sectionLabel: String,
     val photos: List<PhotoItem>,
     val rowHeight: Float,
-    val isComplete: Boolean = true
+    val isComplete: Boolean = true,
+    val kind: RowItemKind = RowItemKind.STANDARD,
+    val sourceStartIndex: Int = 0,
+    val sourceCount: Int = photos.size
 ) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = true
+}
+
+enum class RowItemKind {
+    STANDARD,
+    MOSAIC_FALLBACK
 }
 
 @Immutable

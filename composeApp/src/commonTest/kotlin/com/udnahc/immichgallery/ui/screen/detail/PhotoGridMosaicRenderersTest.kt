@@ -8,7 +8,11 @@ import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.MosaicDisplayBandKind
 import com.udnahc.immichgallery.domain.model.MosaicDisplayBandRecord
+import com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecord
+import com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecordKind
 import com.udnahc.immichgallery.domain.model.MosaicDisplayTileRecord
+import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.RowItemKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -38,12 +42,13 @@ class PhotoGridMosaicRenderersTest {
     }
 
     @Test
-    fun cachedGroupDoesNotReturnResolvedBandsForFallbackArtifacts() {
+    fun cachedGroupDoesNotReturnResolvedBandsForFallbackRowArtifacts() {
         val assets = sampleAssets(2)
         val group = IndexedAssetGroup(index = 0, label = "May 2026", assets = assets)
         val entry = cacheEntry(
             group = group,
-            bands = listOf(realBand(assets).copy(kind = MosaicDisplayBandKind.FALLBACK)),
+            bands = emptyList(),
+            displayRecords = listOf(fallbackRowRecord(assets)),
             assetFingerprint = assetFingerprint
         )
 
@@ -56,7 +61,8 @@ class PhotoGridMosaicRenderersTest {
         )
 
         checkNotNull(cached)
-        assertEquals(1, cached.items.filterIsInstance<MosaicBandItem>().size)
+        assertEquals(1, cached.items.filterIsInstance<RowItem>().size)
+        assertTrue(cached.items.filterIsInstance<RowItem>().single().kind == RowItemKind.MOSAIC_FALLBACK)
         assertTrue(cached.resolvedBands.isEmpty())
     }
 
@@ -91,10 +97,28 @@ class PhotoGridMosaicRenderersTest {
             }
         )
 
+    private fun fallbackRowRecord(assets: List<Asset>): MosaicDisplayItemRecord =
+        MosaicDisplayItemRecord(
+            kind = MosaicDisplayItemRecordKind.MOSAIC_FALLBACK_ROW,
+            sourceStartIndex = 0,
+            sourceCount = assets.size,
+            height = 100f,
+            assetIds = assets.map { it.id }
+        )
+
     private fun cacheEntry(
         group: IndexedAssetGroup,
         bands: List<MosaicDisplayBandRecord>,
-        assetFingerprint: String
+        assetFingerprint: String,
+        displayRecords: List<MosaicDisplayItemRecord> = bands.map { band ->
+            MosaicDisplayItemRecord(
+                kind = MosaicDisplayItemRecordKind.REAL_BAND,
+                sourceStartIndex = band.sourceStartIndex,
+                sourceCount = band.sourceCount,
+                height = band.bandHeight,
+                tiles = band.tiles
+            )
+        }
     ): DetailMosaicCacheEntry =
         DetailMosaicCacheEntry(
             ownerType = DetailMosaicCacheOwnerType.ALBUM,
@@ -110,9 +134,9 @@ class PhotoGridMosaicRenderersTest {
             maxRowHeightKey = 60000,
             spacingKey = 400,
             displayVersion = 1,
-            bands = bands,
-            displayItemCount = bands.size,
-            placeholderHeight = bands.sumOf { it.bandHeight.toDouble() }.toFloat(),
+            displayRecords = displayRecords,
+            displayItemCount = displayRecords.size,
+            placeholderHeight = displayRecords.sumOf { it.height.toDouble() }.toFloat(),
             updatedAt = 0L
         )
 }

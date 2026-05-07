@@ -420,13 +420,13 @@ The runtime group pipeline:
 6. Call `MosaicRenderEngine.computeSection(...)` with checkpoint, progress chunk, and cancellation callbacks.
 7. Publish valid partial chunks through `projectPartialSectionWithGeometry(...)` when section geometry exists; otherwise use `projectPartialSectionWithPlaceholders(...)`.
 8. Publish completed ready output immediately for visible groups or defer offscreen replacement.
-9. Store completed ready group items in `groupDisplayCache` and section geometry in `groupSectionGeometryCache`. If the ready output is made entirely of real `MosaicBandItem` records and covers the current ordered group assets, also store portable `MosaicDisplayBandRecord` values in `groupDisplayBandCache`.
-10. Write assignments, display bands, section geometry, and eventually aggregate geometry when persistent cache is eligible.
+9. Store completed ready group items in `groupDisplayCache` and section geometry in `groupSectionGeometryCache`. If the ready output is made entirely of real `MosaicBandItem` records and covers the current ordered group assets, also store portable `MosaicDisplayBandRecord` values in `groupDisplayBandCache` as a real-band memory optimization.
+10. Write assignments, mixed display records, section geometry, and eventually aggregate geometry when persistent cache is eligible.
 11. Cache the full display list only after every current group has final ready output and no placeholders remain.
 
-Mosaic-enabled incomplete runtime states must render placeholders, not row-packing fallback and not fallback-thumbnail bands. If exact section geometry exists, placeholders use the stored section height; partial output may publish only when real chunks plus unresolved placeholders preserve the final section height within tolerance. Completed ready projection may contain fallback Mosaic bands if the engine produced them for the active config.
+Mosaic-enabled incomplete runtime states must render placeholders, not standard row-packing fallback and not fallback-thumbnail bands. If exact section geometry exists, placeholders use the stored section height; partial output may publish only when real chunks plus unresolved placeholders preserve the final section height within tolerance. Completed ready projection may contain cropped full-width `RowItem(kind = MOSAIC_FALLBACK)` rows if the engine produced them for the active config.
 
-`groupDisplayBandCache` is an optimization only. Assignments and ready display items remain the canonical state for the current render pass, and fallback ready bands are deliberately excluded from the resolved-band cache. If resolved records are missing or fail coverage validation, the coordinator continues through persistent cache, runtime state, or placeholders rather than trusting stale geometry.
+`groupDisplayBandCache` is a real-band optimization only. Assignments and ready display items remain the canonical state for the current render pass, and fallback rows are deliberately excluded from the resolved-band cache. If resolved records are missing or fail coverage validation, the coordinator continues through persistent cache, runtime state, or placeholders rather than trusting stale geometry.
 
 ## Mosaic Scheduling
 
@@ -490,8 +490,8 @@ Detail Mosaic persistence is owner-scoped:
 Artifacts:
 
 - assignment rows store engine assignments;
-- display rows store serialized ready `MosaicBandItem` bands;
-- section geometry stores per-group placeholder height plus geometry bands. Geometry bands record source range and layout height for each final real Mosaic band, enabling exact-height partial placeholders;
+- display rows store serialized mixed ready records: real `MosaicBandItem` bands and completed `RowItem(kind = MOSAIC_FALLBACK)` rows;
+- section geometry stores per-group placeholder height plus geometry ranges. Geometry ranges record source range and layout height for each final real Mosaic band or completed fallback row, enabling exact-height partial placeholders;
 - aggregate geometry stores owner-level placeholder height for the complete ordered display.
 
 Per-group display readiness requires matching assignment, section geometry, and, when `cacheMosaicResults = true`, display rows for that group/config/fingerprint. Aggregate geometry is not allowed to invalidate otherwise valid per-group display artifacts; an interrupted cache build may have useful section rows even when the owner aggregate row is missing.
@@ -500,7 +500,7 @@ Strict persistent display read:
 
 1. Assignment keys and section geometry keys must match the group key.
 2. Display row column count must match.
-3. Display bands must cover current ordered assets with no gaps, overlaps, duplicate ids, unknown ids, invalid dimensions, or mismatched source slices.
+3. Display records must cover current ordered assets with no gaps, overlaps, duplicate ids, unknown ids, invalid dimensions/heights, or mismatched source slices.
 4. Invalid rows are treated as cache misses and runtime placeholders/compute take over.
 
 Album cache policy:
@@ -600,7 +600,7 @@ Load-more failure:
 - Search remains row-packing only and is not part of this architecture.
 - Cache-disabled detail rendering must not read persistent Mosaic artifacts.
 - Persistent Person Mosaic artifacts require a complete owner snapshot.
-- Final display caches must not contain placeholders, partial runtime output, or `RowItem`s while Mosaic is enabled.
+- Final display caches must not contain placeholders, partial runtime output, or standard `RowItemKind.STANDARD` rows while Mosaic is enabled. Completed `RowItemKind.MOSAIC_FALLBACK` rows are valid final Mosaic output.
 - Shared element return targeting depends on stable grid keys and `assetDisplayIndexById`.
 
 ## Verification Targets
@@ -618,5 +618,5 @@ When changing this area, prefer focused tests for:
 - scroll pause leaves offscreen groups resumable;
 - retryable failures remain placeholders and later retry;
 - partial chunks project real bands plus placeholders, not fallback-thumbnail bands;
-- final ready groups can write assignments, display bands, section geometry, and aggregate geometry;
+- final ready groups can write assignments, mixed display records, section geometry, and aggregate geometry;
 - overlay dismiss maps the current asset id to a valid display item after row/Mosaic transitions.

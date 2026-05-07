@@ -115,8 +115,8 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 
 - While scrolling, `publishMosaicUpdates(...)` does not mutate visible Mosaic state directly. It stores state and geometry updates in deferred maps.
 - After scroll settles, deferred state/geometry maps are published together.
-- Failed Timeline sections render placeholders and retry through normal requested-config cache/runtime repair; failure must not display fallback Mosaic bands.
-- Ready Timeline sections display validated cached display bands when available, or completed ready projection from assignments.
+- Failed Timeline sections render placeholders and retry through normal requested-config cache/runtime repair; failure must not display fallback rows or fallback Mosaic bands.
+- Ready Timeline sections display validated cached mixed display records when available, or completed ready projection from assignments.
 
 ## Album And Person Detail Scheduler
 

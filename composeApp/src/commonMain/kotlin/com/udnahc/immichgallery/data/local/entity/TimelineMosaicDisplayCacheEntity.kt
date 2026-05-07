@@ -29,7 +29,7 @@ data class TimelineMosaicDisplayCacheEntity(
     val assetFingerprint: String,
     val availableWidthKey: Int,
     val displayVersion: Int,
-    val bandsJson: String,
+    val itemsJson: String,
     val displayItemCount: Int,
     val placeholderHeight: Float,
     val maxRowHeightKey: Int,

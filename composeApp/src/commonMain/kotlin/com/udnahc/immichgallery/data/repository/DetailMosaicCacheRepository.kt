@@ -14,9 +14,9 @@ import com.udnahc.immichgallery.domain.model.DetailMosaicCacheLookup
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.DetailMosaicSectionGeometryEntry
 import com.udnahc.immichgallery.domain.model.GroupSize
-import com.udnahc.immichgallery.domain.model.MosaicDisplayBandRecord
+import com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecord
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignmentDto
-import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDto
 import kotlinx.coroutines.Dispatchers
@@ -201,7 +201,7 @@ private fun DetailMosaicDisplayCacheEntity.toDomainOrNull(): DetailMosaicCacheEn
         maxRowHeightKey = maxRowHeightKey,
         spacingKey = spacingKey,
         displayVersion = displayVersion,
-        bands = json.decodeFromString(bandsJson),
+        displayRecords = json.decodeFromString<List<MosaicDisplayItemRecord>>(itemsJson),
         displayItemCount = displayItemCount,
         placeholderHeight = placeholderHeight,
         updatedAt = updatedAt
@@ -227,10 +227,10 @@ private fun DetailMosaicSectionGeometryEntity.toSectionGeometryDomainOrNull(): D
         geometryVersion = geometryVersion,
         placeholderHeight = placeholderHeight,
         displayItemCount = displayItemCount,
-        bands = if (geometryBandsJson.isEmpty()) {
+        ranges = if (geometryRangesJson.isEmpty()) {
             emptyList()
         } else {
-            runCatching { json.decodeFromString<List<MosaicSectionGeometryBand>>(geometryBandsJson) }
+            runCatching { json.decodeFromString<List<MosaicSectionGeometryRange>>(geometryRangesJson) }
                 .getOrDefault(emptyList())
         },
         updatedAt = updatedAt
@@ -287,7 +287,7 @@ private fun DetailMosaicCacheEntry.toEntity(): DetailMosaicDisplayCacheEntity =
         maxRowHeightKey = maxRowHeightKey,
         spacingKey = spacingKey,
         displayVersion = displayVersion,
-        bandsJson = json.encodeToString(bands),
+        itemsJson = json.encodeToString(displayRecords),
         displayItemCount = displayItemCount,
         placeholderHeight = placeholderHeight,
         updatedAt = updatedAt
@@ -310,7 +310,7 @@ private fun DetailMosaicSectionGeometryEntry.toEntity(): DetailMosaicSectionGeom
         geometryVersion = geometryVersion,
         placeholderHeight = placeholderHeight,
         displayItemCount = displayItemCount,
-        geometryBandsJson = json.encodeToString(bands),
+        geometryRangesJson = json.encodeToString(ranges),
         updatedAt = updatedAt
     )
 

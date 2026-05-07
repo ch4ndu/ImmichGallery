@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "9ed557bf1ebbcad2b53916e0d333b1ae",
+    "identityHash": "d92d0447d82550297e0c5280f5b745c7",
     "entities": [
       {
         "tableName": "timeline_buckets",
@@ -422,7 +422,7 @@
       },
       {
         "tableName": "timeline_mosaic_display_cache",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`timeBucket` TEXT NOT NULL, `groupMode` TEXT NOT NULL, `sectionKey` TEXT NOT NULL, `columnCount` INTEGER NOT NULL, `familiesKey` TEXT NOT NULL, `assetFingerprint` TEXT NOT NULL, `availableWidthKey` INTEGER NOT NULL, `displayVersion` INTEGER NOT NULL, `bandsJson` TEXT NOT NULL, `displayItemCount` INTEGER NOT NULL, `placeholderHeight` REAL NOT NULL, `maxRowHeightKey` INTEGER NOT NULL, `spacingKey` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`timeBucket`, `groupMode`, `sectionKey`, `columnCount`, `familiesKey`, `assetFingerprint`, `availableWidthKey`, `displayVersion`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`timeBucket` TEXT NOT NULL, `groupMode` TEXT NOT NULL, `sectionKey` TEXT NOT NULL, `columnCount` INTEGER NOT NULL, `familiesKey` TEXT NOT NULL, `assetFingerprint` TEXT NOT NULL, `availableWidthKey` INTEGER NOT NULL, `displayVersion` INTEGER NOT NULL, `itemsJson` TEXT NOT NULL, `displayItemCount` INTEGER NOT NULL, `placeholderHeight` REAL NOT NULL, `maxRowHeightKey` INTEGER NOT NULL, `spacingKey` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`timeBucket`, `groupMode`, `sectionKey`, `columnCount`, `familiesKey`, `assetFingerprint`, `availableWidthKey`, `displayVersion`))",
         "fields": [
           {
             "fieldPath": "timeBucket",
@@ -473,8 +473,8 @@
             "notNull": true
           },
           {
-            "fieldPath": "bandsJson",
-            "columnName": "bandsJson",
+            "fieldPath": "itemsJson",
+            "columnName": "itemsJson",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -550,7 +550,7 @@
       },
       {
         "tableName": "timeline_mosaic_geometry",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`timeBucket` TEXT NOT NULL, `groupMode` TEXT NOT NULL, `sectionKey` TEXT NOT NULL, `columnCount` INTEGER NOT NULL, `familiesKey` TEXT NOT NULL, `assetFingerprint` TEXT NOT NULL, `availableWidthKey` INTEGER NOT NULL, `geometryVersion` INTEGER NOT NULL, `placeholderHeight` REAL NOT NULL, `displayItemCount` INTEGER NOT NULL, `maxRowHeightKey` INTEGER NOT NULL, `spacingKey` INTEGER NOT NULL, `geometryBandsJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`timeBucket`, `groupMode`, `sectionKey`, `columnCount`, `familiesKey`, `assetFingerprint`, `availableWidthKey`, `geometryVersion`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`timeBucket` TEXT NOT NULL, `groupMode` TEXT NOT NULL, `sectionKey` TEXT NOT NULL, `columnCount` INTEGER NOT NULL, `familiesKey` TEXT NOT NULL, `assetFingerprint` TEXT NOT NULL, `availableWidthKey` INTEGER NOT NULL, `geometryVersion` INTEGER NOT NULL, `placeholderHeight` REAL NOT NULL, `displayItemCount` INTEGER NOT NULL, `maxRowHeightKey` INTEGER NOT NULL, `spacingKey` INTEGER NOT NULL, `geometryRangesJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`timeBucket`, `groupMode`, `sectionKey`, `columnCount`, `familiesKey`, `assetFingerprint`, `availableWidthKey`, `geometryVersion`))",
         "fields": [
           {
             "fieldPath": "timeBucket",
@@ -625,8 +625,8 @@
             "notNull": true
           },
           {
-            "fieldPath": "geometryBandsJson",
-            "columnName": "geometryBandsJson",
+            "fieldPath": "geometryRangesJson",
+            "columnName": "geometryRangesJson",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -897,7 +897,7 @@
       },
       {
         "tableName": "detail_mosaic_display_cache",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ownerType` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `groupSize` TEXT NOT NULL, `columnCount` INTEGER NOT NULL, `sectionIndex` INTEGER NOT NULL, `sectionKey` TEXT NOT NULL, `familiesKey` TEXT NOT NULL, `assetFingerprint` TEXT NOT NULL, `availableWidthKey` INTEGER NOT NULL, `cellHeightKey` INTEGER NOT NULL, `maxRowHeightKey` INTEGER NOT NULL, `spacingKey` INTEGER NOT NULL, `displayVersion` INTEGER NOT NULL, `bandsJson` TEXT NOT NULL, `displayItemCount` INTEGER NOT NULL, `placeholderHeight` REAL NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`ownerType`, `ownerId`, `groupSize`, `columnCount`, `sectionIndex`, `sectionKey`, `familiesKey`, `assetFingerprint`, `availableWidthKey`, `cellHeightKey`, `maxRowHeightKey`, `spacingKey`, `displayVersion`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ownerType` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `groupSize` TEXT NOT NULL, `columnCount` INTEGER NOT NULL, `sectionIndex` INTEGER NOT NULL, `sectionKey` TEXT NOT NULL, `familiesKey` TEXT NOT NULL, `assetFingerprint` TEXT NOT NULL, `availableWidthKey` INTEGER NOT NULL, `cellHeightKey` INTEGER NOT NULL, `maxRowHeightKey` INTEGER NOT NULL, `spacingKey` INTEGER NOT NULL, `displayVersion` INTEGER NOT NULL, `itemsJson` TEXT NOT NULL, `displayItemCount` INTEGER NOT NULL, `placeholderHeight` REAL NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`ownerType`, `ownerId`, `groupSize`, `columnCount`, `sectionIndex`, `sectionKey`, `familiesKey`, `assetFingerprint`, `availableWidthKey`, `cellHeightKey`, `maxRowHeightKey`, `spacingKey`, `displayVersion`))",
         "fields": [
           {
             "fieldPath": "ownerType",
@@ -978,8 +978,8 @@
             "notNull": true
           },
           {
-            "fieldPath": "bandsJson",
-            "columnName": "bandsJson",
+            "fieldPath": "itemsJson",
+            "columnName": "itemsJson",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -1053,7 +1053,7 @@
       },
       {
         "tableName": "detail_mosaic_section_geometry",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ownerType` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `groupSize` TEXT NOT NULL, `columnCount` INTEGER NOT NULL, `sectionIndex` INTEGER NOT NULL, `sectionKey` TEXT NOT NULL, `familiesKey` TEXT NOT NULL, `assetFingerprint` TEXT NOT NULL, `availableWidthKey` INTEGER NOT NULL, `cellHeightKey` INTEGER NOT NULL, `maxRowHeightKey` INTEGER NOT NULL, `spacingKey` INTEGER NOT NULL, `geometryVersion` INTEGER NOT NULL, `placeholderHeight` REAL NOT NULL, `displayItemCount` INTEGER NOT NULL, `geometryBandsJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`ownerType`, `ownerId`, `groupSize`, `columnCount`, `sectionIndex`, `sectionKey`, `familiesKey`, `assetFingerprint`, `availableWidthKey`, `cellHeightKey`, `maxRowHeightKey`, `spacingKey`, `geometryVersion`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ownerType` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `groupSize` TEXT NOT NULL, `columnCount` INTEGER NOT NULL, `sectionIndex` INTEGER NOT NULL, `sectionKey` TEXT NOT NULL, `familiesKey` TEXT NOT NULL, `assetFingerprint` TEXT NOT NULL, `availableWidthKey` INTEGER NOT NULL, `cellHeightKey` INTEGER NOT NULL, `maxRowHeightKey` INTEGER NOT NULL, `spacingKey` INTEGER NOT NULL, `geometryVersion` INTEGER NOT NULL, `placeholderHeight` REAL NOT NULL, `displayItemCount` INTEGER NOT NULL, `geometryRangesJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`ownerType`, `ownerId`, `groupSize`, `columnCount`, `sectionIndex`, `sectionKey`, `familiesKey`, `assetFingerprint`, `availableWidthKey`, `cellHeightKey`, `maxRowHeightKey`, `spacingKey`, `geometryVersion`))",
         "fields": [
           {
             "fieldPath": "ownerType",
@@ -1146,8 +1146,8 @@
             "notNull": true
           },
           {
-            "fieldPath": "geometryBandsJson",
-            "columnName": "geometryBandsJson",
+            "fieldPath": "geometryRangesJson",
+            "columnName": "geometryRangesJson",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -1346,7 +1346,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9ed557bf1ebbcad2b53916e0d333b1ae')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd92d0447d82550297e0c5280f5b745c7')"
     ]
   }
 }

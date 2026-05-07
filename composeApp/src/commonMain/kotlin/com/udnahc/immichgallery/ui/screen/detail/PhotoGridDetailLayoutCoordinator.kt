@@ -28,6 +28,8 @@ import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
 import com.udnahc.immichgallery.domain.model.ProgressChunk
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
 import com.udnahc.immichgallery.domain.model.RowHeightScope
+import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.RowItemKind
 import com.udnahc.immichgallery.domain.model.SectionGeometry
 import com.udnahc.immichgallery.domain.model.SectionReady
 import com.udnahc.immichgallery.domain.model.ViewConfig
@@ -42,9 +44,9 @@ import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheDimensionKey
 import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheFamiliesKey
 import com.udnahc.immichgallery.domain.model.mosaicDisplayCacheWidthKey
 import com.udnahc.immichgallery.domain.model.packIntoRows
-import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayBandsOrEmpty
+import com.udnahc.immichgallery.domain.model.resolvedRealDisplayBandsOrEmpty
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
-import com.udnahc.immichgallery.domain.model.toMosaicDisplayItems
+import com.udnahc.immichgallery.domain.model.toRealMosaicDisplayItems
 import com.udnahc.immichgallery.ui.util.MosaicWorkCancelledException
 import com.udnahc.immichgallery.ui.util.MosaicWorkPriority
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
@@ -780,11 +782,11 @@ class PhotoGridDetailLayoutCoordinator<S>(
         chunks: List<ProgressChunk>,
         sectionGeometry: DetailMosaicSectionGeometryEntry? = null
     ): List<PhotoGridDisplayItem> {
-        val exactItems = sectionGeometry?.bands?.takeIf { it.isNotEmpty() }?.let { bands ->
+        val exactItems = sectionGeometry?.ranges?.takeIf { it.isNotEmpty() }?.let { ranges ->
             mosaicEngine.projectPartialSectionWithGeometry(
                 assets = group.assets,
                 chunks = chunks,
-                geometryBands = bands,
+                geometryRanges = ranges,
                 bucketIndex = group.index,
                 sectionLabel = group.label,
                 layoutSpec = layoutSpec,
@@ -835,13 +837,13 @@ class PhotoGridDetailLayoutCoordinator<S>(
         resolvedBands: List<MosaicDisplayBandRecord>?
     ): List<PhotoGridDisplayItem>? {
         if (resolvedBands.isNullOrEmpty()) return null
-        val bandItems = resolvedBands.toMosaicDisplayItems(
+        val bandItems = resolvedBands.toRealMosaicDisplayItems(
             assets = group.assets,
             bucketIndex = group.index,
             sectionLabel = group.label,
             keyPrefix = "detail_mosaic_memory"
         )
-        if (resolvedSectionDisplayBandsOrEmpty(bandItems, group.assets).isEmpty()) return null
+        if (resolvedRealDisplayBandsOrEmpty(bandItems, group.assets).isEmpty()) return null
         return groupHeader(group) + bandItems
     }
 
@@ -849,7 +851,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         group: IndexedAssetGroup,
         groupItems: List<PhotoGridDisplayItem>
     ): List<MosaicDisplayBandRecord> =
-        resolvedSectionDisplayBandsOrEmpty(
+        resolvedRealDisplayBandsOrEmpty(
             displayItems = groupItems.filter { it !is HeaderItem },
             assets = group.assets
         )
@@ -1125,7 +1127,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
             geometryVersion = DETAIL_MOSAIC_GEOMETRY_VERSION,
             placeholderHeight = geometry.placeholderHeight,
             displayItemCount = geometry.displayItemCount,
-            bands = geometry.bands,
+            ranges = geometry.ranges,
             updatedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
         )
 
@@ -1495,10 +1497,13 @@ private fun detailRetryDelayMs(attempts: Int): Long {
 
 private fun List<PhotoGridDisplayItem>.isFinalMosaicGroupDisplay(): Boolean =
     isNotEmpty() &&
-        any { it is MosaicBandItem } &&
-        none {
-            it is com.udnahc.immichgallery.domain.model.PlaceholderItem ||
-                it is com.udnahc.immichgallery.domain.model.RowItem
+        filterNot { it is HeaderItem }.let { photoItems ->
+            photoItems.isNotEmpty() &&
+                photoItems.none { it is com.udnahc.immichgallery.domain.model.PlaceholderItem } &&
+                photoItems.all { item ->
+                    item is MosaicBandItem ||
+                        (item is RowItem && item.kind == RowItemKind.MOSAIC_FALLBACK)
+                }
         }
 
 private data class KeyedAssetGroup(

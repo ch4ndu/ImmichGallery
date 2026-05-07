@@ -36,14 +36,34 @@ fun packIntoRows(
     spacing: Float,
     maxRowHeight: Float = Float.MAX_VALUE,
     promoteWideImages: Boolean = true,
-    minCompleteRowPhotos: Int = 1
+    minCompleteRowPhotos: Int = 1,
+    kind: RowItemKind = RowItemKind.STANDARD,
+    sourceStartIndexOffset: Int = 0,
+    minCompleteRowHeight: Float = 0f,
+    rowKeyPrefix: String = "row"
 ): List<RowItem> {
     if (availableWidth <= 0f || assets.isEmpty()) return emptyList()
     val rows = mutableListOf<RowItem>()
     var currentRow = mutableListOf<PhotoItem>()
     var currentSumAR = 0f
+    var currentRowSourceStartIndex = sourceStartIndexOffset
 
-    for (asset in assets) {
+    fun rowKey(sourceStartIndex: Int, firstPhoto: PhotoItem): String =
+        if (rowKeyPrefix == "mosaic_fallback_row") {
+            fallbackRowGridKey(bucketIndex, sectionLabel, sourceStartIndex)
+        } else {
+            "${rowKeyPrefix}_${firstPhoto.gridKey}"
+        }
+
+    fun clampedRowHeight(height: Float): Float =
+        if (minCompleteRowHeight > 0f) {
+            maxOf(height, minCompleteRowHeight).coerceAtMost(maxRowHeight)
+        } else {
+            height
+        }
+
+    for ((assetIndex, asset) in assets.withIndex()) {
+        val sourceIndex = sourceStartIndexOffset + assetIndex
         val photoItem = PhotoItem(
             gridKey = "p_${asset.id}",
             bucketIndex = bucketIndex,
@@ -61,14 +81,20 @@ fun packIntoRows(
             )
             if (fullWidthHeight <= maxPromotedHeight) {
                 rows.add(RowItem(
-                    gridKey = "row_${photoItem.gridKey}",
+                    gridKey = rowKey(sourceIndex, photoItem),
                     bucketIndex = bucketIndex,
                     sectionLabel = sectionLabel,
                     photos = listOf(photoItem),
-                    rowHeight = fullWidthHeight
+                    rowHeight = clampedRowHeight(fullWidthHeight),
+                    kind = kind,
+                    sourceStartIndex = sourceIndex,
+                    sourceCount = 1
                 ))
                 continue
             }
+        }
+        if (currentRow.isEmpty()) {
+            currentRowSourceStartIndex = sourceIndex
         }
         currentRow.add(photoItem)
         currentSumAR += asset.aspectRatio
@@ -76,24 +102,31 @@ fun packIntoRows(
         if (neededWidth >= availableWidth && currentRow.size >= minCompleteRowPhotos) {
             val actualHeight = (availableWidth - (currentRow.size - 1) * spacing) / currentSumAR
             rows.add(RowItem(
-                gridKey = "row_${currentRow.first().gridKey}",
+                gridKey = rowKey(currentRowSourceStartIndex, currentRow.first()),
                 bucketIndex = bucketIndex,
                 sectionLabel = sectionLabel,
                 photos = currentRow.toList(),
-                rowHeight = actualHeight
+                rowHeight = clampedRowHeight(actualHeight),
+                kind = kind,
+                sourceStartIndex = currentRowSourceStartIndex,
+                sourceCount = currentRow.size
             ))
             currentRow = mutableListOf()
             currentSumAR = 0f
+            currentRowSourceStartIndex = sourceIndex + 1
         }
     }
     if (currentRow.isNotEmpty()) {
         rows.add(RowItem(
-            gridKey = "row_${currentRow.first().gridKey}",
+            gridKey = rowKey(currentRowSourceStartIndex, currentRow.first()),
             bucketIndex = bucketIndex,
             sectionLabel = sectionLabel,
             photos = currentRow.toList(),
-            rowHeight = targetRowHeight,
-            isComplete = false
+            rowHeight = clampedRowHeight(targetRowHeight),
+            isComplete = false,
+            kind = kind,
+            sourceStartIndex = currentRowSourceStartIndex,
+            sourceCount = currentRow.size
         ))
     }
     return rows

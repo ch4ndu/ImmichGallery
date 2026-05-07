@@ -102,7 +102,7 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 ## Photo Grid And Overlay
 
 - RowPacking is the standard justified-row architecture. `packIntoRows()` groups ordered assets into `RowItem`s, and the full algorithm, invalidation model, and screen rules live in `docs/ai/row-packing.md`.
-- Mosaic is the shared non-row layout architecture. `MosaicRenderEngine` owns assignment, progressive chunks, display projection, fallback bands, section geometry, and aggregate geometry. Cross-screen rules live in `docs/ai/mosaic-rendering.md`; assignment details live in `docs/ai/mosaic-assignment.md`; runtime scheduling lives in `docs/ai/mosaic-runtime.md`.
+- Mosaic is the shared non-standard-row layout architecture. `MosaicRenderEngine` owns assignment, progressive chunks, display projection, completed fallback rows, section geometry, and aggregate geometry. Cross-screen rules live in `docs/ai/mosaic-rendering.md`; assignment details live in `docs/ai/mosaic-assignment.md`; runtime scheduling lives in `docs/ai/mosaic-runtime.md`.
 - Timeline sync is bucket-oriented and intentionally separate from Timeline rendering. Cold sync, warm launch, manual refresh, no-op refresh, and cache-off Mosaic policy live in `docs/ai/timeline-sync.md`.
 - Timeline rendering, scrollbar targeting, display indexes, overlay return targeting, and Timeline-specific cache/rendering behavior live in `docs/timeline.md`.
 - Album Detail and Person Detail cached-first loading, owner sync, pagination, shared layout coordination, Mosaic scheduling, persistent owner artifacts, and overlay return targeting live in `docs/ai/album-person-detail.md`.

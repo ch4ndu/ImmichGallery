@@ -10,7 +10,7 @@ class MosaicRenderEngineTest {
     private val engine = MosaicRenderEngine()
 
     @Test
-    fun progressiveChunksUseSharedEngineAndProjectFallbackBands() = runTest {
+    fun progressiveChunksUseSharedEngineAndProjectPlaceholdersForUnresolvedRanges() = runTest {
         val chunks = mutableListOf<ProgressChunk>()
         val request = request(sampleAssets(80))
 
@@ -33,11 +33,10 @@ class MosaicRenderEngineTest {
             maxRowHeight = request.maxRowHeight
         )
 
-        assertTrue(partialItems.all { it is MosaicBandItem })
-        assertEquals(
-            request.assets.map { it.id }.toSet(),
-            partialItems.flatMap { item -> (item as MosaicBandItem).tiles.map { it.photo.asset.id } }.toSet()
-        )
+        assertTrue(partialItems.any { it is MosaicBandItem && it.kind == MosaicBandKind.REAL })
+        assertTrue(partialItems.any { it is PlaceholderItem })
+        assertTrue(partialItems.none { it is MosaicBandItem && it.kind == MosaicBandKind.FALLBACK })
+        assertTrue(partialItems.none { it is RowItem })
     }
 
     @Test
@@ -62,15 +61,15 @@ class MosaicRenderEngineTest {
     @Test
     fun geometryBackedPartialProjectionPreservesReadyHeight() {
         val request = request(sampleAssets(4))
-        val geometryBands = listOf(
-            MosaicSectionGeometryBand(sourceStartIndex = 0, sourceCount = 2, height = 140f),
-            MosaicSectionGeometryBand(sourceStartIndex = 2, sourceCount = 2, height = 160f)
+        val geometryRanges = listOf(
+            MosaicSectionGeometryRange(sourceStartIndex = 0, sourceCount = 2, height = 140f),
+            MosaicSectionGeometryRange(sourceStartIndex = 2, sourceCount = 2, height = 160f)
         )
         val expectedHeight = 140f + request.spacing + 160f
         val partialItems = engine.projectPartialSectionWithGeometry(
             assets = request.assets,
             chunks = emptyList(),
-            geometryBands = geometryBands,
+            geometryRanges = geometryRanges,
             bucketIndex = request.bucketIndex,
             sectionLabel = request.sectionLabel,
             layoutSpec = request.displayLayoutSpec,
@@ -87,7 +86,7 @@ class MosaicRenderEngineTest {
     }
 
     @Test
-    fun partialProjectionUsesAbsoluteFallbackKeysAcrossChunks() {
+    fun partialProjectionUsesPlaceholdersForUnstableChunksAcrossRanges() {
         val request = request(sampleAssets(12))
         val chunks = listOf(
             ProgressChunk(
@@ -115,14 +114,8 @@ class MosaicRenderEngineTest {
             spacing = request.spacing,
             maxRowHeight = request.maxRowHeight
         )
-        val bands = items.filterIsInstance<MosaicBandItem>()
-
-        assertEquals(bands.size, bands.map { it.gridKey }.toSet().size)
-        assertEquals(listOf(0, 4, 8), bands.map { it.sourceStartIndex })
-        assertEquals(
-            request.assets.map { it.id },
-            bands.flatMap { band -> band.tiles.map { it.photo.asset.id } }
-        )
+        assertTrue(items.all { it is PlaceholderItem })
+        assertEquals(items.size, items.map { it.gridKey }.toSet().size)
     }
 
     @Test
@@ -154,7 +147,7 @@ class MosaicRenderEngineTest {
     }
 
     @Test
-    fun readyProjectionMayUseFallbackBandsAfterCompletion() {
+    fun readyProjectionMayUseFallbackRowsAfterCompletion() {
         val request = request(sampleAssets(5))
 
         val items = engine.projectReadySection(
@@ -168,11 +161,11 @@ class MosaicRenderEngineTest {
         )
 
         assertTrue(items.isNotEmpty())
-        assertTrue(items.all { it is MosaicBandItem })
-        assertTrue(items.any { it is MosaicBandItem && it.kind == MosaicBandKind.FALLBACK })
+        assertTrue(items.all { it is RowItem })
+        assertTrue(items.all { it is RowItem && it.kind == RowItemKind.MOSAIC_FALLBACK })
         assertEquals(
             request.assets.map { it.id },
-            items.filterIsInstance<MosaicBandItem>().flatMap { band -> band.tiles.map { it.photo.asset.id } }
+            items.filterIsInstance<RowItem>().flatMap { row -> row.photos.map { it.asset.id } }
         )
     }
 

@@ -168,10 +168,10 @@ Timeline uses multiple cache layers, each with a different purpose.
   for persisted Mosaic sections. Geometry rows are keyed by assignment identity,
   rounded Timeline width, and geometry version; max row height and spacing are
   validation fields and stale rows are recomputed. Each row stores both the
-  aggregate `placeholderHeight` for the section and `geometryBandsJson`.
-  Geometry bands store source range plus layout height for each final real
-  Mosaic band. Timeline renders one aggregate placeholder per pending section
-  to keep LazyColumn item count low; geometry bands are used for exact-height
+  aggregate `placeholderHeight` for the section and `geometryRangesJson`.
+  Geometry ranges store source range plus layout height for each final real
+  Mosaic band or completed fallback row. Timeline renders one aggregate placeholder per pending section
+  to keep LazyColumn item count low; geometry ranges are used for exact-height
   partial projection.
 - Room `timeline_bucket_geometry`: width-keyed aggregate placeholder geometry
   for whole buckets. Unloaded buckets use this after cold sync and on warm
@@ -180,7 +180,7 @@ Timeline uses multiple cache layers, each with a different purpose.
   families, asset revision, rounded full Timeline width, max row height,
   spacing, and geometry version; missing exact geometry falls back to projected
   or count placeholders instead of rendering header-only.
-- Room `timeline_mosaic_display_cache`: optional width-keyed display-band cache
+- Room `timeline_mosaic_display_cache`: optional width-keyed mixed display cache
   for ready Mosaic sections. If `ViewConfig.cacheMosaicResults` is disabled,
   Timeline bypasses disk Mosaic artifact reads for rendering and computes
   runtime Mosaic state for materialized buckets after active scrolling settles.
@@ -228,7 +228,7 @@ artifacts, the ViewModel computes runtime Mosaic for that same active config so
 the bucket does not remain placeholders-only after an interrupted cache build.
 That runtime path never reads old-config artifacts. It displays placeholders
 while pending, interrupted, failed, or partially unresolved, and may display
-fallback Mosaic bands only after the active-config section reaches completed
+fallback Mosaic rows only after the active-config section reaches completed
 ready projection.
 
 Changed or missing Timeline Mosaic rows may also publish session-only
@@ -259,49 +259,55 @@ Mosaic assignments are computed in these cases:
 Mosaic assignments are not computed on normal scroll, scrollbar drag, width
 changes, group-size changes, or Mosaic-family changes. Those events request
 persisted cache reads. Missing rows remain placeholders until assets or cached
-display bands are available; Timeline Mosaic-enabled photo content must not
+display records are available; Timeline Mosaic-enabled photo content must not
 render standard justified row fallback.
 
 ### How Persisted Mosaic Is Built
 
-`PrepareTimelineMosaicCacheAction` delegates to
-`TimelineMosaicCacheRepository.precomputeTimelineMosaic()`. The repository
-limits bucket work with `TIMELINE_MOSAIC_PRECOMPUTE_PARALLELISM = 4` and runs
-the work on `Dispatchers.IO`, with assignment math on `Dispatchers.Default`.
-This standalone precompute path only operates on materialized Room refs. If
-bucket metadata says a bucket has assets but the ordered Room read is empty, the
-repository must fail instead of persisting zero-height Mosaic geometry. A
-legitimately empty bucket is successful only when metadata confirms the
-expected count is zero or absent.
+`PrepareTimelineMosaicCacheAction` owns persisted Timeline Mosaic preparation.
+It limits bucket work to four concurrent buckets, reads each bucket through
+`TimelineBucketSnapshotReader`, runs assignment/projection/artifact derivation
+on `Dispatchers.Default`, and sends complete bucket artifacts to
+`TimelineMosaicCacheRepository` for one transactional replace. The repository
+does not compute Mosaic assignments, display records, fallback rows, or
+geometry; it persists, reads, clears, and validates rows only. This standalone
+precompute path only operates on materialized Room refs. If bucket metadata says
+a bucket has assets but the ordered snapshot is empty, the action fails that
+bucket instead of persisting zero-height Mosaic geometry. A legitimately empty
+bucket is successful only when metadata confirms the expected count is zero or
+absent.
 
 For each bucket:
 
-1. Read ordered persisted Room assets for the bucket and reject unsynced empty
-   reads when bucket metadata still reports assets.
-2. Compute `orderedAssetsFingerprint(entities)`.
-3. Convert entities to domain `Asset` models with the current base URL.
-4. Split into Mosaic sections:
+1. Read `TimelineBucketSnapshot`, which contains ordered domain assets plus the
+   bucket metadata count, and reject unsynced empty reads when metadata still
+   reports assets.
+2. Compute `orderedTimelineAssetsFingerprint(assets)`.
+3. Split into Mosaic sections:
    - month/group modes use one month section.
    - day group mode splits assets by local date and writes one section per day.
-5. For each section, call `buildMosaicAssignments()` using the fixed assignment
-   `MosaicLayoutSpec`, grid spacing, and normalized enabled families.
+4. For each section, call `MosaicRenderEngine.computeSection()` using the fixed
+   assignment `MosaicLayoutSpec`, measured display `MosaicLayoutSpec`, grid
+   spacing, max row height, and normalized enabled families.
    When progressive runtime updates are enabled for a missing or changed
    section, the same source-order scan emits an in-memory chunk after each
    stable batch of eight Mosaic bands. A chunk owns a contiguous source-asset
    range. If no valid template exists at a source index, the scanner advances
    by one asset instead of using standard row packing as a skip heuristic.
-6. If a measured Timeline width is available, replay the assignments through
-   the real display `MosaicLayoutSpec`, generate exact placeholder geometry
-   summaries in `timeline_mosaic_geometry`, and persist portable display-band
-   records in `timeline_mosaic_display_cache` when cache results are enabled.
-   Persisted display rows may contain fallback bands as completed ready output,
-   but runtime display may replay them only when the display rows independently
-   validate source coverage against the current ordered assets.
-7. Compute aggregate bucket geometry from the section geometry. In day mode this
-   includes day section headers and inter-item spacing.
-8. Replace rows for that exact bucket/group/column/family config in
+5. `TimelineMosaicArtifactBuilder` converts completed `SectionReady` values
+   into assignment artifacts, optional mixed display records, section geometry,
+   and aggregate bucket geometry. If cache results are enabled and any display
+   row cannot independently validate source coverage, the whole bucket artifact
+   build fails and writes nothing.
+6. Compute aggregate bucket geometry from section geometry. Month mode stores
+   placeholder chunks for the month section height. Day mode uses exact section
+   heights plus one day header per section, inter-item spacing, and the same
+   placeholder chunk count used by `buildPhotoGridPlaceholderItemsForHeight()`.
+7. Replace rows for that exact bucket/group/column/family config in
    `timeline_mosaic_assignments`, display cache, section geometry, and
-   aggregate bucket geometry.
+   aggregate bucket geometry. Cache-off preparation clears stale display rows
+   in the same transaction because the transaction replaces the full artifact
+   set for that bucket/config.
 
 Progressive chunks use the same generation, group mode, column count, Mosaic
 families, bucket revision, and full-screen geometry identity as persisted cache
@@ -312,7 +318,7 @@ assignments replace the partial runtime chunks.
 Partial rendering must preserve source order: valid ready chunks render final
 real Mosaic bands, invalid chunks render placeholders, and pending source ranges
 render placeholders. When cached section geometry exists, partial output maps
-chunk ranges onto `geometryBandsJson`; unresolved final geometry bands collapse
+chunk ranges onto `geometryRangesJson`; unresolved final geometry ranges collapse
 into exact-height placeholders and the mixed partial output must preserve the
 final ready section height within `0.5f`. If validation fails, Timeline keeps
 the exact full-section placeholder until ready output arrives. Without cached
@@ -332,18 +338,16 @@ by complete persisted assignment rows when those rows become available.
 ```mermaid
 graph TD
     changed["Changed bucket ids"] --> action["Precompute Mosaic action"]
-    action --> repository["Timeline repository"]
-    repository --> parallel["Run bucket work on IO with limit four"]
-    parallel --> assets["Read ordered Room assets"]
-    assets --> fingerprint["Compute ordered asset fingerprint"]
+    action --> parallel["Run bucket work with limit four"]
+    parallel --> snapshot["Read TimelineBucketSnapshot"]
+    snapshot --> fingerprint["Compute ordered asset fingerprint"]
     fingerprint --> sections{"Timeline group size"}
     sections -->|Month or larger| month["One month section"]
     sections -->|Day| days["One section per local day"]
-    month --> assign["Build Mosaic assignments"]
+    month --> assign["MosaicRenderEngine.computeSection"]
     days --> assign
-    assign --> geometry["Compute section geometry summaries"]
-    geometry --> aggregate["Compute aggregate bucket geometry"]
-    aggregate --> persist["Replace persisted Mosaic and geometry rows"]
+    assign --> builder["TimelineMosaicArtifactBuilder"]
+    builder --> persist["Repository atomic artifact replace"]
 ```
 
 ### Normal Scroll
@@ -448,11 +452,11 @@ graph LR
   materialized sections render placeholders, not fallback thumbnail bands.
 - `Partial(chunks)`: valid chunks render real Mosaic bands and unresolved or
   invalid materialized ranges render placeholders.
-- `Ready(assignments, displayBands)`: replay persisted display bands when they
+- `Ready(assignments, displayRecords)`: replay persisted mixed display records when they
   exist, cache results are enabled, and those rows validate source coverage for
   the current ordered assets. Otherwise project the completed assignments through
   `MosaicRenderEngine.projectReadySection(...)`; that completed projection may
-  include fallback Mosaic bands for source ranges no template could represent.
+  include cropped full-width fallback rows for source ranges no template could represent.
 - `Failed`: render placeholders and retry through the normal runtime/cache
   preparation path. Failed state must not show fallback thumbnail bands.
 
@@ -469,21 +473,21 @@ materialized yet.
 
 When persisted section geometry exists, the placeholder phase emits one
 aggregate `PlaceholderItem` sized to the section's `placeholderHeight`.
-`geometryBandsJson` is used to keep progressive partial output height-exact,
+`geometryRangesJson` is used to keep progressive partial output height-exact,
 but current Timeline rendering deliberately does not expand pending sections
 into one LazyColumn item per final band. When section geometry is missing, the
 placeholder falls back to cached-asset projection or count/width estimates and
 may resize once after exact geometry is first computed.
 
 Timeline Mosaic display cache is width-dependent and requested-config scoped. It
-stores portable band records, not Compose display objects, keyed by bucket,
+stores portable mixed display records, not Compose display objects, keyed by bucket,
 section, group mode, configured Timeline Mosaic column count, families key, ordered
 asset fingerprint, rounded width, spacing, max row height, and display-cache
 version. Assignment rows remain width-independent. Replacing or clearing a
 bucket Mosaic config must clear assignments, display cache, section geometry,
 and aggregate bucket geometry together.
 
-Runtime Timeline Mosaic also keeps validated resolved real display-band records
+Runtime Timeline Mosaic also keeps validated mixed display records
 inside in-memory `Ready` section state when final projection covers the ordered
 section assets. These records avoid repeated assignment projection during state
 rebuilds. Assignments remain canonical, partial chunks remain transient, and an
@@ -548,9 +552,10 @@ of the following:
 - `PlaceholderItem` rows if assets are not materialized yet or Mosaic rows are
   pending.
 - `RowItem` rows from `packIntoRows()` only when Mosaic is off.
-- Real `MosaicBandItem` bands from persisted display cache or strict assignment
-  projection when Mosaic is enabled and assets are materialized. Pending,
-  unresolved, invalid, or cache-miss Mosaic ranges become placeholders.
+- Real `MosaicBandItem` bands and completed full-width `RowItem(kind = MOSAIC_FALLBACK)`
+  rows from persisted display cache or strict assignment projection when Mosaic
+  is enabled and assets are materialized. Pending, unresolved, invalid, or
+  cache-miss Mosaic ranges become placeholders.
 
 `TimelineContent` renders a `LazyColumn` with stable `gridKey` values and
 shape-aware content types from `photoGridDisplayItemContentType(...)`. `RowItem`
@@ -643,10 +648,10 @@ materialized yet.
 - Scroll and scrollbar targeting may request persisted Mosaic rows, but must
   not run continuous Mosaic assignment computation.
 - Timeline Mosaic-enabled rendered ready photo content must be real
-  `MosaicBandItem` output. Missing, invalid, interrupted, cache-miss, and
-  partially assigned ranges render placeholders, not `RowItem`s or fallback
-  thumbnail bands. Fallback `MosaicBandItem` bands are allowed only in completed
-  ready output or validated completed display-cache rows.
+  `MosaicBandItem` output or completed cropped full-width `RowItem(kind = MOSAIC_FALLBACK)`
+  rows. Missing, invalid, interrupted, cache-miss, and partially assigned ranges
+  render placeholders, not standard row-packing rows or fallback thumbnail bands.
+  Fallback `MosaicBandItem` bands are not valid Timeline output.
 - Stale Mosaic cache reads and queued runtime publishes must not publish after
   generation/config changes. Timeline publish application is guarded by a global
   Mosaic runtime generation plus per-bucket generations, so one changed bucket

@@ -10,7 +10,7 @@ import com.udnahc.immichgallery.domain.model.RowItem
 
 fun photoGridDisplayItemContentType(item: PhotoGridDisplayItem): Any =
     when (item) {
-        is RowItem -> "row_${item.photos.size}_${item.isComplete}"
+        is RowItem -> "row_${item.kind}_${item.photos.size}_${item.isComplete}"
         is MosaicBandItem -> "mosaic_${item.tiles.size}_${item.kind}"
         is HeaderItem -> "header"
         is PlaceholderItem -> "placeholder"

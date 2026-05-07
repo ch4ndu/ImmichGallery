@@ -198,7 +198,7 @@ class MosaicPackingTest {
     }
 
     @Test
-    fun fallbackBandBeforeLaterMosaicPreservesLaterMosaic() {
+    fun fallbackRowBeforeLaterMosaicPreservesLaterMosaic() {
         val assets = sampleAssets(count = 8, aspectRatio = 1f)
         val items = buildPhotoGridItemsWithMosaic(
             assets = assets,
@@ -211,15 +211,15 @@ class MosaicPackingTest {
             promoteWideImages = false
         )
 
-        val fallback = assertIs<MosaicBandItem>(items.first())
-        assertEquals(MosaicBandKind.FALLBACK, fallback.kind)
-        assertEquals((0..1).map { "asset_$it" }, fallback.tiles.map { it.photo.asset.id })
+        val fallback = assertIs<RowItem>(items.first())
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, fallback.kind)
+        assertEquals((0..1).map { "asset_$it" }, fallback.photos.map { it.asset.id })
         assertIs<MosaicBandItem>(items[1])
         assertEquals(collectedAssetIds(items).distinct(), collectedAssetIds(items))
     }
 
     @Test
-    fun fallbackBandDoesNotDemoteLaterMosaicForSmallGap() {
+    fun fallbackRowDoesNotDemoteLaterMosaicForSmallGap() {
         val assets = sampleAssets(count = 8, aspectRatio = 1f)
         val items = buildPhotoGridItemsWithMosaic(
             assets = assets,
@@ -232,16 +232,16 @@ class MosaicPackingTest {
             promoteWideImages = false
         )
 
-        val fallback = assertIs<MosaicBandItem>(items.first())
+        val fallback = assertIs<RowItem>(items.first())
         val mosaic = assertIs<MosaicBandItem>(items[1])
-        assertEquals(MosaicBandKind.FALLBACK, fallback.kind)
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, fallback.kind)
         assertEquals(MosaicBandKind.REAL, mosaic.kind)
-        assertEquals(listOf("asset_0"), fallback.tiles.map { it.photo.asset.id })
+        assertEquals(listOf("asset_0"), fallback.photos.map { it.asset.id })
         assertEquals(collectedAssetIds(items).distinct(), collectedAssetIds(items))
     }
 
     @Test
-    fun mosaicFallbackDoesNotEmitRowItems() {
+    fun mosaicFallbackEmitsOnlyFallbackRowsAndRealMosaicBands() {
         val items = buildPhotoGridItemsWithMosaic(
             assets = sampleAssets(aspectRatios = listOf(4f, 1f, 1f, 1f, 1f, 1f)),
             assignments = listOf(manualAssignment(sourceStartIndex = 2, sourceCount = 4)),
@@ -253,12 +253,15 @@ class MosaicPackingTest {
         )
 
         assertTrue(items.isNotEmpty())
-        assertTrue(items.all { it is MosaicBandItem })
+        assertTrue(items.all { item ->
+            item is MosaicBandItem ||
+                (item is RowItem && item.kind == RowItemKind.MOSAIC_FALLBACK)
+        })
         assertEquals((0..5).map { "asset_$it" }, collectedAssetIds(items))
     }
 
     @Test
-    fun twoAssetFallbackRendersSingleFullWidthBand() {
+    fun twoAssetFallbackRendersSingleFallbackRow() {
         val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
         val items = buildPhotoGridItemsWithMosaic(
             assets = sampleAssets(aspectRatios = listOf(3f, 3f)),
@@ -270,14 +273,14 @@ class MosaicPackingTest {
             maxRowHeight = 400f
         )
 
-        val band = assertIs<MosaicBandItem>(items.single())
-        assertEquals(MosaicBandKind.FALLBACK, band.kind)
-        assertEquals(listOf("asset_0", "asset_1"), band.tiles.map { it.photo.asset.id })
-        assertTrue(abs((band.tiles.maxOf { it.x + it.width }) - layoutSpec.availableWidth) < 0.1f)
+        val row = assertIs<RowItem>(items.single())
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, row.kind)
+        assertEquals(listOf("asset_0", "asset_1"), row.photos.map { it.asset.id })
+        assertTrue(row.isComplete)
     }
 
     @Test
-    fun singleAssetFallbackSpansFullWidth() {
+    fun singleAssetFallbackUsesSingleFallbackRow() {
         val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
         val items = buildPhotoGridItemsWithMosaic(
             assets = sampleAssets(aspectRatios = listOf(400f / layoutSpec.cellHeight)),
@@ -289,10 +292,9 @@ class MosaicPackingTest {
             maxRowHeight = 400f
         )
 
-        val band = assertIs<MosaicBandItem>(items.single())
-        assertEquals(MosaicBandKind.FALLBACK, band.kind)
-        assertEquals(listOf("asset_0"), band.tiles.map { it.photo.asset.id })
-        assertEquals(layoutSpec.availableWidth, band.tiles.single().width)
+        val row = assertIs<RowItem>(items.single())
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, row.kind)
+        assertEquals(listOf("asset_0"), row.photos.map { it.asset.id })
     }
 
     @Test
@@ -308,10 +310,10 @@ class MosaicPackingTest {
             maxRowHeight = 400f
         )
 
-        val band = assertIs<MosaicBandItem>(items.single())
-        assertEquals(MosaicBandKind.FALLBACK, band.kind)
-        assertEquals(listOf("asset_0"), band.tiles.map { it.photo.asset.id })
-        assertEquals(layoutSpec.cellHeight * 2f, band.bandHeight)
+        val row = assertIs<RowItem>(items.single())
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, row.kind)
+        assertEquals(listOf("asset_0"), row.photos.map { it.asset.id })
+        assertEquals(layoutSpec.cellHeight * 2f, row.rowHeight)
     }
 
     @Test
@@ -327,9 +329,9 @@ class MosaicPackingTest {
             maxRowHeight = 150f
         )
 
-        val band = assertIs<MosaicBandItem>(items.single())
-        assertEquals(MosaicBandKind.FALLBACK, band.kind)
-        assertEquals(150f, band.bandHeight)
+        val row = assertIs<RowItem>(items.single())
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, row.kind)
+        assertEquals(150f, row.rowHeight)
     }
 
     @Test
@@ -345,14 +347,14 @@ class MosaicPackingTest {
             maxRowHeight = 400f
         )
 
-        val band = assertIs<MosaicBandItem>(items.single())
-        assertEquals(MosaicBandKind.FALLBACK, band.kind)
-        assertEquals(listOf("asset_0", "asset_1"), band.tiles.map { it.photo.asset.id })
-        assertEquals(layoutSpec.cellHeight * 2f, band.bandHeight)
+        val row = assertIs<RowItem>(items.single())
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, row.kind)
+        assertEquals(listOf("asset_0", "asset_1"), row.photos.map { it.asset.id })
+        assertEquals(layoutSpec.cellHeight * 2f, row.rowHeight)
     }
 
     @Test
-    fun fourAssetEmptyAssignmentSectionUsesOneFallbackBand() {
+    fun fourAssetEmptyAssignmentSectionUsesFallbackRows() {
         val layoutSpec = MosaicLayoutSpec(columnCount = 4, availableWidth = 400f, cellHeight = 100f)
         val items = buildPhotoGridItemsWithMosaic(
             assets = sampleAssets(count = 4, aspectRatio = 1f),
@@ -364,10 +366,10 @@ class MosaicPackingTest {
             maxRowHeight = 400f
         )
 
-        val band = assertIs<MosaicBandItem>(items.single())
-        assertEquals(MosaicBandKind.FALLBACK, band.kind)
-        assertEquals((0..3).map { "asset_$it" }, band.tiles.map { it.photo.asset.id })
-        assertEquals(layoutSpec.cellHeight * 2f, band.bandHeight)
+        val rows = items.map { assertIs<RowItem>(it) }
+        assertTrue(rows.all { it.kind == RowItemKind.MOSAIC_FALLBACK })
+        assertEquals((0..3).map { "asset_$it" }, rows.flatMap { row -> row.photos.map { it.asset.id } })
+        assertTrue(rows.all { it.rowHeight >= layoutSpec.cellHeight * 2f })
     }
 
     @Test
@@ -383,10 +385,10 @@ class MosaicPackingTest {
             maxRowHeight = 400f
         )
 
-        val bands = items.map { assertIs<MosaicBandItem>(it) }
-        assertEquals(2, bands.size)
-        assertEquals(6, bands.first().tiles.size)
-        assertEquals(layoutSpec.cellHeight, bands.first().bandHeight)
+        val rows = items.map { assertIs<RowItem>(it) }
+        assertEquals(2, rows.size)
+        assertEquals(6, rows.first().photos.size)
+        assertEquals(layoutSpec.cellHeight, rows.first().rowHeight)
         assertEquals((0..9).map { "asset_$it" }, collectedAssetIds(items))
     }
 
@@ -403,12 +405,15 @@ class MosaicPackingTest {
             maxRowHeight = 400f
         )
 
-        val firstBand = assertIs<MosaicBandItem>(items.first())
+        val firstRow = assertIs<RowItem>(items.first())
         val mosaic = assertIs<MosaicBandItem>(items.last())
-        assertEquals(MosaicBandKind.FALLBACK, firstBand.kind)
-        assertEquals(listOf("asset_0", "asset_1"), firstBand.tiles.map { it.photo.asset.id })
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, firstRow.kind)
+        assertEquals(listOf("asset_0", "asset_1"), firstRow.photos.map { it.asset.id })
         assertTrue(mosaicFallbackMinRowHeight(layoutSpec, listOf(mosaic.bandHeight)) > mosaicFallbackMinRowHeight(layoutSpec))
-        assertEquals(mosaicFallbackMinRowHeight(layoutSpec, listOf(mosaic.bandHeight)), firstBand.bandHeight)
+        assertEquals(
+            mosaicFallbackRowMinHeight(layoutSpec, assetCount = 6, realMosaicBandHeights = listOf(mosaic.bandHeight)),
+            firstRow.rowHeight
+        )
     }
 
     @Test
@@ -424,7 +429,7 @@ class MosaicPackingTest {
     }
 
     @Test
-    fun finalFallbackBandMayContainFewerThanColumnCountAssets() {
+    fun finalFallbackRowMayContainFewerThanColumnCountAssets() {
         val items = buildPhotoGridItemsWithMosaic(
             assets = sampleAssets(count = 3, aspectRatio = 1f),
             assignments = emptyList(),
@@ -436,9 +441,10 @@ class MosaicPackingTest {
             promoteWideImages = false
         )
 
-        val lastBand = assertIs<MosaicBandItem>(items.last())
-        assertEquals(MosaicBandKind.FALLBACK, lastBand.kind)
-        assertEquals((0..2).map { "asset_$it" }, lastBand.tiles.map { it.photo.asset.id })
+        val lastRow = assertIs<RowItem>(items.last())
+        assertEquals(RowItemKind.MOSAIC_FALLBACK, lastRow.kind)
+        assertEquals((0..2).map { "asset_$it" }, collectedAssetIds(items))
+        assertEquals(listOf("asset_2"), lastRow.photos.map { it.asset.id })
     }
 
     private fun sampleAssets(count: Int): List<Asset> {

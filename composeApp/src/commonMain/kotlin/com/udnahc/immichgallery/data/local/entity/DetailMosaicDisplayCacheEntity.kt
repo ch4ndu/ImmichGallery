@@ -50,7 +50,7 @@ data class DetailMosaicDisplayCacheEntity(
     val maxRowHeightKey: Int,
     val spacingKey: Int,
     val displayVersion: Int,
-    val bandsJson: String,
+    val itemsJson: String,
     val displayItemCount: Int,
     val placeholderHeight: Float,
     val updatedAt: Long

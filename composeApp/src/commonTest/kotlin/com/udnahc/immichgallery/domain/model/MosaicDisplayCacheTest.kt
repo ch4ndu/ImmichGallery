@@ -29,43 +29,111 @@ class MosaicDisplayCacheTest {
     }
 
     @Test
-    fun displayBandsMustCoverOrderedAssetsWithoutGapsOrUnknownIds() {
+    fun displayRecordsMustCoverOrderedAssetsWithoutGapsOrUnknownIds() {
         val assets = sampleAssets(3)
-        val validBands = listOf(
-            MosaicDisplayBandRecord(
+        val validRecords = listOf(
+            MosaicDisplayItemRecord(
+                kind = MosaicDisplayItemRecordKind.REAL_BAND,
                 sourceStartIndex = 0,
                 sourceCount = 2,
-                bandHeight = 100f,
-                kind = MosaicDisplayBandKind.REAL,
+                height = 100f,
                 tiles = listOf(
                     MosaicDisplayTileRecord("asset_0", 0, 0f, 0f, 100f, 100f),
                     MosaicDisplayTileRecord("asset_1", 1, 100f, 0f, 100f, 100f)
                 )
             ),
-            MosaicDisplayBandRecord(
+            MosaicDisplayItemRecord(
+                kind = MosaicDisplayItemRecordKind.MOSAIC_FALLBACK_ROW,
                 sourceStartIndex = 2,
                 sourceCount = 1,
-                bandHeight = 100f,
-                kind = MosaicDisplayBandKind.FALLBACK,
-                tiles = listOf(
-                    MosaicDisplayTileRecord("asset_2", 0, 0f, 0f, 100f, 100f)
-                )
+                height = 100f,
+                assetIds = listOf("asset_2")
             )
         )
 
-        assertTrue(validBands.coversOrderedAssets(assets))
-        assertTrue(!validBands.drop(1).coversOrderedAssets(assets))
+        assertTrue(validRecords.displayRecordsCoverOrderedAssets(assets))
+        assertTrue(!validRecords.drop(1).displayRecordsCoverOrderedAssets(assets))
         assertTrue(
-            !validBands.mapIndexed { index, band ->
-                if (index == 1) band.copy(tiles = listOf(band.tiles.first().copy(assetId = "missing"))) else band
-            }.coversOrderedAssets(assets)
+            !validRecords.mapIndexed { index, record ->
+                if (index == 1) record.copy(assetIds = listOf("missing")) else record
+            }.displayRecordsCoverOrderedAssets(assets)
         )
     }
 
     @Test
-    fun resolvedSectionDisplayBandsConvertCompleteRealBands() {
+    fun displayRecordsRejectStoredRecordOrderThatDoesNotMatchSourceOrder() {
         val assets = sampleAssets(3)
-        val records = resolvedSectionDisplayBandsOrEmpty(
+        val records = listOf(
+            fallbackRecord(sourceStartIndex = 1, assetIds = listOf("asset_1")),
+            fallbackRecord(sourceStartIndex = 0, assetIds = listOf("asset_0")),
+            fallbackRecord(sourceStartIndex = 2, assetIds = listOf("asset_2"))
+        )
+
+        assertTrue(!records.displayRecordsCoverOrderedAssets(assets))
+    }
+
+    @Test
+    fun displayRecordsRejectFallbackRowsWithWrongAssetOrder() {
+        val assets = sampleAssets(3)
+        val records = listOf(
+            MosaicDisplayItemRecord(
+                kind = MosaicDisplayItemRecordKind.MOSAIC_FALLBACK_ROW,
+                sourceStartIndex = 0,
+                sourceCount = 3,
+                height = 100f,
+                assetIds = listOf("asset_1", "asset_0", "asset_2")
+            )
+        )
+
+        assertTrue(!records.displayRecordsCoverOrderedAssets(assets))
+    }
+
+    @Test
+    fun displayRecordsAllowRealBandVisualOrderToDifferFromSourceOrder() {
+        val assets = sampleAssets(2)
+        val records = listOf(
+            MosaicDisplayItemRecord(
+                kind = MosaicDisplayItemRecordKind.REAL_BAND,
+                sourceStartIndex = 0,
+                sourceCount = 2,
+                height = 100f,
+                tiles = listOf(
+                    MosaicDisplayTileRecord("asset_1", 0, 100f, 0f, 100f, 100f),
+                    MosaicDisplayTileRecord("asset_0", 1, 0f, 0f, 100f, 100f)
+                )
+            )
+        )
+
+        assertTrue(records.displayRecordsCoverOrderedAssets(assets))
+    }
+
+    @Test
+    fun displayRecordsRejectInvalidRealBandVisualOrder() {
+        val assets = sampleAssets(2)
+        val duplicateVisualOrder = listOf(
+            MosaicDisplayItemRecord(
+                kind = MosaicDisplayItemRecordKind.REAL_BAND,
+                sourceStartIndex = 0,
+                sourceCount = 2,
+                height = 100f,
+                tiles = listOf(
+                    MosaicDisplayTileRecord("asset_0", 0, 0f, 0f, 100f, 100f),
+                    MosaicDisplayTileRecord("asset_1", 0, 100f, 0f, 100f, 100f)
+                )
+            )
+        )
+        val outOfRangeVisualOrder = duplicateVisualOrder.map { record ->
+            record.copy(tiles = record.tiles.mapIndexed { index, tile -> tile.copy(visualOrder = index + 1) })
+        }
+
+        assertTrue(!duplicateVisualOrder.displayRecordsCoverOrderedAssets(assets))
+        assertTrue(!outOfRangeVisualOrder.displayRecordsCoverOrderedAssets(assets))
+    }
+
+    @Test
+    fun resolvedSectionDisplayRecordsConvertCompleteRealBands() {
+        val assets = sampleAssets(3)
+        val records = resolvedSectionDisplayRecordsOrEmpty(
             displayItems = listOf(
                 mosaicBand(
                     assets = assets,
@@ -84,14 +152,14 @@ class MosaicDisplayCacheTest {
         assertEquals(2, records.size)
         assertEquals(listOf(0, 2), records.map { it.sourceStartIndex })
         assertEquals(listOf(2, 1), records.map { it.sourceCount })
-        assertTrue(records.all { it.kind == MosaicDisplayBandKind.REAL })
-        assertTrue(records.coversOrderedAssets(assets))
+        assertTrue(records.all { it.kind == MosaicDisplayItemRecordKind.REAL_BAND })
+        assertTrue(records.displayRecordsCoverOrderedAssets(assets))
     }
 
     @Test
-    fun resolvedSectionDisplayBandsRejectFallbackBands() {
+    fun resolvedSectionDisplayRecordsRejectFallbackBands() {
         val assets = sampleAssets(2)
-        val records = resolvedSectionDisplayBandsOrEmpty(
+        val records = resolvedSectionDisplayRecordsOrEmpty(
             displayItems = listOf(
                 mosaicBand(
                     assets = assets,
@@ -107,9 +175,9 @@ class MosaicDisplayCacheTest {
     }
 
     @Test
-    fun resolvedSectionDisplayBandsRejectNonBandItems() {
+    fun resolvedSectionDisplayRecordsRejectNonDisplayItems() {
         val assets = sampleAssets(1)
-        val records = resolvedSectionDisplayBandsOrEmpty(
+        val records = resolvedSectionDisplayRecordsOrEmpty(
             displayItems = listOf(
                 HeaderItem(
                     gridKey = "header",
@@ -130,9 +198,9 @@ class MosaicDisplayCacheTest {
     }
 
     @Test
-    fun resolvedSectionDisplayBandsRejectInvalidCoverage() {
+    fun resolvedSectionDisplayRecordsRejectInvalidCoverage() {
         val assets = sampleAssets(2)
-        val records = resolvedSectionDisplayBandsOrEmpty(
+        val records = resolvedSectionDisplayRecordsOrEmpty(
             displayItems = listOf(
                 mosaicBand(
                     assets = assets,
@@ -191,4 +259,16 @@ class MosaicDisplayCacheTest {
             kind = kind
         )
     }
+
+    private fun fallbackRecord(
+        sourceStartIndex: Int,
+        assetIds: List<String>
+    ): MosaicDisplayItemRecord =
+        MosaicDisplayItemRecord(
+            kind = MosaicDisplayItemRecordKind.MOSAIC_FALLBACK_ROW,
+            sourceStartIndex = sourceStartIndex,
+            sourceCount = assetIds.size,
+            height = 100f,
+            assetIds = assetIds
+        )
 }

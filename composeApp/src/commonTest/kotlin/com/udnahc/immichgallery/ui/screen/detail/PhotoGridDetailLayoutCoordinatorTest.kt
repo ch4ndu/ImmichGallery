@@ -15,17 +15,20 @@ import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
-import com.udnahc.immichgallery.domain.model.MosaicBandKind
 import com.udnahc.immichgallery.domain.model.MosaicLayoutSpec
+import com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecord
+import com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecordKind
 import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
 import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
-import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.MosaicSectionComputer
 import com.udnahc.immichgallery.domain.model.MosaicSectionRequest
 import com.udnahc.immichgallery.domain.model.MosaicSectionResult
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.ProgressChunk
+import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.RowItemKind
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
 import com.udnahc.immichgallery.domain.model.RowHeightScope
 import com.udnahc.immichgallery.domain.model.AggregateGeometry
@@ -294,7 +297,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
                     sectionIndex = 2,
                     sectionKey = "January 2026",
                     sectionAssets = assets.filter { it.id.startsWith("jan_") },
-                    placeholderHeight = cachedHeight
+                    placeholderHeight = cachedHeight,
+                    includeDisplayCache = false
                 )
             }
         )
@@ -334,7 +338,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
                     sectionKey = "January 2026",
                     sectionAssets = assets.filter { it.id.startsWith("jan_") },
                     placeholderHeight = cachedHeight,
-                    includeAggregateGeometry = false
+                    includeAggregateGeometry = false,
+                    includeDisplayCache = false
                 )
             }
         )
@@ -383,8 +388,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
 
         assertEquals(0, readCount)
         assertEquals(0, writeCount)
-        assertEquals(true, state.displayItems.hasFallbackMosaicBands())
-        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem })
+        assertEquals(true, state.displayItems.hasMosaicFallbackRows())
+        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem || it is RowItem })
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -417,8 +422,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
 
         assertEquals(2, mosaicComputer.computeCalls)
         assertEquals(true, mosaicComputer.receivedResumeCheckpoint)
-        assertEquals(true, state.displayItems.hasFallbackMosaicBands())
-        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem })
+        assertEquals(true, state.displayItems.hasMosaicFallbackRows())
+        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem || it is RowItem })
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -444,14 +449,14 @@ class PhotoGridDetailLayoutCoordinatorTest {
         advanceUntilIdle()
 
         assertEquals(2, mosaicComputer.computeCalls)
-        assertEquals(true, state.displayItems.hasFallbackMosaicBands())
+        assertEquals(true, state.displayItems.hasMosaicFallbackRows())
 
         coordinator.setScrollInProgress(false)
         advanceUntilIdle()
 
         assertEquals(2, mosaicComputer.computeCalls)
-        assertEquals(true, state.displayItems.hasFallbackMosaicBands())
-        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem })
+        assertEquals(true, state.displayItems.hasMosaicFallbackRows())
+        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem || it is RowItem })
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -595,7 +600,15 @@ class PhotoGridDetailLayoutCoordinatorTest {
             maxRowHeightKey = 60000,
             spacingKey = 400,
             displayVersion = 1,
-            bands = emptyList(),
+            displayRecords = listOf(
+                MosaicDisplayItemRecord(
+                    kind = MosaicDisplayItemRecordKind.MOSAIC_FALLBACK_ROW,
+                    sourceStartIndex = 0,
+                    sourceCount = assets.size,
+                    height = placeholderHeight,
+                    assetIds = assets.map { it.id }
+                )
+            ),
             displayItemCount = 1,
             placeholderHeight = placeholderHeight,
             updatedAt = 0L
@@ -608,6 +621,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
         sectionAssets: List<Asset>,
         placeholderHeight: Float,
         columnCount: Int = 4,
+        includeDisplayCache: Boolean = true,
         includeAggregateGeometry: Boolean = true
     ): DetailMosaicArtifacts {
         val sectionFingerprint = sectionAssets.detailPersistentFingerprint()
@@ -626,7 +640,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
                     updatedAt = 0L
                 )
             ),
-            displayCache = listOf(
+            displayCache = if (includeDisplayCache) listOf(
                 detailCacheEntry(
                     sectionIndex = sectionIndex,
                     sectionKey = sectionKey,
@@ -634,7 +648,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
                     placeholderHeight = placeholderHeight,
                     columnCount = columnCount
                 )
-            ),
+            ) else emptyList(),
             sectionGeometry = listOf(
                 DetailMosaicSectionGeometryEntry(
                     ownerType = DetailMosaicCacheOwnerType.ALBUM,
@@ -652,8 +666,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
                     geometryVersion = 1,
                     placeholderHeight = placeholderHeight,
                     displayItemCount = 1,
-                    bands = listOf(
-                        MosaicSectionGeometryBand(
+                    ranges = listOf(
+                        MosaicSectionGeometryRange(
                             sourceStartIndex = 0,
                             sourceCount = sectionAssets.size,
                             height = placeholderHeight
@@ -791,8 +805,8 @@ private class RecordingMosaicSectionComputer : DelegatingTestMosaicSectionComput
     }
 }
 
-private fun List<PhotoGridDisplayItem>.hasFallbackMosaicBands(): Boolean =
-    any { item -> item is MosaicBandItem && item.kind == MosaicBandKind.FALLBACK }
+private fun List<PhotoGridDisplayItem>.hasMosaicFallbackRows(): Boolean =
+    any { item -> item is RowItem && item.kind == RowItemKind.MOSAIC_FALLBACK }
 
 private open class DelegatingTestMosaicSectionComputer : MosaicSectionComputer {
     private val delegate = MosaicRenderEngine()
@@ -853,7 +867,7 @@ private open class DelegatingTestMosaicSectionComputer : MosaicSectionComputer {
     override fun projectPartialSectionWithGeometry(
         assets: List<Asset>,
         chunks: List<ProgressChunk>,
-        geometryBands: List<MosaicSectionGeometryBand>,
+        geometryRanges: List<MosaicSectionGeometryRange>,
         bucketIndex: Int,
         sectionLabel: String,
         layoutSpec: MosaicLayoutSpec,
@@ -863,7 +877,7 @@ private open class DelegatingTestMosaicSectionComputer : MosaicSectionComputer {
         delegate.projectPartialSectionWithGeometry(
             assets = assets,
             chunks = chunks,
-            geometryBands = geometryBands,
+            geometryRanges = geometryRanges,
             bucketIndex = bucketIndex,
             sectionLabel = sectionLabel,
             layoutSpec = layoutSpec,

@@ -11,6 +11,7 @@ import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
+import com.udnahc.immichgallery.domain.model.TimelineBucketSnapshot
 import com.udnahc.immichgallery.domain.model.TimelineBucketAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucketSyncResult
 import com.udnahc.immichgallery.domain.model.toAssetEntity
@@ -59,6 +60,18 @@ class TimelineRepository(
         val base = baseUrl()
         return withContext(Dispatchers.IO) {
             assetDao.getTimelineAssets(timeBucket).map { it.toDomain(base) }
+        }
+    }
+
+    suspend fun getBucketSnapshot(timeBucket: String): TimelineBucketSnapshot {
+        val base = baseUrl()
+        return withContext(Dispatchers.IO) {
+            val assets = assetDao.getTimelineAssets(timeBucket).map { it.toDomain(base) }
+            TimelineBucketSnapshot(
+                timeBucket = timeBucket,
+                assets = assets,
+                expectedCount = timelineDao.getBucketAssetCount(timeBucket)
+            )
         }
     }
 

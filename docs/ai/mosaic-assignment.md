@@ -15,7 +15,7 @@ ordered section assets
   -> source-order assignment scan
   -> best 4/5/6-photo template assignments
   -> completed projection
-  -> REAL Mosaic bands plus completed fallback Mosaic bands for unassigned gaps
+  -> REAL Mosaic bands plus completed fallback Mosaic rows for unassigned gaps
   -> display cache, section geometry, aggregate geometry
 ```
 
@@ -43,7 +43,7 @@ ordered section assets
 - At each `sourceIndex`, the engine tries to build one real Mosaic band from the next 4, 5, or 6 assets.
 - If the best candidate is valid, the engine emits one `MosaicBandAssignment`, advances `sourceIndex` by that band's `sourceCount`, and increments `bandIndex`.
 - If no candidate is valid for that window, the engine advances `sourceIndex` by one and tries again.
-- Skipped source ranges are not dropped. Completed projection later represents those ranges as fallback `MosaicBandItem(kind = FALLBACK)` bands; strict partial projection represents them as placeholders.
+- Skipped source ranges are not dropped. Completed projection later represents those ranges as cropped `RowItem(kind = MOSAIC_FALLBACK)` rows; strict partial projection represents them as placeholders.
 
 The scan is:
 
@@ -107,13 +107,14 @@ while sourceIndex <= assets.size - 4:
 - `buildPhotoGridItemsWithMosaic(...)` replays assignments into real display geometry using the current `MosaicLayoutSpec`.
 - Projection walks source assets from `0` to `assets.size`:
   - if a valid assignment starts at the current source index, render it as `MosaicBandItem(kind = REAL)`.
-  - otherwise render the gap before the next valid assignment as fallback `MosaicBandItem(kind = FALLBACK)` bands.
+  - otherwise render the gap before the next valid assignment as cropped `RowItem(kind = MOSAIC_FALLBACK)` rows using the same source range.
 - Projection must cover every source asset exactly once and preserve section source order.
 - A replayed assignment is rejected if its real display band is too tall, has too-small tiles, does not fill the measured width, or has overlapping tiles.
 
-## Fallback Mosaic Bands
+## Fallback Mosaic Rows
 
-- Fallback bands are still `MosaicBandItem`s, never `RowItem`s.
-- `buildFallbackMosaicBands(...)` lays unresolved source ranges into full-width bands with evenly sized tiles.
-- Completed ready projection may contain fallback bands when a source range could not be represented by a valid 4/5/6-photo template.
-- Pending, interrupted, failed, cache-miss, and partial-gap states must render placeholders instead of fallback bands.
+- Fallback rows are `RowItem(kind = MOSAIC_FALLBACK)`, not standard row-packing rows and not `MosaicBandItem(kind = FALLBACK)`.
+- `buildFallbackMosaicRows(...)` packs the unresolved source range through the shared row-packing helper with stable Mosaic fallback keys and source indices.
+- Fallback thumbnails are cropped (`ContentScale.Crop`) and rendered full-width in UI so the completed fallback row reads as compact Mosaic fallback output rather than standard justified row packing. This full-width rendering applies even when the underlying row packer marks the final fallback row incomplete.
+- Completed ready projection may contain fallback rows when a source range could not be represented by a valid 4/5/6-photo template.
+- Pending, interrupted, failed, cache-miss, and partial-gap states must render placeholders instead of fallback rows.

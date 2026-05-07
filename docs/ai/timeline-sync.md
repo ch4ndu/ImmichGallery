@@ -77,10 +77,10 @@ Cold sync is the only blocking Timeline sync path. It runs when there is no warm
    - clear the blocking state.
 
    Each section geometry row written here carries the aggregate section
-   `placeholderHeight` plus `geometryBandsJson`. Geometry bands store the source
-   range and layout height for each final real Mosaic band. Timeline renders one
+   `placeholderHeight` plus `geometryRangesJson`. Geometry ranges store the source
+   range and layout height for each final real Mosaic band or completed fallback row. Timeline renders one
    aggregate placeholder per pending section to keep LazyColumn item count low,
-   and uses geometry bands to keep partial runtime placeholders height-exact.
+   and uses geometry ranges to keep partial runtime placeholders height-exact.
    Manual refresh per-bucket precompute writes the same field.
 
 ### Bucket Asset Sync

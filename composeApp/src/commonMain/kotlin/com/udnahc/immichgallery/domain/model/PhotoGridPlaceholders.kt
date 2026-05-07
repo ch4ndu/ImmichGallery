@@ -2,8 +2,8 @@ package com.udnahc.immichgallery.domain.model
 
 import kotlin.math.ceil
 
-private const val MAX_PLACEHOLDER_HEIGHT_DP = 10000f
-private const val SECTION_HEADER_HEIGHT_DP = 48f
+const val PHOTO_GRID_MAX_PLACEHOLDER_HEIGHT_DP = 10000f
+const val PHOTO_GRID_SECTION_HEADER_HEIGHT_DP = 48f
 
 fun placeholderGridKey(bucketIndex: Int, sectionLabel: String, chunkIndex: Int): String =
     "pl_${bucketIndex}_${sectionLabel.hashCode()}_$chunkIndex"
@@ -23,11 +23,11 @@ fun buildPhotoGridPlaceholderItems(
         DEFAULT_GRID_COLUMN_COUNT.toFloat()
     }
     val estimatedRows = ceil(assetCount.toFloat() / photosPerRow).toInt()
-    val headerHeight = estimatedHeaderCount * SECTION_HEADER_HEIGHT_DP
+    val headerHeight = estimatedHeaderCount * PHOTO_GRID_SECTION_HEADER_HEIGHT_DP
     val totalEstimatedHeight =
         (estimatedRows * (targetRowHeight + GRID_SPACING_DP) - GRID_SPACING_DP + headerHeight)
             .coerceAtLeast(targetRowHeight)
-    val chunks = ceil(totalEstimatedHeight / MAX_PLACEHOLDER_HEIGHT_DP).toInt()
+    val chunks = photoGridPlaceholderChunkCount(totalEstimatedHeight)
         .coerceAtLeast(1)
     val chunkHeight = totalEstimatedHeight / chunks
     return List(chunks) { chunkIndex ->
@@ -47,8 +47,7 @@ fun buildPhotoGridPlaceholderItemsForHeight(
     externalSpacing: Float = GRID_SPACING_DP
 ): List<PlaceholderItem> {
     if (estimatedHeight <= 0f) return emptyList()
-    val chunks = ceil(estimatedHeight / MAX_PLACEHOLDER_HEIGHT_DP).toInt()
-        .coerceAtLeast(1)
+    val chunks = photoGridPlaceholderChunkCount(estimatedHeight)
     val totalExternalSpacing = externalSpacing * (chunks - 1).coerceAtLeast(0)
     val chunkHeight = ((estimatedHeight - totalExternalSpacing).coerceAtLeast(1f)) / chunks
     return List(chunks) { chunkIndex ->
@@ -68,7 +67,7 @@ fun estimatePhotoGridDisplayItemsHeight(
     if (items.isEmpty()) return 0f
     val itemHeight = items.sumOf { item ->
         when (item) {
-            is HeaderItem -> SECTION_HEADER_HEIGHT_DP.toDouble()
+            is HeaderItem -> PHOTO_GRID_SECTION_HEADER_HEIGHT_DP.toDouble()
             is RowItem -> item.rowHeight.toDouble()
             is MosaicBandItem -> item.bandHeight.toDouble()
             is PlaceholderItem -> item.estimatedHeight.toDouble()
@@ -77,3 +76,11 @@ fun estimatePhotoGridDisplayItemsHeight(
     }.toFloat()
     return itemHeight + spacing * (items.size - 1).coerceAtLeast(0)
 }
+
+fun photoGridPlaceholderChunkCount(estimatedHeight: Float): Int =
+    if (estimatedHeight <= 0f) {
+        0
+    } else {
+        ceil(estimatedHeight / PHOTO_GRID_MAX_PLACEHOLDER_HEIGHT_DP).toInt()
+            .coerceAtLeast(1)
+    }

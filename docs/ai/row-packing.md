@@ -172,9 +172,10 @@ The first photo id anchors the row key. If row membership changes because width,
 ## Screen Usage
 
 - Search calls `packIntoRows(...)` for search result rows and does not use Mosaic.
-- Timeline calls `packIntoRows(...)` when Mosaic is disabled, and for non-Mosaic fallback display paths only.
+- Timeline calls `packIntoRows(...)` when Mosaic is disabled, and through the Mosaic engine for completed `RowItemKind.MOSAIC_FALLBACK` rows only.
 - Album Detail and Person Detail call `packIntoRows(...)` when Mosaic is disabled.
-- When Mosaic is enabled, Timeline, Album Detail, and Person Detail should render `MosaicBandItem` or `PlaceholderItem` states instead of `RowItem` fallback.
+- When Mosaic is enabled, Timeline, Album Detail, and Person Detail should render real `MosaicBandItem`s, `PlaceholderItem`s, or completed cropped `RowItem(kind = MOSAIC_FALLBACK)` rows. They must not render standard row-packing rows as a Mosaic fallback.
+- `RowItemKind.MOSAIC_FALLBACK` reuses the row-packing data shape, but it is Mosaic-owned completed output. `JustifiedPhotoRow` renders it as full-width weighted cropped cells even if `RowItem.isComplete == false`; standard incomplete rows still keep natural-width layout.
 - Timeline keeps bucket-level asset revisions so background sync does not repack standard rows for unchanged already-loaded buckets. A server bucket refresh that matches ordered visible Room content and has no unresolved edit enrichment should not rewrite asset/ref rows, bump the bucket revision, or republish loaded state.
 
 ## Invalidations

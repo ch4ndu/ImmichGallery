@@ -6,10 +6,11 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
-import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryBand
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
+import com.udnahc.immichgallery.domain.model.shouldRejectUnsyncedEmptyTimelineBucket
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -101,7 +102,7 @@ class TimelineMosaicGeometryTest {
     }
 
     @Test
-    fun sectionGeometryValidationPreservesMatchingGeometryBands() {
+    fun sectionGeometryValidationPreservesMatchingGeometryRanges() {
         val entities = listOf(assetEntity("a"), assetEntity("b"))
         val row = geometryEntity(
             timeBucket = "2026-01",
@@ -123,10 +124,10 @@ class TimelineMosaicGeometryTest {
         assertEquals(300f, summaries.first().placeholderHeight)
         assertEquals(
             listOf(
-                MosaicSectionGeometryBand(sourceStartIndex = 0, sourceCount = 1, height = 100f),
-                MosaicSectionGeometryBand(sourceStartIndex = 1, sourceCount = 1, height = 200f)
+                MosaicSectionGeometryRange(sourceStartIndex = 0, sourceCount = 1, height = 100f),
+                MosaicSectionGeometryRange(sourceStartIndex = 1, sourceCount = 1, height = 200f)
             ),
-            summaries.first().bands
+            summaries.first().ranges
         )
     }
 
@@ -170,7 +171,7 @@ class TimelineMosaicGeometryTest {
             displayItemCount = 2,
             maxRowHeightKey = 100000,
             spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
-            geometryBandsJson = """
+            geometryRangesJson = """
                 [
                   {"sourceStartIndex":0,"sourceCount":1,"height":100.0},
                   {"sourceStartIndex":1,"sourceCount":1,"height":200.0}

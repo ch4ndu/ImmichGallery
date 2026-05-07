@@ -28,6 +28,8 @@ import com.udnahc.immichgallery.domain.action.timeline.ClearTimelineMosaicCacheA
 import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
 import com.udnahc.immichgallery.domain.action.timeline.PrepareTimelineMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.timeline.SyncAllTimelineAssetsAction
+import com.udnahc.immichgallery.domain.action.timeline.TimelineBucketSnapshotReader
+import com.udnahc.immichgallery.domain.model.TimelineMosaicArtifactBuilder
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
@@ -87,6 +89,8 @@ val sharedModule = module {
     single { ServerStatusRepository(get()) }
     single { AssetRepository(get(), get(), get(), get()) }
     single { DetailMosaicCacheRepository(get()) }
+    single { TimelineMosaicArtifactBuilder() }
+    single { TimelineBucketSnapshotReader(get()) }
 
     // UseCases
     factory { ValidateServerUseCase(get()) }
@@ -119,7 +123,7 @@ val sharedModule = module {
     factory { MonitorServerStatusAction(get()) }
     factory { LoadBucketAssetsAction(get()) }
     factory { SyncAllTimelineAssetsAction(get()) }
-    factory { PrepareTimelineMosaicCacheAction(get()) }
+    factory { PrepareTimelineMosaicCacheAction(get(), get(), get()) }
     factory { ClearTimelineMosaicCacheAction(get()) }
     factory { SetTimelineGroupSizeAction(get()) }
     factory { SetTargetRowHeightAction(get()) }

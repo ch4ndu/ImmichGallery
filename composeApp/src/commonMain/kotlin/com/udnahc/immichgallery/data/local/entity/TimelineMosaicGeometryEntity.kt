@@ -33,6 +33,6 @@ data class TimelineMosaicGeometryEntity(
     val displayItemCount: Int,
     val maxRowHeightKey: Int,
     val spacingKey: Int,
-    val geometryBandsJson: String,
+    val geometryRangesJson: String,
     val updatedAt: Long
 )
