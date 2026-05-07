@@ -59,7 +59,7 @@ For a new persisted cache entity or schema change:
 - Wire new tabs or destinations in `ui/navigation/`.
 - Follow `docs/ai/ui.md` for theme, strings, dimensions, previews, overlay padding, and recomposition rules.
 - If a feature shows photo assets, use the ViewModel-owned photo-grid projection. Choose justified rows or the established Mosaic layout from persisted `ViewConfig`; do not transform assets into layout items inside composables.
-- When touching Mosaic fallback behavior, keep the policy explicit in `MosaicPacking.kt`. Mosaic fallback renders deterministic `MosaicBandItem` bands, not justified `RowItem`s. Album and Person detail runtime Mosaic must not show fallback-thumbnail bands for pending, partial-gap, failed, or cancelled work; those states render placeholders until real Mosaic assignments are available.
+- When touching Mosaic fallback behavior, keep the policy explicit in `MosaicPacking.kt` and `JustifiedPhotoRow`. Completed Mosaic fallback renders deterministic cropped full-width `RowItem(kind = MOSAIC_FALLBACK)` rows, not standard justified rows and not fallback `MosaicBandItem`s. Timeline, Album, and Person runtime Mosaic must not show fallback thumbnails for pending, partial-gap, failed, or cancelled work; those states render placeholders until real Mosaic assignments or completed fallback rows are available.
 - Add Mosaic controls only where photo assets are displayed directly. Collection grids such as AlbumList and PeopleList should not expose photo-layout controls.
 - If a feature opens photo detail, use the existing overlay/detail patterns before adding a new pager.
 - If an Immich API endpoint paginates, implement `loadMore()` with a duplicate-request guard and near-end detection through `snapshotFlow` or `derivedStateOf`.
@@ -79,3 +79,4 @@ For a new persisted cache entity or schema change:
 - For UI-visible changes, manually run desktop with `./gradlew :composeApp:run` or verify on device/simulator when practical.
 - Search changed Kotlin code for `!!`, hardcoded user-visible strings, hardcoded non-trivial `dp` values, and data transformation in composables.
 - After running Gradle, run `./gradlew --stop`.
+- Finish completed work with a local git commit whose message explains what was addressed. Do not push unless explicitly requested.

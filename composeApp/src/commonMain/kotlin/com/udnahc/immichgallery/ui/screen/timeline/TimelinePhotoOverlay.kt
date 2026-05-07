@@ -32,7 +32,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
@@ -42,6 +46,8 @@ import com.udnahc.immichgallery.ui.component.AssetPage
 import com.udnahc.immichgallery.ui.component.DetailBottomHandle
 import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
 import com.udnahc.immichgallery.ui.component.PhotoDragTransform
+import com.udnahc.immichgallery.ui.component.PhotoOverlayDismissContext
+import com.udnahc.immichgallery.ui.component.PhotoOverlayDismissMode
 import com.udnahc.immichgallery.ui.component.SlideshowOptionsDialog
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
@@ -64,7 +70,7 @@ fun TimelinePhotoOverlay(
     assetCache: SnapshotStateMap<String, List<Asset>>,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
+    onDismiss: (PhotoOverlayDismissContext) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
     onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -211,8 +217,26 @@ fun TimelinePhotoOverlay(
         pagerState.animateScrollToPage(next)
     }
 
+    fun currentDismissContext(
+        mode: PhotoOverlayDismissMode,
+        releasePosition: Offset? = null,
+        overlayBounds: Rect? = null,
+    ): PhotoOverlayDismissContext {
+        val preferredAnchor = if (releasePosition != null && overlayBounds != null) {
+            Offset(overlayBounds.left + releasePosition.x, overlayBounds.top + releasePosition.y)
+        } else {
+            releasePosition
+        }
+        return PhotoOverlayDismissContext(
+            assetId = currentAsset?.id,
+            bucketKey = currentBucketKey,
+            mode = mode,
+            preferredAnchorInRoot = preferredAnchor,
+        )
+    }
+
     PlatformBackHandler(enabled = true, onBack = {
-        onDismiss(currentAsset?.id, currentBucketKey)
+        onDismiss(currentDismissContext(PhotoOverlayDismissMode.Back))
     })
 
     if (showSlideshowDialog) {
@@ -279,9 +303,11 @@ fun TimelinePhotoOverlay(
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
     }
 
+    var overlayBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onGloballyPositioned { overlayBoundsInRoot = it.boundsInRoot() }
             .background(Color.Black.copy(alpha = dragState.scrimAlpha))
             .dragToDismiss(
                 state = dragState,
@@ -289,9 +315,18 @@ fun TimelinePhotoOverlay(
                 isZoomed = { isCurrentPageZoomed },
                 dismissThresholdPx = dismissThresholdPx,
                 flickVelocityPx = flickVelocityPx,
-                onDismiss = {
+                onDismiss = { releasePosition ->
                     slideshowConfig = null
-                    onDismiss(latestCurrentAssetId, latestCurrentBucketKey)
+                    onDismiss(
+                        PhotoOverlayDismissContext(
+                            assetId = latestCurrentAssetId,
+                            bucketKey = latestCurrentBucketKey,
+                            mode = PhotoOverlayDismissMode.Drag,
+                            preferredAnchorInRoot = overlayBoundsInRoot?.let {
+                                Offset(it.left + releasePosition.x, it.top + releasePosition.y)
+                            } ?: releasePosition,
+                        )
+                    )
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
@@ -324,7 +359,13 @@ fun TimelinePhotoOverlay(
                 },
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(latestCurrentAssetId, latestCurrentBucketKey)
+                    onDismiss(
+                        PhotoOverlayDismissContext(
+                            assetId = latestCurrentAssetId,
+                            bucketKey = latestCurrentBucketKey,
+                            mode = PhotoOverlayDismissMode.Shortcut,
+                        )
+                    )
                 },
                 onToggleSlideshow = {
                     if (isSlideshow) slideshowConfig = null
@@ -386,7 +427,7 @@ fun TimelinePhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = displayFileName,
-            onBack = { onDismiss(currentAsset?.id, currentBucketKey) },
+            onBack = { onDismiss(currentDismissContext(PhotoOverlayDismissMode.Back)) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (totalPages > 1) {
                 { showSlideshowDialog = true }
@@ -406,7 +447,7 @@ fun TimelinePhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss(null, null)
+                    onDismiss(currentDismissContext(PhotoOverlayDismissMode.Shortcut))
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }

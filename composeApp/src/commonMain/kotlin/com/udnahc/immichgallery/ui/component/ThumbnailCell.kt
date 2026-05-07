@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.foundation.Image
 import coil3.compose.LocalPlatformContext
@@ -55,9 +57,12 @@ fun ThumbnailCell(
     asset: Asset,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Fit,
     sharedTransitionScope: SharedTransitionScope? = null,
     transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
+    activeSourceGeneration: Int = 0,
+    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
 ) {
     val transitionScope = sharedTransitionScope
     if (transitionScope != null && transitionAssetId == asset.id) {
@@ -86,20 +91,34 @@ fun ThumbnailCell(
             // keep it in-place so a mid-browse AV transition can't render a
             // "ghost" thumbnail above the detail image.
             val hoistInOverlay = LocalPhotoBoundsTween.current
+            val positionedModifier = if (onActiveSourcePositioned != null) {
+                Modifier.onGloballyPositioned { coordinates ->
+                    onActiveSourcePositioned(
+                        PhotoOverlaySourcePosition(
+                            assetId = asset.id,
+                            boundsInRoot = coordinates.boundsInRoot(),
+                            generation = activeSourceGeneration,
+                        )
+                    )
+                }
+            } else {
+                Modifier
+            }
             val boxModifier = with(transitionScope) {
-                Modifier.fillMaxSize().sharedElement(
+                Modifier.fillMaxSize().then(positionedModifier).sharedElement(
                     transitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                     animatedVisibilityScope = this@AnimatedVisibility,
                     boundsTransform = boundsTransform,
                     renderInOverlayDuringTransition = hoistInOverlay,
                 ).clickable(onClick = onClick)
             }
-            ThumbnailCellContent(asset = asset, modifier = boxModifier)
+            ThumbnailCellContent(asset = asset, modifier = boxModifier, contentScale = contentScale)
         }
     } else {
         ThumbnailCellContent(
             asset = asset,
-            modifier = modifier.clickable(onClick = onClick)
+            modifier = modifier.clickable(onClick = onClick),
+            contentScale = contentScale
         )
     }
 }
@@ -107,7 +126,8 @@ fun ThumbnailCell(
 @Composable
 private fun ThumbnailCellContent(
     asset: Asset,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Fit
 ) {
     Box(modifier = modifier) {
         if (LocalAppActive.current) {
@@ -132,7 +152,7 @@ private fun ThumbnailCellContent(
             Image(
                 painter = painter,
                 contentDescription = asset.fileName,
-                contentScale = ContentScale.Fit,
+                contentScale = contentScale,
                 modifier = imageModifier
             )
         } else {

@@ -14,16 +14,23 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.ui.component.DetailTopBar
 import com.udnahc.immichgallery.ui.component.PhotoGridDetailActions
 import com.udnahc.immichgallery.ui.component.PhotoGridDetailContent
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
+import com.udnahc.immichgallery.ui.component.PhotoOverlaySourcePosition
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.prepareOverlayDismissSource
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import androidx.compose.ui.tooling.preview.Preview
@@ -46,6 +53,9 @@ fun PersonDetailScreen(
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
     val listState = rememberLazyListState()
+    val sourcePositions = remember { mutableStateMapOf<String, PhotoOverlaySourcePosition>() }
+    var listBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
+    var preparedDismissReturnKey by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(viewModel) {
         viewModel.activateForegroundMosaic()
@@ -58,6 +68,10 @@ fun PersonDetailScreen(
         if (itemIndex >= 0) {
             val info = listState.layoutInfo
             val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == itemIndex }
+            if (preparedDismissReturnKey == viewModel.lastViewedAssetId && visibleItem != null) {
+                preparedDismissReturnKey = null
+                return@LaunchedEffect
+            }
             val fullyVisible = visibleItem != null &&
                 visibleItem.offset >= info.viewportStartOffset &&
                 (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
@@ -75,11 +89,29 @@ fun PersonDetailScreen(
     PhotoOverlayHost(
         initialIndexKey = state.assets,
         resolveInitialIndex = { id -> state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
-        content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
+        prepareDismissSource = prepareDismissSource@ { context ->
+            val assetId = context.assetId ?: return@prepareDismissSource
+            viewModel.lastViewedAssetId = assetId
+            preparedDismissReturnKey = assetId
+            sourcePositions.remove(assetId)
+            listState.prepareOverlayDismissSource(
+                displayIndex = viewModel.getDisplayItemIndexForReturn(),
+                context = context,
+                listBoundsInRoot = { listBoundsInRoot },
+                isSourceReady = { sourcePositions[assetId]?.generation == context.sourceGeneration },
+                clearSourceReady = { sourcePositions.remove(assetId) },
+            )
+        },
+        onActiveSourcePositioned = { position ->
+            sourcePositions[position.assetId] = position
+        },
+        content = { _, transitionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
             PersonDetailContent(
                 state = state,
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
+                activeSourceGeneration = activeSourceGeneration,
+                onActiveSourcePositioned = onActiveSourcePositioned,
                 onPhotoClick = onPhotoClick,
                 onRetry = viewModel::refreshAll,
                 onDismissBanner = viewModel::dismissBannerError,
@@ -91,6 +123,7 @@ fun PersonDetailScreen(
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 contentTopPadding = contentTopPadding,
                 contentBottomPadding = contentBottomPadding,
+                onListBoundsInRootChanged = { listBoundsInRoot = it },
                 listState = listState,
                 sharedTransitionScope = this,
             )
@@ -102,10 +135,7 @@ fun PersonDetailScreen(
                     apiKey = viewModel.apiKey,
                     getAssetDetail = viewModel::getAssetDetail,
                     onPersonClick = onPersonClick,
-                    onDismiss = { currentAssetId ->
-                        viewModel.lastViewedAssetId = currentAssetId
-                        onDismissHost(currentAssetId)
-                    },
+                    onDismiss = onDismissHost,
                     onCurrentAssetChanged = onCurrentAssetChanged,
                     onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                     sharedTransitionScope = sharedTransitionScope,
@@ -142,6 +172,8 @@ fun PersonDetailContent(
     state: PersonDetailState,
     transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
+    activeSourceGeneration: Int = 0,
+    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     onPhotoClick: (String) -> Unit,
     onRetry: () -> Unit,
     onDismissBanner: () -> Unit = {},
@@ -151,6 +183,7 @@ fun PersonDetailContent(
     onVisibleBucketIndexesChanged: (List<Int>) -> Unit = {},
     onScrollInProgressChanged: (Boolean) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit = {},
+    onListBoundsInRootChanged: (Rect) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
     listState: LazyListState = rememberLazyListState(),
@@ -168,6 +201,8 @@ fun PersonDetailContent(
         lastSyncedAt = state.lastSyncedAt,
         transitionAssetId = transitionAssetId,
         hiddenAssetId = hiddenAssetId,
+        activeSourceGeneration = activeSourceGeneration,
+        onActiveSourcePositioned = onActiveSourcePositioned,
         targetRowHeight = state.targetRowHeight,
         rowHeightBounds = state.rowHeightBounds,
         viewConfig = state.viewConfig,
@@ -179,6 +214,7 @@ fun PersonDetailContent(
         onVisibleBucketIndexesChanged = onVisibleBucketIndexesChanged,
         onScrollInProgressChanged = onScrollInProgressChanged,
         onTargetRowHeightChanged = onTargetRowHeightChanged,
+        onListBoundsInRootChanged = onListBoundsInRootChanged,
         contentTopPadding = contentTopPadding,
         contentBottomPadding = contentBottomPadding,
         listState = listState,

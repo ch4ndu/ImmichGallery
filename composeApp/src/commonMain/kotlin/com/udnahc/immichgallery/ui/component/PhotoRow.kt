@@ -25,6 +25,8 @@ fun PhotoRow(
     sharedTransitionScope: SharedTransitionScope? = null,
     transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
+    activeSourceGeneration: Int = 0,
+    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -44,6 +46,8 @@ fun PhotoRow(
                 sharedTransitionScope = sharedTransitionScope,
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
+                activeSourceGeneration = activeSourceGeneration,
+                onActiveSourcePositioned = onActiveSourcePositioned,
             )
         }
         repeat(columns - assets.size) {

@@ -37,7 +37,7 @@ fun Modifier.dragToDismiss(
     isZoomed: () -> Boolean,
     dismissThresholdPx: Float,
     flickVelocityPx: Float,
-    onDismiss: () -> Unit,
+    onDismiss: (releasePosition: Offset) -> Unit,
     onOpenDetailSheet: () -> Unit,
 ): Modifier = this.pointerInput(enabled) {
     if (!enabled) return@pointerInput
@@ -108,7 +108,7 @@ private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.run
     slopOverflow: Float,
     pointerId: PointerId,
     state: DragToDismissState,
-    onDismiss: () -> Unit,
+    onDismiss: (releasePosition: Offset) -> Unit,
 ) {
     val velocityTracker = VelocityTracker()
     velocityTracker.addPointerInputChange(initialChange)
@@ -128,7 +128,7 @@ private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.run
             val velocity = velocityTracker.calculateVelocity()
             val outcome = state.onRelease(velocity.y)
             if (outcome == DismissOutcome.DISMISS) {
-                onDismiss()
+                onDismiss(change.position)
             }
             change.consume()
             return

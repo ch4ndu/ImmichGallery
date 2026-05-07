@@ -22,6 +22,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.ErrorItem
@@ -55,6 +58,8 @@ fun PhotoGridDetailContent(
     lastSyncedAt: Long?,
     transitionAssetId: String?,
     hiddenAssetId: String?,
+    activeSourceGeneration: Int = 0,
+    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     targetRowHeight: Float,
     rowHeightBounds: RowHeightBounds,
     viewConfig: ViewConfig,
@@ -66,6 +71,7 @@ fun PhotoGridDetailContent(
     onVisibleBucketIndexesChanged: (List<Int>) -> Unit,
     onScrollInProgressChanged: (Boolean) -> Unit = {},
     onTargetRowHeightChanged: (Float) -> Unit,
+    onListBoundsInRootChanged: (Rect) -> Unit = {},
     contentTopPadding: Dp = 0.dp,
     contentBottomPadding: Dp = 0.dp,
     listState: LazyListState = rememberLazyListState(),
@@ -116,7 +122,9 @@ fun PhotoGridDetailContent(
                 ) {
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { onListBoundsInRootChanged(it.boundsInRoot()) },
                         verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
                         contentPadding = remember(contentTopPadding, contentBottomPadding) {
                             PaddingValues(
@@ -134,6 +142,8 @@ fun PhotoGridDetailContent(
                                 item = displayItems[index],
                                 transitionAssetId = transitionAssetId,
                                 hiddenAssetId = hiddenAssetId,
+                                activeSourceGeneration = activeSourceGeneration,
+                                onActiveSourcePositioned = onActiveSourcePositioned,
                                 onPhotoClick = onPhotoClick,
                                 sharedTransitionScope = sharedTransitionScope
                             )
@@ -203,6 +213,8 @@ fun PhotoGridDisplayItemRenderer(
     item: PhotoGridDisplayItem,
     transitionAssetId: String?,
     hiddenAssetId: String?,
+    activeSourceGeneration: Int = 0,
+    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     onPhotoClick: (String) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     errorContent: (@Composable (ErrorItem) -> Unit)? = null
@@ -216,6 +228,8 @@ fun PhotoGridDisplayItemRenderer(
             sharedTransitionScope = sharedTransitionScope,
             transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
+            activeSourceGeneration = activeSourceGeneration,
+            onActiveSourcePositioned = onActiveSourcePositioned,
         )
         is MosaicBandItem -> MosaicPhotoBand(
             band = item,
@@ -223,6 +237,8 @@ fun PhotoGridDisplayItemRenderer(
             sharedTransitionScope = sharedTransitionScope,
             transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
+            activeSourceGeneration = activeSourceGeneration,
+            onActiveSourcePositioned = onActiveSourcePositioned,
         )
         is PlaceholderItem -> PlaceholderRow(estimatedHeight = item.estimatedHeight)
         is ErrorItem -> errorContent?.invoke(item)

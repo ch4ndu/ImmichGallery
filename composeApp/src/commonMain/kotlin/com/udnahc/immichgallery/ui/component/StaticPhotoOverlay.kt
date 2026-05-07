@@ -28,7 +28,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
@@ -49,7 +53,7 @@ fun StaticPhotoOverlay(
     apiKey: String,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onDismiss: (currentAssetId: String?) -> Unit,
+    onDismiss: (PhotoOverlayDismissContext) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
     onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -165,8 +169,25 @@ fun StaticPhotoOverlay(
         pagerState.animateScrollToPage(next)
     }
 
+    fun currentDismissContext(
+        mode: PhotoOverlayDismissMode,
+        releasePosition: Offset? = null,
+        overlayBounds: Rect? = null,
+    ): PhotoOverlayDismissContext {
+        val preferredAnchor = if (releasePosition != null && overlayBounds != null) {
+            Offset(overlayBounds.left + releasePosition.x, overlayBounds.top + releasePosition.y)
+        } else {
+            releasePosition
+        }
+        return PhotoOverlayDismissContext(
+            assetId = assets.getOrNull(pagerState.settledPage)?.id,
+            mode = mode,
+            preferredAnchorInRoot = preferredAnchor,
+        )
+    }
+
     PlatformBackHandler(enabled = true, onBack = {
-        onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+        onDismiss(currentDismissContext(PhotoOverlayDismissMode.Back))
     })
 
     // Slideshow options dialog
@@ -206,9 +227,11 @@ fun StaticPhotoOverlay(
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
     }
 
+    var overlayBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onGloballyPositioned { overlayBoundsInRoot = it.boundsInRoot() }
             .background(Color.Black.copy(alpha = dragState.scrimAlpha))
             .dragToDismiss(
                 state = dragState,
@@ -216,9 +239,15 @@ fun StaticPhotoOverlay(
                 isZoomed = { isCurrentPageZoomed },
                 dismissThresholdPx = dismissThresholdPx,
                 flickVelocityPx = flickVelocityPx,
-                onDismiss = {
+                onDismiss = { releasePosition ->
                     slideshowConfig = null
-                    onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+                    onDismiss(
+                        currentDismissContext(
+                            mode = PhotoOverlayDismissMode.Drag,
+                            releasePosition = releasePosition,
+                            overlayBounds = overlayBoundsInRoot,
+                        )
+                    )
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
@@ -251,7 +280,7 @@ fun StaticPhotoOverlay(
                 },
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+                    onDismiss(currentDismissContext(PhotoOverlayDismissMode.Shortcut))
                 },
                 onToggleSlideshow = {
                     if (isSlideshow) slideshowConfig = null
@@ -302,7 +331,7 @@ fun StaticPhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = currentAsset?.fileName.orEmpty(),
-            onBack = { onDismiss(currentAsset?.id) },
+            onBack = { onDismiss(currentDismissContext(PhotoOverlayDismissMode.Back)) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (assets.size > 1) {
                 { showSlideshowDialog = true }
@@ -322,7 +351,7 @@ fun StaticPhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss(null)
+                    onDismiss(currentDismissContext(PhotoOverlayDismissMode.Shortcut))
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }

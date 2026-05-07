@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -18,6 +19,7 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.RowItemKind
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -28,15 +30,22 @@ fun JustifiedPhotoRow(
     sharedTransitionScope: SharedTransitionScope? = null,
     transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
+    activeSourceGeneration: Int = 0,
+    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().height(row.rowHeight.dp),
         horizontalArrangement = Arrangement.spacedBy(spacing)
     ) {
+        val contentScale = if (row.kind == RowItemKind.MOSAIC_FALLBACK) {
+            ContentScale.Crop
+        } else {
+            ContentScale.Fit
+        }
         for (photo in row.photos) {
-            // Complete rows: weight distributes width proportionally, filling the row
-            // Incomplete rows: use aspectRatio so items keep natural proportions
-            val cellModifier = if (row.isComplete) {
+            // Mosaic fallback rows are completed Mosaic output and should
+            // visually fill the row even when row-packing marked them short.
+            val cellModifier = if (row.usesWeightedFullWidthLayout()) {
                 Modifier.weight(photo.asset.aspectRatio).fillMaxHeight()
             } else {
                 Modifier.aspectRatio(photo.asset.aspectRatio).fillMaxHeight()
@@ -48,9 +57,12 @@ fun JustifiedPhotoRow(
                 asset = photo.asset,
                 onClick = onClick,
                 modifier = cellModifier,
+                contentScale = contentScale,
                 sharedTransitionScope = sharedTransitionScope,
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
+                activeSourceGeneration = activeSourceGeneration,
+                onActiveSourcePositioned = onActiveSourcePositioned,
             )
         }
     }
@@ -81,3 +93,6 @@ private fun JustifiedPhotoRowPreview() {
     )
     JustifiedPhotoRow(row = row, spacing = 4.dp, onPhotoClick = {})
 }
+
+internal fun RowItem.usesWeightedFullWidthLayout(): Boolean =
+    isComplete || kind == RowItemKind.MOSAIC_FALLBACK

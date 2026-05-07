@@ -30,6 +30,7 @@ Read this file first. Do not eagerly load every AI instruction document. Load on
 - Keep changes scoped. Do not refactor unrelated code while implementing a feature or fix.
 - When durable architecture, workflow, or verification rules change, update the relevant `docs/ai/*` file. Do not duplicate those rules in tool-specific shims.
 - After running Gradle, stop Gradle daemons with `./gradlew --stop` before finishing the task to avoid orphaned processes.
+- At the end of every completed work item, create a local git commit with a message explaining what was addressed. Do not push changes unless explicitly requested.
 
 ## Documentation Update Rule
 
