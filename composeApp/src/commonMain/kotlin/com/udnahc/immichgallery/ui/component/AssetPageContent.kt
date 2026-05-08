@@ -201,153 +201,246 @@ internal fun AssetPage(
         contentAlignment = Alignment.Center
     ) {
         if (!isSlideshow && asset.type != AssetType.VIDEO) {
-            // Image with zoom — draw under system bars when zoomed/panned.
-            val zoomState = rememberCoilZoomState()
-            val userTransform = zoomState.zoomable.userTransform
-            val isZoomed = userTransform.scaleX > 1.01f ||
-                    userTransform.offsetX != 0f || userTransform.offsetY != 0f
-            LaunchedEffect(isZoomed, isCurrentPage) {
-                if (isCurrentPage) onZoomStateChanged?.invoke(isZoomed)
-            }
-
-            if (!dragTransform.active) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    SharedPhotoThumbnailLayer(
-                        asset = asset,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        coverThumbnail = effectiveCoverThumbnail,
-                        modifier = Modifier.aspectRatio(asset.aspectRatio),
-                    )
-                }
-            }
-
-            if (dragTransform.active) {
-                PaddedTransformableMediaLayer(
-                    asset = asset,
-                    dragTransform = dragTransform,
-                    useDragBounds = true,
-                ) { mediaModifier ->
-                    Box(modifier = mediaModifier) {
-                        SharedPhotoThumbnailLayer(
-                            asset = asset,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            coverThumbnail = effectiveCoverThumbnail,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        ImageContent(
-                            url = asset.originalUrl,
-                            thumbnailCacheKey = asset.thumbnailCacheKey,
-                            onTap = onTap,
-                            zoomState = zoomState,
-                            modifier = Modifier.alpha(fullImageAlpha.value)
-                        )
-                    }
-                }
-            } else if (!isTransitionActive) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(
-                            if (!isZoomed) {
-                                Modifier
-                                    .statusBarsPadding()
-                                    .navigationBarsPadding()
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    ImageContent(
-                        url = asset.originalUrl,
-                        thumbnailCacheKey = asset.thumbnailCacheKey,
-                        onTap = onTap,
-                        zoomState = zoomState,
-                        modifier = Modifier.alpha(fullImageAlpha.value)
-                    )
-                }
-            }
+            StillAssetPage(
+                asset = asset,
+                isCurrentPage = isCurrentPage,
+                onTap = onTap,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                dragTransform = dragTransform,
+                effectiveCoverThumbnail = effectiveCoverThumbnail,
+                fullImageAlpha = fullImageAlpha.value,
+                isTransitionActive = isTransitionActive,
+                onZoomStateChanged = onZoomStateChanged
+            )
         } else {
-            if (!dragTransform.active) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    SharedPhotoThumbnailLayer(
-                        asset = asset,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        coverThumbnail = effectiveCoverThumbnail,
-                        modifier = Modifier.aspectRatio(asset.aspectRatio),
-                    )
-                }
-            }
+            VideoOrSlideshowAssetPage(
+                asset = asset,
+                apiKey = apiKey,
+                isCurrentPage = isCurrentPage,
+                isSlideshow = isSlideshow,
+                slideshowConfig = slideshowConfig,
+                onTap = onTap,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                dragTransform = dragTransform,
+                effectiveCoverThumbnail = effectiveCoverThumbnail,
+                isTransitionActive = isTransitionActive
+            )
+        }
+    }
+}
 
-            // Content layer: full-res image or video, layered on top after transition completes.
-            if (!isTransitionActive && isSlideshow) {
-                val imageUrl =
-                    if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
-                val durationMs = (slideshowConfig?.durationSeconds ?: 5) * 1000
-                Box(
-                    modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                        detectTapGestures { onTap() }
-                    }
-                ) {
-                    if (slideshowConfig?.animations == SlideshowAnimations.OFF) {
-                        AsyncImage(
-                            model = imageUrl,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        KenBurnsImage(
-                            url = imageUrl,
-                            isActive = isCurrentPage,
-                            durationMs = durationMs,
-                            thumbnailUrl = asset.thumbnailUrl,
-                            thumbnailCacheKey = asset.thumbnailCacheKey,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-            } else if (asset.type == AssetType.VIDEO && (dragTransform.active || !isTransitionActive)) {
-                PaddedTransformableMediaLayer(
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun StillAssetPage(
+    asset: Asset,
+    isCurrentPage: Boolean,
+    onTap: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    dragTransform: PhotoDragTransform,
+    effectiveCoverThumbnail: Boolean,
+    fullImageAlpha: Float,
+    isTransitionActive: Boolean,
+    onZoomStateChanged: ((Boolean) -> Unit)?
+) {
+    val zoomState = rememberCoilZoomState()
+    val userTransform = zoomState.zoomable.userTransform
+    val isZoomed = userTransform.scaleX > 1.01f ||
+            userTransform.offsetX != 0f || userTransform.offsetY != 0f
+    LaunchedEffect(isZoomed, isCurrentPage) {
+        if (isCurrentPage) onZoomStateChanged?.invoke(isZoomed)
+    }
+
+    if (!dragTransform.active) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            contentAlignment = Alignment.Center,
+        ) {
+            SharedPhotoThumbnailLayer(
+                asset = asset,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                coverThumbnail = effectiveCoverThumbnail,
+                modifier = Modifier.aspectRatio(asset.aspectRatio),
+            )
+        }
+    }
+
+    if (dragTransform.active) {
+        PaddedTransformableMediaLayer(
+            asset = asset,
+            dragTransform = dragTransform,
+            useDragBounds = true,
+        ) { mediaModifier ->
+            Box(modifier = mediaModifier) {
+                SharedPhotoThumbnailLayer(
                     asset = asset,
-                    dragTransform = dragTransform,
-                    useDragBounds = dragTransform.active,
-                ) { mediaModifier ->
-                    Box(modifier = mediaModifier) {
-                        VideoDragThumbnailLayer(
-                            asset = asset,
-                            dragTransform = dragTransform,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        if (!dragTransform.dismissCommitted) {
-                            VideoContent(
-                                playbackUrl = asset.videoPlaybackUrl,
-                                originalUrl = asset.originalUrl,
-                                apiKey = apiKey,
-                                isCurrentPage = isCurrentPage,
-                                onTap = onTap,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    coverThumbnail = effectiveCoverThumbnail,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                ImageContent(
+                    url = asset.originalUrl,
+                    thumbnailCacheKey = asset.thumbnailCacheKey,
+                    onTap = onTap,
+                    zoomState = zoomState,
+                    modifier = Modifier.alpha(fullImageAlpha)
+                )
+            }
+        }
+    } else if (!isTransitionActive) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (!isZoomed) {
+                        Modifier
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                    } else {
+                        Modifier
                     }
-                }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            ImageContent(
+                url = asset.originalUrl,
+                thumbnailCacheKey = asset.thumbnailCacheKey,
+                onTap = onTap,
+                zoomState = zoomState,
+                modifier = Modifier.alpha(fullImageAlpha)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun VideoOrSlideshowAssetPage(
+    asset: Asset,
+    apiKey: String,
+    isCurrentPage: Boolean,
+    isSlideshow: Boolean,
+    slideshowConfig: SlideshowConfig?,
+    onTap: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    dragTransform: PhotoDragTransform,
+    effectiveCoverThumbnail: Boolean,
+    isTransitionActive: Boolean
+) {
+    if (!dragTransform.active) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            contentAlignment = Alignment.Center,
+        ) {
+            SharedPhotoThumbnailLayer(
+                asset = asset,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                coverThumbnail = effectiveCoverThumbnail,
+                modifier = Modifier.aspectRatio(asset.aspectRatio),
+            )
+        }
+    }
+
+    if (!isTransitionActive && isSlideshow) {
+        SlideshowAssetPage(
+            asset = asset,
+            isCurrentPage = isCurrentPage,
+            slideshowConfig = slideshowConfig,
+            onTap = onTap
+        )
+    } else if (asset.type == AssetType.VIDEO && (dragTransform.active || !isTransitionActive)) {
+        VideoAssetPage(
+            asset = asset,
+            apiKey = apiKey,
+            isCurrentPage = isCurrentPage,
+            onTap = onTap,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            dragTransform = dragTransform
+        )
+    }
+}
+
+@Composable
+private fun SlideshowAssetPage(
+    asset: Asset,
+    isCurrentPage: Boolean,
+    slideshowConfig: SlideshowConfig?,
+    onTap: () -> Unit
+) {
+    val imageUrl =
+        if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
+    val durationMs = (slideshowConfig?.durationSeconds ?: 5) * 1000
+    Box(
+        modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures { onTap() }
+        }
+    ) {
+        if (slideshowConfig?.animations == SlideshowAnimations.OFF) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            KenBurnsImage(
+                url = imageUrl,
+                isActive = isCurrentPage,
+                durationMs = durationMs,
+                thumbnailUrl = asset.thumbnailUrl,
+                thumbnailCacheKey = asset.thumbnailCacheKey,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun VideoAssetPage(
+    asset: Asset,
+    apiKey: String,
+    isCurrentPage: Boolean,
+    onTap: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    dragTransform: PhotoDragTransform
+) {
+    PaddedTransformableMediaLayer(
+        asset = asset,
+        dragTransform = dragTransform,
+        useDragBounds = dragTransform.active,
+    ) { mediaModifier ->
+        Box(modifier = mediaModifier) {
+            VideoDragThumbnailLayer(
+                asset = asset,
+                dragTransform = dragTransform,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (!dragTransform.dismissCommitted) {
+                VideoContent(
+                    playbackUrl = asset.videoPlaybackUrl,
+                    originalUrl = asset.originalUrl,
+                    apiKey = apiKey,
+                    isCurrentPage = isCurrentPage,
+                    onTap = onTap,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
