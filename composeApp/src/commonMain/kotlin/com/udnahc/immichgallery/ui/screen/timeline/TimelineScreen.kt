@@ -190,7 +190,7 @@ fun TimelineScreen(
         onActiveSourcePositioned = { position ->
             sourcePositions[position.assetId] = position
         },
-        content = { showOverlay, transitionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
+        content = { showOverlay, transitionAssetId, sourcePositionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
             // Grid is no longer wrapped in its own AnimatedVisibility — it stays
             // composed behind the overlay so drag-to-dismiss reveals it.
             // Per-cell AVs in ThumbnailCell drive the shared-element animation.
@@ -199,6 +199,7 @@ fun TimelineScreen(
                 listState = listState,
                 showOverlay = showOverlay,
                 transitionAssetId = transitionAssetId,
+                sourcePositionAssetId = sourcePositionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 activeSourceGeneration = activeSourceGeneration,
                 onActiveSourcePositioned = onActiveSourcePositioned,
@@ -270,6 +271,7 @@ fun TimelineContent(
     listState: LazyListState = rememberLazyListState(),
     showOverlay: Boolean = false,
     transitionAssetId: String? = null,
+    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
     activeSourceGeneration: Int = 0,
     onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
@@ -495,6 +497,7 @@ fun TimelineContent(
                                 TimelineDisplayItemRenderer(
                                     item = item,
                                     transitionAssetId = transitionAssetId,
+                                    sourcePositionAssetId = sourcePositionAssetId,
                                     hiddenAssetId = hiddenAssetId,
                                     activeSourceGeneration = activeSourceGeneration,
                                     onActiveSourcePositioned = onActiveSourcePositioned,
@@ -593,6 +596,7 @@ private fun TimelineDisplayItem.firstAssetId(): String? =
 private fun TimelineDisplayItemRenderer(
     item: TimelineDisplayItem,
     transitionAssetId: String?,
+    sourcePositionAssetId: String?,
     hiddenAssetId: String?,
     activeSourceGeneration: Int = 0,
     onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
@@ -608,6 +612,7 @@ private fun TimelineDisplayItemRenderer(
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
             transitionAssetId = transitionAssetId,
+            sourcePositionAssetId = sourcePositionAssetId,
             hiddenAssetId = hiddenAssetId,
             activeSourceGeneration = activeSourceGeneration,
             onActiveSourcePositioned = onActiveSourcePositioned,
@@ -617,6 +622,7 @@ private fun TimelineDisplayItemRenderer(
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
             transitionAssetId = transitionAssetId,
+            sourcePositionAssetId = sourcePositionAssetId,
             hiddenAssetId = hiddenAssetId,
             activeSourceGeneration = activeSourceGeneration,
             onActiveSourcePositioned = onActiveSourcePositioned,

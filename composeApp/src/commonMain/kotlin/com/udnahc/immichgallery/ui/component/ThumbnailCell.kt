@@ -60,11 +60,28 @@ fun ThumbnailCell(
     contentScale: ContentScale = ContentScale.Fit,
     sharedTransitionScope: SharedTransitionScope? = null,
     transitionAssetId: String? = null,
+    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
     activeSourceGeneration: Int = 0,
     onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
 ) {
     val transitionScope = sharedTransitionScope
+    val positionedModifier = if (
+        onActiveSourcePositioned != null &&
+        sourcePositionAssetId == asset.id
+    ) {
+        Modifier.onGloballyPositioned { coordinates ->
+            onActiveSourcePositioned(
+                PhotoOverlaySourcePosition(
+                    assetId = asset.id,
+                    boundsInRoot = coordinates.boundsInRoot(),
+                    generation = activeSourceGeneration,
+                )
+            )
+        }
+    } else {
+        Modifier
+    }
     if (transitionScope != null && transitionAssetId == asset.id) {
         // Per-cell AnimatedVisibility is only needed for cells participating in
         // the shared-element transition. Normal scrolling uses the plain path
@@ -91,19 +108,6 @@ fun ThumbnailCell(
             // keep it in-place so a mid-browse AV transition can't render a
             // "ghost" thumbnail above the detail image.
             val hoistInOverlay = LocalPhotoBoundsTween.current
-            val positionedModifier = if (onActiveSourcePositioned != null) {
-                Modifier.onGloballyPositioned { coordinates ->
-                    onActiveSourcePositioned(
-                        PhotoOverlaySourcePosition(
-                            assetId = asset.id,
-                            boundsInRoot = coordinates.boundsInRoot(),
-                            generation = activeSourceGeneration,
-                        )
-                    )
-                }
-            } else {
-                Modifier
-            }
             val boxModifier = with(transitionScope) {
                 Modifier.fillMaxSize().then(positionedModifier).sharedElement(
                     transitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
@@ -117,7 +121,7 @@ fun ThumbnailCell(
     } else {
         ThumbnailCellContent(
             asset = asset,
-            modifier = modifier.clickable(onClick = onClick),
+            modifier = modifier.then(positionedModifier).clickable(onClick = onClick),
             contentScale = contentScale
         )
     }

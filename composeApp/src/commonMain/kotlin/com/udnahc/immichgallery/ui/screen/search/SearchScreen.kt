@@ -121,11 +121,12 @@ fun SearchScreen(
         onActiveSourcePositioned = { position ->
             sourcePositions[position.assetId] = position
         },
-        content = { showOverlay, transitionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
+        content = { showOverlay, transitionAssetId, sourcePositionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
             SearchContent(
                 state = state,
                 showOverlay = showOverlay,
                 transitionAssetId = transitionAssetId,
+                sourcePositionAssetId = sourcePositionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 activeSourceGeneration = activeSourceGeneration,
                 onActiveSourcePositioned = onActiveSourcePositioned,
@@ -164,6 +165,7 @@ fun SearchContent(
     state: SearchState,
     showOverlay: Boolean = false,
     transitionAssetId: String? = null,
+    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
     activeSourceGeneration: Int = 0,
     onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
@@ -315,6 +317,7 @@ fun SearchContent(
                                         onPhotoClick = onPhotoClick,
                                         sharedTransitionScope = sharedTransitionScope,
                                         transitionAssetId = transitionAssetId,
+                                        sourcePositionAssetId = sourcePositionAssetId,
                                         hiddenAssetId = hiddenAssetId,
                                         activeSourceGeneration = activeSourceGeneration,
                                         onActiveSourcePositioned = onActiveSourcePositioned,

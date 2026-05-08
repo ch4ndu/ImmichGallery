@@ -100,10 +100,11 @@ fun AlbumDetailScreen(
         onActiveSourcePositioned = { position ->
             sourcePositions[position.assetId] = position
         },
-        content = { _, transitionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
+        content = { _, transitionAssetId, sourcePositionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
             AlbumDetailContent(
                 state = state,
                 transitionAssetId = transitionAssetId,
+                sourcePositionAssetId = sourcePositionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 activeSourceGeneration = activeSourceGeneration,
                 onActiveSourcePositioned = onActiveSourcePositioned,
@@ -164,6 +165,7 @@ fun AlbumDetailScreen(
 fun AlbumDetailContent(
     state: AlbumDetailState,
     transitionAssetId: String? = null,
+    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
     activeSourceGeneration: Int = 0,
     onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
@@ -191,6 +193,7 @@ fun AlbumDetailContent(
         bannerMessage = state.bannerError?.asText(),
         lastSyncedAt = state.lastSyncedAt,
         transitionAssetId = transitionAssetId,
+        sourcePositionAssetId = sourcePositionAssetId,
         hiddenAssetId = hiddenAssetId,
         activeSourceGeneration = activeSourceGeneration,
         onActiveSourcePositioned = onActiveSourcePositioned,

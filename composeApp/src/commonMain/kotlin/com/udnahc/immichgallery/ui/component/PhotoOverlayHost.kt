@@ -40,6 +40,7 @@ fun PhotoOverlayHost(
     content: @Composable SharedTransitionScope.(
         showOverlay: Boolean,
         transitionAssetId: String?,
+        sourcePositionAssetId: String?,
         hiddenAssetId: String?,
         activeSourceGeneration: Int,
         onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)?,
@@ -71,6 +72,7 @@ fun PhotoOverlayHost(
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     var lastOverlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     var transitionAssetIdForGrid by remember { mutableStateOf<String?>(null) }
+    var sourcePositionAssetIdForGrid by remember { mutableStateOf<String?>(null) }
     var dismissPrepActive by remember { mutableStateOf(false) }
     var dismissInProgress by remember { mutableStateOf(false) }
     var dismissGeneration by remember { mutableStateOf(0) }
@@ -87,6 +89,7 @@ fun PhotoOverlayHost(
             overlayInitialIndex = null
             dismissPrepActive = false
             dismissInProgress = false
+            sourcePositionAssetIdForGrid = null
         }
     }
     val overlayVisible = selectedAssetId != null && overlayInitialIndex != null
@@ -110,6 +113,7 @@ fun PhotoOverlayHost(
     LaunchedEffect(selectedAssetId, overlayVisible, overlayAnimActive) {
         if (selectedAssetId == null && !overlayVisible && !overlayAnimActive) {
             transitionAssetIdForGrid = null
+            sourcePositionAssetIdForGrid = null
         }
     }
 
@@ -122,6 +126,7 @@ fun PhotoOverlayHost(
             overlayAnimActive = true
             overlayInitialIndex = null
             selectedAssetId = null
+            sourcePositionAssetIdForGrid = null
             return
         }
         dismissGeneration += 1
@@ -133,13 +138,16 @@ fun PhotoOverlayHost(
         )
         dismissInProgress = true
         dismissPrepActive = true
-        overlayAnimActive = true
-        transitionAssetIdForGrid = assetId
+        overlayAnimActive = false
+        transitionAssetIdForGrid = null
+        sourcePositionAssetIdForGrid = assetId
         dismissScope.launch {
             try {
                 prepareDismissSource(enrichedContext)
             } finally {
                 if (dismissGeneration == generation) {
+                    transitionAssetIdForGrid = assetId
+                    overlayAnimActive = true
                     overlayInitialIndex = null
                     selectedAssetId = null
                     dismissPrepActive = false
@@ -159,17 +167,13 @@ fun PhotoOverlayHost(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // During dismiss source prep the grid-side source is revealed while the
-        // overlay is still visible. Keep the shared-element tween off for that
-        // overlap so the detail node does not animate back to its steady
-        // centered bounds before the actual exit starts.
-        val boundsTweenActive = overlayAnimActive && !dismissPrepActive
-        CompositionLocalProvider(LocalPhotoBoundsTween provides boundsTweenActive) {
+        CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
             androidx.compose.runtime.key(selectionEpoch) {
                 SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
                     content(
                         overlayVisible,
                         transitionAssetIdForGrid,
+                        sourcePositionAssetIdForGrid,
                         hiddenAssetIdForGrid,
                         activeSourceGeneration,
                         onActiveSourcePositioned,
@@ -180,6 +184,7 @@ fun PhotoOverlayHost(
                                 dismissPrepActive = false
                                 dismissInProgress = false
                                 transitionAssetIdForGrid = id
+                                sourcePositionAssetIdForGrid = null
                                 selectedAssetId = id
                             }
                         }

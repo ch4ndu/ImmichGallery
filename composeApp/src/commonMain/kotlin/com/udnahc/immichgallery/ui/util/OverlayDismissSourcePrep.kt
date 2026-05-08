@@ -25,7 +25,9 @@ suspend fun LazyListState.prepareOverlayDismissSource(
             scrollToItem(index, 0)
             waitFrames(1)
         }
-        index in initialVisibleIndexes -> Unit
+        index in initialVisibleIndexes -> {
+            if (isSourceReady()) return
+        }
         firstVisibleIndex != null && index < firstVisibleIndex -> {
             clearSourceReady()
             scrollToItem(index, 0)

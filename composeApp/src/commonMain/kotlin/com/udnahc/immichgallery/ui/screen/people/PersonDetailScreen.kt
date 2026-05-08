@@ -101,10 +101,11 @@ fun PersonDetailScreen(
         onActiveSourcePositioned = { position ->
             sourcePositions[position.assetId] = position
         },
-        content = { _, transitionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
+        content = { _, transitionAssetId, sourcePositionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
             PersonDetailContent(
                 state = state,
                 transitionAssetId = transitionAssetId,
+                sourcePositionAssetId = sourcePositionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 activeSourceGeneration = activeSourceGeneration,
                 onActiveSourcePositioned = onActiveSourcePositioned,
@@ -166,6 +167,7 @@ fun PersonDetailScreen(
 fun PersonDetailContent(
     state: PersonDetailState,
     transitionAssetId: String? = null,
+    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
     activeSourceGeneration: Int = 0,
     onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
@@ -194,6 +196,7 @@ fun PersonDetailContent(
         bannerMessage = state.bannerError?.asText(),
         lastSyncedAt = state.lastSyncedAt,
         transitionAssetId = transitionAssetId,
+        sourcePositionAssetId = sourcePositionAssetId,
         hiddenAssetId = hiddenAssetId,
         activeSourceGeneration = activeSourceGeneration,
         onActiveSourcePositioned = onActiveSourcePositioned,
