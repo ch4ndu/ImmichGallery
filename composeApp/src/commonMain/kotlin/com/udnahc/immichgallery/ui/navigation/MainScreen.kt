@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,6 +53,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
+import androidx.navigation.NavHostController
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -155,104 +157,181 @@ fun MainScreen(
     }
     var tabIsSyncing by remember { mutableStateOf(false) }
     var timelineColdSyncBlocking by remember { mutableStateOf(false) }
+    val onTabRefreshCallback = remember {
+        { callback: (() -> Unit)? -> tabRefreshCallback = callback }
+    }
+    val onTabSyncingState = remember {
+        { syncing: Boolean -> tabIsSyncing = syncing }
+    }
+    val onTimelineColdSyncBlockingState = remember {
+        { blocking: Boolean -> timelineColdSyncBlocking = blocking }
+    }
+    val onTimelineMosaicPrepareCallback = remember {
+        { callback: (suspend (ViewConfig) -> Result<Unit>)? ->
+            timelineMosaicPrepareCallback = callback
+        }
+    }
+    val onOverlayActiveChange = remember {
+        { active: Boolean -> overlayActive = active }
+    }
 
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
     val showShellOverlays = !overlayActive && !(isTimelineTab && timelineColdSyncBlocking)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        NavHost(
+        MainTabNavHost(
             navController = tabNavController,
-            startDestination = TimelineRoute
-        ) {
-            composable<TimelineRoute> {
-                TimelineScreen(
-                    onPersonClick = onPersonClick,
-                    onRefreshCallback = { callback -> tabRefreshCallback = callback },
-                    onSyncingState = { syncing -> tabIsSyncing = syncing },
-                    onColdSyncBlockingState = { blocking -> timelineColdSyncBlocking = blocking },
-                    onMosaicPrepareCallback = { callback ->
-                        timelineMosaicPrepareCallback = callback
-                    },
-                    onOverlayActiveChange = { active -> overlayActive = active },
-                )
-            }
-            composable<AlbumsRoute> {
-                AlbumListScreen(
-                    onAlbumClick = onAlbumClick,
-                    onRefreshCallback = { callback -> tabRefreshCallback = callback },
-                    onSyncingState = { syncing -> tabIsSyncing = syncing }
-                )
-            }
-            composable<PeopleRoute> {
-                PeopleScreen(
-                    onPersonClick = onPersonClick,
-                    onRefreshCallback = { callback -> tabRefreshCallback = callback },
-                    onSyncingState = { syncing -> tabIsSyncing = syncing }
-                )
-            }
-            composable<SearchRoute> {
-                SearchScreen(
-                    onPersonClick = onPersonClick,
-                    onOverlayActiveChange = { active -> overlayActive = active },
-                )
-            }
-        }
+            onAlbumClick = onAlbumClick,
+            onPersonClick = onPersonClick,
+            onRefreshCallback = onTabRefreshCallback,
+            onSyncingState = onTabSyncingState,
+            onColdSyncBlockingState = onTimelineColdSyncBlockingState,
+            onMosaicPrepareCallback = onTimelineMosaicPrepareCallback,
+            onOverlayActiveChange = onOverlayActiveChange
+        )
 
-        // Top bar overlay — animated hide/show. Exit is delayed so the bar
-        // stays visible across the shared-element flight into the detail view.
-        AnimatedVisibility(
+        MainShellOverlays(
+            navController = tabNavController,
+            items = bottomNavItems,
+            selectedIndex = selectedIndex,
+            title = currentTabTitle,
+            barColor = barColor,
             visible = showShellOverlays,
-            enter = systemBarFadeIn,
-            exit = systemBarFadeOut
-        ) {
-            TopBarOverlay(
-                title = currentTabTitle,
-                barColor = barColor,
-                isServerOnline = isServerOnline,
-                isSyncing = tabIsSyncing,
-                showRefresh = !isSearchTab,
-                onRefresh = { tabRefreshCallback?.invoke() },
-                onLogout = onLogout,
-                mosaicViewConfig = viewConfig.takeIf { isTimelineTab },
-                onMosaicViewConfigChanged = viewModel::setViewConfig,
-                onPrepareMosaicViewConfig = { config ->
-                    timelineMosaicPrepareCallback?.invoke(config) ?: Result.success(Unit)
-                },
-                trailingContent = if (isTimelineTab) {
-                    {
-                        TimelineGroupDropdown(
-                            selected = timelineGroupSize,
-                            enabled = !viewConfig.mosaicEnabled,
-                            onSelected = viewModel::setTimelineGroupSize
-                        )
-                    }
-                } else null
+            isServerOnline = isServerOnline,
+            isSyncing = tabIsSyncing,
+            showRefresh = !isSearchTab,
+            onRefresh = { tabRefreshCallback?.invoke() },
+            onLogout = onLogout,
+            mosaicViewConfig = viewConfig.takeIf { isTimelineTab },
+            onMosaicViewConfigChanged = viewModel::setViewConfig,
+            onPrepareMosaicViewConfig = { config ->
+                timelineMosaicPrepareCallback?.invoke(config) ?: Result.success(Unit)
+            },
+            timelineGroupSize = timelineGroupSize,
+            timelineGroupEnabled = !viewConfig.mosaicEnabled,
+            onTimelineGroupSelected = viewModel::setTimelineGroupSize,
+            showTimelineGroup = isTimelineTab
+        )
+    }
+}
+
+@Composable
+private fun MainTabNavHost(
+    navController: NavHostController,
+    onAlbumClick: (String) -> Unit,
+    onPersonClick: (String, String) -> Unit,
+    onRefreshCallback: (((() -> Unit)?) -> Unit),
+    onSyncingState: (Boolean) -> Unit,
+    onColdSyncBlockingState: (Boolean) -> Unit,
+    onMosaicPrepareCallback: (((suspend (ViewConfig) -> Result<Unit>)?) -> Unit),
+    onOverlayActiveChange: (Boolean) -> Unit
+) {
+    NavHost(
+        navController = navController,
+        startDestination = TimelineRoute
+    ) {
+        composable<TimelineRoute> {
+            TimelineScreen(
+                onPersonClick = onPersonClick,
+                onRefreshCallback = onRefreshCallback,
+                onSyncingState = onSyncingState,
+                onColdSyncBlockingState = onColdSyncBlockingState,
+                onMosaicPrepareCallback = onMosaicPrepareCallback,
+                onOverlayActiveChange = onOverlayActiveChange,
             )
         }
+        composable<AlbumsRoute> {
+            AlbumListScreen(
+                onAlbumClick = onAlbumClick,
+                onRefreshCallback = onRefreshCallback,
+                onSyncingState = onSyncingState
+            )
+        }
+        composable<PeopleRoute> {
+            PeopleScreen(
+                onPersonClick = onPersonClick,
+                onRefreshCallback = onRefreshCallback,
+                onSyncingState = onSyncingState
+            )
+        }
+        composable<SearchRoute> {
+            SearchScreen(
+                onPersonClick = onPersonClick,
+                onOverlayActiveChange = onOverlayActiveChange,
+            )
+        }
+    }
+}
 
-        // Bottom bar overlay — animated hide/show. Exit is delayed so the bar
-        // stays visible across the shared-element flight into the detail view.
-        AnimatedVisibility(
-            visible = showShellOverlays,
-            enter = systemBarFadeIn,
-            exit = systemBarFadeOut,
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            BottomBarOverlay(
-                items = bottomNavItems,
-                selectedIndex = selectedIndex,
-                barColor = barColor,
-                onItemClick = { item ->
-                    tabNavController.navigate(item.route) {
-                        popUpTo(tabNavController.graph.startDestinationId) {
-                            saveState = true
-                        }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+@Composable
+private fun BoxScope.MainShellOverlays(
+    navController: NavHostController,
+    items: List<BottomNavItem>,
+    selectedIndex: Int,
+    title: String,
+    barColor: Color,
+    visible: Boolean,
+    isServerOnline: Boolean,
+    isSyncing: Boolean,
+    showRefresh: Boolean,
+    onRefresh: () -> Unit,
+    onLogout: () -> Unit,
+    mosaicViewConfig: ViewConfig?,
+    onMosaicViewConfigChanged: (ViewConfig) -> Unit,
+    onPrepareMosaicViewConfig: suspend (ViewConfig) -> Result<Unit>,
+    timelineGroupSize: TimelineGroupSize,
+    timelineGroupEnabled: Boolean,
+    onTimelineGroupSelected: (TimelineGroupSize) -> Unit,
+    showTimelineGroup: Boolean
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = systemBarFadeIn,
+        exit = systemBarFadeOut
+    ) {
+        TopBarOverlay(
+            title = title,
+            barColor = barColor,
+            isServerOnline = isServerOnline,
+            isSyncing = isSyncing,
+            showRefresh = showRefresh,
+            onRefresh = onRefresh,
+            onLogout = onLogout,
+            mosaicViewConfig = mosaicViewConfig,
+            onMosaicViewConfigChanged = onMosaicViewConfigChanged,
+            onPrepareMosaicViewConfig = onPrepareMosaicViewConfig,
+            trailingContent = if (showTimelineGroup) {
+                {
+                    TimelineGroupDropdown(
+                        selected = timelineGroupSize,
+                        enabled = timelineGroupEnabled,
+                        onSelected = onTimelineGroupSelected
+                    )
                 }
-            )
-        }
+            } else null
+        )
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = systemBarFadeIn,
+        exit = systemBarFadeOut,
+        modifier = Modifier.align(Alignment.BottomCenter)
+    ) {
+        BottomBarOverlay(
+            items = items,
+            selectedIndex = selectedIndex,
+            barColor = barColor,
+            onItemClick = { item ->
+                navController.navigate(item.route) {
+                    popUpTo(navController.graph.startDestinationId) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+        )
     }
 }
 
