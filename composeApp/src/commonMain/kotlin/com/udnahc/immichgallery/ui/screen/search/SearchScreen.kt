@@ -47,6 +47,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -162,174 +163,270 @@ fun SearchContent(
             .padding(horizontal = Dimens.screenPadding)
             .padding(top = statusBarPadding + Dimens.topBarHeight)
     ) {
-        // Search field + filter chips hide when the detail overlay is shown
-        // so they don't leak through the transparent scrim during drag-to-dismiss.
-        AnimatedVisibility(
+        SearchControls(
             visible = !showOverlay,
-            enter = systemBarFadeIn,
-            exit = systemBarFadeOut,
-        ) {
-            Column {
-                Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
+            query = state.query,
+            searchType = state.searchType,
+            onQueryChange = onQueryChange,
+            onSearchTypeChange = onSearchTypeChange,
+            onSearch = onSearch
+        )
 
-                OutlinedTextField(
-                    value = state.query,
-                    onValueChange = onQueryChange,
-                    placeholder = { Text(stringResource(Res.string.search_placeholder)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                    modifier = Modifier.fillMaxWidth()
+        SearchResultContent(
+            state = state,
+            statusBarPadding = statusBarPadding,
+            listState = listState,
+            transitionAssetId = transitionAssetId,
+            hiddenAssetId = hiddenAssetId,
+            onPhotoClick = onPhotoClick,
+            onSetAvailableWidth = onSetAvailableWidth,
+            onSetAvailableViewportHeight = onSetAvailableViewportHeight,
+            onSetTargetRowHeight = onSetTargetRowHeight,
+            onLoadMore = onLoadMore,
+            sharedTransitionScope = sharedTransitionScope
+        )
+    }
+}
+
+@Composable
+private fun SearchControls(
+    visible: Boolean,
+    query: String,
+    searchType: SearchType,
+    onQueryChange: (String) -> Unit,
+    onSearchTypeChange: (SearchType) -> Unit,
+    onSearch: () -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = systemBarFadeIn,
+        exit = systemBarFadeOut,
+    ) {
+        Column {
+            Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text(stringResource(Res.string.search_placeholder)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
+                FilterChip(
+                    selected = searchType == SearchType.SMART,
+                    onClick = { onSearchTypeChange(SearchType.SMART) },
+                    label = { Text(stringResource(Res.string.search_type_smart)) }
                 )
-
-                Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
-
-                Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
-                    FilterChip(
-                        selected = state.searchType == SearchType.SMART,
-                        onClick = { onSearchTypeChange(SearchType.SMART) },
-                        label = { Text(stringResource(Res.string.search_type_smart)) }
-                    )
-                    FilterChip(
-                        selected = state.searchType == SearchType.METADATA,
-                        onClick = { onSearchTypeChange(SearchType.METADATA) },
-                        label = { Text(stringResource(Res.string.search_type_filename)) }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
+                FilterChip(
+                    selected = searchType == SearchType.METADATA,
+                    onClick = { onSearchTypeChange(SearchType.METADATA) },
+                    label = { Text(stringResource(Res.string.search_type_filename)) }
+                )
             }
+
+            Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun SearchResultContent(
+    state: SearchState,
+    statusBarPadding: Dp,
+    listState: LazyListState,
+    transitionAssetId: String?,
+    hiddenAssetId: String?,
+    onPhotoClick: (String) -> Unit,
+    onSetAvailableWidth: (Float) -> Unit,
+    onSetAvailableViewportHeight: (Float) -> Unit,
+    onSetTargetRowHeight: (Float) -> Unit,
+    onLoadMore: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope?
+) {
+    when {
+        state.isLoading -> SearchLoadingState()
+        state.error != null -> SearchMessageState(
+            text = state.error.asTextOrNull().orEmpty(),
+            isError = true
+        )
+        state.hasSearched && state.results.isEmpty() -> SearchMessageState(
+            text = stringResource(Res.string.search_no_results)
+        )
+        state.results.isNotEmpty() -> SearchResultsGrid(
+            state = state,
+            statusBarPadding = statusBarPadding,
+            listState = listState,
+            transitionAssetId = transitionAssetId,
+            hiddenAssetId = hiddenAssetId,
+            onPhotoClick = onPhotoClick,
+            onSetAvailableWidth = onSetAvailableWidth,
+            onSetAvailableViewportHeight = onSetAvailableViewportHeight,
+            onSetTargetRowHeight = onSetTargetRowHeight,
+            onLoadMore = onLoadMore,
+            sharedTransitionScope = sharedTransitionScope
+        )
+        else -> SearchMessageState(text = stringResource(Res.string.search_hint))
+    }
+}
+
+@Composable
+private fun SearchLoadingState() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator()
+    }
+}
+
+@Composable
+private fun SearchMessageState(
+    text: String,
+    isError: Boolean = false
+) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text = text,
+            color = if (isError) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun SearchResultsGrid(
+    state: SearchState,
+    statusBarPadding: Dp,
+    listState: LazyListState,
+    transitionAssetId: String?,
+    hiddenAssetId: String?,
+    onPhotoClick: (String) -> Unit,
+    onSetAvailableWidth: (Float) -> Unit,
+    onSetAvailableViewportHeight: (Float) -> Unit,
+    onSetTargetRowHeight: (Float) -> Unit,
+    onLoadMore: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope?
+) {
+    val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val density = LocalDensity.current
+    val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(listState, focusManager) {
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect { focusManager.clearFocus() }
+    }
+
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val total = info.totalItemsCount
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total > 0 && lastVisible >= total - 3
+        }
+    }
+    val latestOnLoadMore by rememberUpdatedState(onLoadMore)
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore) latestOnLoadMore()
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        val widthDp = with(density) { constraints.maxWidth.toDp() }
+        val visibleGridHeight = (maxHeight - Dimens.bottomBarHeight - navBarPadding)
+            .value
+            .coerceAtLeast(0f)
+        LaunchedEffect(widthDp, visibleGridHeight) {
+            onSetAvailableWidth(widthDp.value)
+            onSetAvailableViewportHeight(visibleGridHeight)
         }
 
-        when {
-            state.isLoading -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pinchToZoomRowHeight(
+                    state.targetRowHeight,
+                    state.rowHeightBounds,
+                    onSetTargetRowHeight
+                )
+                .desktopGridZoom(
+                    state.targetRowHeight,
+                    state.rowHeightBounds,
+                    onSetTargetRowHeight
+                )
+        ) {
+            ScrollbarOverlay(
+                listState = listState,
+                topPadding = statusBarPadding + Dimens.topBarHeight,
+                bottomPadding = Dimens.bottomBarHeight + navBarPadding
+            ) {
+                SearchResultsList(
+                    state = state,
+                    listState = listState,
+                    navBarPadding = navBarPadding,
+                    transitionAssetId = transitionAssetId,
+                    hiddenAssetId = hiddenAssetId,
+                    onPhotoClick = onPhotoClick,
+                    sharedTransitionScope = sharedTransitionScope
+                )
             }
+        }
+    }
+}
 
-            state.error != null -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        state.error.asTextOrNull().orEmpty(),
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-
-            state.hasSearched && state.results.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        stringResource(Res.string.search_no_results),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            state.results.isNotEmpty() -> {
-                val navBarPadding =
-                    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                val density = LocalDensity.current
-
-                LaunchedEffect(listState, focusManager) {
-                    snapshotFlow { listState.isScrollInProgress }
-                        .distinctUntilChanged()
-                        .filter { it }
-                        .collect { focusManager.clearFocus() }
-                }
-
-                // Load-more detection
-                val shouldLoadMore by remember {
-                    derivedStateOf {
-                        val info = listState.layoutInfo
-                        val total = info.totalItemsCount
-                        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-                        total > 0 && lastVisible >= total - 3
-                    }
-                }
-                val latestOnLoadMore by rememberUpdatedState(onLoadMore)
-                LaunchedEffect(shouldLoadMore) {
-                    if (shouldLoadMore) latestOnLoadMore()
-                }
-
-                BoxWithConstraints(
-                    modifier = Modifier.fillMaxSize()
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun SearchResultsList(
+    state: SearchState,
+    listState: LazyListState,
+    navBarPadding: Dp,
+    transitionAssetId: String?,
+    hiddenAssetId: String?,
+    onPhotoClick: (String) -> Unit,
+    sharedTransitionScope: SharedTransitionScope?
+) {
+    val contentPadding = remember(navBarPadding) {
+        PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
+    }
+    LazyColumn(
+        state = listState,
+        contentPadding = contentPadding,
+        verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
+    ) {
+        itemsIndexed(
+            items = state.rows,
+            key = { _, row -> row.gridKey },
+            contentType = { _, _ -> "search_photo_row" }
+        ) { _, row ->
+            JustifiedPhotoRow(
+                row = row,
+                spacing = Dimens.gridSpacing,
+                onPhotoClick = onPhotoClick,
+                sharedTransitionScope = sharedTransitionScope,
+                transitionAssetId = transitionAssetId,
+                hiddenAssetId = hiddenAssetId,
+            )
+        }
+        if (state.isLoadingMore) {
+            item(key = "loading_more") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = Dimens.mediumSpacing),
+                    contentAlignment = Alignment.Center
                 ) {
-                    val widthDp = with(density) { constraints.maxWidth.toDp() }
-                    val visibleGridHeight = (maxHeight - Dimens.bottomBarHeight - navBarPadding)
-                        .value
-                        .coerceAtLeast(0f)
-                    LaunchedEffect(widthDp, visibleGridHeight) {
-                        onSetAvailableWidth(widthDp.value)
-                        onSetAvailableViewportHeight(visibleGridHeight)
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pinchToZoomRowHeight(
-                                state.targetRowHeight,
-                                state.rowHeightBounds,
-                                onSetTargetRowHeight
-                            )
-                            .desktopGridZoom(
-                                state.targetRowHeight,
-                                state.rowHeightBounds,
-                                onSetTargetRowHeight
-                            )
-                    ) {
-                        ScrollbarOverlay(
-                            listState = listState,
-                            topPadding = statusBarPadding + Dimens.topBarHeight,
-                            bottomPadding = Dimens.bottomBarHeight + navBarPadding
-                        ) {
-                            val contentPadding = remember(navBarPadding) {
-                                PaddingValues(bottom = Dimens.bottomBarHeight + navBarPadding)
-                            }
-                            LazyColumn(
-                                state = listState,
-                                contentPadding = contentPadding,
-                                verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing)
-                            ) {
-                                itemsIndexed(
-                                    items = state.rows,
-                                    key = { _, row -> row.gridKey },
-                                    contentType = { _, _ -> "search_photo_row" }
-                                ) { _, row ->
-                                    JustifiedPhotoRow(
-                                        row = row,
-                                        spacing = Dimens.gridSpacing,
-                                        onPhotoClick = onPhotoClick,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        transitionAssetId = transitionAssetId,
-                                        hiddenAssetId = hiddenAssetId,
-                                    )
-                                }
-                                if (state.isLoadingMore) {
-                                    item(key = "loading_more") {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = Dimens.mediumSpacing),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(Dimens.iconSize)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            else -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        stringResource(Res.string.search_hint),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(Dimens.iconSize)
                     )
                 }
             }
