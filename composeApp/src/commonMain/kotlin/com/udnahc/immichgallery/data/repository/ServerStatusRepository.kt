@@ -3,6 +3,7 @@ package com.udnahc.immichgallery.data.repository
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
