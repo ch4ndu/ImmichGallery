@@ -19,10 +19,7 @@ fun MosaicPhotoBand(
     onPhotoClick: (assetId: String) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     transitionAssetId: String? = null,
-    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
 ) {
     // Stabilize the band-width computation so the maxOfOrNull walk doesn't
     // re-run on every recomposition (band is @Immutable; tiles list reference
@@ -52,10 +49,7 @@ fun MosaicPhotoBand(
                         .size(width = tile.width.dp, height = tile.height.dp),
                     sharedTransitionScope = sharedTransitionScope,
                     transitionAssetId = transitionAssetId,
-                    sourcePositionAssetId = sourcePositionAssetId,
                     hiddenAssetId = hiddenAssetId,
-                    activeSourceGeneration = activeSourceGeneration,
-                    onActiveSourcePositioned = onActiveSourcePositioned,
                 )
             }
         }

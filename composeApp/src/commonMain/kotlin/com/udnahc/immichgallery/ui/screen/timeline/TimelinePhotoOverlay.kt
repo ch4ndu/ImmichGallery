@@ -42,8 +42,6 @@ import com.udnahc.immichgallery.ui.component.AssetPage
 import com.udnahc.immichgallery.ui.component.DetailBottomHandle
 import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
 import com.udnahc.immichgallery.ui.component.PhotoDragTransform
-import com.udnahc.immichgallery.ui.component.PhotoOverlayDismissContext
-import com.udnahc.immichgallery.ui.component.PhotoOverlayDismissMode
 import com.udnahc.immichgallery.ui.component.SlideshowOptionsDialog
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
@@ -66,7 +64,7 @@ fun TimelinePhotoOverlay(
     assetCache: SnapshotStateMap<String, List<Asset>>,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onDismiss: (PhotoOverlayDismissContext) -> Unit,
+    onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
     onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -122,17 +120,6 @@ fun TimelinePhotoOverlay(
     val pagerState = rememberPagerState(
         initialPage = clampedInitial
     ) { totalPages }
-    var frozenDismissPage by remember { mutableStateOf<Int?>(null) }
-    var frozenDismissAssetId by remember { mutableStateOf<String?>(null) }
-    var frozenDismissBucketKey by remember { mutableStateOf<String?>(null) }
-    var frozenDismissDragTransform by remember { mutableStateOf<PhotoDragTransform?>(null) }
-
-    LaunchedEffect(initialIndex) {
-        frozenDismissPage = null
-        frozenDismissAssetId = null
-        frozenDismissBucketKey = null
-        frozenDismissDragTransform = null
-    }
 
     // Force the pager to snap to the target page on first composition. Inside
     // SharedTransitionLayout's LookaheadScope, the pager's scroll offset can
@@ -224,31 +211,8 @@ fun TimelinePhotoOverlay(
         pagerState.animateScrollToPage(next)
     }
 
-    fun freezeDismiss(
-        mode: PhotoOverlayDismissMode,
-        assetId: String? = currentAsset?.id,
-        bucketKey: String? = currentBucketKey,
-        dragTransform: PhotoDragTransform? = null,
-    ): PhotoOverlayDismissContext {
-        val existingPage = frozenDismissPage
-        val page = existingPage ?: pagerState.settledPage
-        val frozenAssetId = frozenDismissAssetId ?: assetId
-        val frozenBucketKey = frozenDismissBucketKey ?: bucketKey
-        if (existingPage == null) {
-            frozenDismissPage = page
-            frozenDismissAssetId = frozenAssetId
-            frozenDismissBucketKey = frozenBucketKey
-            frozenDismissDragTransform = dragTransform
-        }
-        return PhotoOverlayDismissContext(
-            assetId = frozenAssetId,
-            bucketKey = frozenBucketKey,
-            mode = mode,
-        )
-    }
-
     PlatformBackHandler(enabled = true, onBack = {
-        onDismiss(freezeDismiss(PhotoOverlayDismissMode.Back))
+        onDismiss(currentAsset?.id, currentBucketKey)
     })
 
     if (showSlideshowDialog) {
@@ -327,20 +291,7 @@ fun TimelinePhotoOverlay(
                 flickVelocityPx = flickVelocityPx,
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(
-                        freezeDismiss(
-                            mode = PhotoOverlayDismissMode.Drag,
-                            assetId = latestCurrentAssetId,
-                            bucketKey = latestCurrentBucketKey,
-                            dragTransform = PhotoDragTransform(
-                                active = true,
-                                scale = dragState.scale,
-                                translation = dragState.translation,
-                                startPosition = dragState.startPosition,
-                                dismissCommitted = true,
-                            ),
-                        )
-                    )
+                    onDismiss(latestCurrentAssetId, latestCurrentBucketKey)
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
@@ -373,13 +324,7 @@ fun TimelinePhotoOverlay(
                 },
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(
-                        freezeDismiss(
-                            mode = PhotoOverlayDismissMode.Shortcut,
-                            assetId = latestCurrentAssetId,
-                            bucketKey = latestCurrentBucketKey,
-                        )
-                    )
+                    onDismiss(latestCurrentAssetId, latestCurrentBucketKey)
                 },
                 onToggleSlideshow = {
                     if (isSlideshow) slideshowConfig = null
@@ -404,25 +349,15 @@ fun TimelinePhotoOverlay(
                 }
             }
 
-            val frozenPage = frozenDismissPage
-            val participatesInTransition = if (frozenPage != null) {
-                page == frozenPage
-            } else {
-                isSettledPage
-            }
-            val photoDragTransform = when {
-                frozenPage != null && page == frozenPage ->
-                    frozenDismissDragTransform ?: PhotoDragTransform.Idle
-                frozenPage == null && isSettledPage && dragState.isActive ->
-                    PhotoDragTransform(
-                        active = true,
-                        scale = dragState.scale,
-                        translation = dragState.translation,
-                        startPosition = dragState.startPosition,
-                        dismissCommitted = dragState.dismissCommitted,
-                    )
-                else -> PhotoDragTransform.Idle
-            }
+            val photoDragTransform = if (isSettledPage && dragState.isActive) {
+                PhotoDragTransform(
+                    active = true,
+                    scale = dragState.scale,
+                    translation = dragState.translation,
+                    startPosition = dragState.startPosition,
+                    dismissCommitted = dragState.dismissCommitted,
+                )
+            } else PhotoDragTransform.Idle
 
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -436,8 +371,8 @@ fun TimelinePhotoOverlay(
                         isSlideshow = isSlideshow,
                         slideshowConfig = slideshowConfig,
                         onTap = onTap,
-                        sharedTransitionScope = if (participatesInTransition) sharedTransitionScope else null,
-                        animatedVisibilityScope = if (participatesInTransition) animatedVisibilityScope else null,
+                        sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
+                        animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
                         dragTransform = photoDragTransform,
                         isDragging = isSettledPage && dragState.isActive,
                         onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
@@ -451,7 +386,7 @@ fun TimelinePhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = displayFileName,
-            onBack = { onDismiss(freezeDismiss(PhotoOverlayDismissMode.Back)) },
+            onBack = { onDismiss(currentAsset?.id, currentBucketKey) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (totalPages > 1) {
                 { showSlideshowDialog = true }
@@ -471,7 +406,7 @@ fun TimelinePhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss(freezeDismiss(PhotoOverlayDismissMode.Shortcut))
+                    onDismiss(null, null)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }

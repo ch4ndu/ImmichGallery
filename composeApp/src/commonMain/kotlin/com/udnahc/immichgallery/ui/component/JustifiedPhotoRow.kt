@@ -29,10 +29,7 @@ fun JustifiedPhotoRow(
     onPhotoClick: (assetId: String) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     transitionAssetId: String? = null,
-    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().height(row.rowHeight.dp),
@@ -61,10 +58,7 @@ fun JustifiedPhotoRow(
                 contentScale = contentScale,
                 sharedTransitionScope = sharedTransitionScope,
                 transitionAssetId = transitionAssetId,
-                sourcePositionAssetId = sourcePositionAssetId,
                 hiddenAssetId = hiddenAssetId,
-                activeSourceGeneration = activeSourceGeneration,
-                onActiveSourcePositioned = onActiveSourcePositioned,
             )
         }
     }

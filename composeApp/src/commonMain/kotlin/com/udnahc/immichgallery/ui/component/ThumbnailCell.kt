@@ -24,8 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.foundation.Image
 import coil3.compose.LocalPlatformContext
@@ -60,28 +58,9 @@ fun ThumbnailCell(
     contentScale: ContentScale = ContentScale.Fit,
     sharedTransitionScope: SharedTransitionScope? = null,
     transitionAssetId: String? = null,
-    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
 ) {
     val transitionScope = sharedTransitionScope
-    val positionedModifier = if (
-        onActiveSourcePositioned != null &&
-        sourcePositionAssetId == asset.id
-    ) {
-        Modifier.onGloballyPositioned { coordinates ->
-            onActiveSourcePositioned(
-                PhotoOverlaySourcePosition(
-                    assetId = asset.id,
-                    boundsInRoot = coordinates.boundsInRoot(),
-                    generation = activeSourceGeneration,
-                )
-            )
-        }
-    } else {
-        Modifier
-    }
     if (transitionScope != null && transitionAssetId == asset.id) {
         // Per-cell AnimatedVisibility is only needed for cells participating in
         // the shared-element transition. Normal scrolling uses the plain path
@@ -109,7 +88,7 @@ fun ThumbnailCell(
             // "ghost" thumbnail above the detail image.
             val hoistInOverlay = LocalPhotoBoundsTween.current
             val boxModifier = with(transitionScope) {
-                Modifier.fillMaxSize().then(positionedModifier).sharedElement(
+                Modifier.fillMaxSize().sharedElement(
                     transitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
                     animatedVisibilityScope = this@AnimatedVisibility,
                     boundsTransform = boundsTransform,
@@ -121,7 +100,7 @@ fun ThumbnailCell(
     } else {
         ThumbnailCellContent(
             asset = asset,
-            modifier = modifier.then(positionedModifier).clickable(onClick = onClick),
+            modifier = modifier.clickable(onClick = onClick),
             contentScale = contentScale
         )
     }

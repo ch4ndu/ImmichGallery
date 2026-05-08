@@ -36,11 +36,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,14 +51,12 @@ import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
-import com.udnahc.immichgallery.ui.component.PhotoOverlaySourcePosition
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
-import com.udnahc.immichgallery.ui.util.prepareOverlayDismissSource
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -83,18 +79,12 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
-    val sourcePositions = remember { mutableStateMapOf<String, PhotoOverlaySourcePosition>() }
-    var preparedDismissReturnKey by remember { mutableStateOf<String?>(null) }
 
     // Scroll back to last viewed asset when returning from detail
     LaunchedEffect(viewModel.lastViewedAssetId) {
         val rowIndex = viewModel.getDisplayItemIndexForReturn() ?: return@LaunchedEffect
             val info = listState.layoutInfo
             val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == rowIndex }
-            if (preparedDismissReturnKey == viewModel.lastViewedAssetId && visibleItem != null) {
-                preparedDismissReturnKey = null
-                return@LaunchedEffect
-            }
             val fullyVisible = visibleItem != null &&
                 visibleItem.offset >= info.viewportStartOffset &&
                 (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
@@ -107,29 +97,12 @@ fun SearchScreen(
         initialIndexKey = state.results,
         onOverlayActiveChange = onOverlayActiveChange,
         resolveInitialIndex = { id -> state.results.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
-        prepareDismissSource = prepareDismissSource@ { context ->
-            val assetId = context.assetId ?: return@prepareDismissSource
-            viewModel.lastViewedAssetId = assetId
-            preparedDismissReturnKey = assetId
-            sourcePositions.remove(assetId)
-            listState.prepareOverlayDismissSource(
-                displayIndex = viewModel.getDisplayItemIndexForReturn(),
-                isSourceReady = { sourcePositions[assetId]?.generation == context.sourceGeneration },
-                clearSourceReady = { sourcePositions.remove(assetId) },
-            )
-        },
-        onActiveSourcePositioned = { position ->
-            sourcePositions[position.assetId] = position
-        },
-        content = { showOverlay, transitionAssetId, sourcePositionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
+        content = { showOverlay, transitionAssetId, hiddenAssetId, onPhotoClick ->
             SearchContent(
                 state = state,
                 showOverlay = showOverlay,
                 transitionAssetId = transitionAssetId,
-                sourcePositionAssetId = sourcePositionAssetId,
                 hiddenAssetId = hiddenAssetId,
-                activeSourceGeneration = activeSourceGeneration,
-                onActiveSourcePositioned = onActiveSourcePositioned,
                 onQueryChange = viewModel::updateQuery,
                 onSearchTypeChange = viewModel::updateSearchType,
                 onSearch = viewModel::search,
@@ -149,7 +122,10 @@ fun SearchScreen(
                     apiKey = viewModel.apiKey,
                     getAssetDetail = viewModel::getAssetDetail,
                     onPersonClick = onPersonClick,
-                    onDismiss = onDismissHost,
+                    onDismiss = { currentAssetId ->
+                        viewModel.lastViewedAssetId = currentAssetId
+                        onDismissHost(currentAssetId)
+                    },
                     onCurrentAssetChanged = onCurrentAssetChanged,
                     onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                     sharedTransitionScope = sharedTransitionScope,
@@ -165,10 +141,7 @@ fun SearchContent(
     state: SearchState,
     showOverlay: Boolean = false,
     transitionAssetId: String? = null,
-    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     onQueryChange: (String) -> Unit,
     onSearchTypeChange: (SearchType) -> Unit,
     onSearch: () -> Unit,
@@ -317,10 +290,7 @@ fun SearchContent(
                                         onPhotoClick = onPhotoClick,
                                         sharedTransitionScope = sharedTransitionScope,
                                         transitionAssetId = transitionAssetId,
-                                        sourcePositionAssetId = sourcePositionAssetId,
                                         hiddenAssetId = hiddenAssetId,
-                                        activeSourceGeneration = activeSourceGeneration,
-                                        onActiveSourcePositioned = onActiveSourcePositioned,
                                     )
                                 }
                                 if (state.isLoadingMore) {

@@ -36,7 +36,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,14 +65,12 @@ import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.MosaicPhotoBand
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
-import com.udnahc.immichgallery.ui.component.PhotoOverlaySourcePosition
 import com.udnahc.immichgallery.ui.component.PlaceholderRow
 import com.udnahc.immichgallery.ui.component.photoGridDisplayItemContentType
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
-import com.udnahc.immichgallery.ui.util.prepareOverlayDismissSource
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
@@ -114,8 +111,6 @@ fun TimelineScreen(
     val isBuilding by viewModel.isBuilding.collectAsState()
     val buildError by viewModel.buildError.collectAsState()
     val listState = rememberLazyListState()
-    val sourcePositions = remember { mutableStateMapOf<String, PhotoOverlaySourcePosition>() }
-    var preparedDismissReturnKey by remember { mutableStateOf<String?>(null) }
 
     // Report refresh callback and syncing state to parent
     LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
@@ -141,11 +136,6 @@ fun TimelineScreen(
         ) ?: return@LaunchedEffect
         val info = listState.layoutInfo
         val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == displayIndex }
-        val returnKey = "${viewModel.lastViewedAssetId}|${viewModel.lastViewedBucket}"
-        if (preparedDismissReturnKey == returnKey && visibleItem != null) {
-            preparedDismissReturnKey = null
-            return@LaunchedEffect
-        }
         val fullyVisible = visibleItem != null &&
             visibleItem.offset >= info.viewportStartOffset &&
             (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
@@ -175,22 +165,7 @@ fun TimelineScreen(
     PhotoOverlayHost(
         onOverlayActiveChange = onOverlayActiveChange,
         resolveInitialIndex = { assetId -> viewModel.getGlobalPhotoIndex(assetId) },
-        prepareDismissSource = prepareDismissSource@ { context ->
-            val assetId = context.assetId ?: return@prepareDismissSource
-            viewModel.lastViewedAssetId = assetId
-            viewModel.lastViewedBucket = context.bucketKey
-            preparedDismissReturnKey = "$assetId|${context.bucketKey}"
-            sourcePositions.remove(assetId)
-            listState.prepareOverlayDismissSource(
-                displayIndex = viewModel.getDisplayItemIndexForReturn(assetId, context.bucketKey),
-                isSourceReady = { sourcePositions[assetId]?.generation == context.sourceGeneration },
-                clearSourceReady = { sourcePositions.remove(assetId) },
-            )
-        },
-        onActiveSourcePositioned = { position ->
-            sourcePositions[position.assetId] = position
-        },
-        content = { showOverlay, transitionAssetId, sourcePositionAssetId, hiddenAssetId, activeSourceGeneration, onActiveSourcePositioned, onPhotoClick ->
+        content = { showOverlay, transitionAssetId, hiddenAssetId, onPhotoClick ->
             // Grid is no longer wrapped in its own AnimatedVisibility — it stays
             // composed behind the overlay so drag-to-dismiss reveals it.
             // Per-cell AVs in ThumbnailCell drive the shared-element animation.
@@ -199,10 +174,7 @@ fun TimelineScreen(
                 listState = listState,
                 showOverlay = showOverlay,
                 transitionAssetId = transitionAssetId,
-                sourcePositionAssetId = sourcePositionAssetId,
                 hiddenAssetId = hiddenAssetId,
-                activeSourceGeneration = activeSourceGeneration,
-                onActiveSourcePositioned = onActiveSourcePositioned,
                 onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
                 onViewportBucketTargeted = viewModel::onViewportBucketTargeted,
                 onScrollInProgressChanged = viewModel::onScrollInProgressChanged,
@@ -228,7 +200,11 @@ fun TimelineScreen(
                     assetCache = viewModel.bucketAssetsCache,
                     onBucketNeeded = viewModel::loadBucketAssets,
                     onPersonClick = onPersonClick,
-                    onDismiss = onDismissHost,
+                    onDismiss = { currentAssetId, currentBucket ->
+                        viewModel.lastViewedAssetId = currentAssetId
+                        viewModel.lastViewedBucket = currentBucket
+                        onDismissHost(currentAssetId)
+                    },
                     onCurrentAssetChanged = onCurrentAssetChanged,
                     onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                     sharedTransitionScope = sharedTransitionScope,
@@ -271,10 +247,7 @@ fun TimelineContent(
     listState: LazyListState = rememberLazyListState(),
     showOverlay: Boolean = false,
     transitionAssetId: String? = null,
-    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     onVisibleBucketsChanged: (List<Int>, TimelineBucketTargetReason) -> Unit,
     onViewportBucketTargeted: (Int, TimelineBucketTargetReason) -> Unit,
     onScrollInProgressChanged: (Boolean) -> Unit = {},
@@ -497,10 +470,7 @@ fun TimelineContent(
                                 TimelineDisplayItemRenderer(
                                     item = item,
                                     transitionAssetId = transitionAssetId,
-                                    sourcePositionAssetId = sourcePositionAssetId,
                                     hiddenAssetId = hiddenAssetId,
-                                    activeSourceGeneration = activeSourceGeneration,
-                                    onActiveSourcePositioned = onActiveSourcePositioned,
                                     onPhotoClick = onPhotoClick,
                                     onRetryBucket = onRetryBucket,
                                     sharedTransitionScope = sharedTransitionScope
@@ -596,10 +566,7 @@ private fun TimelineDisplayItem.firstAssetId(): String? =
 private fun TimelineDisplayItemRenderer(
     item: TimelineDisplayItem,
     transitionAssetId: String?,
-    sourcePositionAssetId: String?,
     hiddenAssetId: String?,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     onPhotoClick: (String) -> Unit,
     onRetryBucket: (String) -> Unit,
     sharedTransitionScope: SharedTransitionScope?
@@ -612,20 +579,14 @@ private fun TimelineDisplayItemRenderer(
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
             transitionAssetId = transitionAssetId,
-            sourcePositionAssetId = sourcePositionAssetId,
             hiddenAssetId = hiddenAssetId,
-            activeSourceGeneration = activeSourceGeneration,
-            onActiveSourcePositioned = onActiveSourcePositioned,
         )
         is MosaicBandItem -> MosaicPhotoBand(
             band = item,
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
             transitionAssetId = transitionAssetId,
-            sourcePositionAssetId = sourcePositionAssetId,
             hiddenAssetId = hiddenAssetId,
-            activeSourceGeneration = activeSourceGeneration,
-            onActiveSourcePositioned = onActiveSourcePositioned,
         )
         is PlaceholderItem -> PlaceholderRow(estimatedHeight = item.estimatedHeight)
         is ErrorItem -> ErrorCell(onRetry = { onRetryBucket(item.timeBucket) })

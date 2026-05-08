@@ -14,7 +14,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -26,7 +25,6 @@ import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -35,20 +33,15 @@ fun PhotoOverlayHost(
     initialIndexKey: Any? = Unit,
     onOverlayActiveChange: (Boolean) -> Unit = {},
     resolveInitialIndex: suspend (assetId: String) -> Int?,
-    prepareDismissSource: suspend (PhotoOverlayDismissContext) -> Unit = {},
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     content: @Composable SharedTransitionScope.(
         showOverlay: Boolean,
         transitionAssetId: String?,
-        sourcePositionAssetId: String?,
         hiddenAssetId: String?,
-        activeSourceGeneration: Int,
-        onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)?,
         onPhotoClick: (String) -> Unit
     ) -> Unit,
     overlay: @Composable AnimatedVisibilityScope.(
         initialIndex: Int,
-        onDismissHost: (PhotoOverlayDismissContext) -> Unit,
+        onDismissHost: (currentAssetId: String?) -> Unit,
         onCurrentAssetChanged: (String) -> Unit,
         onStlTransitionActiveChanged: (Boolean) -> Unit,
         sharedTransitionScope: SharedTransitionScope
@@ -72,11 +65,6 @@ fun PhotoOverlayHost(
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     var lastOverlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     var transitionAssetIdForGrid by remember { mutableStateOf<String?>(null) }
-    var sourcePositionAssetIdForGrid by remember { mutableStateOf<String?>(null) }
-    var dismissPrepActive by remember { mutableStateOf(false) }
-    var dismissInProgress by remember { mutableStateOf(false) }
-    var dismissGeneration by remember { mutableStateOf(0) }
-    var activeSourceGeneration by remember { mutableStateOf(0) }
     LaunchedEffect(selectedAssetId, initialIndexKey) {
         val id = selectedAssetId
         if (id != null) {
@@ -87,16 +75,13 @@ fun PhotoOverlayHost(
         } else {
             currentViewedAssetId = null
             overlayInitialIndex = null
-            dismissPrepActive = false
-            dismissInProgress = false
-            sourcePositionAssetIdForGrid = null
         }
     }
     val overlayVisible = selectedAssetId != null && overlayInitialIndex != null
     // Dismiss must reveal the grid-side shared-element source in the same
     // composition that starts AnimatedVisibility exit; otherwise the overlay
     // image appears to pause while the grid cell is still hidden.
-    val hiddenAssetIdForGrid = if (overlayVisible && !dismissPrepActive) currentViewedAssetId else null
+    val hiddenAssetIdForGrid = if (overlayVisible) currentViewedAssetId else null
 
     var stlTransitionActive by remember { mutableStateOf(false) }
     var overlayAnimActive by remember { mutableStateOf(false) }
@@ -113,57 +98,14 @@ fun PhotoOverlayHost(
     LaunchedEffect(selectedAssetId, overlayVisible, overlayAnimActive) {
         if (selectedAssetId == null && !overlayVisible && !overlayAnimActive) {
             transitionAssetIdForGrid = null
-            sourcePositionAssetIdForGrid = null
         }
     }
 
     LaunchedEffect(overlayVisible) { onOverlayActiveChange(overlayVisible) }
-    val dismissScope = rememberCoroutineScope()
-    fun requestDismiss(context: PhotoOverlayDismissContext) {
-        if (dismissInProgress) return
-        val assetId = context.assetId ?: currentViewedAssetId ?: lastSelectedAssetId
-        if (assetId == null) {
-            overlayAnimActive = true
-            overlayInitialIndex = null
-            selectedAssetId = null
-            sourcePositionAssetIdForGrid = null
-            return
-        }
-        dismissGeneration += 1
-        activeSourceGeneration += 1
-        val generation = dismissGeneration
-        val enrichedContext = context.copy(
-            assetId = assetId,
-            sourceGeneration = activeSourceGeneration,
-        )
-        dismissInProgress = true
-        dismissPrepActive = true
-        overlayAnimActive = false
-        transitionAssetIdForGrid = null
-        sourcePositionAssetIdForGrid = assetId
-        dismissScope.launch {
-            try {
-                prepareDismissSource(enrichedContext)
-            } finally {
-                if (dismissGeneration == generation) {
-                    transitionAssetIdForGrid = assetId
-                    overlayAnimActive = true
-                    overlayInitialIndex = null
-                    selectedAssetId = null
-                    dismissPrepActive = false
-                    dismissInProgress = false
-                }
-            }
-        }
-    }
-
     PlatformBackHandler(enabled = overlayVisible) {
-        requestDismiss(
-            PhotoOverlayDismissContext(
-                assetId = currentViewedAssetId ?: lastSelectedAssetId,
-                mode = PhotoOverlayDismissMode.Back,
-            )
-        )
+        overlayAnimActive = true
+        overlayInitialIndex = null
+        selectedAssetId = null
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -173,18 +115,12 @@ fun PhotoOverlayHost(
                     content(
                         overlayVisible,
                         transitionAssetIdForGrid,
-                        sourcePositionAssetIdForGrid,
                         hiddenAssetIdForGrid,
-                        activeSourceGeneration,
-                        onActiveSourcePositioned,
                         remember {
                             { id: String ->
                                 overlayInitialIndex = null
                                 overlayAnimActive = true
-                                dismissPrepActive = false
-                                dismissInProgress = false
                                 transitionAssetIdForGrid = id
-                                sourcePositionAssetIdForGrid = null
                                 selectedAssetId = id
                             }
                         }
@@ -198,9 +134,13 @@ fun PhotoOverlayHost(
                         lastSelectedAssetId ?: return@AnimatedVisibility
                         overlay(
                             overlayInitialIndex ?: lastOverlayInitialIndex ?: 0,
-                            ::requestDismiss,
+                            {
+                                overlayAnimActive = true
+                                overlayInitialIndex = null
+                                selectedAssetId = null
+                            },
                             { id ->
-                                if (overlayVisible && !dismissInProgress) {
+                                if (overlayVisible) {
                                     currentViewedAssetId = id
                                     transitionAssetIdForGrid = id
                                 }

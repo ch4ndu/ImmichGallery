@@ -49,7 +49,7 @@ fun StaticPhotoOverlay(
     apiKey: String,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onDismiss: (PhotoOverlayDismissContext) -> Unit,
+    onDismiss: (currentAssetId: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
     onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -102,15 +102,6 @@ fun StaticPhotoOverlay(
         initialPage = clampedInitial
     ) { assets.size }
     val latestAssets by rememberUpdatedState(assets)
-    var frozenDismissPage by remember { mutableStateOf<Int?>(null) }
-    var frozenDismissAssetId by remember { mutableStateOf<String?>(null) }
-    var frozenDismissDragTransform by remember { mutableStateOf<PhotoDragTransform?>(null) }
-
-    LaunchedEffect(initialIndex) {
-        frozenDismissPage = null
-        frozenDismissAssetId = null
-        frozenDismissDragTransform = null
-    }
 
     // Force pager to snap to initialPage on first composition. In LookaheadScope
     // from SharedTransitionLayout, the pager's scroll offset can transiently be 0
@@ -174,26 +165,8 @@ fun StaticPhotoOverlay(
         pagerState.animateScrollToPage(next)
     }
 
-    fun freezeDismiss(
-        mode: PhotoOverlayDismissMode,
-        dragTransform: PhotoDragTransform? = null,
-    ): PhotoOverlayDismissContext {
-        val existingPage = frozenDismissPage
-        val page = existingPage ?: pagerState.settledPage
-        val assetId = frozenDismissAssetId ?: latestAssets.getOrNull(page)?.id
-        if (existingPage == null) {
-            frozenDismissPage = page
-            frozenDismissAssetId = assetId
-            frozenDismissDragTransform = dragTransform
-        }
-        return PhotoOverlayDismissContext(
-            assetId = assetId,
-            mode = mode,
-        )
-    }
-
     PlatformBackHandler(enabled = true, onBack = {
-        onDismiss(freezeDismiss(PhotoOverlayDismissMode.Back))
+        onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
     })
 
     // Slideshow options dialog
@@ -245,18 +218,7 @@ fun StaticPhotoOverlay(
                 flickVelocityPx = flickVelocityPx,
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(
-                        freezeDismiss(
-                            mode = PhotoOverlayDismissMode.Drag,
-                            dragTransform = PhotoDragTransform(
-                                active = true,
-                                scale = dragState.scale,
-                                translation = dragState.translation,
-                                startPosition = dragState.startPosition,
-                                dismissCommitted = true,
-                            ),
-                        )
-                    )
+                    onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
@@ -289,7 +251,7 @@ fun StaticPhotoOverlay(
                 },
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(freezeDismiss(PhotoOverlayDismissMode.Shortcut))
+                    onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
                 },
                 onToggleSlideshow = {
                     if (isSlideshow) slideshowConfig = null
@@ -305,25 +267,15 @@ fun StaticPhotoOverlay(
         ) { page ->
             val asset = assets.getOrNull(page)
             val isSettledPage = pagerState.settledPage == page
-            val frozenPage = frozenDismissPage
-            val participatesInTransition = if (frozenPage != null) {
-                page == frozenPage
-            } else {
-                isSettledPage
-            }
-            val photoDragTransform = when {
-                frozenPage != null && page == frozenPage ->
-                    frozenDismissDragTransform ?: PhotoDragTransform.Idle
-                frozenPage == null && isSettledPage && dragState.isActive ->
-                    PhotoDragTransform(
-                        active = true,
-                        scale = dragState.scale,
-                        translation = dragState.translation,
-                        startPosition = dragState.startPosition,
-                        dismissCommitted = dragState.dismissCommitted,
-                    )
-                else -> PhotoDragTransform.Idle
-            }
+            val photoDragTransform = if (isSettledPage && dragState.isActive) {
+                PhotoDragTransform(
+                    active = true,
+                    scale = dragState.scale,
+                    translation = dragState.translation,
+                    startPosition = dragState.startPosition,
+                    dismissCommitted = dragState.dismissCommitted,
+                )
+            } else PhotoDragTransform.Idle
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -336,8 +288,8 @@ fun StaticPhotoOverlay(
                         isSlideshow = isSlideshow,
                         slideshowConfig = slideshowConfig,
                         onTap = onTap,
-                        sharedTransitionScope = if (participatesInTransition) sharedTransitionScope else null,
-                        animatedVisibilityScope = if (participatesInTransition) animatedVisibilityScope else null,
+                        sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
+                        animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
                         dragTransform = photoDragTransform,
                         isDragging = isSettledPage && dragState.isActive,
                         onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
@@ -350,7 +302,7 @@ fun StaticPhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = currentAsset?.fileName.orEmpty(),
-            onBack = { onDismiss(freezeDismiss(PhotoOverlayDismissMode.Back)) },
+            onBack = { onDismiss(currentAsset?.id) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (assets.size > 1) {
                 { showSlideshowDialog = true }
@@ -370,7 +322,7 @@ fun StaticPhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss(freezeDismiss(PhotoOverlayDismissMode.Shortcut))
+                    onDismiss(null)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }

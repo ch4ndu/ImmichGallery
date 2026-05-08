@@ -54,10 +54,7 @@ fun PhotoGridDetailContent(
     bannerMessage: String?,
     lastSyncedAt: Long?,
     transitionAssetId: String?,
-    sourcePositionAssetId: String? = null,
     hiddenAssetId: String?,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     targetRowHeight: Float,
     rowHeightBounds: RowHeightBounds,
     viewConfig: ViewConfig,
@@ -136,10 +133,7 @@ fun PhotoGridDetailContent(
                             PhotoGridDisplayItemRenderer(
                                 item = displayItems[index],
                                 transitionAssetId = transitionAssetId,
-                                sourcePositionAssetId = sourcePositionAssetId,
                                 hiddenAssetId = hiddenAssetId,
-                                activeSourceGeneration = activeSourceGeneration,
-                                onActiveSourcePositioned = onActiveSourcePositioned,
                                 onPhotoClick = onPhotoClick,
                                 sharedTransitionScope = sharedTransitionScope
                             )
@@ -208,10 +202,7 @@ fun ScrollInProgressReporter(
 fun PhotoGridDisplayItemRenderer(
     item: PhotoGridDisplayItem,
     transitionAssetId: String?,
-    sourcePositionAssetId: String? = null,
     hiddenAssetId: String?,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
     onPhotoClick: (String) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     errorContent: (@Composable (ErrorItem) -> Unit)? = null
@@ -224,20 +215,14 @@ fun PhotoGridDisplayItemRenderer(
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
             transitionAssetId = transitionAssetId,
-            sourcePositionAssetId = sourcePositionAssetId,
             hiddenAssetId = hiddenAssetId,
-            activeSourceGeneration = activeSourceGeneration,
-            onActiveSourcePositioned = onActiveSourcePositioned,
         )
         is MosaicBandItem -> MosaicPhotoBand(
             band = item,
             onPhotoClick = onPhotoClick,
             sharedTransitionScope = sharedTransitionScope,
             transitionAssetId = transitionAssetId,
-            sourcePositionAssetId = sourcePositionAssetId,
             hiddenAssetId = hiddenAssetId,
-            activeSourceGeneration = activeSourceGeneration,
-            onActiveSourcePositioned = onActiveSourcePositioned,
         )
         is PlaceholderItem -> PlaceholderRow(estimatedHeight = item.estimatedHeight)
         is ErrorItem -> errorContent?.invoke(item)

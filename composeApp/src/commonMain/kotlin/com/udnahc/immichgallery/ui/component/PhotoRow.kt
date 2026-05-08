@@ -24,10 +24,7 @@ fun PhotoRow(
     columns: Int = DEFAULT_GRID_COLUMN_COUNT,
     sharedTransitionScope: SharedTransitionScope? = null,
     transitionAssetId: String? = null,
-    sourcePositionAssetId: String? = null,
     hiddenAssetId: String? = null,
-    activeSourceGeneration: Int = 0,
-    onActiveSourcePositioned: ((PhotoOverlaySourcePosition) -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -46,10 +43,7 @@ fun PhotoRow(
                 modifier = Modifier.weight(1f),
                 sharedTransitionScope = sharedTransitionScope,
                 transitionAssetId = transitionAssetId,
-                sourcePositionAssetId = sourcePositionAssetId,
                 hiddenAssetId = hiddenAssetId,
-                activeSourceGeneration = activeSourceGeneration,
-                onActiveSourcePositioned = onActiveSourcePositioned,
             )
         }
         repeat(columns - assets.size) {
