@@ -369,8 +369,6 @@ fun TimelineContent(
                 Box(
                     modifier = gridModifier
                 ) {
-                    val coroutineScope = rememberCoroutineScope()
-                    val scrollbarScrollJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
                     val scrollbarTargetTracker = remember { TimelineScrollbarTargetTracker() }
                     // Route parameter callbacks through rememberUpdatedState so the
                     // remembered scrollbar lambdas below stay identity-stable across
@@ -389,10 +387,7 @@ fun TimelineContent(
                                     bucketIndex = target.bucketIndex,
                                     itemKey = latestDisplayItems.getOrNull(target.displayIndex)?.gridKey
                                 )
-                                scrollbarScrollJob[0]?.cancel()
-                                scrollbarScrollJob[0] = coroutineScope.launch {
-                                    listState.scrollToItem(target.displayIndex)
-                                }
+                                listState.requestScrollToItem(target.displayIndex)
                                 if (commit) {
                                     if (scrollbarTargetTracker.shouldNotifyDragStop(target.bucketIndex)) {
                                         latestOnViewportBucketTargeted(target.bucketIndex, TimelineBucketTargetReason.ScrollbarStop)

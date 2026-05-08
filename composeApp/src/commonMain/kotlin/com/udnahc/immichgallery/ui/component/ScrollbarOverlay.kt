@@ -44,7 +44,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,8 +65,6 @@ import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_scroll_arrows
 import immichgallery.composeapp.generated.resources.scroll_drag
 import immichgallery.composeapp.generated.resources.scrollbar_thumb
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -108,9 +105,6 @@ fun ScrollbarOverlay(
         derivedStateOf { (estimatedItemCount ?: listState.layoutInfo.totalItemsCount) >= MIN_ITEMS_FOR_SCROLLBAR }
     }
 
-    val coroutineScope = rememberCoroutineScope()
-    var scrollJob by remember { mutableStateOf<Job?>(null) }
-
     ScrollbarLayout(
         scrollFraction = scrollFraction,
         showScrollbar = showScrollbar,
@@ -120,8 +114,7 @@ fun ScrollbarOverlay(
         yearMarkers = yearMarkers,
         onDragFraction = onScrollToFraction ?: { fraction ->
             val targetIndex = dragFractionToIndex(fraction, totalItems)
-            scrollJob?.cancel()
-            scrollJob = coroutineScope.launch { listState.scrollToItem(targetIndex) }
+            listState.requestScrollToItem(targetIndex)
             Unit
         },
         onDragStarted = onDragStarted,
@@ -151,9 +144,6 @@ fun ScrollbarOverlay(
     val totalItems by remember { derivedStateOf { gridState.layoutInfo.totalItemsCount } }
     val showScrollbar by remember { derivedStateOf { totalItems >= MIN_ITEMS_FOR_SCROLLBAR } }
 
-    val coroutineScope = rememberCoroutineScope()
-    var scrollJob by remember { mutableStateOf<Job?>(null) }
-
     ScrollbarLayout(
         scrollFraction = scrollFraction,
         showScrollbar = showScrollbar,
@@ -163,8 +153,7 @@ fun ScrollbarOverlay(
         yearMarkers = yearMarkers,
         onDragFraction = { fraction ->
             val targetIndex = dragFractionToIndex(fraction, totalItems)
-            scrollJob?.cancel()
-            scrollJob = coroutineScope.launch { gridState.scrollToItem(targetIndex) }
+            gridState.requestScrollToItem(targetIndex)
         },
         onDragStarted = {},
         onDragStopped = {},
@@ -193,9 +182,6 @@ fun ScrollbarOverlay(
     val totalItems by remember { derivedStateOf { staggeredGridState.layoutInfo.totalItemsCount } }
     val showScrollbar by remember { derivedStateOf { totalItems >= MIN_ITEMS_FOR_SCROLLBAR } }
 
-    val coroutineScope = rememberCoroutineScope()
-    var scrollJob by remember { mutableStateOf<Job?>(null) }
-
     ScrollbarLayout(
         scrollFraction = scrollFraction,
         showScrollbar = showScrollbar,
@@ -205,8 +191,7 @@ fun ScrollbarOverlay(
         yearMarkers = yearMarkers,
         onDragFraction = { fraction ->
             val targetIndex = dragFractionToIndex(fraction, totalItems)
-            scrollJob?.cancel()
-            scrollJob = coroutineScope.launch { staggeredGridState.scrollToItem(targetIndex) }
+            staggeredGridState.requestScrollToItem(targetIndex)
         },
         onDragStarted = {},
         onDragStopped = {},
