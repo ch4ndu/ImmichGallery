@@ -71,6 +71,7 @@ import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
+import com.udnahc.immichgallery.ui.util.ensureReturnSourceVisible
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
@@ -111,6 +112,7 @@ fun TimelineScreen(
     val isBuilding by viewModel.isBuilding.collectAsState()
     val buildError by viewModel.buildError.collectAsState()
     val listState = rememberLazyListState()
+    val dismissScope = rememberCoroutineScope()
 
     // Report refresh callback and syncing state to parent
     LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
@@ -125,23 +127,15 @@ fun TimelineScreen(
     }
 
     // Scroll back to last viewed asset (or its bucket placeholder) on return from detail.
-    // Uses fully-visible check (offset within viewport bounds) rather than a loose
-    // "any pixel peeking" test — otherwise rows partially clipped under the top bar
-    // or overscroll area count as visible and the scroll is skipped, leaving the
-    // user on a row that's mostly offscreen.
+    // Only snap fully off-screen return targets to the top. Partially visible
+    // rows keep their current position so the shared-element source does not
+    // jump when the row is already composed.
     LaunchedEffect(viewModel.lastViewedAssetId, viewModel.lastViewedBucket) {
         val displayIndex = viewModel.getDisplayItemIndexForReturn(
             viewModel.lastViewedAssetId,
             viewModel.lastViewedBucket
         ) ?: return@LaunchedEffect
-        val info = listState.layoutInfo
-        val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == displayIndex }
-        val fullyVisible = visibleItem != null &&
-            visibleItem.offset >= info.viewportStartOffset &&
-            (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
-        if (!fullyVisible) {
-            listState.scrollToItem(displayIndex)
-        }
+        listState.ensureReturnSourceVisible(displayIndex)
     }
 
     // First-launch building screen (bypasses debounced state pipeline)
@@ -201,9 +195,13 @@ fun TimelineScreen(
                     onBucketNeeded = viewModel::loadBucketAssets,
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId, currentBucket ->
-                        viewModel.lastViewedAssetId = currentAssetId
-                        viewModel.lastViewedBucket = currentBucket
-                        onDismissHost(currentAssetId)
+                        dismissScope.launch {
+                            viewModel.lastViewedAssetId = currentAssetId
+                            viewModel.lastViewedBucket = currentBucket
+                            viewModel.getDisplayItemIndexForReturn(currentAssetId, currentBucket)
+                                ?.let { listState.ensureReturnSourceVisible(it) }
+                            onDismissHost(currentAssetId)
+                        }
                     },
                     onCurrentAssetChanged = onCurrentAssetChanged,
                     onStlTransitionActiveChanged = onStlTransitionActiveChanged,

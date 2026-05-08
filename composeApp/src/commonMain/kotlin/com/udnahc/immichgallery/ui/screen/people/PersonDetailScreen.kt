@@ -14,6 +14,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.ui.component.DetailTopBar
@@ -24,12 +26,13 @@ import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.ensureReturnSourceVisible
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
-import androidx.compose.ui.tooling.preview.Preview
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_photos
 import immichgallery.composeapp.generated.resources.unknown
+import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -46,6 +49,7 @@ fun PersonDetailScreen(
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
     val listState = rememberLazyListState()
+    val dismissScope = rememberCoroutineScope()
 
     DisposableEffect(viewModel) {
         viewModel.activateForegroundMosaic()
@@ -56,14 +60,7 @@ fun PersonDetailScreen(
     LaunchedEffect(viewModel.lastViewedAssetId) {
         val itemIndex = viewModel.getDisplayItemIndexForReturn() ?: return@LaunchedEffect
         if (itemIndex >= 0) {
-            val info = listState.layoutInfo
-            val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == itemIndex }
-            val fullyVisible = visibleItem != null &&
-                visibleItem.offset >= info.viewportStartOffset &&
-                (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
-            if (!fullyVisible) {
-                listState.scrollToItem(itemIndex)
-            }
+            listState.ensureReturnSourceVisible(itemIndex)
         }
     }
 
@@ -103,8 +100,12 @@ fun PersonDetailScreen(
                     getAssetDetail = viewModel::getAssetDetail,
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId ->
-                        viewModel.lastViewedAssetId = currentAssetId
-                        onDismissHost(currentAssetId)
+                        dismissScope.launch {
+                            viewModel.lastViewedAssetId = currentAssetId
+                            viewModel.getDisplayItemIndexForReturn()
+                                ?.let { listState.ensureReturnSourceVisible(it) }
+                            onDismissHost(currentAssetId)
+                        }
                     },
                     onCurrentAssetChanged = onCurrentAssetChanged,
                     onStlTransitionActiveChanged = onStlTransitionActiveChanged,

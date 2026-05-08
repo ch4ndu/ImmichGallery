@@ -56,11 +56,13 @@ import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
 import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
+import com.udnahc.immichgallery.ui.util.ensureReturnSourceVisible
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.search_no_results
 import immichgallery.composeapp.generated.resources.search_placeholder
@@ -79,18 +81,12 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
+    val dismissScope = rememberCoroutineScope()
 
     // Scroll back to last viewed asset when returning from detail
     LaunchedEffect(viewModel.lastViewedAssetId) {
         val rowIndex = viewModel.getDisplayItemIndexForReturn() ?: return@LaunchedEffect
-            val info = listState.layoutInfo
-            val visibleItem = info.visibleItemsInfo.firstOrNull { it.index == rowIndex }
-            val fullyVisible = visibleItem != null &&
-                visibleItem.offset >= info.viewportStartOffset &&
-                (visibleItem.offset + visibleItem.size) <= info.viewportEndOffset
-            if (!fullyVisible) {
-                listState.scrollToItem(rowIndex)
-            }
+        listState.ensureReturnSourceVisible(rowIndex)
     }
 
     PhotoOverlayHost(
@@ -123,8 +119,12 @@ fun SearchScreen(
                     getAssetDetail = viewModel::getAssetDetail,
                     onPersonClick = onPersonClick,
                     onDismiss = { currentAssetId ->
-                        viewModel.lastViewedAssetId = currentAssetId
-                        onDismissHost(currentAssetId)
+                        dismissScope.launch {
+                            viewModel.lastViewedAssetId = currentAssetId
+                            viewModel.getDisplayItemIndexForReturn()
+                                ?.let { listState.ensureReturnSourceVisible(it) }
+                            onDismissHost(currentAssetId)
+                        }
                     },
                     onCurrentAssetChanged = onCurrentAssetChanged,
                     onStlTransitionActiveChanged = onStlTransitionActiveChanged,
