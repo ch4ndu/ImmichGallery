@@ -46,6 +46,20 @@ class TimelineProgressiveMosaicBufferTest {
     }
 
     @Test
+    fun chunksRemainBufferedUntilSectionGeometryKeyIsEligible() = runTest {
+        val buffer = TimelineProgressiveMosaicBuffer()
+        val key = key("2026-01")
+        val firstChunk = chunk(0, 40)
+
+        buffer.add(key, firstChunk)
+
+        assertTrue(buffer.drainEligibleKeys(emptySet()).isEmpty())
+        assertEquals(1, buffer.snapshotSize())
+        assertEquals(mapOf(key to listOf(firstChunk)), buffer.drainEligibleKeys(setOf(key)))
+        assertEquals(0, buffer.snapshotSize())
+    }
+
+    @Test
     fun clearKeysAndBucketsRemoveBufferedChunks() = runTest {
         val buffer = TimelineProgressiveMosaicBuffer()
         val january = key("2026-01")
@@ -148,6 +162,37 @@ class TimelineProgressiveMosaicBufferTest {
 
         assertEquals(setOf(first, second), result?.stateUpdates?.keys)
         assertEquals(setOf(first, second), result?.geometryUpdates?.keys)
+    }
+
+    @Test
+    fun progressiveStateUpdatesDoNotOverwriteReadyState() {
+        val key = key("2026-01")
+        val ready = MosaicSectionState.Ready(assignments = emptyList())
+
+        val result = timelineProgressiveMosaicStateUpdates(
+            states = mapOf(key to ready),
+            updatesByKey = mapOf(key to listOf(chunk(0, 40)))
+        )
+
+        assertEquals(ready, result[key])
+    }
+
+    @Test
+    fun progressiveStateUpdatesMergePartialChunksInSourceOrder() {
+        val key = key("2026-01")
+        val existing = chunk(40, 80)
+        val duplicateReplacement = chunk(40, 80, bandIndex = 2)
+        val earlier = chunk(0, 40)
+
+        val result = timelineProgressiveMosaicStateUpdates(
+            states = mapOf(key to MosaicSectionState.Partial(listOf(existing))),
+            updatesByKey = mapOf(key to listOf(duplicateReplacement, earlier))
+        )
+
+        assertEquals(
+            MosaicSectionState.Partial(listOf(earlier, existing)),
+            result[key]
+        )
     }
 
     private fun key(timeBucket: String): MosaicCacheKey =

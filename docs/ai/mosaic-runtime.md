@@ -96,7 +96,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 
 - Timeline has two progressive paths:
   - cache-preparation/precompute can publish `TimelineMosaicProgressChunk`s into the ViewModel.
-  - cache-disabled runtime compute stores progress chunks for resume if it is interrupted; final ready output publishes when compute completes.
+  - render-demand runtime compute stores progress chunks for resume and may publish them through the same progressive buffer before final ready output.
 - `publishProgressiveMosaicChunk(...)` accepts a chunk only when:
   - config still matches.
   - geometry request still matches.
@@ -106,8 +106,8 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   - Timeline is not actively scrolling.
 - Accepted chunks are stored in `TimelineProgressiveMosaicBuffer`, keyed by `MosaicCacheKey`.
 - The buffer de-duplicates chunks by `sourceStartIndex/sourceEndExclusive` and keeps them sorted by source start.
-- Visible loaded buckets are eligible for flush.
-- Flush is immediate for explicit visible/target events, otherwise delayed by `PROGRESSIVE_MOSAIC_FLUSH_DELAY_MS` (`250ms`).
+- Visible loaded buckets with matching section geometry ranges are eligible for flush. Chunks without section geometry stay buffered until geometry arrives or stale state is cleared.
+- Flush is immediate for explicit visible/target events and section-geometry publication, otherwise delayed by `PROGRESSIVE_MOSAIC_FLUSH_DELAY_MS` (`250ms`).
 - Flush converts buffered chunks into `MosaicSectionState.Partial` unless the section is already `Ready`. Existing partial chunks are merged, de-duplicated by source range, and sorted.
 - Publishing a `Ready` state clears buffered partial chunks for that key.
 

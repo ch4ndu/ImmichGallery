@@ -86,6 +86,73 @@ class MosaicRenderEngineTest {
     }
 
     @Test
+    fun geometryBackedPartialProjectionKeepsTotalHeightWhenChunksRender() = runTest {
+        val chunks = mutableListOf<ProgressChunk>()
+        val request = request(sampleAssets(80))
+        val ready = assertIs<MosaicSectionResult.Ready>(
+            engine.computeSection(
+                request = request,
+                onProgressChunk = chunks::add
+            )
+        ).value
+
+        val partialItems = requireNotNull(
+            engine.projectPartialSectionWithGeometry(
+                assets = request.assets,
+                chunks = chunks.take(1),
+                geometryRanges = ready.geometry.ranges,
+                bucketIndex = request.bucketIndex,
+                sectionLabel = request.sectionLabel,
+                layoutSpec = request.displayLayoutSpec,
+                spacing = request.spacing,
+                maxRowHeight = request.maxRowHeight
+            )
+        )
+
+        assertTrue(partialItems.any { it is MosaicBandItem && it.kind == MosaicBandKind.REAL })
+        assertTrue(partialItems.any { it is PlaceholderItem })
+        assertEquals(
+            ready.geometry.placeholderHeight,
+            estimatePhotoGridDisplayItemsHeight(partialItems, request.spacing),
+            absoluteTolerance = 0.5f
+        )
+    }
+
+    @Test
+    fun geometryBackedPartialProjectionKeepsInvalidChunkAsExactPlaceholder() = runTest {
+        val request = request(sampleAssets(12))
+        val ready = assertIs<MosaicSectionResult.Ready>(engine.computeSection(request)).value
+        val firstRange = ready.geometry.ranges.first()
+        val invalidChunk = ProgressChunk(
+            keyScope = request.keyScope,
+            sectionLabel = request.sectionLabel,
+            sourceStartIndex = firstRange.sourceStartIndex,
+            sourceEndExclusive = firstRange.sourceStartIndex + firstRange.sourceCount,
+            assignments = emptyList()
+        )
+
+        val partialItems = requireNotNull(
+            engine.projectPartialSectionWithGeometry(
+                assets = request.assets,
+                chunks = listOf(invalidChunk),
+                geometryRanges = ready.geometry.ranges,
+                bucketIndex = request.bucketIndex,
+                sectionLabel = request.sectionLabel,
+                layoutSpec = request.displayLayoutSpec,
+                spacing = request.spacing,
+                maxRowHeight = request.maxRowHeight
+            )
+        )
+
+        assertTrue(partialItems.none { it is MosaicBandItem && it.kind == MosaicBandKind.REAL })
+        assertEquals(
+            ready.geometry.placeholderHeight,
+            estimatePhotoGridDisplayItemsHeight(partialItems, request.spacing),
+            absoluteTolerance = 0.5f
+        )
+    }
+
+    @Test
     fun partialProjectionUsesPlaceholdersForUnstableChunksAcrossRanges() {
         val request = request(sampleAssets(12))
         val chunks = listOf(

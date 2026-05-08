@@ -602,6 +602,18 @@ internal class TimelineProgressiveMosaicBuffer {
         }
     }
 
+    suspend fun drainEligibleKeys(keys: Set<MosaicCacheKey>): Map<MosaicCacheKey, List<RuntimeMosaicProgressChunk>> {
+        if (keys.isEmpty()) return emptyMap()
+        return mutex.withLock {
+            val eligibleKeys = chunksByKey.keys
+                .filter { it in keys }
+                .toList()
+            eligibleKeys.associateWith { key ->
+                chunksByKey.remove(key).orEmpty()
+            }.filterValues { it.isNotEmpty() }
+        }
+    }
+
     suspend fun clearKeys(keys: Set<MosaicCacheKey>) {
         if (keys.isEmpty()) return
         mutex.withLock {
@@ -645,6 +657,30 @@ internal fun timelineAggregateGeometryPlaceholderHeight(
     } else {
         null
     }
+}
+
+internal fun timelineProgressiveMosaicStateUpdates(
+    states: Map<MosaicCacheKey, RuntimeMosaicState>,
+    updatesByKey: Map<MosaicCacheKey, List<RuntimeMosaicProgressChunk>>
+): Map<MosaicCacheKey, RuntimeMosaicState> {
+    var next = states
+    updatesByKey.forEach { (key, runtimeChunks) ->
+        next = when (val existing = next[key]) {
+            is RuntimeMosaicState.Ready -> next
+            is RuntimeMosaicState.Partial -> {
+                val chunks = (existing.chunks + runtimeChunks)
+                    .distinctBy { it.sourceStartIndex to it.sourceEndExclusive }
+                    .sortedBy { it.sourceStartIndex }
+                next + (key to RuntimeMosaicState.Partial(chunks))
+            }
+            else -> next + (key to RuntimeMosaicState.Partial(
+                runtimeChunks
+                    .distinctBy { it.sourceStartIndex to it.sourceEndExclusive }
+                    .sortedBy { it.sourceStartIndex }
+            ))
+        }
+    }
+    return next
 }
 
 private fun mosaicFamiliesKey(families: Set<MosaicTemplateFamily>): String =
@@ -936,6 +972,9 @@ class TimelineViewModel(
                 if (publish.stateUpdates.isNotEmpty()) {
                     _mosaicStates.update { states -> states + publish.stateUpdates }
                     progressiveMosaicBuffer.clearKeys(publish.stateUpdates.keys)
+                }
+                if (publish.geometryUpdates.isNotEmpty()) {
+                    scheduleProgressiveMosaicFlush(immediate = true)
                 }
             }
         }
@@ -3253,13 +3292,28 @@ class TimelineViewModel(
         maxRowHeight: Float,
         sectionGeometry: TimelineMosaicSectionGeometry?
     ) {
-        val exactPartialItems = sectionGeometry
-            ?.takeIf { it.ranges.isNotEmpty() }
-            ?.let { geometry ->
+        val geometry = sectionGeometry
+        if (geometry == null) {
+            addPlaceholderItems(
+                items = items,
+                timeBucket = timeBucket,
+                sectionKey = sectionKey,
+                bucketIndex = bucketIndex,
+                sectionLabel = sectionLabel,
+                assetCount = assets.size,
+                groupSize = TimelineGroupSize.MONTH,
+                availableWidth = mosaicLayoutSpec.availableWidth,
+                targetRowHeight = mosaicLayoutSpec.cellHeight
+            )
+            return
+        }
+        val exactPartialItems = geometry
+            .takeIf { it.ranges.isNotEmpty() }
+            ?.let {
                 mosaicRenderEngine.projectPartialSectionWithGeometry(
                     assets = assets,
                     chunks = partial.chunks,
-                    geometryRanges = geometry.ranges,
+                    geometryRanges = it.ranges,
                     bucketIndex = bucketIndex,
                     sectionLabel = sectionLabel,
                     layoutSpec = mosaicLayoutSpec,
@@ -3267,28 +3321,20 @@ class TimelineViewModel(
                     maxRowHeight = maxRowHeight
                 )
             }
-        if (sectionGeometry != null && exactPartialItems == null) {
+        if (exactPartialItems == null) {
             addGeometryPlaceholderItems(
                 items = items,
                 timeBucket = timeBucket,
                 sectionKey = sectionKey,
                 bucketIndex = bucketIndex,
                 sectionLabel = sectionLabel,
-                placeholderHeight = sectionGeometry.placeholderHeight
+                placeholderHeight = geometry.placeholderHeight
             )
             return
         }
         items.addAll(
             remapTimelineMosaicBandKeys(
-                items = exactPartialItems ?: mosaicRenderEngine.projectPartialSectionWithPlaceholders(
-                    assets = assets,
-                    chunks = partial.chunks,
-                    bucketIndex = bucketIndex,
-                    sectionLabel = sectionLabel,
-                    layoutSpec = mosaicLayoutSpec,
-                    spacing = GRID_SPACING_DP,
-                    maxRowHeight = maxRowHeight
-                ),
+                items = exactPartialItems,
                 timeBucket = timeBucket,
                 sectionKey = sectionKey
             )
@@ -3752,6 +3798,7 @@ class TimelineViewModel(
             )
         }
         _mosaicGeometryStates.update { states -> states + updates }
+        scheduleProgressiveMosaicFlush(immediate = true)
     }
 
     private fun sameBucketGeometryReadConfig(
@@ -4069,27 +4116,13 @@ class TimelineViewModel(
 
     private suspend fun flushProgressiveMosaicBuffer() {
         val eligibleBuckets = visibleLoadedTimelineBuckets()
-        val updatesByKey = progressiveMosaicBuffer.drainEligible(eligibleBuckets)
+        val eligibleKeys = _mosaicGeometryStates.value
+            .filter { (key, geometry) -> key.timeBucket in eligibleBuckets && geometry.ranges.isNotEmpty() }
+            .keys
+        val updatesByKey = progressiveMosaicBuffer.drainEligibleKeys(eligibleKeys)
         if (updatesByKey.isEmpty()) return
         _mosaicStates.update { states ->
-            var next = states
-            updatesByKey.forEach { (key, runtimeChunks) ->
-                next = when (val existing = next[key]) {
-                    is RuntimeMosaicState.Ready -> next
-                    is RuntimeMosaicState.Partial -> {
-                        val chunks = (existing.chunks + runtimeChunks)
-                            .distinctBy { it.sourceStartIndex to it.sourceEndExclusive }
-                            .sortedBy { it.sourceStartIndex }
-                        next + (key to RuntimeMosaicState.Partial(chunks))
-                    }
-                    else -> next + (key to RuntimeMosaicState.Partial(
-                        runtimeChunks
-                            .distinctBy { it.sourceStartIndex to it.sourceEndExclusive }
-                            .sortedBy { it.sourceStartIndex }
-                    ))
-                }
-            }
-            next
+            timelineProgressiveMosaicStateUpdates(states, updatesByKey)
         }
         log.d {
             "Timeline progressive Mosaic chunks flushed buckets=${eligibleBuckets.size} " +
@@ -4177,9 +4210,16 @@ class TimelineViewModel(
                             onCheckpoint = { checkpoint -> latestCheckpoint = checkpoint },
                             onProgressChunk = progress@ { chunk ->
                                 if (isTimelineScrollActive.value) return@progress
+                                if (chunk.sourceEndExclusive <= chunk.sourceStartIndex || chunk.assignments.isEmpty()) {
+                                    return@progress
+                                }
                                 progressChunks = (progressChunks + chunk)
                                     .distinctBy { it.sourceStartIndex to it.sourceEndExclusive }
                                     .sortedBy { it.sourceStartIndex }
+                                progressiveMosaicBuffer.add(key, chunk)
+                                if (timeBucket in visibleLoadedTimelineBuckets()) {
+                                    scheduleProgressiveMosaicFlush(immediate = false)
+                                }
                             },
                             shouldContinue = {
                                 if (isTimelineScrollActive.value) {
