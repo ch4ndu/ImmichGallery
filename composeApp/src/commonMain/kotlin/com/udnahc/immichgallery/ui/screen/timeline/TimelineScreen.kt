@@ -70,6 +70,7 @@ import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.component.photoGridDisplayItemContentType
+import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
@@ -278,78 +279,21 @@ fun TimelineContent(
         onRetry = onRetry
     ) {
         key(state.groupSize) {
-            LaunchedEffect(listState) {
-                snapshotFlow {
-                    firstVisibleAssetAnchor(
-                        displayItems = latestDisplayItems,
-                        visibleItems = listState.layoutInfo.visibleItemsInfo
-                    )
-                }
-                    .distinctUntilChanged()
-                    .collectLatest { anchor ->
-                        scrollAnchor = anchor
-                        if (anchor != null) {
-                            bucketScrollAnchor = null
-                        }
+            TimelineScrollEffects(
+                listState = listState,
+                displayItems = displayItems,
+                displayIndex = state.displayIndex,
+                scrollAnchor = scrollAnchor,
+                bucketScrollAnchor = bucketScrollAnchor,
+                onScrollAnchorChanged = { anchor ->
+                    scrollAnchor = anchor
+                    if (anchor != null) {
+                        bucketScrollAnchor = null
                     }
-            }
-            LaunchedEffect(state.displayIndex) {
-                if (listState.isScrollInProgress) return@LaunchedEffect
-                val anchor = scrollAnchor
-                if (anchor != null) {
-                    val targetIndex = latestDisplayIndex.assetDisplayIndexById[anchor.assetId]
-                        ?: return@LaunchedEffect
-                    val currentAnchor = firstVisibleAssetAnchor(
-                        displayItems = latestDisplayItems,
-                        visibleItems = listState.layoutInfo.visibleItemsInfo
-                    )
-                    if (currentAnchor?.assetId != anchor.assetId) {
-                        listState.scrollToItem(targetIndex, anchor.scrollOffset)
-                    }
-                    return@LaunchedEffect
-                }
-                val bucketAnchor = bucketScrollAnchor ?: return@LaunchedEffect
-                val currentFirstIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
-                val currentFirstBucket =
-                    currentFirstIndex?.let { latestDisplayIndex.bucketByDisplayIndex.getOrNull(it) }
-                if (currentFirstBucket == bucketAnchor.bucketIndex) return@LaunchedEffect
-                val targetIndex = bucketAnchor.itemKey
-                    ?.let { itemKey ->
-                        latestDisplayItems.indexOfFirst { it.gridKey == itemKey }.takeIf { it >= 0 }
-                    }
-                    ?: latestDisplayIndex.displayIndexesByBucket[bucketAnchor.bucketIndex]?.firstOrNull()
-                    ?: return@LaunchedEffect
-                listState.scrollToItem(targetIndex, bucketAnchor.scrollOffset)
-            }
-            LaunchedEffect(listState) {
-                snapshotFlow {
-                    visibleBucketIndexesForDisplayIndexes(
-                        latestDisplayIndex,
-                        listState.layoutInfo.visibleItemsInfo.map { it.index }
-                    )
-                }
-                    .distinctUntilChanged()
-                    .collectLatest { buckets ->
-                        onVisibleBucketsChanged(buckets, TimelineBucketTargetReason.VisibleScroll)
-                    }
-            }
-            LaunchedEffect(listState) {
-                snapshotFlow { listState.isScrollInProgress }
-                    .distinctUntilChanged()
-                    .collectLatest { isScrollInProgress ->
-                        onScrollInProgressChanged(isScrollInProgress)
-                        if (!isScrollInProgress) {
-                            val buckets = visibleBucketIndexesForDisplayIndexes(
-                                latestDisplayIndex,
-                                listState.layoutInfo.visibleItemsInfo.map { it.index }
-                            )
-                            onVisibleBucketsChanged(
-                                buckets,
-                                TimelineBucketTargetReason.ScrollSettled
-                            )
-                        }
-                    }
-            }
+                },
+                onVisibleBucketsChanged = onVisibleBucketsChanged,
+                onScrollInProgressChanged = onScrollInProgressChanged
+            )
 
             val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val navBarPadding =
@@ -477,78 +421,210 @@ fun TimelineContent(
                         labelProvider = labelProvider,
                         yearMarkers = state.yearMarkers
                     ) {
-                        LazyColumn(
+                        TimelineLazyList(
                             state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
-                            contentPadding = remember(statusBarPadding, navBarPadding) {
-                                PaddingValues(
-                                    top = statusBarPadding + Dimens.topBarHeight,
-                                    bottom = Dimens.bottomBarHeight + navBarPadding
-                                )
-                            }
-                        ) {
-                            items(
-                                items = displayItems,
-                                key = { item -> item.gridKey },
-                                contentType = ::photoGridDisplayItemContentType
-                            ) { item ->
-                                TimelineDisplayItemRenderer(
-                                    item = item,
-                                    transitionAssetId = transitionAssetId,
-                                    hiddenAssetId = hiddenAssetId,
-                                    onPhotoClick = onPhotoClick,
-                                    onRetryBucket = onRetryBucket,
-                                    sharedTransitionScope = sharedTransitionScope
-                                )
-                            }
-                        }
-                    }
-
-                    // Sticky header overlay — hidden when the detail overlay is
-                    // shown so it doesn't peek through the transparent scrim
-                    // during drag-to-dismiss or overlap the overlay's top bar.
-                    AnimatedVisibility(
-                        visible = !showOverlay,
-                        enter = systemBarFadeIn,
-                        exit = systemBarFadeOut,
-                    ) {
-                        StickyHeaderOverlay(
-                            listState = listState,
-                            displayIndex = state.displayIndex,
-                            statusBarPadding = statusBarPadding
+                            displayItems = displayItems,
+                            statusBarPadding = statusBarPadding,
+                            navBarPadding = navBarPadding,
+                            transitionAssetId = transitionAssetId,
+                            hiddenAssetId = hiddenAssetId,
+                            onPhotoClick = onPhotoClick,
+                            onRetryBucket = onRetryBucket,
+                            sharedTransitionScope = sharedTransitionScope
                         )
                     }
 
-                    // Banner overlays — same gating as sticky header.
-                    AnimatedVisibility(
-                        visible = !showOverlay,
-                        enter = systemBarFadeIn,
-                        exit = systemBarFadeOut,
-                        modifier = Modifier.align(Alignment.TopCenter),
-                    ) {
-                        val bannerModifier = Modifier
-                            .statusBarsPadding()
-                            .padding(top = Dimens.topBarHeight + Dimens.sectionHeaderHeight)
-                        val bannerError = state.bannerError
-                        val bannerSuccess = state.bannerSuccess
-                        if (bannerError != null) {
-                            ErrorBanner(
-                                message = bannerError.asText(),
-                                lastSyncedAt = state.lastSyncedAt,
-                                onDismiss = onDismissBannerError,
-                                modifier = bannerModifier
-                            )
-                        } else if (bannerSuccess != null) {
-                            SuccessBanner(
-                                message = bannerSuccess.asText(),
-                                onDismiss = onDismissBannerSuccess,
-                                modifier = bannerModifier
-                            )
-                        }
-                    }
+                    TimelineOverlayChrome(
+                        showOverlay = showOverlay,
+                        listState = listState,
+                        displayIndex = state.displayIndex,
+                        statusBarPadding = statusBarPadding,
+                        bannerError = state.bannerError,
+                        bannerSuccess = state.bannerSuccess,
+                        lastSyncedAt = state.lastSyncedAt,
+                        onDismissBannerError = onDismissBannerError,
+                        onDismissBannerSuccess = onDismissBannerSuccess,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TimelineScrollEffects(
+    listState: LazyListState,
+    displayItems: List<TimelineDisplayItem>,
+    displayIndex: TimelineDisplayIndex,
+    scrollAnchor: TimelineScrollAnchor?,
+    bucketScrollAnchor: TimelineBucketScrollAnchor?,
+    onScrollAnchorChanged: (TimelineScrollAnchor?) -> Unit,
+    onVisibleBucketsChanged: (List<Int>, TimelineBucketTargetReason) -> Unit,
+    onScrollInProgressChanged: (Boolean) -> Unit
+) {
+    val latestDisplayItems by rememberUpdatedState(displayItems)
+    val latestDisplayIndex by rememberUpdatedState(displayIndex)
+
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            firstVisibleAssetAnchor(
+                displayItems = latestDisplayItems,
+                visibleItems = listState.layoutInfo.visibleItemsInfo
+            )
+        }
+            .distinctUntilChanged()
+            .collectLatest { anchor ->
+                onScrollAnchorChanged(anchor)
+            }
+    }
+    LaunchedEffect(displayIndex) {
+        if (listState.isScrollInProgress) return@LaunchedEffect
+        val anchor = scrollAnchor
+        if (anchor != null) {
+            val targetIndex = latestDisplayIndex.assetDisplayIndexById[anchor.assetId]
+                ?: return@LaunchedEffect
+            val currentAnchor = firstVisibleAssetAnchor(
+                displayItems = latestDisplayItems,
+                visibleItems = listState.layoutInfo.visibleItemsInfo
+            )
+            if (currentAnchor?.assetId != anchor.assetId) {
+                listState.scrollToItem(targetIndex, anchor.scrollOffset)
+            }
+            return@LaunchedEffect
+        }
+        val bucketAnchor = bucketScrollAnchor ?: return@LaunchedEffect
+        val currentFirstIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
+        val currentFirstBucket =
+            currentFirstIndex?.let { latestDisplayIndex.bucketByDisplayIndex.getOrNull(it) }
+        if (currentFirstBucket == bucketAnchor.bucketIndex) return@LaunchedEffect
+        val targetIndex = bucketAnchor.itemKey
+            ?.let { itemKey ->
+                latestDisplayItems.indexOfFirst { it.gridKey == itemKey }.takeIf { it >= 0 }
+            }
+            ?: latestDisplayIndex.displayIndexesByBucket[bucketAnchor.bucketIndex]?.firstOrNull()
+            ?: return@LaunchedEffect
+        listState.scrollToItem(targetIndex, bucketAnchor.scrollOffset)
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            visibleBucketIndexesForDisplayIndexes(
+                latestDisplayIndex,
+                listState.layoutInfo.visibleItemsInfo.map { it.index }
+            )
+        }
+            .distinctUntilChanged()
+            .collectLatest { buckets ->
+                onVisibleBucketsChanged(buckets, TimelineBucketTargetReason.VisibleScroll)
+            }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collectLatest { isScrollInProgress ->
+                onScrollInProgressChanged(isScrollInProgress)
+                if (!isScrollInProgress) {
+                    val buckets = visibleBucketIndexesForDisplayIndexes(
+                        latestDisplayIndex,
+                        listState.layoutInfo.visibleItemsInfo.map { it.index }
+                    )
+                    onVisibleBucketsChanged(
+                        buckets,
+                        TimelineBucketTargetReason.ScrollSettled
+                    )
+                }
+            }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun TimelineLazyList(
+    state: LazyListState,
+    displayItems: List<TimelineDisplayItem>,
+    statusBarPadding: Dp,
+    navBarPadding: Dp,
+    transitionAssetId: String?,
+    hiddenAssetId: String?,
+    onPhotoClick: (String) -> Unit,
+    onRetryBucket: (String) -> Unit,
+    sharedTransitionScope: SharedTransitionScope?
+) {
+    LazyColumn(
+        state = state,
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
+        contentPadding = remember(statusBarPadding, navBarPadding) {
+            PaddingValues(
+                top = statusBarPadding + Dimens.topBarHeight,
+                bottom = Dimens.bottomBarHeight + navBarPadding
+            )
+        }
+    ) {
+        items(
+            items = displayItems,
+            key = { item -> item.gridKey },
+            contentType = ::photoGridDisplayItemContentType
+        ) { item ->
+            TimelineDisplayItemRenderer(
+                item = item,
+                transitionAssetId = transitionAssetId,
+                hiddenAssetId = hiddenAssetId,
+                onPhotoClick = onPhotoClick,
+                onRetryBucket = onRetryBucket,
+                sharedTransitionScope = sharedTransitionScope
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineOverlayChrome(
+    showOverlay: Boolean,
+    listState: LazyListState,
+    displayIndex: TimelineDisplayIndex,
+    statusBarPadding: Dp,
+    bannerError: ConnectionUiMessage?,
+    bannerSuccess: ConnectionUiMessage?,
+    lastSyncedAt: Long?,
+    onDismissBannerError: () -> Unit,
+    onDismissBannerSuccess: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = !showOverlay,
+        enter = systemBarFadeIn,
+        exit = systemBarFadeOut,
+    ) {
+        StickyHeaderOverlay(
+            listState = listState,
+            displayIndex = displayIndex,
+            statusBarPadding = statusBarPadding
+        )
+    }
+
+    AnimatedVisibility(
+        visible = !showOverlay,
+        enter = systemBarFadeIn,
+        exit = systemBarFadeOut,
+        modifier = modifier,
+    ) {
+        val bannerModifier = Modifier
+            .statusBarsPadding()
+            .padding(top = Dimens.topBarHeight + Dimens.sectionHeaderHeight)
+        if (bannerError != null) {
+            ErrorBanner(
+                message = bannerError.asText(),
+                lastSyncedAt = lastSyncedAt,
+                onDismiss = onDismissBannerError,
+                modifier = bannerModifier
+            )
+        } else if (bannerSuccess != null) {
+            SuccessBanner(
+                message = bannerSuccess.asText(),
+                onDismiss = onDismissBannerSuccess,
+                modifier = bannerModifier
+            )
         }
     }
 }
