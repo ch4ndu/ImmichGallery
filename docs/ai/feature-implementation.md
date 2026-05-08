@@ -36,6 +36,7 @@ For a new persisted cache entity or schema change:
 - Put screen-specific projections, row packing, pagination state, and overlay source lists in the screen ViewModel.
 - ViewModels should expose typed UI message values for user-visible errors and banners; composables resolve them with `stringResource()`.
 - ViewModel work must not inherit the UI dispatcher by accident. Use `Dispatchers.IO` for network/DB actions, `Dispatchers.Default` for collectors, schedulers, state projection, row packing, Mosaic preparation, and other CPU/scheduling work. UI-only composable animation scopes may stay on the composition dispatcher.
+- Visible sync entry points should be wrapped in `SyncActivityTracker` so Android can mirror active sync work with a foreground `dataSync` notification. This tracker is notification state only; do not move screen-owned sync algorithms, layout publication, cache invalidation, or Mosaic state into the Android service unless doing an explicit service-owned sync refactor.
 - Persisted view preferences such as row height and Mosaic settings should flow through settings UseCases/Actions and `ServerConfigRepository`, not direct repository access from ViewModels.
 - Mosaic is enabled by default for new installs so Timeline first sync can precompute persisted Mosaic assignments. Existing saved user preferences must still win over the default.
 - For direct photo-grid screens, use `PhotoGridLayoutRunner` for expensive zoom-driven row or detail Mosaic projection work. Keep the runner as coroutine orchestration only; do not move screen projection ownership out of the ViewModel.
@@ -69,6 +70,7 @@ For a new persisted cache entity or schema change:
 - Prefer `commonMain`.
 - Use `expect`/`actual` only for platform services such as database builders, HTTP engines, system gesture exclusion, haptics, wake locks, edge-to-edge, or platform media playback.
 - Android context-dependent setup belongs in Android entry points and platform modules.
+- Android foreground sync notifications use a platform notifier plus `SyncForegroundService`; the service should start foreground immediately, handle `dataSync` foreground-service requirements, and stop when `SyncActivityTracker` reports no active operations.
 - Local developer login defaults come from gitignored root `local.properties` keys `immichGallery.loginServerUrl` and `immichGallery.loginApiKey`; Gradle generates blank-fallback common constants for builds where those keys are absent.
 
 ## Verification

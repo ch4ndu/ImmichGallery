@@ -16,6 +16,7 @@ For Album Detail and Person Detail screen architecture, cached-first loading, op
 - JetBrains Navigation Compose KMP with `@Serializable` type-safe routes.
 - `multiplatform-settings` for server URL, API key, and lightweight settings.
 - `kotlinx-datetime` for date/time logic.
+- Android foreground sync notifications are a platform mirror of active ViewModel-owned sync work. `SyncActivityTracker` tracks active sync operations in common code, and Android starts a `dataSync` foreground service only to show/keep the notification alive; the service must not own repository sync algorithms.
 
 ## Layering
 
@@ -104,6 +105,7 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - RowPacking is the standard justified-row architecture. `packIntoRows()` groups ordered assets into `RowItem`s, and the full algorithm, invalidation model, and screen rules live in `docs/ai/row-packing.md`.
 - Mosaic is the shared non-standard-row layout architecture. `MosaicRenderEngine` owns assignment, progressive chunks, display projection, completed fallback rows, section geometry, and aggregate geometry. Cross-screen rules live in `docs/ai/mosaic-rendering.md`; assignment details live in `docs/ai/mosaic-assignment.md`; runtime scheduling lives in `docs/ai/mosaic-runtime.md`.
 - Timeline sync is bucket-oriented and intentionally separate from Timeline rendering. Cold sync, warm launch, manual refresh, no-op refresh, and cache-off Mosaic policy live in `docs/ai/timeline-sync.md`.
+- Android sync foreground service state mirrors current screen sync activity only. Moving sync execution into a service is a separate architecture change and should not be mixed into notification-only work.
 - Timeline rendering, scrollbar targeting, display indexes, overlay return targeting, and Timeline-specific cache/rendering behavior live in `docs/timeline.md`.
 - Album Detail and Person Detail cached-first loading, owner sync, pagination, shared layout coordination, Mosaic scheduling, persistent owner artifacts, and overlay return targeting live in `docs/ai/album-person-detail.md`.
 - `PhotoGridDisplayItem` is the shared display model for headers, rows, placeholders, errors, and Mosaic bands.

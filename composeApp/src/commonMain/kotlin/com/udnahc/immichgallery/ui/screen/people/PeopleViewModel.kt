@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
+import com.udnahc.immichgallery.ui.util.SyncActivityKey
+import com.udnahc.immichgallery.ui.util.SyncActivityTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.combine
@@ -31,7 +33,8 @@ data class PeopleState(
 )
 
 class PeopleViewModel(
-    private val getPeopleUseCase: GetPeopleUseCase
+    private val getPeopleUseCase: GetPeopleUseCase,
+    private val syncActivityTracker: SyncActivityTracker
 ) : ViewModel() {
 
     private val log = logging("PeopleViewModel")
@@ -75,42 +78,44 @@ class PeopleViewModel(
 
     private fun syncFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            val hasCachedPeople = getPeopleUseCase.hasCachedPeople()
+            syncActivityTracker.track(SyncActivityKey.People) {
+                val hasCachedPeople = getPeopleUseCase.hasCachedPeople()
 
-            if (!hasCachedPeople) {
-                _state.update { it.copy(isBuilding = true, error = null) }
-            } else {
-                _state.update { it.copy(isSyncing = true, bannerError = null) }
-            }
+                if (!hasCachedPeople) {
+                    _state.update { it.copy(isBuilding = true, error = null) }
+                } else {
+                    _state.update { it.copy(isSyncing = true, bannerError = null) }
+                }
 
-            val lastSync = getPeopleUseCase.getLastSyncedAt()
-            _state.update { it.copy(lastSyncedAt = lastSync) }
+                val lastSync = getPeopleUseCase.getLastSyncedAt()
+                _state.update { it.copy(lastSyncedAt = lastSync) }
 
-            getPeopleUseCase.sync().fold(
-                onSuccess = {
-                    log.d { "Synced people from server" }
-                    _state.update { it.copy(isBuilding = false, isSyncing = false, error = null) }
-                },
-                onFailure = { e ->
-                    log.e(e) { "Failed to sync people from server" }
-                    if (!hasCachedPeople) {
-                        _state.update {
-                            it.copy(
-                                isBuilding = false,
-                                isSyncing = false,
-                                error = ConnectionUiMessage.NoConnectionToServer
-                            )
-                        }
-                    } else {
-                        _state.update {
-                            it.copy(
-                                isSyncing = false,
-                                bannerError = ConnectionUiMessage.CannotConnectToServer
-                            )
+                getPeopleUseCase.sync().fold(
+                    onSuccess = {
+                        log.d { "Synced people from server" }
+                        _state.update { it.copy(isBuilding = false, isSyncing = false, error = null) }
+                    },
+                    onFailure = { e ->
+                        log.e(e) { "Failed to sync people from server" }
+                        if (!hasCachedPeople) {
+                            _state.update {
+                                it.copy(
+                                    isBuilding = false,
+                                    isSyncing = false,
+                                    error = ConnectionUiMessage.NoConnectionToServer
+                                )
+                            }
+                        } else {
+                            _state.update {
+                                it.copy(
+                                    isSyncing = false,
+                                    bannerError = ConnectionUiMessage.CannotConnectToServer
+                                )
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
     }
 

@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">ImmichGallery</string>
+    <string name="sync_notification_channel_name">Sync status</string>
+    <string name="sync_notification_title">ImmichGallery is syncing</string>
+    <plurals name="sync_notification_text">
+        <item quantity="one">%1$d sync operation running</item>
+        <item quantity="other">%1$d sync operations running</item>
+    </plurals>
 </resources>

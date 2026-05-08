@@ -81,7 +81,7 @@ Zoom behavior is shared:
 
 ## ViewModel Responsibilities
 
-Album and Person ViewModels are owner-specific adapters around the shared coordinator.
+Album and Person ViewModels are owner-specific adapters around the shared coordinator. Opened-owner syncs are wrapped in `SyncActivityTracker` so Android can mirror active sync work with the shared foreground sync notification. The Android service does not execute Album or Person sync logic.
 
 Album Detail owns:
 

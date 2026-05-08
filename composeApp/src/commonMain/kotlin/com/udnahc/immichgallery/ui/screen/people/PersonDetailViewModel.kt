@@ -32,6 +32,8 @@ import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutCoordinator
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutSnapshot
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
+import com.udnahc.immichgallery.ui.util.SyncActivityKey
+import com.udnahc.immichgallery.ui.util.SyncActivityTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -76,6 +78,7 @@ class PersonDetailViewModel(
     private val mosaicWorkScheduler: MosaicWorkScheduler,
     private val getDetailMosaicArtifactsUseCase: GetDetailMosaicArtifactsUseCase,
     private val upsertDetailMosaicArtifactsAction: UpsertDetailMosaicArtifactsAction,
+    private val syncActivityTracker: SyncActivityTracker,
     private val personId: String
 ) : ViewModel() {
 
@@ -255,65 +258,67 @@ class PersonDetailViewModel(
         if (syncJob?.isActive == true || _state.value.isLoadingMore || loadMoreJob?.isActive == true) return
         _state.update { it.copy(nextPage = 1) }
         syncJob = viewModelScope.launch(Dispatchers.IO) {
-            val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
+            syncActivityTracker.track(SyncActivityKey.PersonDetail(personId)) {
+                val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
 
-            if (!hasCachedAssets) {
-                _state.update { it.copy(isBuilding = true, error = null) }
-            } else {
-                _state.update { it.copy(isSyncing = true, bannerError = null) }
-            }
+                if (!hasCachedAssets) {
+                    _state.update { it.copy(isBuilding = true, error = null) }
+                } else {
+                    _state.update { it.copy(isSyncing = true, bannerError = null) }
+                }
 
-            val lastSync = getPersonAssetsUseCase.getLastSyncedAt(personId)
-            _state.update { it.copy(lastSyncedAt = lastSync) }
+                val lastSync = getPersonAssetsUseCase.getLastSyncedAt(personId)
+                _state.update { it.copy(lastSyncedAt = lastSync) }
 
-            if (!hasCachedAssets) {
-                log.d { "First launch — syncing all assets for person $personId..." }
-                getPersonAssetsUseCase.syncAll(personId).fold(
-                    onSuccess = { result ->
-                        _state.update {
-                            it.copy(
-                                hasMore = false,
-                                isBuilding = false,
-                                isSyncing = false,
-                                error = null
-                            )
+                if (!hasCachedAssets) {
+                    log.d { "First launch — syncing all assets for person $personId..." }
+                    getPersonAssetsUseCase.syncAll(personId).fold(
+                        onSuccess = { result ->
+                            _state.update {
+                                it.copy(
+                                    hasMore = false,
+                                    isBuilding = false,
+                                    isSyncing = false,
+                                    error = null
+                                )
+                            }
+                            handleSyncedContentChange(result.changed)
+                        },
+                        onFailure = { e ->
+                            log.e(e) { "Failed to sync person assets for $personId" }
+                            _state.update {
+                                it.copy(
+                                    isBuilding = false,
+                                    isSyncing = false,
+                                    error = ConnectionUiMessage.NoConnectionToServer
+                                )
+                            }
                         }
-                        handleSyncedContentChange(result.changed)
-                    },
-                    onFailure = { e ->
-                        log.e(e) { "Failed to sync person assets for $personId" }
-                        _state.update {
-                            it.copy(
-                                isBuilding = false,
-                                isSyncing = false,
-                                error = ConnectionUiMessage.NoConnectionToServer
-                            )
+                    )
+                } else {
+                    getPersonAssetsPageUseCase(personId, page = 1).fold(
+                        onSuccess = { result ->
+                            _state.update {
+                                it.copy(
+                                    hasMore = result.hasMore,
+                                    nextPage = 2,
+                                    isSyncing = false,
+                                    error = null
+                                )
+                            }
+                            handleSyncedContentChange(result.changed)
+                        },
+                        onFailure = { e ->
+                            log.e(e) { "Failed to sync person assets for $personId" }
+                            _state.update {
+                                it.copy(
+                                    isSyncing = false,
+                                    bannerError = ConnectionUiMessage.CannotConnectToServer
+                                )
+                            }
                         }
-                    }
-                )
-            } else {
-                getPersonAssetsPageUseCase(personId, page = 1).fold(
-                    onSuccess = { result ->
-                        _state.update {
-                            it.copy(
-                                hasMore = result.hasMore,
-                                nextPage = 2,
-                                isSyncing = false,
-                                error = null
-                            )
-                        }
-                        handleSyncedContentChange(result.changed)
-                    },
-                    onFailure = { e ->
-                        log.e(e) { "Failed to sync person assets for $personId" }
-                        _state.update {
-                            it.copy(
-                                isSyncing = false,
-                                bannerError = ConnectionUiMessage.CannotConnectToServer
-                            )
-                        }
-                    }
-                )
+                    )
+                }
             }
         }
     }

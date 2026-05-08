@@ -84,6 +84,8 @@ import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketGeometr
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicSectionGeometryUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
+import com.udnahc.immichgallery.ui.util.SyncActivityKey
+import com.udnahc.immichgallery.ui.util.SyncActivityTracker
 import com.udnahc.immichgallery.ui.util.TimelineMosaicDispatcherProvider
 import com.udnahc.immichgallery.ui.util.TimelineMosaicQueueActor
 import com.udnahc.immichgallery.ui.util.TimelineMosaicQueueCommand
@@ -736,7 +738,8 @@ class TimelineViewModel(
     private val setTimelineGroupSizeAction: SetTimelineGroupSizeAction,
     private val setTargetRowHeightAction: SetTargetRowHeightAction,
     private val setViewConfigAction: SetViewConfigAction,
-    private val timelineMosaicDispatcherProvider: TimelineMosaicDispatcherProvider
+    private val timelineMosaicDispatcherProvider: TimelineMosaicDispatcherProvider,
+    private val syncActivityTracker: SyncActivityTracker
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
@@ -1524,6 +1527,8 @@ class TimelineViewModel(
     private fun syncFromServer(isFullRefresh: Boolean = false) {
         syncJob?.cancel()
         syncJob = viewModelScope.launch(Dispatchers.IO) {
+            syncActivityTracker.begin(SyncActivityKey.Timeline)
+            try {
             val hasCachedBuckets = getTimelineBucketsUseCase.hasCachedBuckets()
             val hasCompletedColdSync = getTimelineBucketsUseCase.hasCompletedColdTimelineSync()
             val startupMode = timelineStartupMode(
@@ -1763,6 +1768,9 @@ class TimelineViewModel(
                     log.d { "Timeline manual refresh finished; resuming visible refresh queue" }
                     enqueueCurrentVisibleBucketRefreshes()
                 }
+            }
+            } finally {
+                syncActivityTracker.end(SyncActivityKey.Timeline)
             }
         }
     }

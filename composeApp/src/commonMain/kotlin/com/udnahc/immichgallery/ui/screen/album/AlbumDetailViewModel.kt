@@ -31,6 +31,8 @@ import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutCoordinator
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutSnapshot
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
+import com.udnahc.immichgallery.ui.util.SyncActivityKey
+import com.udnahc.immichgallery.ui.util.SyncActivityTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -72,6 +74,7 @@ class AlbumDetailViewModel(
     private val mosaicWorkScheduler: MosaicWorkScheduler,
     private val getDetailMosaicArtifactsUseCase: GetDetailMosaicArtifactsUseCase,
     private val upsertDetailMosaicArtifactsAction: UpsertDetailMosaicArtifactsAction,
+    private val syncActivityTracker: SyncActivityTracker,
     private val albumId: String
 ) : ViewModel() {
 
@@ -206,53 +209,55 @@ class AlbumDetailViewModel(
     private fun syncFromServer() {
         if (syncJob?.isActive == true) return
         syncJob = viewModelScope.launch(Dispatchers.IO) {
-            val hasCachedAssets = getAlbumDetailUseCase.hasCachedAssets(albumId)
+            syncActivityTracker.track(SyncActivityKey.AlbumDetail(albumId)) {
+                val hasCachedAssets = getAlbumDetailUseCase.hasCachedAssets(albumId)
 
-            if (!hasCachedAssets) {
-                _state.update { it.copy(isBuilding = true, error = null) }
-            } else {
-                _state.update { it.copy(isSyncing = true, bannerError = null) }
-            }
+                if (!hasCachedAssets) {
+                    _state.update { it.copy(isBuilding = true, error = null) }
+                } else {
+                    _state.update { it.copy(isSyncing = true, bannerError = null) }
+                }
 
-            val lastSync = getAlbumDetailUseCase.getLastSyncedAt(albumId)
-            _state.update { it.copy(lastSyncedAt = lastSync) }
+                val lastSync = getAlbumDetailUseCase.getLastSyncedAt(albumId)
+                _state.update { it.copy(lastSyncedAt = lastSync) }
 
-            getAlbumDetailUseCase.sync(albumId).fold(
-                onSuccess = { result ->
-                    log.d { "Synced album detail for $albumId" }
-                    // Network success and grid-visible content changes are
-                    // separate signals. Album-name-only refreshes update the
-                    // title while keeping the current packed rows/Mosaic work.
-                    handleSyncedContentChange(result.changed)
-                    _state.update {
-                        it.copy(
-                            albumName = result.albumName,
-                            isBuilding = false,
-                            isSyncing = false,
-                            error = null
-                        )
-                    }
-                },
-                onFailure = { e ->
-                    log.e(e) { "Failed to sync album detail for $albumId" }
-                    if (!hasCachedAssets) {
+                getAlbumDetailUseCase.sync(albumId).fold(
+                    onSuccess = { result ->
+                        log.d { "Synced album detail for $albumId" }
+                        // Network success and grid-visible content changes are
+                        // separate signals. Album-name-only refreshes update the
+                        // title while keeping the current packed rows/Mosaic work.
+                        handleSyncedContentChange(result.changed)
                         _state.update {
                             it.copy(
+                                albumName = result.albumName,
                                 isBuilding = false,
                                 isSyncing = false,
-                                error = ConnectionUiMessage.NoConnectionToServer
+                                error = null
                             )
                         }
-                    } else {
-                        _state.update {
-                            it.copy(
-                                isSyncing = false,
-                                bannerError = ConnectionUiMessage.CannotConnectToServer
-                            )
+                    },
+                    onFailure = { e ->
+                        log.e(e) { "Failed to sync album detail for $albumId" }
+                        if (!hasCachedAssets) {
+                            _state.update {
+                                it.copy(
+                                    isBuilding = false,
+                                    isSyncing = false,
+                                    error = ConnectionUiMessage.NoConnectionToServer
+                                )
+                            }
+                        } else {
+                            _state.update {
+                                it.copy(
+                                    isSyncing = false,
+                                    bannerError = ConnectionUiMessage.CannotConnectToServer
+                                )
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
     }
 

@@ -7,6 +7,7 @@ For Timeline rendering, overlay, scrollbar, and Mosaic display behavior, also re
 ## Sync Ownership
 
 - `TimelineViewModel.syncFromServer(...)` chooses sync mode and owns user-facing loading state.
+- `TimelineViewModel.syncFromServer(...)` wraps active sync work in `SyncActivityTracker` for Android foreground notification mirroring. The Android service does not own Timeline sync execution.
 - `GetTimelineBucketsUseCase.sync()` refreshes bucket metadata through `TimelineRepository.syncBuckets()`.
 - `SyncAllTimelineAssetsAction` and `LoadBucketAssetsAction` refresh bucket assets through `TimelineRepository.syncBucketAssets(...)`.
 - `TimelineRepository` owns Immich API fetches, Room writes, hidden-asset filtering, edit enrichment, ordered change detection, and sync metadata.
@@ -190,8 +191,9 @@ Manual refresh is the top-bar full Timeline refresh after warm cache exists. It 
 1. `refreshAll()` calls `syncFromServer(isFullRefresh = true)`.
 2. Mode selection chooses `ManualRefresh` only when warm cache exists.
 3. `_uiConfig.isSyncing` becomes true and sync banners are cleared.
-4. `beginManualRefresh()` sets `manualRefreshActive = true`, clears pending visible refresh queues, and waits for any active visible refresh job to finish.
-5. Manual refresh then owns bucket asset sync until `endManualRefresh()`.
+4. `SyncActivityTracker` marks Timeline sync active so Android can show the foreground sync notification.
+5. `beginManualRefresh()` sets `manualRefreshActive = true`, clears pending visible refresh queues, and waits for any active visible refresh job to finish.
+6. Manual refresh then owns Timeline bucket asset sync until `endManualRefresh()`. Album/Person detail syncs may still run concurrently; the foreground notification stays active until every tracked sync operation finishes.
 
 ### Cache-Off Mosaic Cleanup
 

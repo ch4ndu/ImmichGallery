@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
+import com.udnahc.immichgallery.ui.util.SyncActivityKey
+import com.udnahc.immichgallery.ui.util.SyncActivityTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +29,8 @@ data class AlbumListState(
 )
 
 class AlbumListViewModel(
-    private val getAlbumsUseCase: GetAlbumsUseCase
+    private val getAlbumsUseCase: GetAlbumsUseCase,
+    private val syncActivityTracker: SyncActivityTracker
 ) : ViewModel() {
 
     private val log = logging("AlbumListViewModel")
@@ -57,42 +60,44 @@ class AlbumListViewModel(
 
     private fun syncFromServer() {
         viewModelScope.launch(Dispatchers.IO) {
-            val hasCachedAlbums = getAlbumsUseCase.hasCachedAlbums()
+            syncActivityTracker.track(SyncActivityKey.Albums) {
+                val hasCachedAlbums = getAlbumsUseCase.hasCachedAlbums()
 
-            if (!hasCachedAlbums) {
-                _state.update { it.copy(isBuilding = true, error = null) }
-            } else {
-                _state.update { it.copy(isSyncing = true, bannerError = null) }
-            }
+                if (!hasCachedAlbums) {
+                    _state.update { it.copy(isBuilding = true, error = null) }
+                } else {
+                    _state.update { it.copy(isSyncing = true, bannerError = null) }
+                }
 
-            val lastSync = getAlbumsUseCase.getLastSyncedAt()
-            _state.update { it.copy(lastSyncedAt = lastSync) }
+                val lastSync = getAlbumsUseCase.getLastSyncedAt()
+                _state.update { it.copy(lastSyncedAt = lastSync) }
 
-            getAlbumsUseCase.sync().fold(
-                onSuccess = {
-                    log.d { "Synced albums from server" }
-                    _state.update { it.copy(isBuilding = false, isSyncing = false, error = null) }
-                },
-                onFailure = { e ->
-                    log.e(e) { "Failed to sync albums from server" }
-                    if (!hasCachedAlbums) {
-                        _state.update {
-                            it.copy(
-                                isBuilding = false,
-                                isSyncing = false,
-                                error = ConnectionUiMessage.NoConnectionToServer
-                            )
-                        }
-                    } else {
-                        _state.update {
-                            it.copy(
-                                isSyncing = false,
-                                bannerError = ConnectionUiMessage.CannotConnectToServer
-                            )
+                getAlbumsUseCase.sync().fold(
+                    onSuccess = {
+                        log.d { "Synced albums from server" }
+                        _state.update { it.copy(isBuilding = false, isSyncing = false, error = null) }
+                    },
+                    onFailure = { e ->
+                        log.e(e) { "Failed to sync albums from server" }
+                        if (!hasCachedAlbums) {
+                            _state.update {
+                                it.copy(
+                                    isBuilding = false,
+                                    isSyncing = false,
+                                    error = ConnectionUiMessage.NoConnectionToServer
+                                )
+                            }
+                        } else {
+                            _state.update {
+                                it.copy(
+                                    isSyncing = false,
+                                    bannerError = ConnectionUiMessage.CannotConnectToServer
+                                )
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
