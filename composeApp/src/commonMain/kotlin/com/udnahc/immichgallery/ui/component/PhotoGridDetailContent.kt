@@ -84,10 +84,12 @@ fun PhotoGridDetailContent(
             val visibleGridHeight = (maxHeight - contentTopPadding - contentBottomPadding)
                 .value
                 .coerceAtLeast(0f)
-            LaunchedEffect(widthDp, visibleGridHeight) {
-                onAvailableWidthChanged(widthDp)
-                onAvailableViewportHeightChanged(visibleGridHeight)
-            }
+            PhotoGridDetailMetricsReporter(
+                widthDp = widthDp,
+                visibleGridHeight = visibleGridHeight,
+                onAvailableWidthChanged = onAvailableWidthChanged,
+                onAvailableViewportHeightChanged = onAvailableViewportHeightChanged
+            )
 
             VisibleBucketReporter(
                 listState = listState,
@@ -99,72 +101,173 @@ fun PhotoGridDetailContent(
                 onScrollInProgressChanged = onScrollInProgressChanged
             )
 
-            var gridModifier = Modifier.fillMaxSize()
-            if (!(viewConfig.mosaicEnabled &&
-                        (viewConfig.disableZoomWhenMosaicEnabled || viewConfig.cacheMosaicResults))
-            ) {
-                gridModifier = gridModifier
-                    .pinchToZoomRowHeight(
-                        targetRowHeight,
-                        rowHeightBounds,
-                        onTargetRowHeightChanged
-                    )
-                    .desktopGridZoom(targetRowHeight, rowHeightBounds, onTargetRowHeightChanged)
-            }
-
-            Box(modifier = gridModifier) {
-                ScrollbarOverlay(
-                    listState = listState,
-                    topPadding = contentTopPadding,
-                    bottomPadding = contentBottomPadding
-                ) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
-                        contentPadding = remember(contentTopPadding, contentBottomPadding) {
-                            PaddingValues(
-                                top = contentTopPadding,
-                                bottom = contentBottomPadding
-                            )
-                        }
-                    ) {
-                        items(
-                            count = displayItems.size,
-                            key = { displayItems[it].gridKey },
-                            contentType = { photoGridDisplayItemContentType(displayItems[it]) }
-                        ) { index ->
-                            PhotoGridDisplayItemRenderer(
-                                item = displayItems[index],
-                                transitionAssetId = transitionAssetId,
-                                hiddenAssetId = hiddenAssetId,
-                                onPhotoClick = onPhotoClick,
-                                sharedTransitionScope = sharedTransitionScope
-                            )
-                        }
-
-                        if (onLoadMore != null) {
-                            paginationFooter(
-                                isLoadingMore = isLoadingMore,
-                                onLoadMore = onLoadMore,
-                                listState = listState
-                            )
-                        }
-                    }
-                }
-
-                if (bannerMessage != null) {
-                    ErrorBanner(
-                        message = bannerMessage,
-                        lastSyncedAt = lastSyncedAt,
-                        onDismiss = onDismissBanner,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = contentTopPadding)
-                    )
-                }
-            }
+            PhotoGridDetailSurface(
+                displayItems = displayItems,
+                viewConfig = viewConfig,
+                targetRowHeight = targetRowHeight,
+                rowHeightBounds = rowHeightBounds,
+                contentTopPadding = contentTopPadding,
+                contentBottomPadding = contentBottomPadding,
+                listState = listState,
+                isLoadingMore = isLoadingMore,
+                onLoadMore = onLoadMore,
+                transitionAssetId = transitionAssetId,
+                hiddenAssetId = hiddenAssetId,
+                bannerMessage = bannerMessage,
+                lastSyncedAt = lastSyncedAt,
+                onDismissBanner = onDismissBanner,
+                onTargetRowHeightChanged = onTargetRowHeightChanged,
+                onPhotoClick = onPhotoClick,
+                sharedTransitionScope = sharedTransitionScope
+            )
         }
+    }
+}
+
+@Composable
+private fun PhotoGridDetailMetricsReporter(
+    widthDp: Float,
+    visibleGridHeight: Float,
+    onAvailableWidthChanged: (Float) -> Unit,
+    onAvailableViewportHeightChanged: (Float) -> Unit
+) {
+    LaunchedEffect(widthDp, visibleGridHeight) {
+        onAvailableWidthChanged(widthDp)
+        onAvailableViewportHeightChanged(visibleGridHeight)
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun PhotoGridDetailSurface(
+    displayItems: List<PhotoGridDisplayItem>,
+    viewConfig: ViewConfig,
+    targetRowHeight: Float,
+    rowHeightBounds: RowHeightBounds,
+    contentTopPadding: Dp,
+    contentBottomPadding: Dp,
+    listState: LazyListState,
+    isLoadingMore: Boolean,
+    onLoadMore: (() -> Unit)?,
+    transitionAssetId: String?,
+    hiddenAssetId: String?,
+    bannerMessage: String?,
+    lastSyncedAt: Long?,
+    onDismissBanner: () -> Unit,
+    onTargetRowHeightChanged: (Float) -> Unit,
+    onPhotoClick: (String) -> Unit,
+    sharedTransitionScope: SharedTransitionScope?
+) {
+    val gridModifier = Modifier.fillMaxSize().let { base ->
+        if (viewConfig.mosaicEnabled &&
+            (viewConfig.disableZoomWhenMosaicEnabled || viewConfig.cacheMosaicResults)
+        ) {
+            base
+        } else {
+            base
+                .pinchToZoomRowHeight(
+                    targetRowHeight,
+                    rowHeightBounds,
+                    onTargetRowHeightChanged
+                )
+                .desktopGridZoom(targetRowHeight, rowHeightBounds, onTargetRowHeightChanged)
+        }
+    }
+
+    Box(modifier = gridModifier) {
+        ScrollbarOverlay(
+            listState = listState,
+            topPadding = contentTopPadding,
+            bottomPadding = contentBottomPadding
+        ) {
+            PhotoGridDetailLazyList(
+                displayItems = displayItems,
+                listState = listState,
+                contentTopPadding = contentTopPadding,
+                contentBottomPadding = contentBottomPadding,
+                isLoadingMore = isLoadingMore,
+                onLoadMore = onLoadMore,
+                transitionAssetId = transitionAssetId,
+                hiddenAssetId = hiddenAssetId,
+                onPhotoClick = onPhotoClick,
+                sharedTransitionScope = sharedTransitionScope
+            )
+        }
+
+        PhotoGridDetailBanner(
+            message = bannerMessage,
+            lastSyncedAt = lastSyncedAt,
+            contentTopPadding = contentTopPadding,
+            onDismiss = onDismissBanner,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun PhotoGridDetailLazyList(
+    displayItems: List<PhotoGridDisplayItem>,
+    listState: LazyListState,
+    contentTopPadding: Dp,
+    contentBottomPadding: Dp,
+    isLoadingMore: Boolean,
+    onLoadMore: (() -> Unit)?,
+    transitionAssetId: String?,
+    hiddenAssetId: String?,
+    onPhotoClick: (String) -> Unit,
+    sharedTransitionScope: SharedTransitionScope?
+) {
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(Dimens.gridSpacing),
+        contentPadding = remember(contentTopPadding, contentBottomPadding) {
+            PaddingValues(
+                top = contentTopPadding,
+                bottom = contentBottomPadding
+            )
+        }
+    ) {
+        items(
+            count = displayItems.size,
+            key = { displayItems[it].gridKey },
+            contentType = { photoGridDisplayItemContentType(displayItems[it]) }
+        ) { index ->
+            PhotoGridDisplayItemRenderer(
+                item = displayItems[index],
+                transitionAssetId = transitionAssetId,
+                hiddenAssetId = hiddenAssetId,
+                onPhotoClick = onPhotoClick,
+                sharedTransitionScope = sharedTransitionScope
+            )
+        }
+
+        if (onLoadMore != null) {
+            paginationFooter(
+                isLoadingMore = isLoadingMore,
+                onLoadMore = onLoadMore,
+                listState = listState
+            )
+        }
+    }
+}
+
+@Composable
+private fun PhotoGridDetailBanner(
+    message: String?,
+    lastSyncedAt: Long?,
+    contentTopPadding: Dp,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (message != null) {
+        ErrorBanner(
+            message = message,
+            lastSyncedAt = lastSyncedAt,
+            onDismiss = onDismiss,
+            modifier = modifier.padding(top = contentTopPadding)
+        )
     }
 }
 
