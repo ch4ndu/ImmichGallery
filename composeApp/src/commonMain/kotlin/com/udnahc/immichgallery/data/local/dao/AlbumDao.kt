@@ -67,7 +67,10 @@ interface AlbumDao {
     }
 
     @Transaction
-    suspend fun replaceAlbumRefs(albumId: String, refs: List<AlbumAssetCrossRef>) {
+    suspend fun replaceAlbumRefs(
+        albumId: String,
+        refs: List<AlbumAssetCrossRef>
+    ) {
         clearAlbumRefs(albumId)
         upsertAlbumRefs(refs)
     }

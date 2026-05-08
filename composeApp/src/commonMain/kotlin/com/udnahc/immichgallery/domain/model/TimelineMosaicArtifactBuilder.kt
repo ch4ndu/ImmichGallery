@@ -25,7 +25,11 @@ class TimelineMosaicArtifactBuilder {
 
         sections.zip(readySections).forEach { (section, ready) ->
             val geometry = ready.geometry
-            if (!mosaicGeometryRangesCoverSourceRange(geometry.ranges, section.assets.size)) return null
+            if (!mosaicGeometryRangesCoverSourceRange(
+                    geometry.ranges,
+                    section.assets.size
+                )
+            ) return null
             if (section.assets.isNotEmpty() && geometry.placeholderHeight <= 0f) return null
 
             assignments.add(

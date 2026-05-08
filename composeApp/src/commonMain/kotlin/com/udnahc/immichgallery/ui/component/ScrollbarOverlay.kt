@@ -27,9 +27,9 @@ import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridLayoutInfo
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridLayoutInfo
 import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -39,8 +39,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,7 +102,9 @@ fun ScrollbarOverlay(
         derivedStateOf { estimatedItemCount ?: listState.layoutInfo.totalItemsCount }
     }
     val showScrollbar by remember(estimatedItemCount) {
-        derivedStateOf { (estimatedItemCount ?: listState.layoutInfo.totalItemsCount) >= MIN_ITEMS_FOR_SCROLLBAR }
+        derivedStateOf {
+            (estimatedItemCount ?: listState.layoutInfo.totalItemsCount) >= MIN_ITEMS_FOR_SCROLLBAR
+        }
     }
 
     ScrollbarLayout(

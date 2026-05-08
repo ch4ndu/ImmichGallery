@@ -51,7 +51,10 @@ fun SlideshowOptionsDialog(
         title = { Text(stringResource(Res.string.detail_slideshow)) },
         text = {
             Column {
-                Text(stringResource(Res.string.slideshow_order), style = MaterialTheme.typography.labelMedium)
+                Text(
+                    stringResource(Res.string.slideshow_order),
+                    style = MaterialTheme.typography.labelMedium
+                )
                 Spacer(Modifier.height(Dimens.smallSpacing))
                 Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
                     FilterChip(
@@ -83,7 +86,10 @@ fun SlideshowOptionsDialog(
 
                 Spacer(Modifier.height(Dimens.largeSpacing))
 
-                Text(stringResource(Res.string.slideshow_animations), style = MaterialTheme.typography.labelMedium)
+                Text(
+                    stringResource(Res.string.slideshow_animations),
+                    style = MaterialTheme.typography.labelMedium
+                )
                 Spacer(Modifier.height(Dimens.smallSpacing))
                 Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
                     FilterChip(

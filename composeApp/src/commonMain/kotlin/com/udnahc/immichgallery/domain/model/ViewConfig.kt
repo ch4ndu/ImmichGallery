@@ -22,7 +22,10 @@ data class ViewConfig(
 
 const val DEFAULT_MOSAIC_COLUMN_COUNT = 4
 
-enum class MosaicTemplateFamily(val persistedId: String, val tileCount: Int) {
+enum class MosaicTemplateFamily(
+    val persistedId: String,
+    val tileCount: Int
+) {
     FOUR_TILE("FOUR_TILE", 4),
     FIVE_TILE("FIVE_TILE", 5),
     SIX_TILE("SIX_TILE", 6);

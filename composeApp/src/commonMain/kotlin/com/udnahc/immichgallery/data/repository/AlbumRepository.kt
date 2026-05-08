@@ -144,7 +144,10 @@ class AlbumRepository(
                         assetDao.upsertAssets(assetEntities)
                         albumDao.replaceAlbumRefs(albumId, crossRefs)
                         syncMetadataDao.upsert(
-                            SyncMetadataEntity("$SYNC_SCOPE_ALBUM_PREFIX$albumId", currentEpochMillis())
+                            SyncMetadataEntity(
+                                "$SYNC_SCOPE_ALBUM_PREFIX$albumId",
+                                currentEpochMillis()
+                            )
                         )
                     }
                 }

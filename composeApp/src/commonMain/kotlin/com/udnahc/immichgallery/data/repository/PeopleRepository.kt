@@ -91,7 +91,8 @@ class PeopleRepository(
     suspend fun syncPeople(): Result<Unit> {
         return try {
             val response = apiService.getPeople()
-            val entities = response.people.mapIndexed { index, person -> person.toPersonEntity(index) }
+            val entities =
+                response.people.mapIndexed { index, person -> person.toPersonEntity(index) }
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
@@ -147,7 +148,11 @@ class PeopleRepository(
                             // shifted. Truncate from this page and let loadMore refill a
                             // consistent snapshot instead of mixing old tail refs with
                             // fresh page refs.
-                            personDao.replacePersonRefsFromSortOrder(personId, baseOffset, crossRefs)
+                            personDao.replacePersonRefsFromSortOrder(
+                                personId,
+                                baseOffset,
+                                crossRefs
+                            )
                         } else {
                             personDao.replacePersonRefsInSortRange(
                                 personId = personId,
@@ -158,7 +163,10 @@ class PeopleRepository(
                         }
                         if (!hasMore) {
                             syncMetadataDao.upsert(
-                                SyncMetadataEntity("$SYNC_SCOPE_PERSON_PREFIX$personId", currentEpochMillis())
+                                SyncMetadataEntity(
+                                    "$SYNC_SCOPE_PERSON_PREFIX$personId",
+                                    currentEpochMillis()
+                                )
                             )
                         }
                     }
@@ -212,7 +220,10 @@ class PeopleRepository(
                         assetDao.upsertAssets(assetEntities)
                         personDao.replacePersonRefs(personId, crossRefs)
                         syncMetadataDao.upsert(
-                            SyncMetadataEntity("$SYNC_SCOPE_PERSON_PREFIX$personId", currentEpochMillis())
+                            SyncMetadataEntity(
+                                "$SYNC_SCOPE_PERSON_PREFIX$personId",
+                                currentEpochMillis()
+                            )
                         )
                     }
                 }

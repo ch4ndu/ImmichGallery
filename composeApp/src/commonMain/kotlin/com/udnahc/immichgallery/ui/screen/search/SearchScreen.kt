@@ -47,8 +47,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
-import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -60,15 +58,15 @@ import com.udnahc.immichgallery.ui.util.ensureReturnSourceVisible
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
+import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.search_hint
+import immichgallery.composeapp.generated.resources.search_no_results
+import immichgallery.composeapp.generated.resources.search_placeholder
+import immichgallery.composeapp.generated.resources.search_type_filename
+import immichgallery.composeapp.generated.resources.search_type_smart
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
-import immichgallery.composeapp.generated.resources.Res
-import immichgallery.composeapp.generated.resources.search_no_results
-import immichgallery.composeapp.generated.resources.search_placeholder
-import immichgallery.composeapp.generated.resources.search_hint
-import immichgallery.composeapp.generated.resources.search_type_filename
-import immichgallery.composeapp.generated.resources.search_type_smart
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -92,7 +90,9 @@ fun SearchScreen(
     PhotoOverlayHost(
         initialIndexKey = state.results,
         onOverlayActiveChange = onOverlayActiveChange,
-        resolveInitialIndex = { id -> state.results.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
+        resolveInitialIndex = { id ->
+            state.results.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+        },
         content = { showOverlay, transitionAssetId, hiddenAssetId, onPhotoClick ->
             SearchContent(
                 state = state,
@@ -112,25 +112,25 @@ fun SearchScreen(
             )
         },
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
-                StaticPhotoOverlay(
-                    assets = state.results,
-                    initialIndex = initialIndex,
-                    apiKey = viewModel.apiKey,
-                    getAssetDetail = viewModel::getAssetDetail,
-                    onPersonClick = onPersonClick,
-                    onDismiss = { currentAssetId ->
-                        dismissScope.launch {
-                            viewModel.lastViewedAssetId = currentAssetId
-                            viewModel.getDisplayItemIndexForReturn()
-                                ?.let { listState.ensureReturnSourceVisible(it) }
-                            onDismissHost(currentAssetId)
-                        }
-                    },
-                    onCurrentAssetChanged = onCurrentAssetChanged,
-                    onStlTransitionActiveChanged = onStlTransitionActiveChanged,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = this,
-                )
+            StaticPhotoOverlay(
+                assets = state.results,
+                initialIndex = initialIndex,
+                apiKey = viewModel.apiKey,
+                getAssetDetail = viewModel::getAssetDetail,
+                onPersonClick = onPersonClick,
+                onDismiss = { currentAssetId ->
+                    dismissScope.launch {
+                        viewModel.lastViewedAssetId = currentAssetId
+                        viewModel.getDisplayItemIndexForReturn()
+                            ?.let { listState.ensureReturnSourceVisible(it) }
+                        onDismissHost(currentAssetId)
+                    }
+                },
+                onCurrentAssetChanged = onCurrentAssetChanged,
+                onStlTransitionActiveChanged = onStlTransitionActiveChanged,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = this,
+            )
         }
     )
 }
@@ -210,7 +210,10 @@ fun SearchContent(
 
             state.error != null -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(state.error.asTextOrNull().orEmpty(), color = MaterialTheme.colorScheme.error)
+                    Text(
+                        state.error.asTextOrNull().orEmpty(),
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             }
 
@@ -264,8 +267,16 @@ fun SearchContent(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pinchToZoomRowHeight(state.targetRowHeight, state.rowHeightBounds, onSetTargetRowHeight)
-                            .desktopGridZoom(state.targetRowHeight, state.rowHeightBounds, onSetTargetRowHeight)
+                            .pinchToZoomRowHeight(
+                                state.targetRowHeight,
+                                state.rowHeightBounds,
+                                onSetTargetRowHeight
+                            )
+                            .desktopGridZoom(
+                                state.targetRowHeight,
+                                state.rowHeightBounds,
+                                onSetTargetRowHeight
+                            )
                     ) {
                         ScrollbarOverlay(
                             listState = listState,

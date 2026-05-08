@@ -5,7 +5,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.compose.NavHost
-import kotlinx.coroutines.launch
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
@@ -14,6 +13,7 @@ import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailScreen
 import com.udnahc.immichgallery.ui.screen.login.LoginScreen
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailScreen
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.lighthousegames.logging.logging
 

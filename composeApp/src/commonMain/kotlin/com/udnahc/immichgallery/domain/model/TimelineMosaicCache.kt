@@ -247,18 +247,23 @@ fun timelineMosaicSections(
         groupSize == TimelineGroupSize.DAY -> {
             timelineDaySections(timeBucket, assets)
                 .ifEmpty {
-                    listOf(TimelineMosaicSection(
-                        sectionKey = timelineMonthMosaicSectionKey(timeBucket),
-                        label = timeBucket,
-                        assets = assets
-                    ))
+                    listOf(
+                        TimelineMosaicSection(
+                            sectionKey = timelineMonthMosaicSectionKey(timeBucket),
+                            label = timeBucket,
+                            assets = assets
+                        )
+                    )
                 }
         }
-        else -> listOf(TimelineMosaicSection(
-            sectionKey = timelineMonthMosaicSectionKey(timeBucket),
-            label = timeBucket,
-            assets = assets
-        ))
+
+        else -> listOf(
+            TimelineMosaicSection(
+                sectionKey = timelineMonthMosaicSectionKey(timeBucket),
+                label = timeBucket,
+                assets = assets
+            )
+        )
     }
 
 fun mosaicGeometryRangesCoverSourceRange(
@@ -287,9 +292,10 @@ fun timelineBucketGeometryHeight(
         TimelineGroupSize.DAY -> {
             val sectionCount = sectionGeometries.size
             sectionHeights +
-                PHOTO_GRID_SECTION_HEADER_HEIGHT_DP * sectionCount +
-                spacing * (sectionCount * 2 - 1).coerceAtLeast(0)
+                    PHOTO_GRID_SECTION_HEADER_HEIGHT_DP * sectionCount +
+                    spacing * (sectionCount * 2 - 1).coerceAtLeast(0)
         }
+
         else -> sectionGeometries.firstOrNull()?.placeholderHeight ?: 0f
     }
 }
@@ -303,13 +309,17 @@ fun timelineBucketGeometryDisplayItemCount(
             sectionGeometries.size + sectionGeometries.sumOf { geometry ->
                 photoGridPlaceholderChunkCount(geometry.placeholderHeight)
             }
+
         else ->
             sectionGeometries.firstOrNull()?.placeholderHeight
                 ?.let(::photoGridPlaceholderChunkCount)
                 ?: 0
     }
 
-private fun timelineDaySections(timeBucket: String, assets: List<Asset>): List<TimelineMosaicSection> {
+private fun timelineDaySections(
+    timeBucket: String,
+    assets: List<Asset>
+): List<TimelineMosaicSection> {
     val tz = TimeZone.currentSystemDefault()
     val grouped = assets.groupBy { asset ->
         try {
@@ -340,5 +350,8 @@ private fun timelineDaySections(timeBucket: String, assets: List<Asset>): List<T
 
 fun timelineMonthMosaicSectionKey(timeBucket: String): String = "$timeBucket|month"
 
-fun timelineDayMosaicSectionKey(timeBucket: String, dayLabel: String): String =
+fun timelineDayMosaicSectionKey(
+    timeBucket: String,
+    dayLabel: String
+): String =
     "$timeBucket|day|$dayLabel"

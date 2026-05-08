@@ -17,7 +17,14 @@ import androidx.room.Index
     ],
     indices = [
         Index("timeBucket"),
-        Index("groupMode", "columnCount", "familiesKey", "availableWidthKey", "displayVersion", "timeBucket")
+        Index(
+            "groupMode",
+            "columnCount",
+            "familiesKey",
+            "availableWidthKey",
+            "displayVersion",
+            "timeBucket"
+        )
     ]
 )
 data class TimelineMosaicDisplayCacheEntity(

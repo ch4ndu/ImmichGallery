@@ -4,15 +4,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -46,18 +45,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import coil3.compose.AsyncImage
@@ -80,19 +78,19 @@ import com.udnahc.immichgallery.ui.util.rememberPhotoBoundsTransform
 import com.udnahc.immichgallery.ui.util.restoreEdgeToEdge
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.back
-import immichgallery.composeapp.generated.resources.detail_slideshow
 import immichgallery.composeapp.generated.resources.detail_failed_image
 import immichgallery.composeapp.generated.resources.detail_info
+import immichgallery.composeapp.generated.resources.detail_slideshow
 import immichgallery.composeapp.generated.resources.ic_back
-import immichgallery.composeapp.generated.resources.ic_play
 import immichgallery.composeapp.generated.resources.ic_info
 import immichgallery.composeapp.generated.resources.ic_more_vert
+import immichgallery.composeapp.generated.resources.ic_play
 import immichgallery.composeapp.generated.resources.retry
 import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.lighthousegames.logging.logging
+import kotlin.math.roundToInt
 
 internal const val DETAIL_BAR_ALPHA = 0.4f
 internal const val API_KEY_HEADER = "x-api-key"
@@ -207,7 +205,7 @@ internal fun AssetPage(
             val zoomState = rememberCoilZoomState()
             val userTransform = zoomState.zoomable.userTransform
             val isZoomed = userTransform.scaleX > 1.01f ||
-                userTransform.offsetX != 0f || userTransform.offsetY != 0f
+                    userTransform.offsetX != 0f || userTransform.offsetY != 0f
             LaunchedEffect(isZoomed, isCurrentPage) {
                 if (isCurrentPage) onZoomStateChanged?.invoke(isZoomed)
             }
@@ -298,7 +296,8 @@ internal fun AssetPage(
 
             // Content layer: full-res image or video, layered on top after transition completes.
             if (!isTransitionActive && isSlideshow) {
-                val imageUrl = if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
+                val imageUrl =
+                    if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
                 val durationMs = (slideshowConfig?.durationSeconds ?: 5) * 1000
                 Box(
                     modifier = Modifier.fillMaxSize().pointerInput(Unit) {
@@ -514,15 +513,16 @@ private fun ThumbnailImageLayer(
     Box(modifier = modifier) {
         if (LocalAppActive.current) {
             val thumbnailContext = LocalPlatformContext.current
-            val thumbnailRequest = remember(thumbnailContext, asset.thumbnailUrl, asset.thumbnailCacheKey) {
-                ImageRequest.Builder(thumbnailContext)
-                    .data(asset.thumbnailUrl)
-                    .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
-                    .precision(Precision.EXACT)
-                    .memoryCacheKey(asset.thumbnailCacheKey)
-                    .diskCacheKey(asset.thumbnailCacheKey)
-                    .build()
-            }
+            val thumbnailRequest =
+                remember(thumbnailContext, asset.thumbnailUrl, asset.thumbnailCacheKey) {
+                    ImageRequest.Builder(thumbnailContext)
+                        .data(asset.thumbnailUrl)
+                        .size(Size(THUMBNAIL_DECODE_SIZE, THUMBNAIL_DECODE_SIZE))
+                        .precision(Precision.EXACT)
+                        .memoryCacheKey(asset.thumbnailCacheKey)
+                        .diskCacheKey(asset.thumbnailCacheKey)
+                        .build()
+                }
             val painter = rememberAsyncImagePainter(model = thumbnailRequest)
             Image(
                 painter = painter,

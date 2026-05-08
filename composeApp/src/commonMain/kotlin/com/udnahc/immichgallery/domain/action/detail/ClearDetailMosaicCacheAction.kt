@@ -6,7 +6,10 @@ import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 class ClearDetailMosaicCacheAction(
     private val repository: DetailMosaicCacheRepository
 ) {
-    suspend fun owner(ownerType: DetailMosaicCacheOwnerType, ownerId: String) {
+    suspend fun owner(
+        ownerType: DetailMosaicCacheOwnerType,
+        ownerId: String
+    ) {
         repository.clearOwnerCache(ownerType, ownerId)
     }
 

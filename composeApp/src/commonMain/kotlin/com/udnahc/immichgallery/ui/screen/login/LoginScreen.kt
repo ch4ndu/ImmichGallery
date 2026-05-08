@@ -23,8 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
-import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.model.asTextOrNull
+import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.app_title
 import immichgallery.composeapp.generated.resources.login_api_key_label

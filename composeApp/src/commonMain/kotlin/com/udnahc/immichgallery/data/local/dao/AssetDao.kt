@@ -53,5 +53,8 @@ interface AssetDao {
     suspend fun getAssetsByIds(ids: List<String>): List<AssetEntity>
 
     @Query("UPDATE assets SET aspectRatio = :aspectRatio, editsResolved = 1 WHERE id = :id")
-    suspend fun updateAspectRatioResolved(id: String, aspectRatio: Float)
+    suspend fun updateAspectRatioResolved(
+        id: String,
+        aspectRatio: Float
+    )
 }

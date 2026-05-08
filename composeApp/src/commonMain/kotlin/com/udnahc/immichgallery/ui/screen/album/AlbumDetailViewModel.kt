@@ -82,7 +82,8 @@ class AlbumDetailViewModel(
     var lastViewedAssetId: String? by mutableStateOf(null)
 
     private val log = logging("AlbumDetailViewModel")
-    private var hasSavedTargetRowHeight = getTargetRowHeightUseCase.hasSavedValue(RowHeightScope.ALBUM_DETAIL)
+    private var hasSavedTargetRowHeight =
+        getTargetRowHeightUseCase.hasSavedValue(RowHeightScope.ALBUM_DETAIL)
     private var savedTargetRowHeight = getTargetRowHeightUseCase(RowHeightScope.ALBUM_DETAIL)
     private val mosaicOwnerKey = "album:$albumId"
     private var syncJob: Job? = null
@@ -104,8 +105,18 @@ class AlbumDetailViewModel(
         getState = { _state.value },
         updateState = { transform -> _state.update(transform) },
         snapshotOf = AlbumDetailState::layoutSnapshot,
-        withAvailableWidth = { state, width, target -> state.copy(availableWidth = width, targetRowHeight = target) },
-        withViewportHeight = { state, target, bounds -> state.copy(targetRowHeight = target, rowHeightBounds = bounds) },
+        withAvailableWidth = { state, width, target ->
+            state.copy(
+                availableWidth = width,
+                targetRowHeight = target
+            )
+        },
+        withViewportHeight = { state, target, bounds ->
+            state.copy(
+                targetRowHeight = target,
+                rowHeightBounds = bounds
+            )
+        },
         withTargetRowHeight = { state, target -> state.copy(targetRowHeight = target) },
         withGroupSize = { state, groupSize -> state.copy(groupSize = groupSize) },
         withViewConfig = { state, viewConfig -> state.copy(viewConfig = viewConfig) },

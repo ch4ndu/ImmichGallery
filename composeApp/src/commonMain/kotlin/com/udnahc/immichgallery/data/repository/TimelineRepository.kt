@@ -12,28 +12,28 @@ import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
-import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
-import com.udnahc.immichgallery.domain.model.TimelineBucketSnapshot
+import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineBucketAssetSyncResult
+import com.udnahc.immichgallery.domain.model.TimelineBucketSnapshot
 import com.udnahc.immichgallery.domain.model.TimelineBucketSyncResult
 import com.udnahc.immichgallery.domain.model.toAssetEntity
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toEntity
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.lighthousegames.logging.logging
 
@@ -129,7 +129,7 @@ class TimelineRepository(
             val removedBucketIds = metadataChanges.removedBucketIds
             log.d {
                 "Timeline bucket metadata changes stale=${staleBucketIds.size} " +
-                    "removed=${removedBucketIds.size} previous=${oldEntities.size} next=${entities.size}"
+                        "removed=${removedBucketIds.size} previous=${oldEntities.size} next=${entities.size}"
             }
             withContext(Dispatchers.IO) {
                 // Count-changed buckets keep their old refs so cached Timeline
@@ -180,7 +180,7 @@ class TimelineRepository(
             val filtered = allAssets.filter { it.visibility != "hidden" }
             log.d {
                 "Timeline bucket asset sync fetched bucket=$timeBucket fetched=${allAssets.size} " +
-                    "visible=${filtered.size} hidden=${allAssets.size - filtered.size}"
+                        "visible=${filtered.size} hidden=${allAssets.size - filtered.size}"
             }
             val assetEntities = filtered.map { it.toAssetEntity() }
             val crossRefs = filtered.mapIndexed { index, response ->
@@ -199,10 +199,12 @@ class TimelineRepository(
                 log.d {
                     "Timeline bucket asset sync skipped unchanged write bucket=$timeBucket assets=${assetEntities.size}"
                 }
-                return Result.success(TimelineBucketAssetSyncResult(
-                    timeBucket = timeBucket,
-                    changed = false
-                ))
+                return Result.success(
+                    TimelineBucketAssetSyncResult(
+                        timeBucket = timeBucket,
+                        changed = false
+                    )
+                )
             }
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
@@ -224,12 +226,14 @@ class TimelineRepository(
             val changed = timelineBucketAssetsChanged(before, after)
             log.d {
                 "Timeline bucket asset sync completed bucket=$timeBucket previous=${before.size} " +
-                    "current=${after.size} changed=$changed"
+                        "current=${after.size} changed=$changed"
             }
-            Result.success(TimelineBucketAssetSyncResult(
-                timeBucket = timeBucket,
-                changed = changed
-            ))
+            Result.success(
+                TimelineBucketAssetSyncResult(
+                    timeBucket = timeBucket,
+                    changed = changed
+                )
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -260,7 +264,7 @@ class TimelineRepository(
                             if (success) successful++ else failed++
                             log.d {
                                 "Timeline asset sync progress $completed/${buckets.size}: " +
-                                    "${bucket.timeBucket} success=$success successful=$successful failed=$failed"
+                                        "${bucket.timeBucket} success=$success successful=$successful failed=$failed"
                             }
                         }
                         bucket.timeBucket to result.getOrNull()
@@ -270,7 +274,8 @@ class TimelineRepository(
             log.d { "Finished timeline asset sync: successful=$successful failed=$failed total=${buckets.size}" }
             Result.success(
                 TimelineAssetSyncResult(
-                    successfulBucketIds = results.filter { it.second != null }.map { it.first }.toSet(),
+                    successfulBucketIds = results.filter { it.second != null }.map { it.first }
+                        .toSet(),
                     failedBucketIds = results.filter { it.second == null }.map { it.first }.toSet(),
                     changedBucketIds = results.mapNotNull { it.second }
                         .filter { it.changed }

@@ -71,7 +71,9 @@ fun PersonDetailScreen(
 
     PhotoOverlayHost(
         initialIndexKey = state.assets,
-        resolveInitialIndex = { id -> state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
+        resolveInitialIndex = { id ->
+            state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+        },
         content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
             PersonDetailContent(
                 state = state,
@@ -93,25 +95,25 @@ fun PersonDetailScreen(
             )
         },
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
-                StaticPhotoOverlay(
-                    assets = state.assets,
-                    initialIndex = initialIndex,
-                    apiKey = viewModel.apiKey,
-                    getAssetDetail = viewModel::getAssetDetail,
-                    onPersonClick = onPersonClick,
-                    onDismiss = { currentAssetId ->
-                        dismissScope.launch {
-                            viewModel.lastViewedAssetId = currentAssetId
-                            viewModel.getDisplayItemIndexForReturn()
-                                ?.let { listState.ensureReturnSourceVisible(it) }
-                            onDismissHost(currentAssetId)
-                        }
-                    },
-                    onCurrentAssetChanged = onCurrentAssetChanged,
-                    onStlTransitionActiveChanged = onStlTransitionActiveChanged,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = this,
-                )
+            StaticPhotoOverlay(
+                assets = state.assets,
+                initialIndex = initialIndex,
+                apiKey = viewModel.apiKey,
+                getAssetDetail = viewModel::getAssetDetail,
+                onPersonClick = onPersonClick,
+                onDismiss = { currentAssetId ->
+                    dismissScope.launch {
+                        viewModel.lastViewedAssetId = currentAssetId
+                        viewModel.getDisplayItemIndexForReturn()
+                            ?.let { listState.ensureReturnSourceVisible(it) }
+                        onDismissHost(currentAssetId)
+                    }
+                },
+                onCurrentAssetChanged = onCurrentAssetChanged,
+                onStlTransitionActiveChanged = onStlTransitionActiveChanged,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = this,
+            )
         },
         chrome = { showOverlay ->
             AnimatedVisibility(

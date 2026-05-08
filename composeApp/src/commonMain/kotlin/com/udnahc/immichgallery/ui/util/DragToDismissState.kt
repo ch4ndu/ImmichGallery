@@ -75,7 +75,10 @@ class DragToDismissState(
     val isActive: Boolean get() = isActiveState.value
 
     /** Called on touch-down, before any movement. */
-    fun onDragStart(downPosition: Offset, containerSize: IntSize) {
+    fun onDragStart(
+        downPosition: Offset,
+        containerSize: IntSize
+    ) {
         startPosition = downPosition
         pivot = if (containerSize.width > 0 && containerSize.height > 0) {
             TransformOrigin(

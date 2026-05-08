@@ -62,7 +62,10 @@ class SyncActivityTracker(
         notifier.onActiveSyncCountChanged(count)
     }
 
-    suspend fun <T> track(key: SyncActivityKey, block: suspend () -> T): T {
+    suspend fun <T> track(
+        key: SyncActivityKey,
+        block: suspend () -> T
+    ): T {
         begin(key)
         try {
             return block()

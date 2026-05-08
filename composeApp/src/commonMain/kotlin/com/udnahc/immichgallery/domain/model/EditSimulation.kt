@@ -38,6 +38,7 @@ fun simulateEditDimensions(
                 w = cw
                 h = ch
             }
+
             "ROTATE" -> {
                 val angle = edit.parameters.angle ?: continue
                 // Normalize to [0, 360). Only 90 / 270 swap dimensions.
@@ -48,6 +49,7 @@ fun simulateEditDimensions(
                     h = t
                 }
             }
+
             "MIRROR" -> {
                 // Flip has no effect on dimensions.
             }

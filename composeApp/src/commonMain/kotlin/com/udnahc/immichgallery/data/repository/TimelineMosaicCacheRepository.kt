@@ -10,11 +10,11 @@ import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignmentDto
 import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
-import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketArtifacts
-import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketGeometryArtifact
 import com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicAssignment
+import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketArtifacts
+import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketGeometryArtifact
 import com.udnahc.immichgallery.domain.model.TimelineMosaicCacheStatus
 import com.udnahc.immichgallery.domain.model.TimelineMosaicDisplayItemRecord
 import com.udnahc.immichgallery.domain.model.TimelineMosaicDisplaySection
@@ -30,10 +30,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlin.math.roundToInt
 import org.lighthousegames.logging.logging
+import kotlin.math.roundToInt
 
 class TimelineMosaicCacheRepository(
     private val timelineDao: TimelineDao,
@@ -312,8 +311,8 @@ class TimelineMosaicCacheRepository(
             }
             log.d {
                 "Timeline Mosaic artifacts persisted bucket=${artifacts.timeBucket} " +
-                    "assignments=${artifacts.assignments.size} display=${artifacts.displayCache.size} " +
-                    "geometry=${artifacts.sectionGeometry.size} bucketGeometry=true"
+                        "assignments=${artifacts.assignments.size} display=${artifacts.displayCache.size} " +
+                        "geometry=${artifacts.sectionGeometry.size} bucketGeometry=true"
             }
             Result.success(bucketGeometry.toDomainSummary())
         } catch (e: CancellationException) {
@@ -383,7 +382,13 @@ internal fun buildTimelineMosaicCacheStatus(
                 assignmentGeometryReady = false
                 displayCacheReady = false
             } else {
-                validAssignments.add(TimelineMosaicAssignment(timeBucket, section.sectionKey, assignments))
+                validAssignments.add(
+                    TimelineMosaicAssignment(
+                        timeBucket,
+                        section.sectionKey,
+                        assignments
+                    )
+                )
                 val geometry = geometryRowsByBucketSection[timeBucket to section.sectionKey]
                     ?.takeIf { it.assetFingerprint == fingerprint }
                     ?.toDomain()

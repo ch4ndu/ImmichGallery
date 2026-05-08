@@ -1,7 +1,7 @@
 package com.udnahc.immichgallery.ui.component
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -53,8 +53,8 @@ import immichgallery.composeapp.generated.resources.mosaic_settings_tab_options
 import immichgallery.composeapp.generated.resources.mosaic_settings_title
 import immichgallery.composeapp.generated.resources.mosaic_settings_warning
 import kotlinx.coroutines.launch
-import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun MosaicViewConfigIconMenu(
@@ -222,6 +222,7 @@ private fun MosaicSettingsDialog(
                             onCheckedChange = { draftDisableZoom = it }
                         )
                     }
+
                     MosaicSettingsTab.Columns -> {
                         Text(
                             text = stringResource(Res.string.mosaic_columns_title),

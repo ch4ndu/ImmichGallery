@@ -54,9 +54,11 @@ fun buildPhotoGridDisplayIndex(displayItems: List<PhotoGridDisplayItem>): Timeli
             is RowItem -> item.photos.forEach { photo ->
                 mutableAssetDisplayIndexById[photo.asset.id] = index
             }
+
             is MosaicBandItem -> item.tiles.forEach { tile ->
                 mutableAssetDisplayIndexById[tile.photo.asset.id] = index
             }
+
             is HeaderItem,
             is PlaceholderItem,
             is ErrorItem -> Unit
@@ -97,8 +99,9 @@ fun timelineScrollTargetForFraction(
     val bucketStart = pageIndex.bucketStartPages.getOrElse(bucketIndex) { 0 }
     val bucketCount = pageIndex.bucketPageCounts.getOrElse(bucketIndex) { 0 }.coerceAtLeast(1)
     val bucketFraction = ((page - bucketStart).toFloat() / bucketCount).coerceIn(0f, 1f)
-    val displayIndex = estimatedDisplayIndexForBucketFraction(displayItems, bucketIndex, bucketFraction)
-        ?: return null
+    val displayIndex =
+        estimatedDisplayIndexForBucketFraction(displayItems, bucketIndex, bucketFraction)
+            ?: return null
     return TimelineScrollTarget(bucketIndex, displayIndex)
 }
 
@@ -113,8 +116,9 @@ fun timelineScrollTargetForFraction(
     val bucketStart = pageIndex.bucketStartPages.getOrElse(bucketIndex) { 0 }
     val bucketCount = pageIndex.bucketPageCounts.getOrElse(bucketIndex) { 0 }.coerceAtLeast(1)
     val bucketFraction = ((page - bucketStart).toFloat() / bucketCount).coerceIn(0f, 1f)
-    val targetDisplayIndex = estimatedDisplayIndexForBucketFraction(displayIndex, bucketIndex, bucketFraction)
-        ?: return null
+    val targetDisplayIndex =
+        estimatedDisplayIndexForBucketFraction(displayIndex, bucketIndex, bucketFraction)
+            ?: return null
     return TimelineScrollTarget(bucketIndex, targetDisplayIndex)
 }
 
@@ -134,7 +138,8 @@ fun timelineScrollFractionForDisplayIndex(
     val item = displayItems.getOrNull(displayIndex) ?: return null
     val bucketIndex = item.bucketIndex
     val bucketStart = pageIndex.bucketStartPages.getOrNull(bucketIndex) ?: return null
-    val bucketCount = pageIndex.bucketPageCounts.getOrNull(bucketIndex)?.coerceAtLeast(1) ?: return null
+    val bucketCount =
+        pageIndex.bucketPageCounts.getOrNull(bucketIndex)?.coerceAtLeast(1) ?: return null
     val bucketDisplayIndexes = displayItems.indices
         .filter { index -> displayItems[index].bucketIndex == bucketIndex }
     if (bucketDisplayIndexes.isEmpty()) return null
@@ -152,9 +157,11 @@ fun timelineScrollFractionForDisplayIndex(
     displayIndex: Int
 ): Float? {
     if (pageIndex.totalPages <= 0) return null
-    val bucketIndex = timelineDisplayIndex.bucketByDisplayIndex.getOrNull(displayIndex) ?: return null
+    val bucketIndex =
+        timelineDisplayIndex.bucketByDisplayIndex.getOrNull(displayIndex) ?: return null
     val bucketStart = pageIndex.bucketStartPages.getOrNull(bucketIndex) ?: return null
-    val bucketCount = pageIndex.bucketPageCounts.getOrNull(bucketIndex)?.coerceAtLeast(1) ?: return null
+    val bucketCount =
+        pageIndex.bucketPageCounts.getOrNull(bucketIndex)?.coerceAtLeast(1) ?: return null
     val bucketDisplayIndexes = timelineDisplayIndex.displayIndexesByBucket[bucketIndex].orEmpty()
     if (bucketDisplayIndexes.isEmpty()) return null
     val bucketDisplayOffset = bucketDisplayIndexes.indexOf(displayIndex)

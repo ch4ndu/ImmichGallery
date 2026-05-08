@@ -6,17 +6,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
-import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
 import com.udnahc.immichgallery.domain.model.RowHeightScope
+import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.defaultTargetRowHeightForWidth
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
-import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
@@ -66,7 +66,8 @@ class SearchViewModel(
     var lastViewedAssetId: String? by mutableStateOf(null)
 
     private val log = logging("SearchViewModel")
-    private var hasSavedTargetRowHeight = getTargetRowHeightUseCase.hasSavedValue(RowHeightScope.SEARCH)
+    private var hasSavedTargetRowHeight =
+        getTargetRowHeightUseCase.hasSavedValue(RowHeightScope.SEARCH)
     private var savedTargetRowHeight = getTargetRowHeightUseCase(RowHeightScope.SEARCH)
     private var availableViewportHeight = 0f
     private val layoutRunner = PhotoGridLayoutRunner(viewModelScope)
@@ -131,7 +132,10 @@ class SearchViewModel(
         scheduleRows(debounce = true)
     }
 
-    private fun targetRowHeightForConfig(availableWidth: Float, bounds: RowHeightBounds): Float {
+    private fun targetRowHeightForConfig(
+        availableWidth: Float,
+        bounds: RowHeightBounds
+    ): Float {
         val preferred = if (hasSavedTargetRowHeight) {
             savedTargetRowHeight
         } else {

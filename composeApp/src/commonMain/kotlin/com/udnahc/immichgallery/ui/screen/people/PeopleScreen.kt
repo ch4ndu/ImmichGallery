@@ -1,9 +1,9 @@
 package com.udnahc.immichgallery.ui.screen.people
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,29 +28,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.foundation.Image
+import androidx.compose.ui.unit.dp
 import coil3.compose.LocalPlatformContext
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.size.Precision
 import coil3.size.Size
 import com.udnahc.immichgallery.LocalAppActive
-import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
+import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.ui.component.ErrorBanner
 import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -62,6 +60,8 @@ import immichgallery.composeapp.generated.resources.ic_close
 import immichgallery.composeapp.generated.resources.loading_people
 import immichgallery.composeapp.generated.resources.people_search_placeholder
 import immichgallery.composeapp.generated.resources.unknown
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -78,7 +78,10 @@ fun PeopleScreen(
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
-    LaunchedEffect(state.isSyncing, state.isBuilding) { onSyncingState(state.isSyncing || state.isBuilding) }
+    LaunchedEffect(
+        state.isSyncing,
+        state.isBuilding
+    ) { onSyncingState(state.isSyncing || state.isBuilding) }
 
     PeopleContent(
         state = state,
@@ -130,7 +133,10 @@ fun PeopleContent(
                     trailingIcon = {
                         if (state.query.isNotEmpty()) {
                             IconButton(onClick = { onQueryChange("") }) {
-                                Icon(painterResource(Res.drawable.ic_close), contentDescription = null)
+                                Icon(
+                                    painterResource(Res.drawable.ic_close),
+                                    contentDescription = null
+                                )
                             }
                         }
                     },
@@ -174,7 +180,8 @@ fun PeopleContent(
                             }
                             PersonItem(
                                 person = person,
-                                onClick = onClick)
+                                onClick = onClick
+                            )
                         }
                     }
                 }

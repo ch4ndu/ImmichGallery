@@ -9,9 +9,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -101,10 +101,14 @@ fun PhotoGridDetailContent(
 
             var gridModifier = Modifier.fillMaxSize()
             if (!(viewConfig.mosaicEnabled &&
-                    (viewConfig.disableZoomWhenMosaicEnabled || viewConfig.cacheMosaicResults))
+                        (viewConfig.disableZoomWhenMosaicEnabled || viewConfig.cacheMosaicResults))
             ) {
                 gridModifier = gridModifier
-                    .pinchToZoomRowHeight(targetRowHeight, rowHeightBounds, onTargetRowHeightChanged)
+                    .pinchToZoomRowHeight(
+                        targetRowHeight,
+                        rowHeightBounds,
+                        onTargetRowHeightChanged
+                    )
                     .desktopGridZoom(targetRowHeight, rowHeightBounds, onTargetRowHeightChanged)
             }
 
@@ -217,6 +221,7 @@ fun PhotoGridDisplayItemRenderer(
             transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
         )
+
         is MosaicBandItem -> MosaicPhotoBand(
             band = item,
             onPhotoClick = onPhotoClick,
@@ -224,6 +229,7 @@ fun PhotoGridDisplayItemRenderer(
             transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
         )
+
         is PlaceholderItem -> PlaceholderRow(estimatedHeight = item.estimatedHeight)
         is ErrorItem -> errorContent?.invoke(item)
         is PhotoItem -> Unit

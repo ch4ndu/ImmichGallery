@@ -75,7 +75,13 @@ class AlbumListViewModel(
                 getAlbumsUseCase.sync().fold(
                     onSuccess = {
                         log.d { "Synced albums from server" }
-                        _state.update { it.copy(isBuilding = false, isSyncing = false, error = null) }
+                        _state.update {
+                            it.copy(
+                                isBuilding = false,
+                                isSyncing = false,
+                                error = null
+                            )
+                        }
                     },
                     onFailure = { e ->
                         log.e(e) { "Failed to sync albums from server" }

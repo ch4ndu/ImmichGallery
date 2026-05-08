@@ -39,7 +39,8 @@ private fun AssetResponse.computeAspectRatio(): Float {
 }
 
 private fun AssetResponse.aspectFromWidthHeight(): Float? {
-    val w = width; val h = height
+    val w = width;
+    val h = height
     return if (w != null && h != null && h > 0) w.toFloat() / h.toFloat() else null
 }
 

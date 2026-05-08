@@ -5,7 +5,11 @@ import kotlin.math.ceil
 const val PHOTO_GRID_MAX_PLACEHOLDER_HEIGHT_DP = 10000f
 const val PHOTO_GRID_SECTION_HEADER_HEIGHT_DP = 48f
 
-fun placeholderGridKey(bucketIndex: Int, sectionLabel: String, chunkIndex: Int): String =
+fun placeholderGridKey(
+    bucketIndex: Int,
+    sectionLabel: String,
+    chunkIndex: Int
+): String =
     "pl_${bucketIndex}_${sectionLabel.hashCode()}_$chunkIndex"
 
 fun buildPhotoGridPlaceholderItems(

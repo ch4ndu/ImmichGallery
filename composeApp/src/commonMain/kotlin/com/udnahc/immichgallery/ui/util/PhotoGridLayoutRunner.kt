@@ -11,7 +11,9 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalCoroutinesApi::class)
 class PhotoGridLayoutRunner(
     private val scope: CoroutineScope,
-    private val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(DEFAULT_PARALLELISM),
+    private val dispatcher: CoroutineDispatcher = Dispatchers.Default.limitedParallelism(
+        DEFAULT_PARALLELISM
+    ),
     private val debounceMillis: Long = DEFAULT_DEBOUNCE_MS
 ) {
     private var generation = 0L

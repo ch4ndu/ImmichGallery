@@ -23,16 +23,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.SnapshotStateMap
-import coil3.SingletonImageLoader
-import coil3.compose.LocalPlatformContext
-import coil3.request.ImageRequest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.mapNotNull
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
@@ -51,6 +49,8 @@ import com.udnahc.immichgallery.ui.util.dragToDismiss
 import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -307,7 +307,12 @@ fun TimelinePhotoOverlay(
                     if (!pagerState.isScrollInProgress) {
                         val config = slideshowConfig
                         val target = if (config != null) {
-                            nextSlideshowPage(config.order, pagerState.currentPage, totalPages, forward = false)
+                            nextSlideshowPage(
+                                config.order,
+                                pagerState.currentPage,
+                                totalPages,
+                                forward = false
+                            )
                         } else {
                             (pagerState.currentPage - 1).coerceAtLeast(0)
                         }
@@ -318,7 +323,12 @@ fun TimelinePhotoOverlay(
                     if (!pagerState.isScrollInProgress) {
                         val config = slideshowConfig
                         val target = if (config != null) {
-                            nextSlideshowPage(config.order, pagerState.currentPage, totalPages, forward = true)
+                            nextSlideshowPage(
+                                config.order,
+                                pagerState.currentPage,
+                                totalPages,
+                                forward = true
+                            )
                         } else {
                             (pagerState.currentPage + 1).coerceAtMost(totalPages - 1)
                         }

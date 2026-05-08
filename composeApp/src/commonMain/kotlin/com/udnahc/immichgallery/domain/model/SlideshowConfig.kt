@@ -31,6 +31,7 @@ fun nextSlideshowPage(
             while (r == current) r = (0 until total).random()
             r
         }
+
         SlideshowOrder.SEQUENTIAL -> {
             if (forward) (current + 1) % total else (current - 1 + total) % total
         }

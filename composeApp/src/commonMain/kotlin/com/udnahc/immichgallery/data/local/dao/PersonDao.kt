@@ -44,7 +44,10 @@ interface PersonDao {
         AND sortOrder >= :startSortOrder
         """
     )
-    suspend fun clearPersonRefsFromSortOrder(personId: String, startSortOrder: Int)
+    suspend fun clearPersonRefsFromSortOrder(
+        personId: String,
+        startSortOrder: Int
+    )
 
     @Query("SELECT COUNT(*) FROM person_asset_refs WHERE personId = :personId")
     suspend fun getPersonAssetCount(personId: String): Int
@@ -87,7 +90,10 @@ interface PersonDao {
     }
 
     @Transaction
-    suspend fun replacePersonRefs(personId: String, refs: List<PersonAssetCrossRef>) {
+    suspend fun replacePersonRefs(
+        personId: String,
+        refs: List<PersonAssetCrossRef>
+    ) {
         clearPersonRefs(personId)
         upsertPersonRefs(refs)
     }

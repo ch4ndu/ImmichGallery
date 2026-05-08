@@ -126,16 +126,28 @@ interface DetailMosaicCacheDao {
     suspend fun upsertAggregateGeometry(row: DetailMosaicAggregateGeometryEntity)
 
     @Query("DELETE FROM detail_mosaic_display_cache WHERE ownerType = :ownerType AND ownerId = :ownerId")
-    suspend fun clearOwnerDisplayCache(ownerType: String, ownerId: String)
+    suspend fun clearOwnerDisplayCache(
+        ownerType: String,
+        ownerId: String
+    )
 
     @Query("DELETE FROM detail_mosaic_assignments WHERE ownerType = :ownerType AND ownerId = :ownerId")
-    suspend fun clearOwnerAssignments(ownerType: String, ownerId: String)
+    suspend fun clearOwnerAssignments(
+        ownerType: String,
+        ownerId: String
+    )
 
     @Query("DELETE FROM detail_mosaic_section_geometry WHERE ownerType = :ownerType AND ownerId = :ownerId")
-    suspend fun clearOwnerSectionGeometry(ownerType: String, ownerId: String)
+    suspend fun clearOwnerSectionGeometry(
+        ownerType: String,
+        ownerId: String
+    )
 
     @Query("DELETE FROM detail_mosaic_aggregate_geometry WHERE ownerType = :ownerType AND ownerId = :ownerId")
-    suspend fun clearOwnerAggregateGeometry(ownerType: String, ownerId: String)
+    suspend fun clearOwnerAggregateGeometry(
+        ownerType: String,
+        ownerId: String
+    )
 
     @Query("DELETE FROM detail_mosaic_display_cache")
     suspend fun clearAllDisplayCache()
@@ -171,7 +183,10 @@ interface DetailMosaicCacheDao {
     }
 
     @Transaction
-    suspend fun clearOwnerCache(ownerType: String, ownerId: String) {
+    suspend fun clearOwnerCache(
+        ownerType: String,
+        ownerId: String
+    ) {
         clearOwnerAssignments(ownerType, ownerId)
         clearOwnerDisplayCache(ownerType, ownerId)
         clearOwnerSectionGeometry(ownerType, ownerId)

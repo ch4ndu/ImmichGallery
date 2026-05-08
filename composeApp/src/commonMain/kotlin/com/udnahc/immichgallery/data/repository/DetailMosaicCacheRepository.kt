@@ -6,23 +6,22 @@ import com.udnahc.immichgallery.data.local.entity.DetailMosaicAssignmentEntity
 import com.udnahc.immichgallery.data.local.entity.DetailMosaicDisplayCacheEntity
 import com.udnahc.immichgallery.data.local.entity.DetailMosaicSectionGeometryEntity
 import com.udnahc.immichgallery.domain.model.DetailMosaicAggregateGeometryEntry
-import com.udnahc.immichgallery.domain.model.DetailMosaicAssignmentEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicArtifacts
 import com.udnahc.immichgallery.domain.model.DetailMosaicArtifactsUpsert
+import com.udnahc.immichgallery.domain.model.DetailMosaicAssignmentEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheLookup
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.DetailMosaicSectionGeometryEntry
 import com.udnahc.immichgallery.domain.model.GroupSize
-import com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecord
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignmentDto
+import com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecord
 import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class DetailMosaicCacheRepository(
@@ -141,7 +140,10 @@ class DetailMosaicCacheRepository(
         }
     }
 
-    suspend fun clearOwnerCache(ownerType: DetailMosaicCacheOwnerType, ownerId: String) {
+    suspend fun clearOwnerCache(
+        ownerType: DetailMosaicCacheOwnerType,
+        ownerId: String
+    ) {
         withContext(Dispatchers.IO) {
             detailMosaicCacheDao.clearOwnerCache(ownerType.name, ownerId)
         }
@@ -155,7 +157,8 @@ class DetailMosaicCacheRepository(
 }
 
 private fun DetailMosaicAssignmentEntity.toAssignmentDomainOrNull(): DetailMosaicAssignmentEntry? {
-    val ownerType = DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
+    val ownerType =
+        DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
     val parsedGroupSize = runCatching { GroupSize.valueOf(groupSize) }.getOrNull() ?: return null
     val assignments = runCatching {
         json.decodeFromString<List<MosaicBandAssignmentDto>>(assignmentsJson).map { it.toDomain() }
@@ -175,7 +178,8 @@ private fun DetailMosaicAssignmentEntity.toAssignmentDomainOrNull(): DetailMosai
 }
 
 private fun DetailMosaicDisplayCacheEntity.toDomainOrNull(): DetailMosaicCacheEntry? {
-    val ownerType = DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
+    val ownerType =
+        DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
     val parsedGroupSize = runCatching { GroupSize.valueOf(groupSize) }.getOrNull() ?: return null
     return DetailMosaicCacheEntry(
         ownerType = ownerType,
@@ -199,7 +203,8 @@ private fun DetailMosaicDisplayCacheEntity.toDomainOrNull(): DetailMosaicCacheEn
 }
 
 private fun DetailMosaicSectionGeometryEntity.toSectionGeometryDomainOrNull(): DetailMosaicSectionGeometryEntry? {
-    val ownerType = DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
+    val ownerType =
+        DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
     val parsedGroupSize = runCatching { GroupSize.valueOf(groupSize) }.getOrNull() ?: return null
     return DetailMosaicSectionGeometryEntry(
         ownerType = ownerType,
@@ -228,7 +233,8 @@ private fun DetailMosaicSectionGeometryEntity.toSectionGeometryDomainOrNull(): D
 }
 
 private fun DetailMosaicAggregateGeometryEntity.toAggregateGeometryDomainOrNull(): DetailMosaicAggregateGeometryEntry? {
-    val ownerType = DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
+    val ownerType =
+        DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
     val parsedGroupSize = runCatching { GroupSize.valueOf(groupSize) }.getOrNull() ?: return null
     return DetailMosaicAggregateGeometryEntry(
         ownerType = ownerType,

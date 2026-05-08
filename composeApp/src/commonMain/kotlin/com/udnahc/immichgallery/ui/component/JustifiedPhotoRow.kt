@@ -67,7 +67,10 @@ fun JustifiedPhotoRow(
 @Preview
 @Composable
 private fun JustifiedPhotoRowPreview() {
-    fun previewAsset(id: String, aspect: Float) = Asset(
+    fun previewAsset(
+        id: String,
+        aspect: Float
+    ) = Asset(
         id = id,
         type = AssetType.IMAGE,
         fileName = "IMG_$id.jpg",
@@ -76,14 +79,30 @@ private fun JustifiedPhotoRowPreview() {
         originalUrl = "",
         aspectRatio = aspect,
     )
+
     val row = RowItem(
         gridKey = "preview-row",
         bucketIndex = 0,
         sectionLabel = "",
         photos = listOf(
-            PhotoItem(gridKey = "1", bucketIndex = 0, sectionLabel = "", asset = previewAsset("1", 1.5f)),
-            PhotoItem(gridKey = "2", bucketIndex = 0, sectionLabel = "", asset = previewAsset("2", 1.0f)),
-            PhotoItem(gridKey = "3", bucketIndex = 0, sectionLabel = "", asset = previewAsset("3", 0.75f)),
+            PhotoItem(
+                gridKey = "1",
+                bucketIndex = 0,
+                sectionLabel = "",
+                asset = previewAsset("1", 1.5f)
+            ),
+            PhotoItem(
+                gridKey = "2",
+                bucketIndex = 0,
+                sectionLabel = "",
+                asset = previewAsset("2", 1.0f)
+            ),
+            PhotoItem(
+                gridKey = "3",
+                bucketIndex = 0,
+                sectionLabel = "",
+                asset = previewAsset("3", 0.75f)
+            ),
         ),
         rowHeight = 120f,
     )

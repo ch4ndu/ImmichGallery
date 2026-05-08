@@ -86,7 +86,8 @@ class PersonDetailViewModel(
     var lastViewedAssetId: String? by mutableStateOf(null)
 
     private val log = logging("PersonDetailViewModel")
-    private var hasSavedTargetRowHeight = getTargetRowHeightUseCase.hasSavedValue(RowHeightScope.PERSON_DETAIL)
+    private var hasSavedTargetRowHeight =
+        getTargetRowHeightUseCase.hasSavedValue(RowHeightScope.PERSON_DETAIL)
     private var savedTargetRowHeight = getTargetRowHeightUseCase(RowHeightScope.PERSON_DETAIL)
     private val mosaicOwnerKey = "person:$personId"
     private var syncJob: Job? = null
@@ -109,8 +110,18 @@ class PersonDetailViewModel(
         getState = { _state.value },
         updateState = { transform -> _state.update(transform) },
         snapshotOf = PersonDetailState::layoutSnapshot,
-        withAvailableWidth = { state, width, target -> state.copy(availableWidth = width, targetRowHeight = target) },
-        withViewportHeight = { state, target, bounds -> state.copy(targetRowHeight = target, rowHeightBounds = bounds) },
+        withAvailableWidth = { state, width, target ->
+            state.copy(
+                availableWidth = width,
+                targetRowHeight = target
+            )
+        },
+        withViewportHeight = { state, target, bounds ->
+            state.copy(
+                targetRowHeight = target,
+                rowHeightBounds = bounds
+            )
+        },
         withTargetRowHeight = { state, target -> state.copy(targetRowHeight = target) },
         withGroupSize = { state, groupSize -> state.copy(groupSize = groupSize) },
         withViewConfig = { state, viewConfig -> state.copy(viewConfig = viewConfig) },
@@ -176,26 +187,29 @@ class PersonDetailViewModel(
         layoutCoordinator.setViewConfig(config)
     }
 
-    suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> = withContext(Dispatchers.Default) {
-        val normalized = config.normalized
-        if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@withContext Result.success(Unit)
-        if (_state.value.hasMore) {
-            val result = getPersonAssetsUseCase.syncAll(personId)
-                .onFailure { return@withContext Result.failure(it) }
-                .getOrNull()
-            val assets = getPersonAssetsUseCase.getAssets(personId)
-            _state.update {
-                it.copy(
-                    assets = assets,
-                    hasMore = false,
-                    nextPage = 1,
-                    isLoadingMore = false
-                )
+    suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
+        withContext(Dispatchers.Default) {
+            val normalized = config.normalized
+            if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@withContext Result.success(
+                Unit
+            )
+            if (_state.value.hasMore) {
+                val result = getPersonAssetsUseCase.syncAll(personId)
+                    .onFailure { return@withContext Result.failure(it) }
+                    .getOrNull()
+                val assets = getPersonAssetsUseCase.getAssets(personId)
+                _state.update {
+                    it.copy(
+                        assets = assets,
+                        hasMore = false,
+                        nextPage = 1,
+                        isLoadingMore = false
+                    )
+                }
+                handleSyncedContentChange(result?.changed == true)
             }
-            handleSyncedContentChange(result?.changed == true)
+            return@withContext layoutCoordinator.prepareMosaicViewConfig(normalized)
         }
-        return@withContext layoutCoordinator.prepareMosaicViewConfig(normalized)
-    }
 
     fun setVisibleBucketIndexes(indexes: List<Int>) {
         layoutCoordinator.setVisibleBucketIndexes(indexes)

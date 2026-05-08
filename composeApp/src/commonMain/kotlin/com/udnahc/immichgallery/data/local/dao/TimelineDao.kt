@@ -5,8 +5,8 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
-import com.udnahc.immichgallery.data.local.entity.TimelineBucketGeometryEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineBucketGeometryEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicAssignmentEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicDisplayCacheEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
@@ -224,7 +224,10 @@ interface TimelineDao {
     }
 
     @Transaction
-    suspend fun replaceBucketRefs(timeBucket: String, refs: List<TimelineAssetCrossRef>) {
+    suspend fun replaceBucketRefs(
+        timeBucket: String,
+        refs: List<TimelineAssetCrossRef>
+    ) {
         clearTimelineRefsForBucket(timeBucket)
         upsertTimelineRefs(refs)
     }

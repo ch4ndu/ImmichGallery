@@ -10,10 +10,10 @@ import com.udnahc.immichgallery.domain.model.MosaicSectionRequest
 import com.udnahc.immichgallery.domain.model.MosaicSectionResult
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.SectionReady
-import com.udnahc.immichgallery.domain.model.TimelineMosaicArtifactBuilder
 import com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineBucketSnapshot
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.domain.model.TimelineMosaicArtifactBuilder
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicPrecomputeResult
 import com.udnahc.immichgallery.domain.model.TimelineMosaicProgressChunk
@@ -71,7 +71,7 @@ class PrepareTimelineMosaicCacheAction(
             val groupMode = groupSize.apiValue
             log.d {
                 "Timeline Mosaic precompute started buckets=${timeBuckets.size} " +
-                    "group=$groupSize columns=$columnCount families=$normalizedFamilies geometry=true"
+                        "group=$groupSize columns=$columnCount families=$normalizedFamilies geometry=true"
             }
             val semaphore = Semaphore(TIMELINE_MOSAIC_PRECOMPUTE_PARALLELISM)
             val progressMutex = Mutex()
@@ -108,8 +108,8 @@ class PrepareTimelineMosaicCacheAction(
                             if (bucketGeometry != null) successful++ else failed++
                             log.d {
                                 "Timeline Mosaic precompute progress $completed/${timeBuckets.size}: " +
-                                    "bucket=$timeBucket success=${bucketGeometry != null} " +
-                                    "successful=$successful failed=$failed"
+                                        "bucket=$timeBucket success=${bucketGeometry != null} " +
+                                        "successful=$successful failed=$failed"
                             }
                         }
                         timeBucket to bucketGeometry
@@ -118,7 +118,8 @@ class PrepareTimelineMosaicCacheAction(
             }
             Result.success(
                 TimelineMosaicPrecomputeResult(
-                    successfulBucketIds = results.filter { it.second != null }.map { it.first }.toSet(),
+                    successfulBucketIds = results.filter { it.second != null }.map { it.first }
+                        .toSet(),
                     failedBucketIds = results.filter { it.second == null }.map { it.first }.toSet(),
                     bucketGeometrySummaries = results.mapNotNull { it.second }
                 )
@@ -147,7 +148,7 @@ class PrepareTimelineMosaicCacheAction(
         if (shouldRejectUnsyncedEmptyTimelineBucket(snapshot.assets.size, snapshot.expectedCount)) {
             throw IllegalStateException(
                 "Refusing Timeline Mosaic precompute for unsynced bucket=$timeBucket " +
-                    "expectedCount=${snapshot.expectedCount} actualAssets=${snapshot.assets.size}"
+                        "expectedCount=${snapshot.expectedCount} actualAssets=${snapshot.assets.size}"
             )
         }
         val sections = timelineMosaicSections(timeBucket, groupSize, snapshot.assets)

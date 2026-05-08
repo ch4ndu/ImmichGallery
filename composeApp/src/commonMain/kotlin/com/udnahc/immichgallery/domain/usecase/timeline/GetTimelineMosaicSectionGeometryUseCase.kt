@@ -16,5 +16,11 @@ class GetTimelineMosaicSectionGeometryUseCase(
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest
     ): Result<List<TimelineMosaicGeometrySummary>> =
-        repository.getPersistedSectionGeometry(timeBuckets, groupSize, columnCount, families, geometryRequest)
+        repository.getPersistedSectionGeometry(
+            timeBuckets,
+            groupSize,
+            columnCount,
+            families,
+            geometryRequest
+        )
 }

@@ -6,7 +6,10 @@ import com.udnahc.immichgallery.domain.model.RowHeightScope
 class SetTargetRowHeightAction(
     private val serverConfigRepository: ServerConfigRepository
 ) {
-    operator fun invoke(scope: RowHeightScope, height: Float) {
+    operator fun invoke(
+        scope: RowHeightScope,
+        height: Float
+    ) {
         serverConfigRepository.setTargetRowHeight(scope, height)
     }
 }

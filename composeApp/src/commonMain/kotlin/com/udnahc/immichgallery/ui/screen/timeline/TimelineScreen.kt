@@ -53,8 +53,8 @@ import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
-import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
+import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.TimelineScrollbarTargetTracker
 import com.udnahc.immichgallery.domain.model.ViewConfig
@@ -66,17 +66,17 @@ import com.udnahc.immichgallery.ui.component.LoadingErrorContent
 import com.udnahc.immichgallery.ui.component.MosaicPhotoBand
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.PlaceholderRow
-import com.udnahc.immichgallery.ui.component.photoGridDisplayItemContentType
+import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
+import com.udnahc.immichgallery.ui.component.photoGridDisplayItemContentType
 import com.udnahc.immichgallery.ui.model.asText
+import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.ensureReturnSourceVisible
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
-import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
-import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_timeline
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
@@ -185,29 +185,29 @@ fun TimelineScreen(
             )
         },
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
-                TimelinePhotoOverlay(
-                    timelineState = viewModel.overlayState,
-                    initialIndex = initialIndex,
-                    apiKey = viewModel.apiKey,
-                    getAssetFileName = viewModel::getAssetFileName,
-                    getAssetDetail = viewModel::getAssetDetail,
-                    assetCache = viewModel.bucketAssetsCache,
-                    onBucketNeeded = viewModel::loadBucketAssets,
-                    onPersonClick = onPersonClick,
-                    onDismiss = { currentAssetId, currentBucket ->
-                        dismissScope.launch {
-                            viewModel.lastViewedAssetId = currentAssetId
-                            viewModel.lastViewedBucket = currentBucket
-                            viewModel.getDisplayItemIndexForReturn(currentAssetId, currentBucket)
-                                ?.let { listState.ensureReturnSourceVisible(it) }
-                            onDismissHost(currentAssetId)
-                        }
-                    },
-                    onCurrentAssetChanged = onCurrentAssetChanged,
-                    onStlTransitionActiveChanged = onStlTransitionActiveChanged,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = this,
-                )
+            TimelinePhotoOverlay(
+                timelineState = viewModel.overlayState,
+                initialIndex = initialIndex,
+                apiKey = viewModel.apiKey,
+                getAssetFileName = viewModel::getAssetFileName,
+                getAssetDetail = viewModel::getAssetDetail,
+                assetCache = viewModel.bucketAssetsCache,
+                onBucketNeeded = viewModel::loadBucketAssets,
+                onPersonClick = onPersonClick,
+                onDismiss = { currentAssetId, currentBucket ->
+                    dismissScope.launch {
+                        viewModel.lastViewedAssetId = currentAssetId
+                        viewModel.lastViewedBucket = currentBucket
+                        viewModel.getDisplayItemIndexForReturn(currentAssetId, currentBucket)
+                            ?.let { listState.ensureReturnSourceVisible(it) }
+                        onDismissHost(currentAssetId)
+                    }
+                },
+                onCurrentAssetChanged = onCurrentAssetChanged,
+                onStlTransitionActiveChanged = onStlTransitionActiveChanged,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = this,
+            )
         }
     )
 }
@@ -221,7 +221,11 @@ private fun TimelineColdSyncLoading(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val timelineMosaicColumnCount = mosaicColumnCount
         LaunchedEffect(maxWidth, maxHeight, timelineMosaicColumnCount) {
-            onTimelineLayoutMetricsChanged(maxWidth.value, maxHeight.value, timelineMosaicColumnCount)
+            onTimelineLayoutMetricsChanged(
+                maxWidth.value,
+                maxHeight.value,
+                timelineMosaicColumnCount
+            )
         }
 
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -280,7 +284,7 @@ fun TimelineContent(
                         displayItems = latestDisplayItems,
                         visibleItems = listState.layoutInfo.visibleItemsInfo
                     )
-                    }
+                }
                     .distinctUntilChanged()
                     .collectLatest { anchor ->
                         scrollAnchor = anchor
@@ -293,7 +297,8 @@ fun TimelineContent(
                 if (listState.isScrollInProgress) return@LaunchedEffect
                 val anchor = scrollAnchor
                 if (anchor != null) {
-                    val targetIndex = latestDisplayIndex.assetDisplayIndexById[anchor.assetId] ?: return@LaunchedEffect
+                    val targetIndex = latestDisplayIndex.assetDisplayIndexById[anchor.assetId]
+                        ?: return@LaunchedEffect
                     val currentAnchor = firstVisibleAssetAnchor(
                         displayItems = latestDisplayItems,
                         visibleItems = listState.layoutInfo.visibleItemsInfo
@@ -305,10 +310,13 @@ fun TimelineContent(
                 }
                 val bucketAnchor = bucketScrollAnchor ?: return@LaunchedEffect
                 val currentFirstIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
-                val currentFirstBucket = currentFirstIndex?.let { latestDisplayIndex.bucketByDisplayIndex.getOrNull(it) }
+                val currentFirstBucket =
+                    currentFirstIndex?.let { latestDisplayIndex.bucketByDisplayIndex.getOrNull(it) }
                 if (currentFirstBucket == bucketAnchor.bucketIndex) return@LaunchedEffect
                 val targetIndex = bucketAnchor.itemKey
-                    ?.let { itemKey -> latestDisplayItems.indexOfFirst { it.gridKey == itemKey }.takeIf { it >= 0 } }
+                    ?.let { itemKey ->
+                        latestDisplayItems.indexOfFirst { it.gridKey == itemKey }.takeIf { it >= 0 }
+                    }
                     ?: latestDisplayIndex.displayIndexesByBucket[bucketAnchor.bucketIndex]?.firstOrNull()
                     ?: return@LaunchedEffect
                 listState.scrollToItem(targetIndex, bucketAnchor.scrollOffset)
@@ -335,7 +343,10 @@ fun TimelineContent(
                                 latestDisplayIndex,
                                 listState.layoutInfo.visibleItemsInfo.map { it.index }
                             )
-                            onVisibleBucketsChanged(buckets, TimelineBucketTargetReason.ScrollSettled)
+                            onVisibleBucketsChanged(
+                                buckets,
+                                TimelineBucketTargetReason.ScrollSettled
+                            )
                         }
                     }
             }
@@ -351,7 +362,11 @@ fun TimelineContent(
                 // Report available width to ViewModel for row packing
                 val timelineMosaicColumnCount = state.viewConfig.mosaicColumnCount
                 LaunchedEffect(maxWidth, fullGridHeight, timelineMosaicColumnCount) {
-                    onTimelineLayoutMetricsChanged(maxWidth.value, fullGridHeight, timelineMosaicColumnCount)
+                    onTimelineLayoutMetricsChanged(
+                        maxWidth.value,
+                        fullGridHeight,
+                        timelineMosaicColumnCount
+                    )
                 }
 
                 val gridModifier = Modifier.fillMaxSize().let { base ->
@@ -361,8 +376,16 @@ fun TimelineContent(
                         base
                     } else {
                         base
-                            .pinchToZoomRowHeight(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
-                            .desktopGridZoom(targetRowHeight, state.rowHeightBounds, onTargetRowHeightChanged)
+                            .pinchToZoomRowHeight(
+                                targetRowHeight,
+                                state.rowHeightBounds,
+                                onTargetRowHeightChanged
+                            )
+                            .desktopGridZoom(
+                                targetRowHeight,
+                                state.rowHeightBounds,
+                                onTargetRowHeightChanged
+                            )
                     }
                 }
 
@@ -376,8 +399,12 @@ fun TimelineContent(
                     // stops ScrollbarOverlay from recomposing on every parent
                     // recomposition (which fires often during the warmup wave when
                     // _bucketData / _mosaicStates produce combine emissions).
-                    val latestScrollTargetForFraction by rememberUpdatedState(scrollTargetForFraction)
-                    val latestOnViewportBucketTargeted by rememberUpdatedState(onViewportBucketTargeted)
+                    val latestScrollTargetForFraction by rememberUpdatedState(
+                        scrollTargetForFraction
+                    )
+                    val latestOnViewportBucketTargeted by rememberUpdatedState(
+                        onViewportBucketTargeted
+                    )
                     val scrollToFractionTarget = remember<(Float, Boolean) -> Unit> {
                         { fraction, commit ->
                             val target = latestScrollTargetForFraction(fraction)
@@ -390,10 +417,16 @@ fun TimelineContent(
                                 listState.requestScrollToItem(target.displayIndex)
                                 if (commit) {
                                     if (scrollbarTargetTracker.shouldNotifyDragStop(target.bucketIndex)) {
-                                        latestOnViewportBucketTargeted(target.bucketIndex, TimelineBucketTargetReason.ScrollbarStop)
+                                        latestOnViewportBucketTargeted(
+                                            target.bucketIndex,
+                                            TimelineBucketTargetReason.ScrollbarStop
+                                        )
                                     }
                                 } else if (scrollbarTargetTracker.shouldNotifyDragTarget(target.bucketIndex)) {
-                                    latestOnViewportBucketTargeted(target.bucketIndex, TimelineBucketTargetReason.ScrollbarDrag)
+                                    latestOnViewportBucketTargeted(
+                                        target.bucketIndex,
+                                        TimelineBucketTargetReason.ScrollbarDrag
+                                    )
                                 }
                             }
                         }
@@ -574,6 +607,7 @@ private fun TimelineDisplayItemRenderer(
             transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
         )
+
         is MosaicBandItem -> MosaicPhotoBand(
             band = item,
             onPhotoClick = onPhotoClick,
@@ -581,6 +615,7 @@ private fun TimelineDisplayItemRenderer(
             transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
         )
+
         is PlaceholderItem -> PlaceholderRow(estimatedHeight = item.estimatedHeight)
         is ErrorItem -> ErrorCell(onRetry = { onRetryBucket(item.timeBucket) })
         is PhotoItem -> Unit

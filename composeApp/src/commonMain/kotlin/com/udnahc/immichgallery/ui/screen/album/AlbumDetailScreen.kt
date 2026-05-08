@@ -3,10 +3,8 @@ package com.udnahc.immichgallery.ui.screen.album
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyListState
@@ -17,7 +15,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.ui.component.DetailTopBar
@@ -70,7 +67,9 @@ fun AlbumDetailScreen(
 
     PhotoOverlayHost(
         initialIndexKey = state.assets,
-        resolveInitialIndex = { id -> state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 } },
+        resolveInitialIndex = { id ->
+            state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+        },
         content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
             AlbumDetailContent(
                 state = state,
@@ -91,25 +90,25 @@ fun AlbumDetailScreen(
             )
         },
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
-                StaticPhotoOverlay(
-                    assets = state.assets,
-                    initialIndex = initialIndex,
-                    apiKey = viewModel.apiKey,
-                    getAssetDetail = viewModel::getAssetDetail,
-                    onPersonClick = onPersonClick,
-                    onDismiss = { currentAssetId ->
-                        dismissScope.launch {
-                            viewModel.lastViewedAssetId = currentAssetId
-                            viewModel.getDisplayItemIndexForReturn()
-                                ?.let { listState.ensureReturnSourceVisible(it) }
-                            onDismissHost(currentAssetId)
-                        }
-                    },
-                    onCurrentAssetChanged = onCurrentAssetChanged,
-                    onStlTransitionActiveChanged = onStlTransitionActiveChanged,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = this,
-                )
+            StaticPhotoOverlay(
+                assets = state.assets,
+                initialIndex = initialIndex,
+                apiKey = viewModel.apiKey,
+                getAssetDetail = viewModel::getAssetDetail,
+                onPersonClick = onPersonClick,
+                onDismiss = { currentAssetId ->
+                    dismissScope.launch {
+                        viewModel.lastViewedAssetId = currentAssetId
+                        viewModel.getDisplayItemIndexForReturn()
+                            ?.let { listState.ensureReturnSourceVisible(it) }
+                        onDismissHost(currentAssetId)
+                    }
+                },
+                onCurrentAssetChanged = onCurrentAssetChanged,
+                onStlTransitionActiveChanged = onStlTransitionActiveChanged,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = this,
+            )
         },
         chrome = { showOverlay ->
             AnimatedVisibility(

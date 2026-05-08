@@ -40,7 +40,9 @@ internal class CachedPhotoGridMosaicRenderer {
         assetFingerprint: String,
         cachedEntries: Map<DetailPersistentGroupKey, DetailMosaicCacheEntry>
     ): CachedPhotoGridMosaicGroup? {
-        val entry = cachedEntries[DetailPersistentGroupKey(group.index, group.label, assetFingerprint)] ?: return null
+        val entry =
+            cachedEntries[DetailPersistentGroupKey(group.index, group.label, assetFingerprint)]
+                ?: return null
         if (!entry.displayRecords.displayRecordsCoverOrderedAssets(group.assets)) return null
         val projectedItems = entry.displayRecords.toPhotoGridDisplayItems(
             assets = group.assets,
@@ -115,12 +117,14 @@ internal class RuntimePhotoGridMosaicRenderer {
 
 internal fun groupHeaderItems(group: IndexedAssetGroup): List<PhotoGridDisplayItem> =
     if (group.label.isNotEmpty()) {
-        listOf(HeaderItem(
-            gridKey = "h_${group.index}_${group.label}",
-            bucketIndex = group.index,
-            sectionLabel = group.label,
-            label = group.label
-        ))
+        listOf(
+            HeaderItem(
+                gridKey = "h_${group.index}_${group.label}",
+                bucketIndex = group.index,
+                sectionLabel = group.label,
+                label = group.label
+            )
+        )
     } else {
         emptyList()
     }

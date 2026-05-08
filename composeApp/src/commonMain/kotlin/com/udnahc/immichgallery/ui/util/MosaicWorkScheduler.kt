@@ -100,8 +100,8 @@ class MosaicWorkScheduler(
                 running
                     .filter { work ->
                         work.ownerKey == ownerKey &&
-                            work.priority == MosaicWorkPriority.ForegroundPrefetch &&
-                            work.requestKey !in visibleRequestKeys
+                                work.priority == MosaicWorkPriority.ForegroundPrefetch &&
+                                work.requestKey !in visibleRequestKeys
                     }
             }
         }
@@ -183,7 +183,7 @@ class MosaicWorkScheduler(
 
     private fun MosaicWork<*>.isActiveForegroundWork(): Boolean =
         ownerKey == activeForegroundOwner &&
-            (priority == MosaicWorkPriority.ForegroundVisible || priority == MosaicWorkPriority.ForegroundPrefetch)
+                (priority == MosaicWorkPriority.ForegroundVisible || priority == MosaicWorkPriority.ForegroundPrefetch)
 
     private class MosaicWork<T>(
         val ownerKey: String,

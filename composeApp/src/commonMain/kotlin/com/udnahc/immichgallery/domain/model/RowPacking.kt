@@ -48,7 +48,10 @@ fun packIntoRows(
     var currentSumAR = 0f
     var currentRowSourceStartIndex = sourceStartIndexOffset
 
-    fun rowKey(sourceStartIndex: Int, firstPhoto: PhotoItem): String =
+    fun rowKey(
+        sourceStartIndex: Int,
+        firstPhoto: PhotoItem
+    ): String =
         if (rowKeyPrefix == "mosaic_fallback_row") {
             fallbackRowGridKey(bucketIndex, sectionLabel, sourceStartIndex)
         } else {
@@ -80,16 +83,18 @@ fun packIntoRows(
                 targetRowHeight * WIDE_FULL_WIDTH_TARGET_MULTIPLIER
             )
             if (fullWidthHeight <= maxPromotedHeight) {
-                rows.add(RowItem(
-                    gridKey = rowKey(sourceIndex, photoItem),
-                    bucketIndex = bucketIndex,
-                    sectionLabel = sectionLabel,
-                    photos = listOf(photoItem),
-                    rowHeight = clampedRowHeight(fullWidthHeight),
-                    kind = kind,
-                    sourceStartIndex = sourceIndex,
-                    sourceCount = 1
-                ))
+                rows.add(
+                    RowItem(
+                        gridKey = rowKey(sourceIndex, photoItem),
+                        bucketIndex = bucketIndex,
+                        sectionLabel = sectionLabel,
+                        photos = listOf(photoItem),
+                        rowHeight = clampedRowHeight(fullWidthHeight),
+                        kind = kind,
+                        sourceStartIndex = sourceIndex,
+                        sourceCount = 1
+                    )
+                )
                 continue
             }
         }
@@ -101,33 +106,37 @@ fun packIntoRows(
         val neededWidth = targetRowHeight * currentSumAR + (currentRow.size - 1) * spacing
         if (neededWidth >= availableWidth && currentRow.size >= minCompleteRowPhotos) {
             val actualHeight = (availableWidth - (currentRow.size - 1) * spacing) / currentSumAR
-            rows.add(RowItem(
-                gridKey = rowKey(currentRowSourceStartIndex, currentRow.first()),
-                bucketIndex = bucketIndex,
-                sectionLabel = sectionLabel,
-                photos = currentRow.toList(),
-                rowHeight = clampedRowHeight(actualHeight),
-                kind = kind,
-                sourceStartIndex = currentRowSourceStartIndex,
-                sourceCount = currentRow.size
-            ))
+            rows.add(
+                RowItem(
+                    gridKey = rowKey(currentRowSourceStartIndex, currentRow.first()),
+                    bucketIndex = bucketIndex,
+                    sectionLabel = sectionLabel,
+                    photos = currentRow.toList(),
+                    rowHeight = clampedRowHeight(actualHeight),
+                    kind = kind,
+                    sourceStartIndex = currentRowSourceStartIndex,
+                    sourceCount = currentRow.size
+                )
+            )
             currentRow = mutableListOf()
             currentSumAR = 0f
             currentRowSourceStartIndex = sourceIndex + 1
         }
     }
     if (currentRow.isNotEmpty()) {
-        rows.add(RowItem(
-            gridKey = rowKey(currentRowSourceStartIndex, currentRow.first()),
-            bucketIndex = bucketIndex,
-            sectionLabel = sectionLabel,
-            photos = currentRow.toList(),
-            rowHeight = clampedRowHeight(targetRowHeight),
-            isComplete = false,
-            kind = kind,
-            sourceStartIndex = currentRowSourceStartIndex,
-            sourceCount = currentRow.size
-        ))
+        rows.add(
+            RowItem(
+                gridKey = rowKey(currentRowSourceStartIndex, currentRow.first()),
+                bucketIndex = bucketIndex,
+                sectionLabel = sectionLabel,
+                photos = currentRow.toList(),
+                rowHeight = clampedRowHeight(targetRowHeight),
+                isComplete = false,
+                kind = kind,
+                sourceStartIndex = currentRowSourceStartIndex,
+                sourceCount = currentRow.size
+            )
+        )
     }
     return rows
 }

@@ -31,14 +31,13 @@ import com.udnahc.immichgallery.domain.action.timeline.PrepareTimelineMosaicCach
 import com.udnahc.immichgallery.domain.action.timeline.SyncAllTimelineAssetsAction
 import com.udnahc.immichgallery.domain.action.timeline.TimelineBucketSnapshotReader
 import com.udnahc.immichgallery.domain.model.TimelineMosaicArtifactBuilder
-import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
-import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicArtifactsUseCase
 import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicCacheUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
@@ -50,13 +49,14 @@ import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCas
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
+import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketGeometryUseCase
-import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicSectionGeometryUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
+import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicSectionGeometryUseCase
+import com.udnahc.immichgallery.ui.navigation.MainScreenViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumListViewModel
-import com.udnahc.immichgallery.ui.navigation.MainScreenViewModel
 import com.udnahc.immichgallery.ui.screen.login.LoginViewModel
 import com.udnahc.immichgallery.ui.screen.people.PeopleViewModel
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailViewModel
@@ -138,10 +138,65 @@ val sharedModule = module {
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get()) }
-    viewModel { TimelineViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel {
+        TimelineViewModel(
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get()
+        )
+    }
     viewModel { AlbumListViewModel(get(), get()) }
-    viewModel { params -> AlbumDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), params.get()) }
+    viewModel { params ->
+        AlbumDetailViewModel(
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            params.get()
+        )
+    }
     viewModel { PeopleViewModel(get(), get()) }
-    viewModel { params -> PersonDetailViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), get(), params.get()) }
+    viewModel { params ->
+        PersonDetailViewModel(
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            get(),
+            params.get()
+        )
+    }
     viewModel { SearchViewModel(get(), get(), get(), get(), get(), get()) }
 }

@@ -11,7 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class ServerConfigRepository(private val settings: Settings) {
-    private val _timelineGroupSize = MutableStateFlow(settings.getString("timeline_group_size", "MONTH"))
+    private val _timelineGroupSize =
+        MutableStateFlow(settings.getString("timeline_group_size", "MONTH"))
     private val _viewConfig = MutableStateFlow(readViewConfig())
 
     fun getServerUrl(): String = settings.getString("server_url", "")
@@ -43,7 +44,10 @@ class ServerConfigRepository(private val settings: Settings) {
         val normalized = config.normalized
         settings.putBoolean(VIEW_CONFIG_MOSAIC_ENABLED_KEY, normalized.mosaicEnabled)
         settings.putBoolean(VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY, normalized.cacheMosaicResults)
-        settings.putBoolean(VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY, normalized.disableZoomWhenMosaicEnabled)
+        settings.putBoolean(
+            VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY,
+            normalized.disableZoomWhenMosaicEnabled
+        )
         settings.putInt(VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY, normalized.mosaicColumnCount)
         settings.putString(
             VIEW_CONFIG_MOSAIC_FAMILIES_KEY,
@@ -63,9 +67,14 @@ class ServerConfigRepository(private val settings: Settings) {
 
     fun hasTargetRowHeight(scope: RowHeightScope): Boolean =
         settings.hasKey(targetRowHeightKey(scope)) ||
-            (scope == RowHeightScope.TIMELINE && settings.hasKey(LEGACY_TIMELINE_TARGET_ROW_HEIGHT_KEY))
+                (scope == RowHeightScope.TIMELINE && settings.hasKey(
+                    LEGACY_TIMELINE_TARGET_ROW_HEIGHT_KEY
+                ))
 
-    fun setTargetRowHeight(scope: RowHeightScope, height: Float) {
+    fun setTargetRowHeight(
+        scope: RowHeightScope,
+        height: Float
+    ) {
         settings.putFloat(targetRowHeightKey(scope), height)
     }
 

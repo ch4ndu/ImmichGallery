@@ -217,7 +217,8 @@ fun resolvedSectionDisplayRecordsOrEmpty(
             else -> null
         } ?: return emptyList()
     }
-    return records.takeIf { it.displayRecordsCoverOrderedAssets(assets) && it.size == displayItems.size }.orEmpty()
+    return records.takeIf { it.displayRecordsCoverOrderedAssets(assets) && it.size == displayItems.size }
+        .orEmpty()
 }
 
 fun resolvedRealDisplayBandsOrEmpty(
@@ -245,19 +246,21 @@ fun List<MosaicDisplayItemRecord>.toPhotoGridDisplayItems(
                 val tiles = mutableListOf<MosaicTile>()
                 record.tiles.forEach { tile ->
                     val asset = assetsById[tile.assetId] ?: return@mapNotNull null
-                    tiles.add(MosaicTile(
-                        photo = PhotoItem(
-                            gridKey = "p_${asset.id}",
-                            bucketIndex = bucketIndex,
-                            sectionLabel = sectionLabel,
-                            asset = asset
-                        ),
-                        x = tile.x,
-                        y = tile.y,
-                        width = tile.width,
-                        height = tile.height,
-                        visualOrder = tile.visualOrder
-                    ))
+                    tiles.add(
+                        MosaicTile(
+                            photo = PhotoItem(
+                                gridKey = "p_${asset.id}",
+                                bucketIndex = bucketIndex,
+                                sectionLabel = sectionLabel,
+                                asset = asset
+                            ),
+                            x = tile.x,
+                            y = tile.y,
+                            width = tile.width,
+                            height = tile.height,
+                            visualOrder = tile.visualOrder
+                        )
+                    )
                 }
                 MosaicBandItem(
                     gridKey = "${keyPrefix}_${bucketIndex}_${sectionLabel}_${record.sourceStartIndex}",
@@ -270,6 +273,7 @@ fun List<MosaicDisplayItemRecord>.toPhotoGridDisplayItems(
                     kind = MosaicBandKind.REAL
                 )
             }
+
             MosaicDisplayItemRecordKind.MOSAIC_FALLBACK_ROW -> {
                 if (record.assetIds.size != record.sourceCount) return@mapNotNull null
                 val photos = record.assetIds.map { assetId ->
@@ -282,7 +286,11 @@ fun List<MosaicDisplayItemRecord>.toPhotoGridDisplayItems(
                     )
                 }
                 RowItem(
-                    gridKey = fallbackRowGridKey(bucketIndex, sectionLabel, record.sourceStartIndex),
+                    gridKey = fallbackRowGridKey(
+                        bucketIndex,
+                        sectionLabel,
+                        record.sourceStartIndex
+                    ),
                     bucketIndex = bucketIndex,
                     sectionLabel = sectionLabel,
                     photos = photos,
@@ -310,19 +318,21 @@ fun List<MosaicDisplayBandRecord>.toRealMosaicDisplayItems(
         val tiles = mutableListOf<MosaicTile>()
         band.tiles.forEach { tile ->
             val asset = assetsById[tile.assetId] ?: return@mapNotNull null
-            tiles.add(MosaicTile(
-                photo = PhotoItem(
-                    gridKey = "p_${asset.id}",
-                    bucketIndex = bucketIndex,
-                    sectionLabel = sectionLabel,
-                    asset = asset
-                ),
-                x = tile.x,
-                y = tile.y,
-                width = tile.width,
-                height = tile.height,
-                visualOrder = tile.visualOrder
-            ))
+            tiles.add(
+                MosaicTile(
+                    photo = PhotoItem(
+                        gridKey = "p_${asset.id}",
+                        bucketIndex = bucketIndex,
+                        sectionLabel = sectionLabel,
+                        asset = asset
+                    ),
+                    x = tile.x,
+                    y = tile.y,
+                    width = tile.width,
+                    height = tile.height,
+                    visualOrder = tile.visualOrder
+                )
+            )
         }
         MosaicBandItem(
             gridKey = "${keyPrefix}_${bucketIndex}_${sectionLabel}_${band.sourceStartIndex}",
@@ -362,6 +372,7 @@ fun List<MosaicDisplayItemRecord>.displayRecordsCoverOrderedAssets(assets: List<
                     tile.assetId
                 }
             }
+
             MosaicDisplayItemRecordKind.MOSAIC_FALLBACK_ROW -> {
                 if (record.assetIds.size != record.sourceCount || record.tiles.isNotEmpty()) return false
                 if (record.assetIds != expectedSlice) return false
@@ -397,7 +408,11 @@ fun List<MosaicDisplayBandRecord>.realDisplayBandsCoverOrderedAssets(assets: Lis
     }.displayRecordsCoverOrderedAssets(assets)
 }
 
-fun fallbackRowGridKey(bucketIndex: Int, sectionLabel: String, sourceStartIndex: Int): String =
+fun fallbackRowGridKey(
+    bucketIndex: Int,
+    sectionLabel: String,
+    sourceStartIndex: Int
+): String =
     "mosaic_fallback_row_${bucketIndex}_${sectionLabel.hashCode()}_$sourceStartIndex"
 
 fun mosaicDisplayCacheFamiliesKey(families: Set<MosaicTemplateFamily>): String =

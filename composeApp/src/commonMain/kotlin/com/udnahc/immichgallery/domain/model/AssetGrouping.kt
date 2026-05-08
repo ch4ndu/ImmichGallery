@@ -7,11 +7,17 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
 @Immutable
-data class AssetGroup(val label: String, val assets: List<Asset>)
+data class AssetGroup(
+    val label: String,
+    val assets: List<Asset>
+)
 
 enum class GroupSize { NONE, MONTH, DAY }
 
-fun groupAssets(assets: List<Asset>, groupSize: GroupSize): List<AssetGroup> {
+fun groupAssets(
+    assets: List<Asset>,
+    groupSize: GroupSize
+): List<AssetGroup> {
     if (assets.isEmpty()) return emptyList()
     return when (groupSize) {
         GroupSize.NONE -> listOf(AssetGroup("", assets))

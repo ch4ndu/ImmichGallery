@@ -93,13 +93,16 @@ internal class TimelineMosaicQueueActor(
             is TimelineMosaicQueueCommand.Enqueue -> {
                 enqueue(command.requests, command.visiblePriority, command.visibleOrTargetBuckets)
             }
+
             is TimelineMosaicQueueCommand.Defer -> {
                 command.requests.forEach(::mergeDeferred)
             }
+
             TimelineMosaicQueueCommand.PauseForScroll -> {
                 paused = true
                 cancelRunning(defer = true)
             }
+
             is TimelineMosaicQueueCommand.ResumeAfterScroll -> {
                 paused = false
                 val deferredRequests = deferred.toList()
@@ -113,6 +116,7 @@ internal class TimelineMosaicQueueActor(
                 deferredRequests.forEach(::mergePending)
                 startNextIfEligible()
             }
+
             is TimelineMosaicQueueCommand.InvalidateBucket -> {
                 pending.removeAll { it.timeBucket == command.timeBucket }
                 deferred.removeAll { it.timeBucket == command.timeBucket }
@@ -121,12 +125,14 @@ internal class TimelineMosaicQueueActor(
                 }
                 startNextIfEligible()
             }
+
             TimelineMosaicQueueCommand.ClearAll -> {
                 pending.clear()
                 deferred.clear()
                 paused = false
                 cancelRunning(defer = false)
             }
+
             is TimelineMosaicQueueCommand.WorkerFinished -> {
                 val active = running
                 if (active?.request == command.request && active.token == command.token) {
@@ -148,7 +154,7 @@ internal class TimelineMosaicQueueActor(
             .filter { it.source == TimelineMosaicWorkSource.RenderDemand }
             .firstOrNull { renderRequest ->
                 running?.request?.timeBucket == renderRequest.timeBucket &&
-                    running?.request?.source == TimelineMosaicWorkSource.SyncPrecompute
+                        running?.request?.source == TimelineMosaicWorkSource.SyncPrecompute
             }
             ?.let {
                 cancelRunning(defer = false)
@@ -160,7 +166,7 @@ internal class TimelineMosaicQueueActor(
         val active = running
         val hasVisibleRenderDemand = uniqueRequests.any {
             it.source == TimelineMosaicWorkSource.RenderDemand &&
-                it.timeBucket in visibleOrTargetBuckets
+                    it.timeBucket in visibleOrTargetBuckets
         }
         if (visiblePriority &&
             hasVisibleRenderDemand &&
@@ -199,12 +205,12 @@ internal class TimelineMosaicQueueActor(
             it.timeBucket == request.timeBucket && it.source == TimelineMosaicWorkSource.RenderDemand
         } ?: false
         return !runningRenderDemand &&
-            pending.none {
-                it.timeBucket == request.timeBucket && it.source == TimelineMosaicWorkSource.RenderDemand
-            } &&
-            deferred.none {
-                it.timeBucket == request.timeBucket && it.source == TimelineMosaicWorkSource.RenderDemand
-            }
+                pending.none {
+                    it.timeBucket == request.timeBucket && it.source == TimelineMosaicWorkSource.RenderDemand
+                } &&
+                deferred.none {
+                    it.timeBucket == request.timeBucket && it.source == TimelineMosaicWorkSource.RenderDemand
+                }
     }
 
     private fun removeSuperseded(request: TimelineMosaicQueueRequest) {

@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.album
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -30,14 +32,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.foundation.Image
 import coil3.compose.LocalPlatformContext
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.size.Precision
 import coil3.size.Size
 import com.udnahc.immichgallery.LocalAppActive
-import androidx.compose.foundation.layout.statusBarsPadding
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.ui.component.ErrorBanner
@@ -64,7 +64,10 @@ fun AlbumListScreen(
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(Unit) { onRefreshCallback { viewModel.refreshAll() } }
-    LaunchedEffect(state.isSyncing, state.isBuilding) { onSyncingState(state.isSyncing || state.isBuilding) }
+    LaunchedEffect(
+        state.isSyncing,
+        state.isBuilding
+    ) { onSyncingState(state.isSyncing || state.isBuilding) }
 
     AlbumListContent(
         state = state,

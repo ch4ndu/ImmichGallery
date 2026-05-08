@@ -10,10 +10,10 @@ import com.udnahc.immichgallery.ui.util.SyncActivityKey
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -93,7 +93,13 @@ class PeopleViewModel(
                 getPeopleUseCase.sync().fold(
                     onSuccess = {
                         log.d { "Synced people from server" }
-                        _state.update { it.copy(isBuilding = false, isSyncing = false, error = null) }
+                        _state.update {
+                            it.copy(
+                                isBuilding = false,
+                                isSyncing = false,
+                                error = null
+                            )
+                        }
                     },
                     onFailure = { e ->
                         log.e(e) { "Failed to sync people from server" }

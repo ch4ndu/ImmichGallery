@@ -119,30 +119,68 @@ private data class TileRect(
  * storing fragile pixel rectangles in cache/state.
  */
 private sealed interface MosaicNode {
-    fun widthForHeight(height: Float, aspects: FloatArray, spacing: Float): Float
-    fun heightForWidth(width: Float, aspects: FloatArray, spacing: Float): Float
-    fun layout(x: Float, y: Float, width: Float, aspects: FloatArray, spacing: Float): List<TileRect>
+    fun widthForHeight(
+        height: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): Float
+
+    fun heightForWidth(
+        width: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): Float
+
+    fun layout(
+        x: Float,
+        y: Float,
+        width: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): List<TileRect>
 }
 
 private data class LeafNode(val slot: Int) : MosaicNode {
-    override fun widthForHeight(height: Float, aspects: FloatArray, spacing: Float): Float =
+    override fun widthForHeight(
+        height: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): Float =
         height * aspects[slot]
 
-    override fun heightForWidth(width: Float, aspects: FloatArray, spacing: Float): Float =
+    override fun heightForWidth(
+        width: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): Float =
         width / aspects[slot]
 
-    override fun layout(x: Float, y: Float, width: Float, aspects: FloatArray, spacing: Float): List<TileRect> {
+    override fun layout(
+        x: Float,
+        y: Float,
+        width: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): List<TileRect> {
         val height = heightForWidth(width, aspects, spacing)
         return listOf(TileRect(slot, x, y, width, height))
     }
 }
 
 private data class HorizontalNode(val children: List<MosaicNode>) : MosaicNode {
-    override fun widthForHeight(height: Float, aspects: FloatArray, spacing: Float): Float =
+    override fun widthForHeight(
+        height: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): Float =
         children.sumOf { it.widthForHeight(height, aspects, spacing).toDouble() }.toFloat() +
-            spacing * (children.size - 1)
+                spacing * (children.size - 1)
 
-    override fun heightForWidth(width: Float, aspects: FloatArray, spacing: Float): Float {
+    override fun heightForWidth(
+        width: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): Float {
         val usableWidth = width.coerceAtLeast(0f)
         var low = 0f
         var high = usableWidth.coerceAtLeast(1f)
@@ -160,7 +198,13 @@ private data class HorizontalNode(val children: List<MosaicNode>) : MosaicNode {
         return low
     }
 
-    override fun layout(x: Float, y: Float, width: Float, aspects: FloatArray, spacing: Float): List<TileRect> {
+    override fun layout(
+        x: Float,
+        y: Float,
+        width: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): List<TileRect> {
         val height = heightForWidth(width, aspects, spacing)
         val result = mutableListOf<TileRect>()
         var cursorX = x
@@ -174,17 +218,32 @@ private data class HorizontalNode(val children: List<MosaicNode>) : MosaicNode {
 }
 
 private data class VerticalNode(val children: List<MosaicNode>) : MosaicNode {
-    override fun widthForHeight(height: Float, aspects: FloatArray, spacing: Float): Float {
+    override fun widthForHeight(
+        height: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): Float {
         val usableHeight = (height - spacing * (children.size - 1)).coerceAtLeast(0f)
-        val inverseAspectSum = children.sumOf { (1f / it.approxAspect(aspects)).toDouble() }.toFloat()
+        val inverseAspectSum =
+            children.sumOf { (1f / it.approxAspect(aspects)).toDouble() }.toFloat()
         return if (inverseAspectSum > 0f) usableHeight / inverseAspectSum else 0f
     }
 
-    override fun heightForWidth(width: Float, aspects: FloatArray, spacing: Float): Float =
+    override fun heightForWidth(
+        width: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): Float =
         children.sumOf { it.heightForWidth(width, aspects, spacing).toDouble() }.toFloat() +
-            spacing * (children.size - 1)
+                spacing * (children.size - 1)
 
-    override fun layout(x: Float, y: Float, width: Float, aspects: FloatArray, spacing: Float): List<TileRect> {
+    override fun layout(
+        x: Float,
+        y: Float,
+        width: Float,
+        aspects: FloatArray,
+        spacing: Float
+    ): List<TileRect> {
         val result = mutableListOf<TileRect>()
         var cursorY = y
         for (child in children) {
@@ -213,7 +272,10 @@ private data class MosaicTemplate(
     val root: MosaicNode
 )
 
-fun nearestMosaicColumnCount(availableWidth: Float, targetRowHeight: Float): Int {
+fun nearestMosaicColumnCount(
+    availableWidth: Float,
+    targetRowHeight: Float
+): Int {
     if (availableWidth <= 0f || targetRowHeight <= 0f) return DEFAULT_GRID_COLUMN_COUNT
     // Mosaic treats the row-height preference as a density hint. The resolved
     // column count then defines the real cell height used by bands, placeholders,
@@ -224,7 +286,10 @@ fun nearestMosaicColumnCount(availableWidth: Float, targetRowHeight: Float): Int
         .coerceIn(SUPPORTED_MOSAIC_COLUMN_COUNTS.first, SUPPORTED_MOSAIC_COLUMN_COUNTS.last)
 }
 
-fun mosaicLayoutSpecFor(availableWidth: Float, targetRowHeight: Float): MosaicLayoutSpec? {
+fun mosaicLayoutSpecFor(
+    availableWidth: Float,
+    targetRowHeight: Float
+): MosaicLayoutSpec? {
     if (availableWidth <= 0f || targetRowHeight <= 0f) return null
     val columnCount = nearestMosaicColumnCount(availableWidth, targetRowHeight)
     if (columnCount !in SUPPORTED_MOSAIC_COLUMN_COUNTS) return null
@@ -235,7 +300,10 @@ fun mosaicLayoutSpecFor(availableWidth: Float, targetRowHeight: Float): MosaicLa
     )
 }
 
-fun mosaicLayoutSpecForColumnCount(availableWidth: Float, columnCount: Int): MosaicLayoutSpec? {
+fun mosaicLayoutSpecForColumnCount(
+    availableWidth: Float,
+    columnCount: Int
+): MosaicLayoutSpec? {
     if (availableWidth <= 0f || columnCount !in SUPPORTED_MOSAIC_COLUMN_COUNTS) return null
     return MosaicLayoutSpec(
         columnCount = columnCount,
@@ -274,7 +342,10 @@ fun mosaicFallbackRowHeight(
         layoutSpec.cellHeight
     }
 
-fun mosaicFallbackMinRowHeight(layoutSpec: MosaicLayoutSpec, mosaicBandHeights: List<Float>): Float {
+fun mosaicFallbackMinRowHeight(
+    layoutSpec: MosaicLayoutSpec,
+    mosaicBandHeights: List<Float>
+): Float {
     val cellFloor = mosaicFallbackMinRowHeight(layoutSpec)
     // Fallback rows sit between Mosaic bands. If the bands in this group are
     // large, using only the cell-height floor can make normal justified rows
@@ -293,7 +364,9 @@ fun mosaicFallbackMinRowHeight(layoutSpec: MosaicLayoutSpec, mosaicBandHeights: 
                 }
             }
         }
-    val bandFloor = representativeBandHeight?.let { it * MOSAIC_FALLBACK_TARGET_ROW_HEIGHT_BAND_MULTIPLIER } ?: 0f
+    val bandFloor =
+        representativeBandHeight?.let { it * MOSAIC_FALLBACK_TARGET_ROW_HEIGHT_BAND_MULTIPLIER }
+            ?: 0f
     return maxOf(cellFloor, bandFloor)
 }
 
@@ -430,7 +503,8 @@ suspend fun buildMosaicAssignmentsWithProgress(
                 val pendingBandCount = assignments.size - lastEmittedBandCount
                 if (pendingBandCount >= batchSize && pendingBandCount % batchSize == 0) {
                     val chunkAssignments = assignments.drop(lastEmittedBandCount)
-                    val chunkEndIndex = candidate.assignment.sourceStartIndex + candidate.assignment.sourceCount
+                    val chunkEndIndex =
+                        candidate.assignment.sourceStartIndex + candidate.assignment.sourceCount
                     if (isStableProgressChunk(
                             assets = assets,
                             sourceStartIndex = chunkStartIndex,
@@ -501,7 +575,8 @@ private fun MosaicAssignmentCheckpoint.isValidFor(assets: List<Asset>): Boolean 
         if (assignment.sourceStartIndex < 0 || assignment.sourceCount <= 0) return false
         val endExclusive = assignment.sourceStartIndex + assignment.sourceCount
         if (endExclusive > assets.size) return false
-        val expectedIds = assets.subList(assignment.sourceStartIndex, endExclusive).map { it.id }.toSet()
+        val expectedIds =
+            assets.subList(assignment.sourceStartIndex, endExclusive).map { it.id }.toSet()
         val actualIds = assignment.tiles.map { it.assetId }.toSet()
         if (expectedIds != actualIds || actualIds.size != assignment.sourceCount) return false
         previousEnd = endExclusive
@@ -631,9 +706,9 @@ private fun isStableProgressChunk(
         minCompleteRowPhotos = MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS
     )
     return displayItems.isNotEmpty() &&
-        displayItems.all { item ->
-            item is MosaicBandItem && item.kind == MosaicBandKind.REAL
-        }
+            displayItems.all { item ->
+                item is MosaicBandItem && item.kind == MosaicBandKind.REAL
+            }
 }
 
 fun buildFallbackMosaicRows(
@@ -686,7 +761,8 @@ private fun bestCandidate(
      */
     for (count in maxCount downTo MIN_MOSAIC_ASSETS) {
         shouldContinue()
-        val templates = MOSAIC_TEMPLATES.filter { it.slotCount == count && it.family in enabledFamilies }
+        val templates =
+            MOSAIC_TEMPLATES.filter { it.slotCount == count && it.family in enabledFamilies }
         if (templates.isEmpty()) continue
         val window = assets.subList(sourceStartIndex, sourceStartIndex + count)
         for (permutation in permutations(count)) {
@@ -761,7 +837,8 @@ private fun MosaicBandAssignment.toDisplayItem(
     val assetsById = assets.associateBy { it.id }
     val orderedTiles = tiles.sortedBy { it.visualOrder }
     if (orderedTiles.size != template.slotCount) return null
-    val tileAssets = orderedTiles.map { assignment -> assetsById[assignment.assetId] ?: return null }
+    val tileAssets =
+        orderedTiles.map { assignment -> assetsById[assignment.assetId] ?: return null }
     val aspects = FloatArray(tileAssets.size) { index ->
         tileAssets[index].aspectRatio.coerceAtLeast(MIN_ASPECT_RATIO)
     }
@@ -816,13 +893,16 @@ private fun MosaicBandItem.isValidFor(layoutSpec: MosaicLayoutSpec): Boolean {
 
 private fun MosaicTile.overlaps(other: MosaicTile): Boolean =
     x + width > other.x + GEOMETRY_TOLERANCE &&
-        other.x + other.width > x + GEOMETRY_TOLERANCE &&
-        y + height > other.y + GEOMETRY_TOLERANCE &&
-        other.y + other.height > y + GEOMETRY_TOLERANCE
+            other.x + other.width > x + GEOMETRY_TOLERANCE &&
+            y + height > other.y + GEOMETRY_TOLERANCE &&
+            other.y + other.height > y + GEOMETRY_TOLERANCE
 
 private fun permutations(size: Int): List<IntArray> {
     val result = mutableListOf<IntArray>()
-    fun permute(values: IntArray, index: Int) {
+    fun permute(
+        values: IntArray,
+        index: Int
+    ) {
         if (index == values.size) {
             result.add(values.copyOf())
             return
@@ -845,18 +925,78 @@ private fun h(vararg children: MosaicNode): MosaicNode = HorizontalNode(children
 private fun v(vararg children: MosaicNode): MosaicNode = VerticalNode(children.toList())
 
 private val MOSAIC_TEMPLATES = listOf(
-    MosaicTemplate("4_feature_left_stack_3", MosaicTemplateFamily.FOUR_TILE, 4, h(leaf(0), v(leaf(1), leaf(2), leaf(3)))),
-    MosaicTemplate("4_feature_right_stack_3", MosaicTemplateFamily.FOUR_TILE, 4, h(v(leaf(1), leaf(2), leaf(3)), leaf(0))),
-    MosaicTemplate("4_top_feature_bottom_row", MosaicTemplateFamily.FOUR_TILE, 4, v(leaf(0), h(leaf(1), leaf(2), leaf(3)))),
-    MosaicTemplate("4_bottom_feature_top_row", MosaicTemplateFamily.FOUR_TILE, 4, v(h(leaf(1), leaf(2), leaf(3)), leaf(0))),
-    MosaicTemplate("5_feature_left_quad", MosaicTemplateFamily.FIVE_TILE, 5, h(leaf(0), v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4))))),
-    MosaicTemplate("5_feature_right_quad", MosaicTemplateFamily.FIVE_TILE, 5, h(v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4))), leaf(0))),
-    MosaicTemplate("5_top_feature_cluster", MosaicTemplateFamily.FIVE_TILE, 5, v(leaf(0), h(v(leaf(1), leaf(2)), v(leaf(3), leaf(4))))),
-    MosaicTemplate("5_bottom_feature_cluster", MosaicTemplateFamily.FIVE_TILE, 5, v(h(v(leaf(1), leaf(2)), v(leaf(3), leaf(4))), leaf(0))),
-    MosaicTemplate("6_feature_left_mixed", MosaicTemplateFamily.SIX_TILE, 6, h(leaf(0), v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4)), leaf(5)))),
-    MosaicTemplate("6_feature_right_mixed", MosaicTemplateFamily.SIX_TILE, 6, h(v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4)), leaf(5)), leaf(0))),
-    MosaicTemplate("6_three_columns_pairs", MosaicTemplateFamily.SIX_TILE, 6, h(v(leaf(0), leaf(1)), v(leaf(2), leaf(3)), v(leaf(4), leaf(5)))),
-    MosaicTemplate("6_two_rows_triples", MosaicTemplateFamily.SIX_TILE, 6, v(h(leaf(0), leaf(1), leaf(2)), h(leaf(3), leaf(4), leaf(5))))
+    MosaicTemplate(
+        "4_feature_left_stack_3",
+        MosaicTemplateFamily.FOUR_TILE,
+        4,
+        h(leaf(0), v(leaf(1), leaf(2), leaf(3)))
+    ),
+    MosaicTemplate(
+        "4_feature_right_stack_3",
+        MosaicTemplateFamily.FOUR_TILE,
+        4,
+        h(v(leaf(1), leaf(2), leaf(3)), leaf(0))
+    ),
+    MosaicTemplate(
+        "4_top_feature_bottom_row",
+        MosaicTemplateFamily.FOUR_TILE,
+        4,
+        v(leaf(0), h(leaf(1), leaf(2), leaf(3)))
+    ),
+    MosaicTemplate(
+        "4_bottom_feature_top_row",
+        MosaicTemplateFamily.FOUR_TILE,
+        4,
+        v(h(leaf(1), leaf(2), leaf(3)), leaf(0))
+    ),
+    MosaicTemplate(
+        "5_feature_left_quad",
+        MosaicTemplateFamily.FIVE_TILE,
+        5,
+        h(leaf(0), v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4))))
+    ),
+    MosaicTemplate(
+        "5_feature_right_quad",
+        MosaicTemplateFamily.FIVE_TILE,
+        5,
+        h(v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4))), leaf(0))
+    ),
+    MosaicTemplate(
+        "5_top_feature_cluster",
+        MosaicTemplateFamily.FIVE_TILE,
+        5,
+        v(leaf(0), h(v(leaf(1), leaf(2)), v(leaf(3), leaf(4))))
+    ),
+    MosaicTemplate(
+        "5_bottom_feature_cluster",
+        MosaicTemplateFamily.FIVE_TILE,
+        5,
+        v(h(v(leaf(1), leaf(2)), v(leaf(3), leaf(4))), leaf(0))
+    ),
+    MosaicTemplate(
+        "6_feature_left_mixed",
+        MosaicTemplateFamily.SIX_TILE,
+        6,
+        h(leaf(0), v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4)), leaf(5)))
+    ),
+    MosaicTemplate(
+        "6_feature_right_mixed",
+        MosaicTemplateFamily.SIX_TILE,
+        6,
+        h(v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4)), leaf(5)), leaf(0))
+    ),
+    MosaicTemplate(
+        "6_three_columns_pairs",
+        MosaicTemplateFamily.SIX_TILE,
+        6,
+        h(v(leaf(0), leaf(1)), v(leaf(2), leaf(3)), v(leaf(4), leaf(5)))
+    ),
+    MosaicTemplate(
+        "6_two_rows_triples",
+        MosaicTemplateFamily.SIX_TILE,
+        6,
+        v(h(leaf(0), leaf(1), leaf(2)), h(leaf(3), leaf(4), leaf(5)))
+    )
 )
 
 private const val MIN_MOSAIC_ASSETS = 4

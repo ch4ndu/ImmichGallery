@@ -73,11 +73,10 @@ fun Modifier.dragToDismiss(
     }
 }
 
-private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope
-    .awaitVerticalTouchSlopOrMultiTouchCancellation(
-        down: PointerInputChange,
-        onTouchSlopReached: (PointerInputChange, Float) -> Unit,
-    ): PointerInputChange? {
+private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.awaitVerticalTouchSlopOrMultiTouchCancellation(
+    down: PointerInputChange,
+    onTouchSlopReached: (PointerInputChange, Float) -> Unit,
+): PointerInputChange? {
     val pointerId = down.id
     val touchSlop = viewConfiguration.touchSlop
     var total = Offset.Zero

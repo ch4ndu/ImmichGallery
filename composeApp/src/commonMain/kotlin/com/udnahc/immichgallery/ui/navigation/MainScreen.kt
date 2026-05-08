@@ -14,7 +14,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,7 +37,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -55,8 +52,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
-import org.koin.compose.viewmodel.koinViewModel
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -66,21 +61,19 @@ import androidx.navigation.compose.rememberNavController
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.ui.component.MosaicViewConfigMenuItem
-import com.udnahc.immichgallery.ui.util.systemBarFadeIn
-import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.systemBarFadeIn
+import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.cancel
 import immichgallery.composeapp.generated.resources.ic_albums
 import immichgallery.composeapp.generated.resources.ic_more_vert
-import immichgallery.composeapp.generated.resources.ic_refresh
-import immichgallery.composeapp.generated.resources.timeline_group_day
-import immichgallery.composeapp.generated.resources.timeline_group_month
 import immichgallery.composeapp.generated.resources.ic_people
+import immichgallery.composeapp.generated.resources.ic_refresh
 import immichgallery.composeapp.generated.resources.ic_search
 import immichgallery.composeapp.generated.resources.ic_timeline
 import immichgallery.composeapp.generated.resources.logout
@@ -93,10 +86,14 @@ import immichgallery.composeapp.generated.resources.tab_albums
 import immichgallery.composeapp.generated.resources.tab_people
 import immichgallery.composeapp.generated.resources.tab_search
 import immichgallery.composeapp.generated.resources.tab_timeline
+import immichgallery.composeapp.generated.resources.timeline_group_day
+import immichgallery.composeapp.generated.resources.timeline_group_month
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.viewmodel.koinViewModel
+import kotlin.math.roundToInt
 
 private const val BAR_ALPHA = 0.8f
 
@@ -173,7 +170,9 @@ fun MainScreen(
                     onRefreshCallback = { callback -> tabRefreshCallback = callback },
                     onSyncingState = { syncing -> tabIsSyncing = syncing },
                     onColdSyncBlockingState = { blocking -> timelineColdSyncBlocking = blocking },
-                    onMosaicPrepareCallback = { callback -> timelineMosaicPrepareCallback = callback },
+                    onMosaicPrepareCallback = { callback ->
+                        timelineMosaicPrepareCallback = callback
+                    },
                     onOverlayActiveChange = { active -> overlayActive = active },
                 )
             }
@@ -370,7 +369,10 @@ private fun TopBarOverlay(
             Spacer(Modifier.width(Dimens.smallSpacing))
 
             Box {
-                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(Dimens.topBarHeight)) {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(Dimens.topBarHeight)
+                ) {
                     Icon(
                         painterResource(Res.drawable.ic_more_vert),
                         contentDescription = null,
