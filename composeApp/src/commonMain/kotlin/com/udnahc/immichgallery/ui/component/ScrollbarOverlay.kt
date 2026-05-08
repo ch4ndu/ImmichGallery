@@ -11,10 +11,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.DraggableState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -368,124 +371,182 @@ private fun ScrollbarHandle(
             .onSizeChanged { trackHeightPx = it.height }
             .semantics { contentDescription = thumbDescription }
     ) {
-        // Year markers along the right edge — small pill badges
-        visibleMarkers.forEach { marker ->
-            key(marker.year) {
-                val markerOffsetPx = remember(
-                    trackHeightPx,
-                    marker.fraction,
-                    topPaddingPx,
-                    bottomPaddingPx,
-                    yearMarkerEdgePaddingPx
-                ) {
-                    val markerTop = topPaddingPx + yearMarkerEdgePaddingPx
-                    val markerBottom = bottomPaddingPx + yearMarkerEdgePaddingPx
-                    val availableTrack = trackHeightPx - markerTop - markerBottom
-                    val maxOffset = (trackHeightPx - markerBottom).coerceAtLeast(markerTop)
-                    (markerTop + availableTrack * marker.fraction).coerceIn(markerTop, maxOffset)
-                        .toInt()
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset { IntOffset(0, markerOffsetPx) }
-                        .padding(end = Dimens.scrollbarYearLabelPadding)
-                        .clip(RoundedCornerShape(Dimens.scrollbarYearLabelCornerRadius))
-                        .background(yearLabelColor.copy(alpha = 0.12f))
-                        .padding(
-                            horizontal = Dimens.scrollbarYearLabelPaddingHorizontal,
-                            vertical = Dimens.scrollbarYearLabelPaddingVertical
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = marker.year,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = yearLabelColor.copy(alpha = 0.7f),
-                        maxLines = 1
-                    )
-                }
-            }
-        }
+        ScrollbarYearMarkers(
+            markers = visibleMarkers,
+            trackHeightPx = trackHeightPx,
+            topPaddingPx = topPaddingPx,
+            bottomPaddingPx = bottomPaddingPx,
+            yearMarkerEdgePaddingPx = yearMarkerEdgePaddingPx,
+            yearLabelColor = yearLabelColor
+        )
 
-        // Circle handle
-        Surface(
-            shape = CircleShape,
-            color = handleColor,
-            shadowElevation = Dimens.scrollbarHandleElevation,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset { IntOffset(x = handleClipOffsetPx, y = handleOffsetPx) }
-                .size(Dimens.scrollbarHandleSize)
-                .excludeFromSystemGestures()
-                .draggable(
-                    state = draggableState,
-                    orientation = Orientation.Vertical,
-                    startDragImmediately = true,
-                    onDragStarted = {
-                        isDragging = true
-                        onDragStarted()
-                    },
-                    onDragStopped = {
-                        isDragging = false
-                        onDragStopped(dragFraction)
-                    }
-                )
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+        ScrollbarThumb(
+            handleOffsetPx = handleOffsetPx,
+            handleClipOffsetPx = handleClipOffsetPx,
+            handleColor = handleColor,
+            handleIconColor = handleIconColor,
+            dragDescription = dragDescription,
+            draggableState = draggableState,
+            onDragStarted = {
+                isDragging = true
+                onDragStarted()
+            },
+            onDragStopped = {
+                isDragging = false
+                onDragStopped(dragFraction)
+            }
+        )
+
+        ScrollbarDragBubble(
+            label = label,
+            handleOffsetPx = handleOffsetPx,
+            handleSizePx = handleSizePx,
+            bubbleVerticalOffsetPx = bubbleVerticalOffsetPx,
+            bubbleBackground = bubbleBackground,
+            bubbleTextColor = bubbleTextColor
+        )
+    }
+}
+
+@Composable
+private fun BoxScope.ScrollbarYearMarkers(
+    markers: List<YearMarker>,
+    trackHeightPx: Int,
+    topPaddingPx: Float,
+    bottomPaddingPx: Float,
+    yearMarkerEdgePaddingPx: Float,
+    yearLabelColor: Color
+) {
+    markers.forEach { marker ->
+        key(marker.year) {
+            val markerOffsetPx = remember(
+                trackHeightPx,
+                marker.fraction,
+                topPaddingPx,
+                bottomPaddingPx,
+                yearMarkerEdgePaddingPx
             ) {
-                Icon(
-                    painter = painterResource(Res.drawable.ic_scroll_arrows),
-                    contentDescription = dragDescription,
-                    tint = handleIconColor,
-                    modifier = Modifier
-                        .size(Dimens.scrollbarHandleIconSize)
-                        .offset(x = -(Dimens.scrollbarHandleClipOffset / 4))
-                )
+                val markerTop = topPaddingPx + yearMarkerEdgePaddingPx
+                val markerBottom = bottomPaddingPx + yearMarkerEdgePaddingPx
+                val availableTrack = trackHeightPx - markerTop - markerBottom
+                val maxOffset = (trackHeightPx - markerBottom).coerceAtLeast(markerTop)
+                (markerTop + availableTrack * marker.fraction).coerceIn(markerTop, maxOffset)
+                    .toInt()
             }
-        }
-
-        // Date bubble — slides in from right when dragging
-        AnimatedVisibility(
-            visible = label != null,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset {
-                    val bubbleCenterOffset =
-                        handleOffsetPx + (handleSizePx / 2).toInt() - bubbleVerticalOffsetPx
-                    IntOffset(0, bubbleCenterOffset)
-                }
-                .padding(
-                    end = Dimens.scrollbarHandleSize - Dimens.scrollbarHandleClipOffset + Dimens.scrollbarBubbleGap + Dimens.scrollbarBubbleVerticalOffset
-                ),
-            enter = slideInHorizontally(
-                initialOffsetX = { it },
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-            ) + fadeIn(animationSpec = tween(150)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { it },
-                animationSpec = tween(200)
-            ) + fadeOut(animationSpec = tween(150))
-        ) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(Dimens.scrollbarBubbleCornerRadius))
-                    .background(bubbleBackground)
+                    .align(Alignment.TopEnd)
+                    .offset { IntOffset(0, markerOffsetPx) }
+                    .padding(end = Dimens.scrollbarYearLabelPadding)
+                    .clip(RoundedCornerShape(Dimens.scrollbarYearLabelCornerRadius))
+                    .background(yearLabelColor.copy(alpha = 0.12f))
                     .padding(
-                        horizontal = Dimens.scrollbarBubblePadding,
-                        vertical = Dimens.smallSpacing
+                        horizontal = Dimens.scrollbarYearLabelPaddingHorizontal,
+                        vertical = Dimens.scrollbarYearLabelPaddingVertical
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = label ?: "",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = bubbleTextColor,
+                    text = marker.year,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = yearLabelColor.copy(alpha = 0.7f),
                     maxLines = 1
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.ScrollbarThumb(
+    handleOffsetPx: Int,
+    handleClipOffsetPx: Int,
+    handleColor: Color,
+    handleIconColor: Color,
+    dragDescription: String,
+    draggableState: DraggableState,
+    onDragStarted: () -> Unit,
+    onDragStopped: () -> Unit
+) {
+    Surface(
+        shape = CircleShape,
+        color = handleColor,
+        shadowElevation = Dimens.scrollbarHandleElevation,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .offset { IntOffset(x = handleClipOffsetPx, y = handleOffsetPx) }
+            .size(Dimens.scrollbarHandleSize)
+            .excludeFromSystemGestures()
+            .draggable(
+                state = draggableState,
+                orientation = Orientation.Vertical,
+                startDragImmediately = true,
+                onDragStarted = { onDragStarted() },
+                onDragStopped = { onDragStopped() }
+            )
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_scroll_arrows),
+                contentDescription = dragDescription,
+                tint = handleIconColor,
+                modifier = Modifier
+                    .size(Dimens.scrollbarHandleIconSize)
+                    .offset(x = -(Dimens.scrollbarHandleClipOffset / 4))
+            )
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.ScrollbarDragBubble(
+    label: String?,
+    handleOffsetPx: Int,
+    handleSizePx: Float,
+    bubbleVerticalOffsetPx: Int,
+    bubbleBackground: Color,
+    bubbleTextColor: Color
+) {
+    AnimatedVisibility(
+        visible = label != null,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .offset {
+                val bubbleCenterOffset =
+                    handleOffsetPx + (handleSizePx / 2).toInt() - bubbleVerticalOffsetPx
+                IntOffset(0, bubbleCenterOffset)
+            }
+            .padding(
+                end = Dimens.scrollbarHandleSize - Dimens.scrollbarHandleClipOffset + Dimens.scrollbarBubbleGap + Dimens.scrollbarBubbleVerticalOffset
+            ),
+        enter = slideInHorizontally(
+            initialOffsetX = { it },
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+        ) + fadeIn(animationSpec = tween(150)),
+        exit = slideOutHorizontally(
+            targetOffsetX = { it },
+            animationSpec = tween(200)
+        ) + fadeOut(animationSpec = tween(150))
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(Dimens.scrollbarBubbleCornerRadius))
+                .background(bubbleBackground)
+                .padding(
+                    horizontal = Dimens.scrollbarBubblePadding,
+                    vertical = Dimens.smallSpacing
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label ?: "",
+                style = MaterialTheme.typography.labelLarge,
+                color = bubbleTextColor,
+                maxLines = 1
+            )
         }
     }
 }
