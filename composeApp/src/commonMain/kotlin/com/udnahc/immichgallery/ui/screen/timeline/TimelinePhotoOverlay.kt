@@ -83,6 +83,7 @@ fun TimelinePhotoOverlay(
     }
 
     val state by timelineState.collectAsState()
+    val latestState by rememberUpdatedState(state)
     var showTopBar by remember { mutableStateOf(true) }
     var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
     var showSlideshowDialog by remember { mutableStateOf(false) }
@@ -146,7 +147,7 @@ fun TimelinePhotoOverlay(
     val latestAssetChangedCallback by rememberUpdatedState(onCurrentAssetChanged)
     LaunchedEffect(Unit) {
         snapshotFlow {
-            resolvePageAsset(pagerState.settledPage, state, assetCache)?.id
+            resolvePageAsset(pagerState.settledPage, latestState, assetCache)?.id
         }
             .mapNotNull { it }
             .distinctUntilChanged()
@@ -159,12 +160,14 @@ fun TimelinePhotoOverlay(
     val prefetchContext = LocalPlatformContext.current
     val imageLoader = remember(prefetchContext) { SingletonImageLoader.get(prefetchContext) }
     LaunchedEffect(Unit) {
-        snapshotFlow { pagerState.settledPage }
+        snapshotFlow {
+            val settledPage = pagerState.settledPage
+            listOf(settledPage - 1, settledPage, settledPage + 1)
+                .mapNotNull { idx -> resolvePageAsset(idx, latestState, assetCache) }
+        }
             .distinctUntilChanged()
-            .collect { page ->
-                listOf(page - 1, page, page + 1).forEach { idx ->
-                    val asset = resolvePageAsset(idx, state, assetCache)
-                        ?: return@forEach
+            .collect { assetsToPrefetch ->
+                assetsToPrefetch.forEach { asset ->
                     imageLoader.enqueue(
                         ImageRequest.Builder(prefetchContext)
                             .data(asset.originalUrl)
@@ -342,11 +345,15 @@ fun TimelinePhotoOverlay(
             val isSettledPage = pagerState.settledPage == page
 
             // Trigger loading for this page's bucket
+            val latestOnBucketNeeded by rememberUpdatedState(onBucketNeeded)
             LaunchedEffect(page) {
-                val bucket = resolvePageBucket(page, state)
-                if (bucket != null && !assetCache.containsKey(bucket)) {
-                    onBucketNeeded(bucket)
+                snapshotFlow {
+                    resolvePageBucket(page, latestState)
+                        ?.takeUnless { bucket -> assetCache.containsKey(bucket) }
                 }
+                    .mapNotNull { it }
+                    .distinctUntilChanged()
+                    .collect { bucket -> latestOnBucketNeeded(bucket) }
             }
 
             val photoDragTransform = if (isSettledPage && dragState.isActive) {

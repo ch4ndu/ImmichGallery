@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.data.repository
 
+import androidx.room.immediateTransaction
+import androidx.room.useWriterConnection
+import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.dao.AlbumDao
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class AlbumRepository(
+    private val database: AppDatabase,
     private val apiService: ImmichApiService,
     private val albumDao: AlbumDao,
     private val assetDao: AssetDao,
@@ -95,10 +99,14 @@ class AlbumRepository(
             val responses = apiService.getAlbums()
             val entities = responses.map { it.toAlbumEntity() }
             withContext(Dispatchers.IO) {
-                albumDao.replaceAlbums(entities)
-                syncMetadataDao.upsert(
-                    SyncMetadataEntity(SYNC_SCOPE_ALBUMS, currentEpochMillis())
-                )
+                database.useWriterConnection { transactor ->
+                    transactor.immediateTransaction {
+                        albumDao.replaceAlbums(entities)
+                        syncMetadataDao.upsert(
+                            SyncMetadataEntity(SYNC_SCOPE_ALBUMS, currentEpochMillis())
+                        )
+                    }
+                }
             }
             Result.success(Unit)
         } catch (e: Exception) {
@@ -130,12 +138,16 @@ class AlbumRepository(
                 updatedAt = cachedAlbum?.updatedAt ?: ""
             )
             withContext(Dispatchers.IO) {
-                albumDao.upsertAlbums(listOf(detailAlbum))
-                assetDao.upsertAssets(assetEntities)
-                albumDao.replaceAlbumRefs(albumId, crossRefs)
-                syncMetadataDao.upsert(
-                    SyncMetadataEntity("$SYNC_SCOPE_ALBUM_PREFIX$albumId", currentEpochMillis())
-                )
+                database.useWriterConnection { transactor ->
+                    transactor.immediateTransaction {
+                        albumDao.upsertAlbums(listOf(detailAlbum))
+                        assetDao.upsertAssets(assetEntities)
+                        albumDao.replaceAlbumRefs(albumId, crossRefs)
+                        syncMetadataDao.upsert(
+                            SyncMetadataEntity("$SYNC_SCOPE_ALBUM_PREFIX$albumId", currentEpochMillis())
+                        )
+                    }
+                }
             }
             // Precise aspect for edited assets: fetch /edits in parallel and
             // replace the sync-time approximation with the simulated
@@ -159,8 +171,12 @@ class AlbumRepository(
 
     suspend fun clearCache() {
         withContext(Dispatchers.IO) {
-            albumDao.clearAlbums()
-            albumDao.clearAllAlbumRefs()
+            database.useWriterConnection { transactor ->
+                transactor.immediateTransaction {
+                    albumDao.clearAlbums()
+                    albumDao.clearAllAlbumRefs()
+                }
+            }
         }
     }
 

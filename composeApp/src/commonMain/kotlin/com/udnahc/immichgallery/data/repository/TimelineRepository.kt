@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.data.repository
 
+import androidx.room.immediateTransaction
+import androidx.room.useWriterConnection
+import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.dao.TimelineDao
@@ -35,6 +38,7 @@ import kotlinx.coroutines.withContext
 import org.lighthousegames.logging.logging
 
 class TimelineRepository(
+    private val database: AppDatabase,
     private val apiService: ImmichApiService,
     private val timelineDao: TimelineDao,
     private val assetDao: AssetDao,
@@ -132,16 +136,20 @@ class TimelineRepository(
                 // rows remain visible until that bucket's asset refresh
                 // succeeds. Removed buckets are the only metadata-sync case
                 // that can safely clear relationship rows immediately.
-                removedBucketIds.forEach { timeBucket ->
-                    timelineDao.clearTimelineRefsForBucket(timeBucket)
+                database.useWriterConnection { transactor ->
+                    transactor.immediateTransaction {
+                        removedBucketIds.forEach { timeBucket ->
+                            timelineDao.clearTimelineRefsForBucket(timeBucket)
+                        }
+                        timelineDao.replaceBuckets(entities)
+                        syncMetadataDao.upsert(
+                            SyncMetadataEntity(
+                                SYNC_SCOPE_TIMELINE_BUCKETS,
+                                currentEpochMillis()
+                            )
+                        )
+                    }
                 }
-                timelineDao.replaceBuckets(entities)
-                syncMetadataDao.upsert(
-                    SyncMetadataEntity(
-                        SYNC_SCOPE_TIMELINE_BUCKETS,
-                        currentEpochMillis()
-                    )
-                )
             }
             log.d { "Timeline bucket metadata Room write completed buckets=${entities.size}" }
             Result.success(
@@ -197,8 +205,12 @@ class TimelineRepository(
                 ))
             }
             withContext(Dispatchers.IO) {
-                assetDao.upsertAssets(assetEntities)
-                timelineDao.replaceBucketRefs(timeBucket, crossRefs)
+                database.useWriterConnection { transactor ->
+                    transactor.immediateTransaction {
+                        assetDao.upsertAssets(assetEntities)
+                        timelineDao.replaceBucketRefs(timeBucket, crossRefs)
+                    }
+                }
             }
             // Timeline bucket responses currently come from Immich's columnar
             // endpoint, which does not include edit metadata or original
@@ -280,8 +292,12 @@ class TimelineRepository(
 
     suspend fun clearCache() {
         withContext(Dispatchers.IO) {
-            timelineDao.clearBuckets()
-            timelineDao.clearAllTimelineRefs()
+            database.useWriterConnection { transactor ->
+                transactor.immediateTransaction {
+                    timelineDao.clearBuckets()
+                    timelineDao.clearAllTimelineRefs()
+                }
+            }
         }
     }
 

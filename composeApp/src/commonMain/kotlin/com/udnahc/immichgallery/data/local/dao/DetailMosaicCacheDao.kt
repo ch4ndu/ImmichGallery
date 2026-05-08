@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.data.local.dao
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import com.udnahc.immichgallery.data.local.entity.DetailMosaicAggregateGeometryEntity
 import com.udnahc.immichgallery.data.local.entity.DetailMosaicAssignmentEntity
@@ -147,4 +148,41 @@ interface DetailMosaicCacheDao {
 
     @Query("DELETE FROM detail_mosaic_aggregate_geometry")
     suspend fun clearAllAggregateGeometry()
+
+    @Transaction
+    suspend fun upsertArtifacts(
+        assignments: List<DetailMosaicAssignmentEntity>,
+        displayCache: List<DetailMosaicDisplayCacheEntity>,
+        sectionGeometry: List<DetailMosaicSectionGeometryEntity>,
+        aggregateGeometry: DetailMosaicAggregateGeometryEntity?
+    ) {
+        if (assignments.isNotEmpty()) {
+            upsertAssignments(assignments)
+        }
+        if (displayCache.isNotEmpty()) {
+            upsertDisplayCache(displayCache)
+        }
+        if (sectionGeometry.isNotEmpty()) {
+            upsertSectionGeometry(sectionGeometry)
+        }
+        if (aggregateGeometry != null) {
+            upsertAggregateGeometry(aggregateGeometry)
+        }
+    }
+
+    @Transaction
+    suspend fun clearOwnerCache(ownerType: String, ownerId: String) {
+        clearOwnerAssignments(ownerType, ownerId)
+        clearOwnerDisplayCache(ownerType, ownerId)
+        clearOwnerSectionGeometry(ownerType, ownerId)
+        clearOwnerAggregateGeometry(ownerType, ownerId)
+    }
+
+    @Transaction
+    suspend fun clearAllArtifacts() {
+        clearAllAssignments()
+        clearAllDisplayCache()
+        clearAllSectionGeometry()
+        clearAllAggregateGeometry()
+    }
 }

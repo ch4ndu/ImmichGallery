@@ -132,34 +132,24 @@ class DetailMosaicCacheRepository(
 
     suspend fun upsertArtifacts(artifacts: DetailMosaicArtifactsUpsert) {
         withContext(Dispatchers.IO) {
-            if (artifacts.assignments.isNotEmpty()) {
-                detailMosaicCacheDao.upsertAssignments(artifacts.assignments.map { it.toEntity() })
-            }
-            if (artifacts.displayCache.isNotEmpty()) {
-                detailMosaicCacheDao.upsertDisplayCache(artifacts.displayCache.map { it.toEntity() })
-            }
-            if (artifacts.sectionGeometry.isNotEmpty()) {
-                detailMosaicCacheDao.upsertSectionGeometry(artifacts.sectionGeometry.map { it.toEntity() })
-            }
-            artifacts.aggregateGeometry?.let { detailMosaicCacheDao.upsertAggregateGeometry(it.toEntity()) }
+            detailMosaicCacheDao.upsertArtifacts(
+                assignments = artifacts.assignments.map { it.toEntity() },
+                displayCache = artifacts.displayCache.map { it.toEntity() },
+                sectionGeometry = artifacts.sectionGeometry.map { it.toEntity() },
+                aggregateGeometry = artifacts.aggregateGeometry?.toEntity()
+            )
         }
     }
 
     suspend fun clearOwnerCache(ownerType: DetailMosaicCacheOwnerType, ownerId: String) {
         withContext(Dispatchers.IO) {
-            detailMosaicCacheDao.clearOwnerAssignments(ownerType.name, ownerId)
-            detailMosaicCacheDao.clearOwnerDisplayCache(ownerType.name, ownerId)
-            detailMosaicCacheDao.clearOwnerSectionGeometry(ownerType.name, ownerId)
-            detailMosaicCacheDao.clearOwnerAggregateGeometry(ownerType.name, ownerId)
+            detailMosaicCacheDao.clearOwnerCache(ownerType.name, ownerId)
         }
     }
 
     suspend fun clearAll() {
         withContext(Dispatchers.IO) {
-            detailMosaicCacheDao.clearAllAssignments()
-            detailMosaicCacheDao.clearAllDisplayCache()
-            detailMosaicCacheDao.clearAllSectionGeometry()
-            detailMosaicCacheDao.clearAllAggregateGeometry()
+            detailMosaicCacheDao.clearAllArtifacts()
         }
     }
 }

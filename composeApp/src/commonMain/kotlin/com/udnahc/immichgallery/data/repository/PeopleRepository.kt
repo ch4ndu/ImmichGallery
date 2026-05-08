@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.data.repository
 
+import androidx.room.immediateTransaction
+import androidx.room.useWriterConnection
+import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.PersonDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 class PeopleRepository(
+    private val database: AppDatabase,
     private val apiService: ImmichApiService,
     private val personDao: PersonDao,
     private val assetDao: AssetDao,
@@ -89,10 +93,14 @@ class PeopleRepository(
             val response = apiService.getPeople()
             val entities = response.people.mapIndexed { index, person -> person.toPersonEntity(index) }
             withContext(Dispatchers.IO) {
-                personDao.replacePeople(entities)
-                syncMetadataDao.upsert(
-                    SyncMetadataEntity(SYNC_SCOPE_PEOPLE, currentEpochMillis())
-                )
+                database.useWriterConnection { transactor ->
+                    transactor.immediateTransaction {
+                        personDao.replacePeople(entities)
+                        syncMetadataDao.upsert(
+                            SyncMetadataEntity(SYNC_SCOPE_PEOPLE, currentEpochMillis())
+                        )
+                    }
+                }
             }
             Result.success(Unit)
         } catch (e: Exception) {
@@ -131,25 +139,29 @@ class PeopleRepository(
                 PersonAssetCrossRef(personId, asset.id, baseOffset + index)
             }
             withContext(Dispatchers.IO) {
-                assetDao.upsertAssets(assetEntities)
-                if (pageChanged || !hasMore) {
-                    // If a fetched page changed, later cached pages may now be
-                    // shifted. Truncate from this page and let loadMore refill a
-                    // consistent snapshot instead of mixing old tail refs with
-                    // fresh page refs.
-                    personDao.replacePersonRefsFromSortOrder(personId, baseOffset, crossRefs)
-                } else {
-                    personDao.replacePersonRefsInSortRange(
-                        personId = personId,
-                        startSortOrder = baseOffset,
-                        endSortOrder = baseOffset + size,
-                        refs = crossRefs
-                    )
-                }
-                if (!hasMore) {
-                    syncMetadataDao.upsert(
-                        SyncMetadataEntity("$SYNC_SCOPE_PERSON_PREFIX$personId", currentEpochMillis())
-                    )
+                database.useWriterConnection { transactor ->
+                    transactor.immediateTransaction {
+                        assetDao.upsertAssets(assetEntities)
+                        if (pageChanged || !hasMore) {
+                            // If a fetched page changed, later cached pages may now be
+                            // shifted. Truncate from this page and let loadMore refill a
+                            // consistent snapshot instead of mixing old tail refs with
+                            // fresh page refs.
+                            personDao.replacePersonRefsFromSortOrder(personId, baseOffset, crossRefs)
+                        } else {
+                            personDao.replacePersonRefsInSortRange(
+                                personId = personId,
+                                startSortOrder = baseOffset,
+                                endSortOrder = baseOffset + size,
+                                refs = crossRefs
+                            )
+                        }
+                        if (!hasMore) {
+                            syncMetadataDao.upsert(
+                                SyncMetadataEntity("$SYNC_SCOPE_PERSON_PREFIX$personId", currentEpochMillis())
+                            )
+                        }
+                    }
                 }
             }
             editsEnricher.enrich(items)
@@ -195,11 +207,15 @@ class PeopleRepository(
                 PersonAssetCrossRef(personId, asset.id, index)
             }
             withContext(Dispatchers.IO) {
-                assetDao.upsertAssets(assetEntities)
-                personDao.replacePersonRefs(personId, crossRefs)
-                syncMetadataDao.upsert(
-                    SyncMetadataEntity("$SYNC_SCOPE_PERSON_PREFIX$personId", currentEpochMillis())
-                )
+                database.useWriterConnection { transactor ->
+                    transactor.immediateTransaction {
+                        assetDao.upsertAssets(assetEntities)
+                        personDao.replacePersonRefs(personId, crossRefs)
+                        syncMetadataDao.upsert(
+                            SyncMetadataEntity("$SYNC_SCOPE_PERSON_PREFIX$personId", currentEpochMillis())
+                        )
+                    }
+                }
             }
             editsEnricher.enrich(allItems)
             val after = withContext(Dispatchers.IO) {
@@ -218,8 +234,12 @@ class PeopleRepository(
 
     suspend fun clearCache() {
         withContext(Dispatchers.IO) {
-            personDao.clearPeople()
-            personDao.clearAllPersonRefs()
+            database.useWriterConnection { transactor ->
+                transactor.immediateTransaction {
+                    personDao.clearPeople()
+                    personDao.clearAllPersonRefs()
+                }
+            }
         }
     }
 

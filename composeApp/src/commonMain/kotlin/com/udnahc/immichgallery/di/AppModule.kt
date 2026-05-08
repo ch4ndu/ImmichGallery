@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.di
 
 import com.russhwolf.settings.Settings
+import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.remote.HttpClientFactory
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.data.remote.createHttpClientEngine
@@ -81,10 +82,10 @@ val sharedModule = module {
     // Repositories
     single { AuthRepository(get()) }
     single { AssetEditsEnricher(get(), get()) }
-    single { TimelineRepository(get(), get(), get(), get(), get(), get()) }
+    single { TimelineRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get()) }
     single { TimelineMosaicCacheRepository(get(), get(), get()) }
-    single { AlbumRepository(get(), get(), get(), get(), get(), get()) }
-    single { PeopleRepository(get(), get(), get(), get(), get(), get()) }
+    single { AlbumRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get()) }
+    single { PeopleRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get()) }
     single { SearchRepository(get()) }
     single { ServerStatusRepository(get()) }
     single { AssetRepository(get(), get(), get(), get()) }
