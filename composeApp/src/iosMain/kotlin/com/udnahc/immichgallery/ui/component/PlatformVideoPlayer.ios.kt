@@ -68,15 +68,18 @@ actual fun PlatformVideoPlayer(
 
     log.d { "PlatformVideoPlayer(iOS): loading $currentUrl" }
 
-    val player = remember(currentUrl, apiKey) {
-        val nsUrl = NSURL.URLWithString(currentUrl)!!
-        val asset = AVURLAsset(
-            uRL = nsUrl,
-            options = mapOf("AVURLAssetHTTPHeaderFieldsKey" to mapOf("x-api-key" to apiKey))
-        )
-        val playerItem = AVPlayerItem(asset = asset)
-        AVPlayer(playerItem = playerItem)
-    }
+    val player = remember(currentUrl, playbackUrl, apiKey) {
+        val nsUrl = NSURL.URLWithString(currentUrl)
+            ?: NSURL.URLWithString(playbackUrl)
+        nsUrl?.let { url ->
+            val asset = AVURLAsset(
+                uRL = url,
+                options = mapOf("AVURLAssetHTTPHeaderFieldsKey" to mapOf("x-api-key" to apiKey))
+            )
+            val playerItem = AVPlayerItem(asset = asset)
+            AVPlayer(playerItem = playerItem)
+        }
+    } ?: return
 
     // Watch for playback failures on the original URL and fall back to the
     // transcoded playback URL if the original format isn't AVPlayer-compatible.

@@ -293,7 +293,8 @@ fun SearchContent(
                             ) {
                                 itemsIndexed(
                                     items = state.rows,
-                                    key = { _, row -> row.gridKey }
+                                    key = { _, row -> row.gridKey },
+                                    contentType = { _, _ -> "search_photo_row" }
                                 ) { _, row ->
                                     JustifiedPhotoRow(
                                         row = row,
