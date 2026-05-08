@@ -159,7 +159,12 @@ fun PhotoOverlayHost(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalPhotoBoundsTween provides overlayAnimActive) {
+        // During dismiss source prep the grid-side source is revealed while the
+        // overlay is still visible. Keep the shared-element tween off for that
+        // overlap so the detail node does not animate back to its steady
+        // centered bounds before the actual exit starts.
+        val boundsTweenActive = overlayAnimActive && !dismissPrepActive
+        CompositionLocalProvider(LocalPhotoBoundsTween provides boundsTweenActive) {
             androidx.compose.runtime.key(selectionEpoch) {
                 SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
                     content(
