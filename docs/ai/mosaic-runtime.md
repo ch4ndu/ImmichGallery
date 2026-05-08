@@ -66,7 +66,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   - duplicate same-source requests collapse to one request.
 - Timeline runs one actor-started bucket worker at a time. The worker launches on `Dispatchers.IO`, while actual runtime assignment compute uses `TimelineMosaicDispatcherProvider`, a dedicated single-thread `TimelineMosaic` dispatcher.
 - Each `StartWork` effect carries a per-work token. ViewModel worker jobs are keyed by that token, `CancelWork` cancels the matching job, and cache/runtime publication must reject inactive tokens plus stale config/revision/geometry.
-- If `cacheMosaicResults = true`, a queued bucket first attempts a current-config persisted artifact read. Missing or invalid artifacts may enqueue runtime compute only for render-demand requests.
+- If `cacheMosaicResults = true`, a queued bucket first attempts a current-config persisted artifact read. Matching assignments plus section and aggregate geometry are enough to publish assignment-backed ready state, even when mixed display records are missing. Missing assignments or geometry are true misses and may enqueue runtime compute only for render-demand requests.
 - If `cacheMosaicResults = false`, render-demand requests skip persisted Mosaic artifacts and compute runtime Mosaic for the requested config. Sync-precompute requests are dropped after logging.
 - Timeline does not fetch older Mosaic configs as substitutes for missing current-config artifacts.
 - Cold sync with cache results off publishes synced assets without Timeline Mosaic cache preparation. Runtime Mosaic starts later from normal visible/target render demand.

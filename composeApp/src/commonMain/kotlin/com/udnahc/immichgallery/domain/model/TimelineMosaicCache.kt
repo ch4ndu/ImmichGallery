@@ -70,7 +70,9 @@ data class TimelineMosaicCacheStatus(
     val geometrySummaries: List<TimelineMosaicGeometrySummary> = emptyList(),
     val displaySections: List<TimelineMosaicDisplaySection> = emptyList(),
     val completeBucketIds: Set<String>,
-    val missingBucketIds: Set<String>
+    val missingBucketIds: Set<String>,
+    val assignmentGeometryReadyBucketIds: Set<String> = completeBucketIds,
+    val displayCacheReadyBucketIds: Set<String> = completeBucketIds
 )
 
 fun List<TimelineMosaicDisplayItemRecord>.toTimelinePhotoGridDisplayItems(

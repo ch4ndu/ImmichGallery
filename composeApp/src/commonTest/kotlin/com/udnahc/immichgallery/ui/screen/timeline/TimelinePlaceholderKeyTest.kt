@@ -1,10 +1,13 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import com.udnahc.immichgallery.domain.model.MosaicSectionState
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.placeholderGridKey
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 
 class TimelinePlaceholderKeyTest {
     @Test
@@ -42,5 +45,28 @@ class TimelinePlaceholderKeyTest {
         val wideKey = timelineBucketGeometrySectionKey("2026-05", TimelineGroupSize.MONTH, wide)
 
         assertNotEquals(narrowKey, wideKey)
+    }
+
+    @Test
+    fun aggregateGeometryPlaceholderSurvivesUntilSectionStateIsRenderable() {
+        assertEquals(
+            240f,
+            timelineAggregateGeometryPlaceholderHeight(
+                aggregateGeometryHeight = 240f,
+                sectionStates = listOf(null, MosaicSectionState.Pending, MosaicSectionState.Failed)
+            )
+        )
+        assertNull(
+            timelineAggregateGeometryPlaceholderHeight(
+                aggregateGeometryHeight = 240f,
+                sectionStates = listOf(MosaicSectionState.Ready(assignments = emptyList()))
+            )
+        )
+        assertNull(
+            timelineAggregateGeometryPlaceholderHeight(
+                aggregateGeometryHeight = 240f,
+                sectionStates = listOf(MosaicSectionState.Partial(chunks = emptyList()))
+            )
+        )
     }
 }

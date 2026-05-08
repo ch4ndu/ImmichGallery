@@ -635,6 +635,18 @@ private fun RuntimeMosaicState?.cacheToken(): String =
         RuntimeMosaicState.Failed -> "failed"
     }
 
+internal fun timelineAggregateGeometryPlaceholderHeight(
+    aggregateGeometryHeight: Float?,
+    sectionStates: List<RuntimeMosaicState?>
+): Float? {
+    val height = aggregateGeometryHeight?.takeIf { it > 0f } ?: return null
+    return if (sectionStates.none { it is RuntimeMosaicState.Ready || it is RuntimeMosaicState.Partial }) {
+        height
+    } else {
+        null
+    }
+}
+
 private fun mosaicFamiliesKey(families: Set<MosaicTemplateFamily>): String =
     families.map { it.persistedId }.sorted().joinToString("|")
 
@@ -2796,8 +2808,46 @@ class TimelineViewModel(
                     val dayGroupList = if (groupSize == TimelineGroupSize.DAY) {
                         dayGroupsForBucket(timeBucket, assetRevision, assets)
                     } else null
+                    val aggregateGeometryHeight = bucketGeometryRequest?.let {
+                        bucketGeometryStates[
+                            bucketGeometryCacheKey(
+                                timeBucket = timeBucket,
+                                groupSize = groupSize,
+                                columnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT,
+                                assetRevision = assetRevision,
+                                families = viewConfig.mosaicFamilies,
+                                geometryRequest = it
+                            )
+                        ]
+                    }
 
                     if (!dayGroupList.isNullOrEmpty()) {
+                        val daySectionStates = dayGroupList.map { dayGroup ->
+                            mosaicStates[
+                                mosaicCacheKey(
+                                    timeBucket = timeBucket,
+                                    sectionKey = dayMosaicSectionKey(timeBucket, dayGroup.label),
+                                    columnCount = mosaicLayoutSpec?.columnCount ?: DEFAULT_GRID_COLUMN_COUNT,
+                                    assetRevision = assetRevision,
+                                    families = viewConfig.mosaicFamilies
+                                )
+                            ]
+                        }
+                        val aggregatePlaceholderHeight = timelineAggregateGeometryPlaceholderHeight(
+                            aggregateGeometryHeight = aggregateGeometryHeight,
+                            sectionStates = daySectionStates
+                        )
+                        if (useMosaic && mosaicLayoutSpec != null && aggregatePlaceholderHeight != null) {
+                            addGeometryPlaceholderItems(
+                                items = items,
+                                timeBucket = timeBucket,
+                                sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
+                                bucketIndex = index,
+                                sectionLabel = monthLabel,
+                                placeholderHeight = aggregatePlaceholderHeight
+                            )
+                            return items
+                        }
                         for (dayGroup in dayGroupList) {
                             val dayLabel = dayGroup.label
                             val daySectionKey = dayMosaicSectionKey(timeBucket, dayLabel)
@@ -2926,6 +2976,21 @@ class TimelineViewModel(
                             families = viewConfig.mosaicFamilies
                         )
                         val monthMosaicState = mosaicStates[monthMosaicKey]
+                        val aggregatePlaceholderHeight = timelineAggregateGeometryPlaceholderHeight(
+                            aggregateGeometryHeight = aggregateGeometryHeight,
+                            sectionStates = listOf(monthMosaicState)
+                        )
+                        if (useMosaic && mosaicLayoutSpec != null && aggregatePlaceholderHeight != null) {
+                            addGeometryPlaceholderItems(
+                                items = items,
+                                timeBucket = timeBucket,
+                                sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
+                                bucketIndex = index,
+                                sectionLabel = monthLabel,
+                                placeholderHeight = aggregatePlaceholderHeight
+                            )
+                            return items
+                        }
                         if (useMosaic &&
                             mosaicLayoutSpec != null &&
                             (monthMosaicState == null || monthMosaicState == RuntimeMosaicState.Pending)
@@ -4290,7 +4355,7 @@ class TimelineViewModel(
             }
             val revisions = _bucketData.value.assetRevisions
             val publishableAssignments = if (config.viewConfig.cacheMosaicResults) {
-                status.assignments.filter { it.timeBucket in status.completeBucketIds }
+                status.assignments.filter { it.timeBucket in status.assignmentGeometryReadyBucketIds }
             } else {
                 status.assignments
             }
@@ -4345,6 +4410,8 @@ class TimelineViewModel(
                 "Timeline persisted Mosaic read completed requested=${timeBuckets.size} " +
                     "assignments=${status.assignments.size} geometry=${status.geometrySummaries.size} " +
                     "display=${status.displaySections.size} " +
+                    "assignmentGeometryReady=${status.assignmentGeometryReadyBucketIds.size} " +
+                    "displayReady=${status.displayCacheReadyBucketIds.size} " +
                     "complete=${status.completeBucketIds.size} missing=${status.missingBucketIds.size}"
             }
         }

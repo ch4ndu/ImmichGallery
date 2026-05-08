@@ -209,62 +209,21 @@ class TimelineMosaicCacheRepository(
             } else {
                 emptyMap()
             }
-            val validAssignments = mutableListOf<TimelineMosaicAssignment>()
-            val validGeometry = mutableListOf<TimelineMosaicGeometrySummary>()
-            val validDisplaySections = mutableListOf<TimelineMosaicDisplaySection>()
-            val completeBucketIds = mutableSetOf<String>()
-            val missingBucketIds = mutableSetOf<String>()
-            withContext(Dispatchers.IO) {
-                for (timeBucket in timeBuckets) {
-                    val entities = assetDao.getTimelineAssets(timeBucket)
-                    val fingerprint = orderedAssetsFingerprint(entities)
-                    val assets = entities.map { it.toDomain(baseUrl()) }
-                    val expectedSections = timelineMosaicSections(timeBucket, groupSize, assets)
-                    var complete = geometryRequest != null
-                    if (geometryRequest != null &&
-                        bucketGeometryRowsByBucket[timeBucket]?.assetFingerprint != fingerprint
-                    ) {
-                        complete = false
-                    }
-                    for (section in expectedSections) {
-                        val row = rowsByBucketSection[timeBucket to section.sectionKey]
-                        val assignments = row?.takeIf { it.assetFingerprint == fingerprint }
-                            ?.decodeMosaicAssignments()
-                        if (assignments == null) {
-                            complete = false
-                        } else {
-                            validAssignments.add(TimelineMosaicAssignment(timeBucket, section.sectionKey, assignments))
-                            val geometry = geometryRowsByBucketSection[timeBucket to section.sectionKey]
-                                ?.takeIf { it.assetFingerprint == fingerprint }
-                                ?.toDomain()
-                            if (geometryRequest != null && geometry == null) {
-                                complete = false
-                            }
-                            geometry?.let(validGeometry::add)
-                            val display = displayRowsByBucketSection[timeBucket to section.sectionKey]
-                                ?.takeIf { it.assetFingerprint == fingerprint }
-                                ?.toDomain()
-                                ?.takeIf { it.displayRecords.displayRecordsCoverOrderedAssets(section.assets) }
-                            if (includeDisplayCache && geometryRequest != null && display == null) {
-                                complete = false
-                            }
-                            display?.let(validDisplaySections::add)
-                        }
-                    }
-                    if (complete) {
-                        completeBucketIds.add(timeBucket)
-                    } else {
-                        missingBucketIds.add(timeBucket)
-                    }
-                }
+            val assetsByBucket = withContext(Dispatchers.IO) {
+                timeBuckets.associateWith { timeBucket -> assetDao.getTimelineAssets(timeBucket) }
             }
             Result.success(
-                TimelineMosaicCacheStatus(
-                    assignments = validAssignments,
-                    geometrySummaries = validGeometry,
-                    displaySections = validDisplaySections,
-                    completeBucketIds = completeBucketIds,
-                    missingBucketIds = missingBucketIds
+                buildTimelineMosaicCacheStatus(
+                    timeBuckets = timeBuckets,
+                    groupSize = groupSize,
+                    assetsByBucket = assetsByBucket,
+                    rowsByBucketSection = rowsByBucketSection,
+                    geometryRowsByBucketSection = geometryRowsByBucketSection,
+                    bucketGeometryRowsByBucket = bucketGeometryRowsByBucket,
+                    displayRowsByBucketSection = displayRowsByBucketSection,
+                    geometryRequired = geometryRequest != null,
+                    includeDisplayCache = includeDisplayCache,
+                    baseUrl = baseUrl()
                 )
             )
         } catch (e: CancellationException) {
@@ -382,6 +341,93 @@ class TimelineMosaicCacheRepository(
             timelineDao.clearAllTimelineBucketGeometry()
         }
     }
+}
+
+internal fun buildTimelineMosaicCacheStatus(
+    timeBuckets: Set<String>,
+    groupSize: TimelineGroupSize,
+    assetsByBucket: Map<String, List<AssetEntity>>,
+    rowsByBucketSection: Map<Pair<String, String>, TimelineMosaicAssignmentEntity>,
+    geometryRowsByBucketSection: Map<Pair<String, String>, TimelineMosaicGeometryEntity>,
+    bucketGeometryRowsByBucket: Map<String, TimelineBucketGeometryEntity>,
+    displayRowsByBucketSection: Map<Pair<String, String>, TimelineMosaicDisplayCacheEntity>,
+    geometryRequired: Boolean,
+    includeDisplayCache: Boolean,
+    baseUrl: String
+): TimelineMosaicCacheStatus {
+    val validAssignments = mutableListOf<TimelineMosaicAssignment>()
+    val validGeometry = mutableListOf<TimelineMosaicGeometrySummary>()
+    val validDisplaySections = mutableListOf<TimelineMosaicDisplaySection>()
+    val completeBucketIds = mutableSetOf<String>()
+    val missingBucketIds = mutableSetOf<String>()
+    val assignmentGeometryReadyBucketIds = mutableSetOf<String>()
+    val displayCacheReadyBucketIds = mutableSetOf<String>()
+    for (timeBucket in timeBuckets) {
+        val entities = assetsByBucket[timeBucket].orEmpty()
+        val fingerprint = orderedAssetsFingerprint(entities)
+        val assets = entities.map { it.toDomain(baseUrl) }
+        val expectedSections = timelineMosaicSections(timeBucket, groupSize, assets)
+        var assignmentGeometryReady = geometryRequired
+        var displayCacheReady = includeDisplayCache && geometryRequired
+        if (geometryRequired &&
+            bucketGeometryRowsByBucket[timeBucket]?.assetFingerprint != fingerprint
+        ) {
+            assignmentGeometryReady = false
+            displayCacheReady = false
+        }
+        for (section in expectedSections) {
+            val row = rowsByBucketSection[timeBucket to section.sectionKey]
+            val assignments = row?.takeIf { it.assetFingerprint == fingerprint }
+                ?.decodeMosaicAssignments()
+            if (assignments == null) {
+                assignmentGeometryReady = false
+                displayCacheReady = false
+            } else {
+                validAssignments.add(TimelineMosaicAssignment(timeBucket, section.sectionKey, assignments))
+                val geometry = geometryRowsByBucketSection[timeBucket to section.sectionKey]
+                    ?.takeIf { it.assetFingerprint == fingerprint }
+                    ?.toDomain()
+                if (geometryRequired && geometry == null) {
+                    assignmentGeometryReady = false
+                    displayCacheReady = false
+                }
+                geometry?.let(validGeometry::add)
+                val display = displayRowsByBucketSection[timeBucket to section.sectionKey]
+                    ?.takeIf { it.assetFingerprint == fingerprint }
+                    ?.toDomain()
+                    ?.takeIf { it.displayRecords.displayRecordsCoverOrderedAssets(section.assets) }
+                if (includeDisplayCache && geometryRequired && display == null) {
+                    displayCacheReady = false
+                }
+                display?.let(validDisplaySections::add)
+            }
+        }
+        if (assignmentGeometryReady) {
+            assignmentGeometryReadyBucketIds.add(timeBucket)
+        } else {
+            missingBucketIds.add(timeBucket)
+        }
+        if (displayCacheReady) {
+            displayCacheReadyBucketIds.add(timeBucket)
+        }
+        val complete = if (includeDisplayCache && geometryRequired) {
+            displayCacheReady
+        } else {
+            assignmentGeometryReady
+        }
+        if (complete) {
+            completeBucketIds.add(timeBucket)
+        }
+    }
+    return TimelineMosaicCacheStatus(
+        assignments = validAssignments,
+        geometrySummaries = validGeometry,
+        displaySections = validDisplaySections,
+        completeBucketIds = completeBucketIds,
+        missingBucketIds = missingBucketIds,
+        assignmentGeometryReadyBucketIds = assignmentGeometryReadyBucketIds,
+        displayCacheReadyBucketIds = displayCacheReadyBucketIds
+    )
 }
 
 internal fun validatedTimelineMosaicGeometrySummaries(

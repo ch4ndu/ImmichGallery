@@ -69,6 +69,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Manual Timeline sync with cache results off clears Timeline and Detail Mosaic artifacts before refreshing buckets, then clears in-memory Timeline Mosaic state so stale assignments or geometry cannot remain active.
 - Runtime Timeline Mosaic uses an ordered single-bucket worker and the dedicated Mosaic dispatcher so assignment work does not compete with image loading.
 - Runtime Timeline Mosaic stores complete `Ready` assignments plus validated mixed display records when section projection can produce full source coverage. Assignments remain canonical; invalid or missing resolved records fall back to assignment projection during rendering.
+- Timeline persisted cache reads distinguish assignment+geometry readiness from display-cache completeness. Matching assignments plus matching section and aggregate geometry are renderable even when mixed display records are missing; the ViewModel publishes `Ready(assignments, displayRecords = emptyList())` and rendering projects from assignments. Missing assignments, missing section geometry, or missing aggregate geometry remain true cache misses.
 - Timeline Mosaic requests are mergeable, not cancel-and-replace. Visible buckets and explicit scrollbar targets are ordered ahead of neighbors and previously deferred work. Offscreen work may wait, but it must not cancel or overtake visible work.
 - While the Timeline is actively scrolling:
   - Runtime Mosaic compute is paused.
@@ -78,7 +79,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Partial chunks remain transient progress state; they are not converted into resolved display-band records.
 - Timeline pending sections, partial gaps, cache misses, interrupted chunks, and failed sections render placeholders while Mosaic is enabled. They must not render fallback-thumbnail bands or standard row-packing rows.
 - Timeline may display `RowItem(kind = MOSAIC_FALLBACK)` only as completed ready output for the active config, or from a completed mixed display-cache row that independently validates source coverage against the current ordered assets.
-- Persisted Timeline display cache rows must cover `0 until assets.size` with no gaps, overlaps, duplicate ids, unknown ids, non-positive real-tile dimensions, invalid fallback row heights, or mismatched source slices. Invalid display rows make the bucket a cache miss and runtime compute is enqueued for the requested config.
+- Persisted Timeline display cache rows must cover `0 until assets.size` with no gaps, overlaps, duplicate ids, unknown ids, non-positive real-tile dimensions, invalid fallback row heights, or mismatched source slices. Invalid or missing display rows are a display-cache miss only when matching assignments, section geometry, and aggregate geometry are present; otherwise the bucket is a true cache miss and render-demand work may enqueue runtime compute for the requested config.
 
 ## Album And Person Detail Runtime Behavior
 
@@ -127,7 +128,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Count-only placeholders are the last fallback when exact geometry and materialized asset data are unavailable.
 - Placeholder-to-ready replacement should preserve scroll position, shared element return targets, and hidden-asset behavior as much as possible.
 - Timeline and detail screens render one aggregate `PlaceholderItem` per pending Mosaic section when exact section geometry is available. Partial rendering may replace that placeholder only if the mixed real-band/placeholder output preserves the exact section height.
-- When cache results are enabled but no geometry has been computed yet, screens may show a provisional count-based placeholder and accept one first-time resize. Once exact geometry exists, rough placeholders must not overwrite it.
+- Timeline loaded buckets may render the matching aggregate bucket-geometry placeholder while no section has a renderable `Ready` or `Partial` Mosaic state. This preserves the exact persisted bucket height through Room materialization; count-only placeholders are allowed only when no matching exact geometry exists. When cache results are enabled but no geometry has been computed yet, screens may show a provisional count-based placeholder and accept one first-time resize. Once exact geometry exists, rough placeholders must not overwrite it.
 - Timeline `TimelineViewModel` reads bucket-aggregate + per-section geometry in a visible-first phase at warm launch and after cache invalidation. A `timelineGeometryReady` gate stays closed only for visible/target buckets plus radius neighbors; the gate opens even when that priority read fails so visible Mosaic work cannot stall indefinitely. Offscreen cached geometry hydrates afterward in small background chunks.
 
 ## Invalidation And Staleness
