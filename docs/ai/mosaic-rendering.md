@@ -27,6 +27,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 ## Layout And Display Items
 
 - Mosaic uses `ViewConfig.mosaicColumnCount` while enabled. Pinch or desktop zoom must not silently change Mosaic columns.
+- Supported Mosaic settings expose column counts from 4 through 8 so larger tablet and desktop widths can choose denser cells without changing row-height zoom.
 - `MosaicLayoutSpec.cellHeight` is derived from measured width divided by configured column count.
 - `PhotoGridDisplayItem` is the shared render surface:
   - `HeaderItem` for group labels.

@@ -56,7 +56,7 @@ const val MOSAIC_FALLBACK_MIN_COMPLETE_ROW_PHOTOS = 2
 // into one of these column counts; the actual cell height is then width/count.
 // Adding counts requires validating all template families, assignment cost, and
 // display tests because every count changes the real cell-height tolerance.
-val SUPPORTED_MOSAIC_COLUMN_COUNTS = 2..6
+val SUPPORTED_MOSAIC_COLUMN_COUNTS = 4..8
 
 @Immutable
 data class MosaicLayoutSpec(

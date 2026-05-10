@@ -29,7 +29,7 @@ class MosaicPackingTest {
     fun unsupportedColumnCountsReturnNoAssignments() {
         val assets = sampleAssets(8)
 
-        for (columnCount in listOf(1, 7)) {
+        for (columnCount in listOf(1, 3, 9)) {
             val assignments = buildMosaicAssignments(
                 assets = assets,
                 layoutSpec = layoutSpec(columnCount),
@@ -126,9 +126,9 @@ class MosaicPackingTest {
 
     @Test
     fun nearestColumnCountRoundsAndClampsToSupportedRange() {
-        assertEquals(2, nearestMosaicColumnCount(220f, 100f))
+        assertEquals(4, nearestMosaicColumnCount(220f, 100f))
         assertEquals(4, nearestMosaicColumnCount(360f, 100f))
-        assertEquals(6, nearestMosaicColumnCount(900f, 100f))
+        assertEquals(8, nearestMosaicColumnCount(900f, 100f))
     }
 
     @Test
