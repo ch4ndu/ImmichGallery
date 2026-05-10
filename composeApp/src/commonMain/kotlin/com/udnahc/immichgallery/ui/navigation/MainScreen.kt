@@ -63,6 +63,7 @@ import androidx.navigation.compose.rememberNavController
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.ui.component.MosaicViewConfigMenuItem
+import com.udnahc.immichgallery.ui.component.mosaicColumnOptionsForWindow
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
@@ -351,6 +352,7 @@ private fun TopBarOverlay(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showRefreshDialog by remember { mutableStateOf(false) }
+    val mosaicColumnOptions = mosaicColumnOptionsForWindow()
 
     if (showRefreshDialog) {
         AlertDialog(
@@ -465,6 +467,7 @@ private fun TopBarOverlay(
                     if (mosaicViewConfig != null) {
                         MosaicViewConfigMenuItem(
                             viewConfig = mosaicViewConfig,
+                            mosaicColumnOptions = mosaicColumnOptions,
                             onViewConfigChanged = onMosaicViewConfigChanged,
                             onPrepareViewConfig = onPrepareMosaicViewConfig,
                             onDismissMenu = { showMenu = false }

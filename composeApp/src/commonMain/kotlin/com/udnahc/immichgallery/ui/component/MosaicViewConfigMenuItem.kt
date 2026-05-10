@@ -27,9 +27,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.domain.model.LARGE_SCREEN_MOSAIC_COLUMN_COUNTS
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
-import com.udnahc.immichgallery.domain.model.SUPPORTED_MOSAIC_COLUMN_COUNTS
+import com.udnahc.immichgallery.domain.model.NORMAL_SCREEN_MOSAIC_COLUMN_COUNTS
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
@@ -66,6 +69,7 @@ fun MosaicViewConfigIconMenu(
     onPrepareViewConfig: suspend (ViewConfig) -> Result<Unit> = { Result.success(Unit) }
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val mosaicColumnOptions = mosaicColumnOptionsForWindow()
     Box {
         IconButton(onClick = { expanded = true }) {
             Icon(
@@ -79,6 +83,7 @@ fun MosaicViewConfigIconMenu(
         ) {
             MosaicViewConfigMenuItem(
                 viewConfig = viewConfig,
+                mosaicColumnOptions = mosaicColumnOptions,
                 onViewConfigChanged = onViewConfigChanged,
                 onPrepareViewConfig = onPrepareViewConfig,
                 onDismissMenu = { expanded = false }
@@ -90,6 +95,7 @@ fun MosaicViewConfigIconMenu(
 @Composable
 fun MosaicViewConfigMenuItem(
     viewConfig: ViewConfig,
+    mosaicColumnOptions: IntRange = NORMAL_SCREEN_MOSAIC_COLUMN_COUNTS,
     onViewConfigChanged: (ViewConfig) -> Unit,
     onPrepareViewConfig: suspend (ViewConfig) -> Result<Unit> = { Result.success(Unit) },
     onDismissMenu: () -> Unit
@@ -120,6 +126,7 @@ fun MosaicViewConfigMenuItem(
     if (showSettings) {
         MosaicSettingsDialog(
             viewConfig = viewConfig,
+            mosaicColumnOptions = mosaicColumnOptions,
             onViewConfigChanged = onViewConfigChanged,
             onPrepareViewConfig = onPrepareViewConfig,
             onDismiss = { showSettings = false }
@@ -130,6 +137,7 @@ fun MosaicViewConfigMenuItem(
 @Composable
 private fun MosaicSettingsDialog(
     viewConfig: ViewConfig,
+    mosaicColumnOptions: IntRange,
     onViewConfigChanged: (ViewConfig) -> Unit,
     onPrepareViewConfig: suspend (ViewConfig) -> Result<Unit>,
     onDismiss: () -> Unit
@@ -142,13 +150,23 @@ private fun MosaicSettingsDialog(
     var draftFamilies by remember(viewConfig) { mutableStateOf(viewConfig.mosaicFamilies) }
     var draftCacheResults by remember(viewConfig) { mutableStateOf(viewConfig.cacheMosaicResults) }
     var draftDisableZoom by remember(viewConfig) { mutableStateOf(viewConfig.disableZoomWhenMosaicEnabled) }
-    var draftColumnCount by remember(viewConfig) { mutableStateOf(viewConfig.mosaicColumnCount) }
+    var draftColumnCount by remember(viewConfig, mosaicColumnOptions) {
+        mutableStateOf(
+            viewConfig.mosaicColumnCount.coerceIn(
+                mosaicColumnOptions.first,
+                mosaicColumnOptions.last
+            )
+        )
+    }
     val draftConfig = viewConfig.copy(
         mosaicEnabled = draftEnabled,
         mosaicFamilies = draftFamilies,
         cacheMosaicResults = draftCacheResults,
         disableZoomWhenMosaicEnabled = draftDisableZoom,
-        mosaicColumnCount = draftColumnCount
+        mosaicColumnCount = draftColumnCount.coerceIn(
+            mosaicColumnOptions.first,
+            mosaicColumnOptions.last
+        )
     ).normalized
 
     AlertDialog(
@@ -231,7 +249,7 @@ private fun MosaicSettingsDialog(
                             text = stringResource(Res.string.mosaic_columns_title),
                             style = MaterialTheme.typography.titleSmall
                         )
-                        SUPPORTED_MOSAIC_COLUMN_COUNTS.forEach { columnCount ->
+                        mosaicColumnOptions.forEach { columnCount ->
                             MosaicColumnRow(
                                 columnCount = columnCount,
                                 selected = draftColumnCount == columnCount,
@@ -302,6 +320,16 @@ private fun MosaicSettingsDialog(
     )
 }
 
+@Composable
+internal fun mosaicColumnOptionsForWindow(): IntRange {
+    val windowWidth = LocalWindowInfo.current.containerDpSize.width
+    return if (windowWidth.value.isFinite() && windowWidth >= LargeScreenMosaicColumnsMinWidth) {
+        LARGE_SCREEN_MOSAIC_COLUMN_COUNTS
+    } else {
+        NORMAL_SCREEN_MOSAIC_COLUMN_COUNTS
+    }
+}
+
 private enum class MosaicSettingsTab {
     Options,
     Columns
@@ -369,3 +397,5 @@ private fun MosaicTemplateFamily.labelRes() = when (this) {
     MosaicTemplateFamily.FIVE_TILE -> Res.string.mosaic_family_five
     MosaicTemplateFamily.SIX_TILE -> Res.string.mosaic_family_six
 }
+
+private val LargeScreenMosaicColumnsMinWidth = 600.dp
