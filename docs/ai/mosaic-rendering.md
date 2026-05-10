@@ -121,6 +121,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Full-owner cache readiness requires matching assignments, section geometry, and aggregate geometry. Per-section display recovery may use valid matching assignment, section geometry, and mixed display rows even when the owner aggregate geometry row is missing after an interrupted cache build.
 - Cache-disabled runtime rendering must not read or reuse disk Mosaic artifacts even if matching rows exist.
 - Applying Mosaic settings with cache enabled is blocking: prepare the applicable Timeline/detail cache first, then persist/apply the config. On preparation failure, keep the previous `ViewConfig`.
+- Blocking Mosaic settings preparation must not run CPU or cache work on the composition/main dispatcher. Dialog code should give the progress UI a frame before starting preparation, run prepare/apply callbacks on a background dispatcher, and keep Timeline precompute CPU work on bounded `Dispatchers.Default` parallelism so animation frames are not starved.
 - Cache schema changes may use destructive migration while this remains a pre-alpha cache-only project.
 
 ## Geometry And Placeholders

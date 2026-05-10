@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
@@ -52,7 +53,9 @@ import immichgallery.composeapp.generated.resources.mosaic_settings_tab_columns
 import immichgallery.composeapp.generated.resources.mosaic_settings_tab_options
 import immichgallery.composeapp.generated.resources.mosaic_settings_title
 import immichgallery.composeapp.generated.resources.mosaic_settings_warning
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -267,16 +270,22 @@ private fun MosaicSettingsDialog(
         confirmButton = {
             TextButton(onClick = {
                 applyError = false
-                if (!draftConfig.cacheMosaicResults) {
-                    onViewConfigChanged(draftConfig)
-                    onDismiss()
-                    return@TextButton
-                }
-                isApplying = true
+                val nextConfig = draftConfig
+                isApplying = nextConfig.cacheMosaicResults
                 scope.launch {
-                    onPrepareViewConfig(draftConfig).fold(
+                    if (nextConfig.cacheMosaicResults) {
+                        withFrameNanos { }
+                    }
+                    val prepareResult = if (nextConfig.cacheMosaicResults) {
+                        withContext(Dispatchers.Default) { onPrepareViewConfig(nextConfig) }
+                    } else {
+                        Result.success(Unit)
+                    }
+                    prepareResult.fold(
                         onSuccess = {
-                            onViewConfigChanged(draftConfig)
+                            withContext(Dispatchers.Default) {
+                                onViewConfigChanged(nextConfig)
+                            }
                             isApplying = false
                             onDismiss()
                         },

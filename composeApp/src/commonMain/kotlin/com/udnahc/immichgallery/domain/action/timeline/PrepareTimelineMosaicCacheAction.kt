@@ -28,6 +28,7 @@ import com.udnahc.immichgallery.domain.model.timelineMosaicFamiliesKey
 import com.udnahc.immichgallery.domain.model.timelineMosaicSections
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -46,6 +47,9 @@ class PrepareTimelineMosaicCacheAction(
     private val mosaicRenderEngine: MosaicRenderEngine = MosaicRenderEngine()
 ) {
     private val log = logging("PrepareTimelineMosaicCacheAction")
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val computeDispatcher =
+        Dispatchers.Default.limitedParallelism(TIMELINE_MOSAIC_PRECOMPUTE_CPU_PARALLELISM)
 
     suspend operator fun invoke(
         timeBuckets: Set<String>,
@@ -167,7 +171,7 @@ class PrepareTimelineMosaicCacheAction(
             families = families,
             onProgressChunk = onProgressChunk
         )
-        val artifacts = withContext(Dispatchers.Default) {
+        val artifacts = withContext(computeDispatcher) {
             artifactBuilder.build(
                 snapshot = snapshot,
                 groupSize = groupSize,
@@ -197,7 +201,7 @@ class PrepareTimelineMosaicCacheAction(
         families: Set<MosaicTemplateFamily>,
         onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit
     ): List<SectionReady> =
-        withContext(Dispatchers.Default) {
+        withContext(computeDispatcher) {
             sections.map { section ->
                 computeSection(
                     request = TimelineMosaicSectionPrecomputeRequest(
@@ -268,3 +272,4 @@ private fun currentEpochMillis(): Long =
     kotlin.time.Clock.System.now().toEpochMilliseconds()
 
 private const val TIMELINE_MOSAIC_PRECOMPUTE_PARALLELISM = 4
+private const val TIMELINE_MOSAIC_PRECOMPUTE_CPU_PARALLELISM = 2

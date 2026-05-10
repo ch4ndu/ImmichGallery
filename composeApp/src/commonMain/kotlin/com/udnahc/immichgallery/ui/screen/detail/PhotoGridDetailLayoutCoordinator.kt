@@ -220,21 +220,22 @@ class PhotoGridDetailLayoutCoordinator<S>(
         scheduleDisplayItems()
     }
 
-    suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> {
+    suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
+        withContext(backgroundDispatcher) {
         val normalized = config.normalized
-        if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return Result.success(Unit)
+        if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@withContext Result.success(Unit)
         val snapshot = snapshotOf(getState())
-        if (snapshot.assets.isEmpty()) return Result.success(Unit)
+        if (snapshot.assets.isEmpty()) return@withContext Result.success(Unit)
         if (!isPersistentCacheComplete()) {
-            return Result.failure(IllegalStateException("Detail Mosaic cache requires a complete owner snapshot"))
+            return@withContext Result.failure(IllegalStateException("Detail Mosaic cache requires a complete owner snapshot"))
         }
         val layoutSpec =
             mosaicLayoutSpecForColumnCount(snapshot.availableWidth, normalized.mosaicColumnCount)
-                ?: return Result.failure(IllegalStateException("Detail Mosaic metrics are not ready"))
+                ?: return@withContext Result.failure(IllegalStateException("Detail Mosaic metrics are not ready"))
         val lookup =
             persistentCacheLookup(snapshot.copy(viewConfig = normalized), layoutSpec.cellHeight)
-                ?: return Result.failure(IllegalStateException("Detail Mosaic cache is unavailable"))
-        return runCatching {
+                ?: return@withContext Result.failure(IllegalStateException("Detail Mosaic cache is unavailable"))
+        runCatching {
             val groups = groupAssets(snapshot.assets, snapshot.groupSize)
             val ownerFingerprint = snapshot.assets.detailPersistentFingerprint()
             val existingArtifacts = readPersistentArtifacts(lookup, DETAIL_MOSAIC_GEOMETRY_VERSION)
@@ -252,7 +253,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
                     groupItemsByIndex[group.index] = cachedItems
                     return@forEachIndexed
                 }
-                val ready = withContext(Dispatchers.Default) {
+                val ready = withContext(backgroundDispatcher) {
                     val request = mosaicSectionRequest(
                         snapshot = snapshot.copy(viewConfig = normalized),
                         group = group,
