@@ -28,6 +28,7 @@ For standard justified row packing and `RowItem` behavior, load `docs/ai/row-pac
 - Use `rememberAsyncImagePainter` plus `Image` for thumbnails when the request specifies an image size.
 - Thumbnail requests should use `Precision.EXACT` and a bounded `Size`, typically `Size(256, 256)`.
 - Thumbnail URLs should request `size=thumbnail` unless a larger preview is intentionally needed.
+- Android Coil image loading must not use the shared Ktor `HttpClient`; Lazy item disposal cancels image requests from Compose, and Ktor/OkHttp response cleanup can run on the cancelling main thread. Use the Android OkHttp Coil fetcher with the same `x-api-key` header so cancellation cleanup stays out of Compose-owned Ktor jobs.
 - Detail pages use fit-style media presentation and should preserve shared element transition behavior. Overlay dismiss callbacks must make fully off-screen source rows visible before starting the host exit; the simple policy is to scroll those rows to the top and leave already visible rows in place.
 - Videos should use the existing platform media player wrappers and avoid auto-playing off-screen pager pages.
 

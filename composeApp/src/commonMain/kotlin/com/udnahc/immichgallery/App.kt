@@ -9,6 +9,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import coil3.compose.setSingletonImageLoaderFactory
+import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.di.createImageLoader
 import com.udnahc.immichgallery.di.platformModule
 import com.udnahc.immichgallery.di.sharedModule
@@ -26,8 +27,9 @@ fun App() {
     KoinApplication(application = { modules(sharedModule, platformModule()) }) {
         ImmichGalleryTheme {
             val httpClient: HttpClient = koinInject()
+            val serverConfigRepository: ServerConfigRepository = koinInject()
             setSingletonImageLoaderFactory { context ->
-                createImageLoader(context, httpClient)
+                createImageLoader(context, httpClient, serverConfigRepository)
             }
             CompositionLocalProvider(LocalAppActive provides isAppActive) {
                 Surface(modifier = Modifier.fillMaxSize()) {
