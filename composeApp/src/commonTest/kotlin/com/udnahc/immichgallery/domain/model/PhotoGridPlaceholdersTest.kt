@@ -41,6 +41,54 @@ class PhotoGridPlaceholdersTest {
     }
 
     @Test
+    fun geometryRangePlaceholdersPreserveExactHeightAndUseSourceKeys() {
+        val ranges = listOf(
+            MosaicSectionGeometryRange(sourceStartIndex = 0, sourceCount = 4, height = 120f),
+            MosaicSectionGeometryRange(sourceStartIndex = 4, sourceCount = 5, height = 160f),
+            MosaicSectionGeometryRange(sourceStartIndex = 9, sourceCount = 6, height = 220f)
+        )
+
+        val placeholders = buildPhotoGridPlaceholderItemsForGeometryRanges(
+            bucketIndex = 2,
+            sectionLabel = "May 2026",
+            ranges = ranges,
+            preferredRangesPerPiece = 2,
+            keyPrefix = "test"
+        )
+
+        assertEquals(2, placeholders.size)
+        assertEquals(504f, placeholders.renderedSpan(), absoluteTolerance = 0.01f)
+        assertTrue(placeholders.first().gridKey.contains("_0_9_0_0"))
+        assertTrue(placeholders.last().gridKey.contains("_9_6_1_0"))
+    }
+
+    @Test
+    fun geometryRangePlaceholdersCapPieceCount() {
+        val ranges = List(80) { index ->
+            MosaicSectionGeometryRange(
+                sourceStartIndex = index,
+                sourceCount = 1,
+                height = 10f
+            )
+        }
+
+        val placeholders = buildPhotoGridPlaceholderItemsForGeometryRanges(
+            bucketIndex = 0,
+            sectionLabel = "May 2026",
+            ranges = ranges,
+            preferredRangesPerPiece = 1,
+            maxPieces = 32
+        )
+
+        assertTrue(placeholders.size <= 32)
+        assertEquals(
+            800f + GRID_SPACING_DP * 79,
+            placeholders.renderedSpan(),
+            absoluteTolerance = 0.01f
+        )
+    }
+
+    @Test
     fun projectedMosaicHeightMatchesFinalItemsWhenAssignmentsAreCached() {
         val assets = listOf(
             asset("asset_0", 1f),

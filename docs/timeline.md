@@ -170,9 +170,9 @@ Timeline uses multiple cache layers, each with a different purpose.
   validation fields and stale rows are recomputed. Each row stores both the
   aggregate `placeholderHeight` for the section and `geometryRangesJson`.
   Geometry ranges store source range plus layout height for each final real
-  Mosaic band or completed fallback row. Timeline renders one aggregate placeholder per pending section
-  to keep LazyColumn item count low; geometry ranges are used for exact-height
-  partial projection.
+  Mosaic band or completed fallback row. Timeline renders chunk-aligned exact
+  placeholders for pending materialized sections, capped at 32 pieces per
+  section; bucket aggregate geometry remains for unloaded bucket placeholders.
 - Room `timeline_bucket_geometry`: width-keyed aggregate placeholder geometry
   for whole buckets. Unloaded buckets use this after cold sync and on warm
   launch, including day group mode where the aggregate includes day headers and
@@ -315,16 +315,15 @@ reads. Stale chunks must be ignored after a config, width, or content-revision
 change. Once the complete persisted section row is available, `Ready`
 assignments replace the partial runtime chunks.
 
-Partial rendering must preserve source order: valid ready chunks render final
-real Mosaic bands, invalid chunks render placeholders, and pending source ranges
-render placeholders. When cached section geometry exists, partial output maps
-chunk ranges onto `geometryRangesJson`; unresolved final geometry ranges collapse
-into exact-height placeholders and the mixed partial output must preserve the
-final ready section height within `0.5f`. If validation fails, Timeline keeps
-the exact full-section placeholder until ready output arrives. Without cached
-geometry, partial placeholders remain provisional estimates until the remaining
-Mosaic bands are computed, so the screen anchors the first visible real asset
-when chunks replace placeholders above or inside the viewport.
+Partial rendering must preserve source order and exact height: valid ready
+chunks render final real Mosaic bands only when matching section geometry is
+available, invalid chunks render placeholders, and pending source ranges render
+chunk-aligned exact placeholders. Partial output maps chunk ranges onto
+`geometryRangesJson`; unresolved final geometry ranges collapse into exact-
+height placeholders and the mixed partial output must preserve the final ready
+section height within `0.5f`. If validation fails, Timeline keeps the exact
+placeholder until ready output arrives. Without section geometry, partial
+chunks remain buffered/resumable and must not render rough placeholder output.
 
 Progressive chunks are buffered in the ViewModel before entering
 `_mosaicStates`. The buffer is protected by a mutex, deduplicates chunks by
@@ -471,13 +470,14 @@ exact section geometry when available and otherwise use count/width estimates.
 Count-only bucket metadata estimates are used only when asset rows have not been
 materialized yet.
 
-When persisted section geometry exists, the placeholder phase emits one
-aggregate `PlaceholderItem` sized to the section's `placeholderHeight`.
-`geometryRangesJson` is used to keep progressive partial output height-exact,
-but current Timeline rendering deliberately does not expand pending sections
-into one LazyColumn item per final band. When section geometry is missing, the
-placeholder falls back to cached-asset projection or count/width estimates and
-may resize once after exact geometry is first computed.
+When persisted section geometry exists, the placeholder phase emits chunk-
+aligned `PlaceholderItem` pieces derived from `geometryRangesJson`, capped at
+32 pieces per section unless a piece must split for
+`PHOTO_GRID_MAX_PLACEHOLDER_HEIGHT_DP`. The same geometry keeps progressive
+partial output height-exact, so placeholders and Mosaic bands can mix without
+resizing the section. When section geometry is missing, count/width estimates
+are blocking/loading placeholders only and must not be replaced by partial
+chunks.
 
 Timeline Mosaic display cache is width-dependent and requested-config scoped. It
 stores portable mixed display records, not Compose display objects, keyed by bucket,

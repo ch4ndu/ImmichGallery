@@ -44,7 +44,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 - At the end of the scan, any remaining assignments that were not emitted as a full batch are emitted as a final chunk.
 - If compute throws, the engine still calls `onCheckpoint(currentCheckpoint())` before rethrowing.
 - Checkpoint resume is accepted only when it is valid for the current ordered assets: assignment order, source ranges, asset ids, band indexes, and cursor positions must match the current section.
-- Partial display remains strict: valid chunks may show real Mosaic bands, while gaps, skipped windows, invalid chunks, and not-yet-computed ranges show placeholders.
+- Partial display remains strict and geometry-gated: valid chunks may show real Mosaic bands only when matching section geometry is already present for that render decision. Gaps, skipped windows, invalid chunks, and not-yet-computed ranges show chunk-aligned exact placeholders. Without geometry, partial chunks remain buffered/resumable and the UI keeps the placeholder/old display.
 
 ## Timeline Queue
 
@@ -107,6 +107,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 - Accepted chunks are stored in `TimelineProgressiveMosaicBuffer`, keyed by `MosaicCacheKey`.
 - The buffer de-duplicates chunks by `sourceStartIndex/sourceEndExclusive` and keeps them sorted by source start.
 - Visible loaded buckets with matching section geometry ranges are eligible for flush. Chunks without section geometry stay buffered until geometry arrives or stale state is cleared.
+- Flushing chunks must never create rough Mosaic partial output. The flushed partial state is renderable only through geometry-backed projection; otherwise the section remains unresolved.
 - Flush is immediate for explicit visible/target events and section-geometry publication, otherwise delayed by `PROGRESSIVE_MOSAIC_FLUSH_DELAY_MS` (`250ms`).
 - Flush converts buffered chunks into `MosaicSectionState.Partial` unless the section is already `Ready`. Existing partial chunks are merged, de-duplicated by source range, and sorted.
 - Publishing a `Ready` state clears buffered partial chunks for that key.
@@ -134,7 +135,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 
 ## Detail Progressive Display And Publication
 
-- Progress chunks update group state to `Partial` and project with `projectPartialSectionWithPlaceholders(...)`.
+- Progress chunks update group state to `Partial` only for resumability. Visible partial output must use geometry-backed projection; `projectPartialSectionWithPlaceholders(...)` is not a Timeline/detail UI display path.
 - Visible partial/ready groups may publish immediately; offscreen output may defer until scroll settles.
 - `groupDisplayCache` is written only for final ready group output.
 - Full in-memory `displayCache` is written only when every current group has final ready output, no runtime/deferred state remains, and the display contains no placeholders.

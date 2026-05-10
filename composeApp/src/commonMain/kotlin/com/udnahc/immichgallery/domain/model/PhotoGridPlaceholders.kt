@@ -4,6 +4,7 @@ import kotlin.math.ceil
 
 const val PHOTO_GRID_MAX_PLACEHOLDER_HEIGHT_DP = 10000f
 const val PHOTO_GRID_SECTION_HEADER_HEIGHT_DP = 48f
+const val PHOTO_GRID_MAX_EXACT_PLACEHOLDER_PIECES = 32
 
 fun placeholderGridKey(
     bucketIndex: Int,
@@ -63,6 +64,62 @@ fun buildPhotoGridPlaceholderItemsForHeight(
         )
     }
 }
+
+fun buildPhotoGridPlaceholderItemsForGeometryRanges(
+    bucketIndex: Int,
+    sectionLabel: String,
+    ranges: List<MosaicSectionGeometryRange>,
+    externalSpacing: Float = GRID_SPACING_DP,
+    preferredRangesPerPiece: Int = TIMELINE_MOSAIC_PROGRESS_BAND_BATCH_SIZE,
+    maxPieces: Int = PHOTO_GRID_MAX_EXACT_PLACEHOLDER_PIECES,
+    keyPrefix: String = "geom"
+): List<PlaceholderItem> {
+    val sortedRanges = ranges
+        .filter { it.sourceCount > 0 && it.height > 0f }
+        .sortedBy { it.sourceStartIndex }
+    if (sortedRanges.isEmpty()) return emptyList()
+    val targetPieces = maxPieces.coerceAtLeast(1)
+    val rangesPerPiece = maxOf(
+        preferredRangesPerPiece.coerceAtLeast(1),
+        ceil(sortedRanges.size.toFloat() / targetPieces).toInt().coerceAtLeast(1)
+    )
+    return sortedRanges.chunked(rangesPerPiece).flatMapIndexed { pieceIndex, pieceRanges ->
+        val sourceStart = pieceRanges.first().sourceStartIndex
+        val sourceEnd = pieceRanges.last().sourceStartIndex + pieceRanges.last().sourceCount
+        val sourceCount = sourceEnd - sourceStart
+        val pieceHeight = pieceRanges.sumOf { it.height.toDouble() }.toFloat() +
+                externalSpacing * (pieceRanges.size - 1).coerceAtLeast(0)
+        buildPhotoGridPlaceholderItemsForHeight(
+            bucketIndex = bucketIndex,
+            sectionLabel = sectionLabel,
+            estimatedHeight = pieceHeight,
+            externalSpacing = externalSpacing
+        ).mapIndexed { splitIndex, item ->
+            item.copy(
+                gridKey = exactPlaceholderGridKey(
+                    keyPrefix = keyPrefix,
+                    bucketIndex = bucketIndex,
+                    sectionLabel = sectionLabel,
+                    sourceStartIndex = sourceStart,
+                    sourceCount = sourceCount,
+                    pieceIndex = pieceIndex,
+                    splitIndex = splitIndex
+                )
+            )
+        }
+    }
+}
+
+fun exactPlaceholderGridKey(
+    keyPrefix: String,
+    bucketIndex: Int,
+    sectionLabel: String,
+    sourceStartIndex: Int,
+    sourceCount: Int,
+    pieceIndex: Int,
+    splitIndex: Int
+): String =
+    "pl_${keyPrefix}_${bucketIndex}_${sectionLabel.hashCode()}_${sourceStartIndex}_${sourceCount}_${pieceIndex}_$splitIndex"
 
 fun estimatePhotoGridDisplayItemsHeight(
     items: List<PhotoGridDisplayItem>,

@@ -31,6 +31,7 @@ import com.udnahc.immichgallery.domain.model.SectionGeometry
 import com.udnahc.immichgallery.domain.model.SectionReady
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItems
+import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForGeometryRanges
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForHeight
 import com.udnahc.immichgallery.domain.model.defaultTargetRowHeightForWidth
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
@@ -120,7 +121,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private val groupDisplayBandCache =
         mutableMapOf<DetailGroupDisplayCacheKey, List<MosaicDisplayBandRecord>>()
     private val groupSectionGeometryCache =
-        mutableMapOf<DetailGroupDisplayCacheKey, DetailMosaicSectionGeometryEntry>()
+        mutableMapOf<DetailGroupDisplayCacheKey, DetailResolvedSectionGeometry>()
     private var visibleBucketIndexes: List<Int> = listOf(0)
     private var isScrollInProgress = false
     private val deferredMosaicGroupItems = mutableMapOf<Int, List<PhotoGridDisplayItem>>()
@@ -452,8 +453,8 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 )
                 val sectionGeometry = groupSectionGeometryCache[keyed.cacheKey]
                     ?: persistentGeometryByGroup[persistentGroupKey]?.also {
-                        groupSectionGeometryCache[keyed.cacheKey] = it
-                    }
+                        groupSectionGeometryCache[keyed.cacheKey] = it.toResolvedSectionGeometry()
+                    }?.toResolvedSectionGeometry()
                 groupDisplayCache[keyed.cacheKey]
                     ?: resolvedBandItemsForGroup(keyed.group, groupDisplayBandCache[keyed.cacheKey])
                         ?.also { items -> groupDisplayCache[keyed.cacheKey] = items }
@@ -474,7 +475,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
                         assets = keyed.group.assets,
                         availableWidth = snapshot.availableWidth,
                         targetRowHeight = layoutSpec.cellHeight,
-                        cachedPlaceholderHeight = sectionGeometry?.placeholderHeight
+                        sectionGeometry = sectionGeometry
                     )
             }.also {
                 if (activeScrollRunnableIndexes != null) {
@@ -654,8 +655,8 @@ class PhotoGridDetailLayoutCoordinator<S>(
                         assets = group.assets,
                         availableWidth = snapshot.availableWidth,
                         targetRowHeight = layoutSpec.cellHeight,
-                        cachedPlaceholderHeight = mosaicRuntimeStateMutex.withLock {
-                            groupSectionGeometryCache[keyedGroup.cacheKey]?.placeholderHeight
+                        sectionGeometry = mosaicRuntimeStateMutex.withLock {
+                            groupSectionGeometryCache[keyedGroup.cacheKey]
                         }
                     )
                 )
@@ -665,14 +666,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
             mosaicRuntimeStateMutex.withLock {
                 runtimeGroupStates.remove(keyedGroup.cacheKey)
                 groupDisplayCache[keyedGroup.cacheKey] = groupItems
-                persistentCacheLookup?.let { lookup ->
-                    groupSectionGeometryCache[keyedGroup.cacheKey] = sectionGeometryEntry(
-                        group = group,
-                        geometry = ready.geometry,
-                        assetFingerprint = keyedGroup.assetFingerprint,
-                        lookup = lookup
-                    )
-                }
+                groupSectionGeometryCache[keyedGroup.cacheKey] = ready.geometry.toResolvedSectionGeometry()
                 val resolvedBands = resolvedBandsForGroupItems(group, groupItems)
                 if (resolvedBands.isNotEmpty()) {
                     groupDisplayBandCache[keyedGroup.cacheKey] = resolvedBands
@@ -748,8 +742,8 @@ class PhotoGridDetailLayoutCoordinator<S>(
                     assets = group.assets,
                     availableWidth = snapshot.availableWidth,
                     targetRowHeight = layoutSpec.cellHeight,
-                    cachedPlaceholderHeight = mosaicRuntimeStateMutex.withLock {
-                        groupSectionGeometryCache[keyedGroup.cacheKey]?.placeholderHeight
+                    sectionGeometry = mosaicRuntimeStateMutex.withLock {
+                        groupSectionGeometryCache[keyedGroup.cacheKey]
                     }
                 )
             )
@@ -791,7 +785,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         snapshot: PhotoGridDetailLayoutSnapshot,
         layoutSpec: com.udnahc.immichgallery.domain.model.MosaicLayoutSpec,
         keyed: KeyedAssetGroup,
-        sectionGeometry: DetailMosaicSectionGeometryEntry?
+        sectionGeometry: DetailResolvedSectionGeometry?
     ): List<PhotoGridDisplayItem>? =
         when (val state = runtimeGroupStates[keyed.cacheKey]) {
             is DetailRuntimeMosaicGroupState.InFlight ->
@@ -801,7 +795,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
                     assets = keyed.group.assets,
                     availableWidth = snapshot.availableWidth,
                     targetRowHeight = layoutSpec.cellHeight,
-                    cachedPlaceholderHeight = sectionGeometry?.placeholderHeight
+                    sectionGeometry = sectionGeometry
                 )
 
             is DetailRuntimeMosaicGroupState.Partial ->
@@ -820,7 +814,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
                     assets = keyed.group.assets,
                     availableWidth = snapshot.availableWidth,
                     targetRowHeight = layoutSpec.cellHeight,
-                    cachedPlaceholderHeight = sectionGeometry?.placeholderHeight
+                    sectionGeometry = sectionGeometry
                 )
 
             null -> null
@@ -831,7 +825,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         layoutSpec: com.udnahc.immichgallery.domain.model.MosaicLayoutSpec,
         group: IndexedAssetGroup,
         chunks: List<ProgressChunk>,
-        sectionGeometry: DetailMosaicSectionGeometryEntry? = null
+        sectionGeometry: DetailResolvedSectionGeometry? = null
     ): List<PhotoGridDisplayItem> {
         val exactItems = sectionGeometry?.ranges?.takeIf { it.isNotEmpty() }?.let { ranges ->
             mosaicEngine.projectPartialSectionWithGeometry(
@@ -852,18 +846,19 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 assets = group.assets,
                 availableWidth = snapshot.availableWidth,
                 targetRowHeight = layoutSpec.cellHeight,
-                cachedPlaceholderHeight = sectionGeometry.placeholderHeight
+                sectionGeometry = sectionGeometry
             )
         }
-        val projected = exactItems ?: mosaicEngine.projectPartialSectionWithPlaceholders(
-            assets = group.assets,
-            chunks = chunks,
-            bucketIndex = group.index,
-            sectionLabel = group.label,
-            layoutSpec = layoutSpec,
-            spacing = GRID_SPACING_DP,
-            maxRowHeight = snapshot.rowHeightBounds.max
-        )
+        if (exactItems == null) {
+            return placeholderItemsForGroup(
+                bucketIndex = group.index,
+                sectionLabel = group.label,
+                assets = group.assets,
+                availableWidth = snapshot.availableWidth,
+                targetRowHeight = layoutSpec.cellHeight
+            )
+        }
+        val projected = exactItems
         return groupHeader(group) + projected
     }
 
@@ -1300,14 +1295,23 @@ class PhotoGridDetailLayoutCoordinator<S>(
         assets: List<Asset>,
         availableWidth: Float,
         targetRowHeight: Float,
-        cachedPlaceholderHeight: Float? = null
+        sectionGeometry: DetailResolvedSectionGeometry? = null
     ): List<PhotoGridDisplayItem> {
         val header = groupHeader(IndexedAssetGroup(bucketIndex, sectionLabel, assets))
-        val placeholders = if (cachedPlaceholderHeight != null && cachedPlaceholderHeight > 0f) {
+        val ranges = sectionGeometry?.ranges.orEmpty()
+        val placeholders = if (ranges.isNotEmpty()) {
+            buildPhotoGridPlaceholderItemsForGeometryRanges(
+                bucketIndex = bucketIndex,
+                sectionLabel = sectionLabel,
+                ranges = ranges,
+                externalSpacing = GRID_SPACING_DP,
+                keyPrefix = "detail_geom"
+            )
+        } else if (sectionGeometry?.placeholderHeight != null && sectionGeometry.placeholderHeight > 0f) {
             buildPhotoGridPlaceholderItemsForHeight(
                 bucketIndex = bucketIndex,
                 sectionLabel = sectionLabel,
-                estimatedHeight = cachedPlaceholderHeight
+                estimatedHeight = sectionGeometry.placeholderHeight
             )
         } else {
             buildPhotoGridPlaceholderItems(

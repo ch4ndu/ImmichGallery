@@ -613,13 +613,17 @@ private fun projectGeometryPlaceholderRange(
     sectionLabel: String,
     spacing: Float
 ): List<PlaceholderItem>? {
-    val height = geometryRanges.heightForSourceRange(sourceStartIndex, sourceEndExclusive, spacing)
+    geometryRanges.heightForSourceRange(sourceStartIndex, sourceEndExclusive, spacing)
         ?: return null
-    return buildPhotoGridPlaceholderItemsForHeight(
+    val ranges = geometryRanges
+        .filter { it.sourceStartIndex >= sourceStartIndex && it.sourceStartIndex < sourceEndExclusive }
+        .sortedBy { it.sourceStartIndex }
+    return buildPhotoGridPlaceholderItemsForGeometryRanges(
         bucketIndex = bucketIndex,
         sectionLabel = sectionLabel,
-        estimatedHeight = height,
-        externalSpacing = spacing
+        ranges = ranges,
+        externalSpacing = spacing,
+        keyPrefix = "mosaic_gap"
     )
 }
 

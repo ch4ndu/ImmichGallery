@@ -47,7 +47,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - `projectReadySection(...)` projects a completed assignment set. It may fill unassigned or invalid source ranges with deterministic cropped full-width `RowItem(kind = MOSAIC_FALLBACK)` rows, but callers may use that output only after `MosaicRenderEngine.computeSection()` returns `Ready` for the active owner/section/config/fingerprint/generation or after a validated completed display-cache read.
 - `projectSection(...)` is the compatibility alias for completed projection. New screen code should call `projectReadySection(...)` when it is intentionally publishing completed output.
 - `projectPartialSection(...)` is the general partial projection. It fills unresolved ranges with placeholders.
-- `projectPartialSectionWithPlaceholders(...)` is the strict runtime projection for Timeline and detail screens:
+- `projectPartialSectionWithPlaceholders(...)` is a compatibility projection for unresolved ranges without persisted geometry. Timeline and detail UI display paths must not use it for visible partial Mosaic output:
   - Valid completed chunks render real `MosaicBandItem(kind = REAL)` bands.
   - Gaps and invalid chunks render `PlaceholderItem`s.
   - It must not emit `RowItem`.
@@ -57,6 +57,8 @@ For the broader Album Detail and Person Detail screen experience around cached-f
   - Real chunk bands may publish only when their projected height matches the corresponding geometry range within tolerance.
   - Unresolved or invalid geometry ranges collapse into exact-height placeholders.
   - The projected partial section must preserve the final ready section height within `0.5f`, otherwise callers keep the exact full-section placeholder.
+- Timeline and detail Mosaic display paths must not render ready or partial Mosaic output unless matching section geometry is available in the same render decision. Ready output without geometry is treated as unresolved and remains placeholder/old display until geometry arrives.
+- Exact pending placeholders should use chunk-aligned geometry range placeholders. Placeholder pieces must preserve total section height including spacing, include source-range identity in keys, stay capped at 32 pieces per section unless split by `PHOTO_GRID_MAX_PLACEHOLDER_HEIGHT_DP`, and replace only with equal-height partial/ready output.
 - A chunk is valid for strict display only when the projected output is all real Mosaic bands and covers the chunk source range without source overlap.
 - Empty-assignment progress chunks are not completed visual chunks; strict projection renders their range as placeholders.
 
@@ -96,6 +98,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Scheduler cancellation is resumable, not final failure. Cancellation before the first checkpoint must still leave resumable state.
 - Pending, cancelled, failed, invalid, and partial-gap detail runtime states render placeholders. They must not render fallback-thumbnail bands.
 - Detail runtime thumbnails may appear only from real ready assignments, valid completed progressive chunks, or fallback rows produced by a completed ready projection for the current group.
+- Detail runtime compute stores exact section geometry in memory even when disk Mosaic cache is disabled. Cache-off runtime remains disk-free, but ready or partial display still needs in-memory exact geometry before replacing placeholders.
 - Repeated runtime failure must not become final fallback display. It remains placeholder plus retry when visible.
 - `groupDisplayCache` stores final ready group items only. It must not store placeholders, partial output, or retry state; completed fallback Mosaic rows are allowed because they are part of ready projection.
 - `groupDisplayBandCache` stores validated resolved real display-band records for the same detail group/config/fingerprint keys. It is seeded from completed runtime ready output and from strict persistent display-cache reads, but only when every display item is a real `MosaicBandItem` and the records cover the current ordered group assets. It is cleared with `groupDisplayCache`.
@@ -128,8 +131,9 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Exact persisted geometry should be used when it matches the active config. Stale geometry must miss.
 - Count-only placeholders are the last fallback when exact geometry and materialized asset data are unavailable.
 - Placeholder-to-ready replacement should preserve scroll position, shared element return targets, and hidden-asset behavior as much as possible.
-- Timeline and detail screens render one aggregate `PlaceholderItem` per pending Mosaic section when exact section geometry is available. Partial rendering may replace that placeholder only if section geometry ranges can size every unresolved source range and the mixed real-band/placeholder output preserves the exact section height.
-- Timeline loaded buckets may render the matching aggregate bucket-geometry placeholder while no section has a renderable `Ready` or `Partial` Mosaic state. This preserves the exact persisted bucket height through Room materialization; count-only placeholders are allowed only when no matching exact geometry exists. When cache results are enabled but no geometry has been computed yet, screens may show a provisional count-based placeholder and accept one first-time resize. Once exact geometry exists, rough placeholders must not overwrite it.
+- Timeline and detail screens render chunk-aligned exact `PlaceholderItem` pieces per pending Mosaic section when exact section geometry ranges are available. Partial rendering may replace those placeholders only if section geometry ranges can size every unresolved source range and the mixed real-band/placeholder output preserves the exact section height.
+- For Mosaic sections with exact geometry, prefer chunk-aligned placeholder pieces over rough count placeholders. Count-only placeholders are section-blocking/loading placeholders only; they must not be replaced by partial chunks and should be replaced by ready output only when exact geometry is known.
+- Timeline loaded buckets may render the matching aggregate bucket-geometry placeholder while no section has a renderable `Ready` or `Partial` Mosaic state. This preserves the exact persisted bucket height through Room materialization; count-only placeholders are allowed only when no matching exact geometry exists and must behave as blocking/loading placeholders, not partial-replacement surfaces. Once exact geometry exists, rough placeholders must not overwrite it.
 - Timeline `TimelineViewModel` reads bucket-aggregate + per-section geometry in a visible-first phase at warm launch and after cache invalidation. A `timelineGeometryReady` gate stays closed only for visible/target buckets plus radius neighbors; the gate opens even when that priority read fails so visible Mosaic work cannot stall indefinitely. Offscreen cached geometry hydrates afterward in small background chunks.
 
 ## Invalidation And Staleness

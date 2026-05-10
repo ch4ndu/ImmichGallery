@@ -73,6 +73,12 @@ keep the normal scroll path plain; per-cell `AnimatedVisibility` and
 `sharedElement` wiring belong only to the active open/dismiss transition or the
 currently hidden asset.
 
+Mosaic detail placeholders follow the Timeline exact-height contract: pending,
+in-flight, retry, and partial states may render Mosaic placeholders or chunks
+only with matching section geometry. Cache-off runtime compute stores section
+geometry in memory; it does not read/write disk artifacts, but it still must not
+publish rough partial Mosaic output.
+
 Zoom behavior is shared:
 
 - row-packing mode supports pinch and desktop wheel zoom;
@@ -381,7 +387,7 @@ Initial group item selection is ordered by group index:
 3. Else use validated persistent display artifacts if cache results are enabled and the owner snapshot is complete. Persistent reads also seed the in-memory resolved-band cache when the stored bands are all real and fully cover the group.
 4. Else use valid section geometry, from memory or persistence, to size placeholders exactly.
 5. Else use runtime partial/in-flight state if available.
-6. Else render provisional placeholders for the group.
+6. Else render blocking/loading placeholders for the group; these must not be replaced by partial Mosaic chunks.
 
 ```mermaid
 flowchart TD
@@ -418,7 +424,7 @@ The runtime group pipeline:
 4. Outside active scroll, compute groups in visible-first order.
 5. Run CPU work through `MosaicWorkScheduler`.
 6. Call `MosaicRenderEngine.computeSection(...)` with checkpoint, progress chunk, and cancellation callbacks.
-7. Publish valid partial chunks through `projectPartialSectionWithGeometry(...)` when section geometry exists; otherwise use `projectPartialSectionWithPlaceholders(...)`.
+7. Publish valid partial chunks through `projectPartialSectionWithGeometry(...)` only when section geometry exists; otherwise keep exact placeholders or the current placeholder/old display.
 8. Publish completed ready output immediately for visible groups or defer offscreen replacement.
 9. Store completed ready group items in `groupDisplayCache` and section geometry in `groupSectionGeometryCache`. If the ready output is made entirely of real `MosaicBandItem` records and covers the current ordered group assets, also store portable `MosaicDisplayBandRecord` values in `groupDisplayBandCache` as a real-band memory optimization.
 10. Write assignments, mixed display records, section geometry, and eventually aggregate geometry when persistent cache is eligible.

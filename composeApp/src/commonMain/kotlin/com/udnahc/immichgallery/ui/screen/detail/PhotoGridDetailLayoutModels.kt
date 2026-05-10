@@ -8,11 +8,13 @@ import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.ProgressChunk
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.RowItemKind
+import com.udnahc.immichgallery.domain.model.SectionGeometry
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.groupAssets
 
@@ -45,6 +47,23 @@ internal data class KeyedAssetGroup(
     val assetFingerprint: String,
     val cacheKey: DetailGroupDisplayCacheKey
 )
+
+internal data class DetailResolvedSectionGeometry(
+    val placeholderHeight: Float,
+    val ranges: List<MosaicSectionGeometryRange>
+)
+
+internal fun DetailMosaicSectionGeometryEntry.toResolvedSectionGeometry(): DetailResolvedSectionGeometry =
+    DetailResolvedSectionGeometry(
+        placeholderHeight = placeholderHeight,
+        ranges = ranges
+    )
+
+internal fun SectionGeometry.toResolvedSectionGeometry(): DetailResolvedSectionGeometry =
+    DetailResolvedSectionGeometry(
+        placeholderHeight = placeholderHeight,
+        ranges = ranges
+    )
 
 internal sealed interface DetailRuntimeMosaicGroupState {
     val checkpoint: MosaicAssignmentCheckpoint

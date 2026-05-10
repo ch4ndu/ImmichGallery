@@ -36,6 +36,7 @@ import com.udnahc.immichgallery.domain.model.MosaicOwnerScope
 import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
 import com.udnahc.immichgallery.domain.model.MosaicSectionRequest
 import com.udnahc.immichgallery.domain.model.MosaicSectionResult
+import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
@@ -54,6 +55,7 @@ import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.bucketIndexForTimelineFraction
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItems
+import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForGeometryRanges
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForHeight
 import com.udnahc.immichgallery.domain.model.buildTimelineDisplayIndex
 import com.udnahc.immichgallery.domain.model.defaultTargetRowHeightForWidth
@@ -2791,7 +2793,10 @@ class TimelineViewModel(
                                     )
                                 }
 
-                                useMosaic && dayMosaicState is RuntimeMosaicState.Ready && mosaicLayoutSpec != null -> {
+                                useMosaic &&
+                                        dayMosaicState is RuntimeMosaicState.Ready &&
+                                        mosaicLayoutSpec != null &&
+                                        mosaicGeometryStates[dayMosaicKey] != null -> {
                                     items.addAll(
                                         remapTimelineMosaicBandKeys(
                                             items = readyMosaicDisplayItems(
@@ -2925,7 +2930,11 @@ class TimelineViewModel(
                             )
                             return items
                         }
-                        if (useMosaic && monthMosaicState is RuntimeMosaicState.Ready && mosaicLayoutSpec != null) {
+                        if (useMosaic &&
+                            monthMosaicState is RuntimeMosaicState.Ready &&
+                            mosaicLayoutSpec != null &&
+                            mosaicGeometryStates[monthMosaicKey] != null
+                        ) {
                             items.addAll(
                                 remapTimelineMosaicBandKeys(
                                     items = readyMosaicDisplayItems(
@@ -3218,15 +3227,18 @@ class TimelineViewModel(
         mosaicLayoutSpec: MosaicLayoutSpec,
         sectionGeometry: TimelineMosaicSectionGeometry?
     ) {
-        // We render a single placeholder per section sized to the aggregate
-        // placeholderHeight (sum of band heights + internal spacing). The
-        // disk row also carries per-band heights, which we previously used to
-        // emit one placeholder per band — that pushed LazyColumn item count up
-        // ~10-15x per section and made fast scrolling janky on warm regions.
-        // The aggregate height already matches the eventual sum of bands, so
-        // the section's total height is preserved across the placeholder→bands
-        // transition; the only loss is item-level identity continuity, which
-        // LazyColumn handles cleanly when total height doesn't shift.
+        val ranges = sectionGeometry?.ranges.orEmpty()
+        if (ranges.isNotEmpty()) {
+            addGeometryRangePlaceholderItems(
+                items = items,
+                timeBucket = timeBucket,
+                sectionKey = sectionKey,
+                bucketIndex = bucketIndex,
+                sectionLabel = sectionLabel,
+                ranges = ranges
+            )
+            return
+        }
         val height = sectionGeometry?.placeholderHeight
         if (height != null && height > 0f) {
             addGeometryPlaceholderItems(
@@ -3249,6 +3261,30 @@ class TimelineViewModel(
             groupSize = TimelineGroupSize.MONTH,
             availableWidth = mosaicLayoutSpec.availableWidth,
             targetRowHeight = mosaicLayoutSpec.cellHeight
+        )
+    }
+
+    private fun addGeometryRangePlaceholderItems(
+        items: MutableList<TimelineDisplayItem>,
+        timeBucket: String,
+        sectionKey: String,
+        bucketIndex: Int,
+        sectionLabel: String,
+        ranges: List<MosaicSectionGeometryRange>
+    ) {
+        items.addAll(
+            remapTimelinePlaceholderKeys(
+                placeholders = buildPhotoGridPlaceholderItemsForGeometryRanges(
+                    bucketIndex = bucketIndex,
+                    sectionLabel = sectionLabel,
+                    ranges = ranges,
+                    externalSpacing = GRID_SPACING_DP,
+                    keyPrefix = "timeline_geom"
+                ),
+                prefix = "pl",
+                timeBucket = timeBucket,
+                sectionKey = sectionKey
+            )
         )
     }
 
@@ -3283,12 +3319,7 @@ class TimelineViewModel(
     ): List<PlaceholderItem> =
         placeholders.mapIndexed { chunkIndex, item ->
             item.copy(
-                gridKey = timelinePlaceholderGridKey(
-                    prefix,
-                    timeBucket,
-                    sectionKey,
-                    chunkIndex
-                )
+                gridKey = "${timelinePlaceholderGridKey(prefix, timeBucket, sectionKey, chunkIndex)}|${item.gridKey}"
             )
         }
 
