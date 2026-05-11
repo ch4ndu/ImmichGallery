@@ -45,8 +45,14 @@ import immichgallery.composeapp.generated.resources.mosaic_apply_blocking_warnin
 import immichgallery.composeapp.generated.resources.mosaic_apply_failed
 import immichgallery.composeapp.generated.resources.mosaic_apply_preparing
 import immichgallery.composeapp.generated.resources.mosaic_cache_results
-import immichgallery.composeapp.generated.resources.mosaic_columns_option
-import immichgallery.composeapp.generated.resources.mosaic_columns_title
+import immichgallery.composeapp.generated.resources.mosaic_density_dense
+import immichgallery.composeapp.generated.resources.mosaic_density_denser
+import immichgallery.composeapp.generated.resources.mosaic_density_large
+import immichgallery.composeapp.generated.resources.mosaic_density_larger
+import immichgallery.composeapp.generated.resources.mosaic_density_maximum
+import immichgallery.composeapp.generated.resources.mosaic_density_medium
+import immichgallery.composeapp.generated.resources.mosaic_density_title
+import immichgallery.composeapp.generated.resources.mosaic_density_very_dense
 import immichgallery.composeapp.generated.resources.mosaic_disable_zoom
 import immichgallery.composeapp.generated.resources.mosaic_family_eight
 import immichgallery.composeapp.generated.resources.mosaic_family_five
@@ -54,7 +60,7 @@ import immichgallery.composeapp.generated.resources.mosaic_family_four
 import immichgallery.composeapp.generated.resources.mosaic_family_seven
 import immichgallery.composeapp.generated.resources.mosaic_family_six
 import immichgallery.composeapp.generated.resources.mosaic_settings
-import immichgallery.composeapp.generated.resources.mosaic_settings_tab_columns
+import immichgallery.composeapp.generated.resources.mosaic_settings_tab_density
 import immichgallery.composeapp.generated.resources.mosaic_settings_tab_options
 import immichgallery.composeapp.generated.resources.mosaic_settings_title
 import immichgallery.composeapp.generated.resources.mosaic_settings_warning
@@ -200,10 +206,10 @@ private fun MosaicSettingsDialog(
                             }
                         )
                     }
-                    TextButton(onClick = { selectedTab = MosaicSettingsTab.Columns }) {
+                    TextButton(onClick = { selectedTab = MosaicSettingsTab.Density }) {
                         Text(
-                            text = stringResource(Res.string.mosaic_settings_tab_columns),
-                            color = if (selectedTab == MosaicSettingsTab.Columns) {
+                            text = stringResource(Res.string.mosaic_settings_tab_density),
+                            color = if (selectedTab == MosaicSettingsTab.Density) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurface
@@ -246,13 +252,13 @@ private fun MosaicSettingsDialog(
                         )
                     }
 
-                    MosaicSettingsTab.Columns -> {
+                    MosaicSettingsTab.Density -> {
                         Text(
-                            text = stringResource(Res.string.mosaic_columns_title),
+                            text = stringResource(Res.string.mosaic_density_title),
                             style = MaterialTheme.typography.titleSmall
                         )
                         mosaicColumnOptions.forEach { columnCount ->
-                            MosaicColumnRow(
+                            MosaicDensityRow(
                                 columnCount = columnCount,
                                 selected = draftColumnCount == columnCount,
                                 onSelected = { draftColumnCount = columnCount }
@@ -334,11 +340,11 @@ internal fun mosaicColumnOptionsForWindow(): IntRange {
 
 private enum class MosaicSettingsTab {
     Options,
-    Columns
+    Density
 }
 
 @Composable
-private fun MosaicColumnRow(
+private fun MosaicDensityRow(
     columnCount: Int,
     selected: Boolean,
     onSelected: () -> Unit
@@ -352,9 +358,22 @@ private fun MosaicColumnRow(
             onClick = onSelected
         )
         Spacer(Modifier.width(Dimens.smallSpacing))
-        Text(text = stringResource(Res.string.mosaic_columns_option, columnCount))
+        Text(text = mosaicDensityLabel(columnCount))
     }
 }
+
+@Composable
+private fun mosaicDensityLabel(columnCount: Int): String =
+    when (columnCount) {
+        2 -> stringResource(Res.string.mosaic_density_larger)
+        3 -> stringResource(Res.string.mosaic_density_large)
+        4 -> stringResource(Res.string.mosaic_density_medium)
+        5 -> stringResource(Res.string.mosaic_density_dense)
+        6 -> stringResource(Res.string.mosaic_density_denser)
+        7 -> stringResource(Res.string.mosaic_density_very_dense)
+        8 -> stringResource(Res.string.mosaic_density_maximum)
+        else -> stringResource(Res.string.mosaic_density_medium)
+    }
 
 @Composable
 private fun MosaicBooleanRow(

@@ -494,8 +494,9 @@ rebuilds. Assignments remain canonical, partial chunks remain transient, and an
 empty resolved-record list means the renderer projects from assignments later.
 
 Timeline Mosaic uses the global `ViewConfig.mosaicColumnCount` while enabled.
-Column count changes happen through the Mosaic settings dialog, not pinch or
-desktop zoom. When cache results is enabled, applying Mosaic changes blocks in
+The Mosaic settings dialog presents this as density because it controls cell
+sizing, not a guaranteed visible tile count. Density changes happen through the
+Mosaic settings dialog, not pinch or desktop zoom. When cache results is enabled, applying Mosaic changes blocks in
 the dialog while every current Timeline metadata bucket is prepared for the
 requested group/column/family/full-screen-geometry key. The blocking prepare
 path normally materializes buckets with asset sync, retrying failures once, then
