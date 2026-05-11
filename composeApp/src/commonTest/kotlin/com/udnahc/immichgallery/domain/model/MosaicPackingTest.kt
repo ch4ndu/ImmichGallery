@@ -351,7 +351,7 @@ class MosaicPackingTest {
         val row = assertIs<RowItem>(items.single())
         assertEquals(RowItemKind.MOSAIC_FALLBACK, row.kind)
         assertEquals(listOf("asset_0"), row.photos.map { it.asset.id })
-        assertEquals(layoutSpec.cellHeight * 2f, row.rowHeight)
+        assertEquals(layoutSpec.cellHeight * 3f, row.rowHeight)
     }
 
     @Test
@@ -388,7 +388,7 @@ class MosaicPackingTest {
         val row = assertIs<RowItem>(items.single())
         assertEquals(RowItemKind.MOSAIC_FALLBACK, row.kind)
         assertEquals(listOf("asset_0", "asset_1"), row.photos.map { it.asset.id })
-        assertEquals(layoutSpec.cellHeight * 2f, row.rowHeight)
+        assertEquals(layoutSpec.cellHeight * 3f, row.rowHeight)
     }
 
     @Test
@@ -407,7 +407,7 @@ class MosaicPackingTest {
         val rows = items.map { assertIs<RowItem>(it) }
         assertTrue(rows.all { it.kind == RowItemKind.MOSAIC_FALLBACK })
         assertEquals((0..3).map { "asset_$it" }, rows.flatMap { row -> row.photos.map { it.asset.id } })
-        assertTrue(rows.all { it.rowHeight >= layoutSpec.cellHeight * 2f })
+        assertTrue(rows.all { it.rowHeight >= layoutSpec.cellHeight * 3f })
     }
 
     @Test

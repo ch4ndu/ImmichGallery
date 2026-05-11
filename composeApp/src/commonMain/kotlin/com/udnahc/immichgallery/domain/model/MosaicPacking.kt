@@ -44,7 +44,7 @@ const val MOSAIC_FALLBACK_ROW_MEDIAN_BAND_FRACTION = 0.75f
 // assignment groups get a taller fallback band target while keeping every
 // thumbnail visible with fit-style rendering.
 const val MOSAIC_SMALL_GROUP_MAX_ASSETS = 4
-const val MOSAIC_SMALL_GROUP_FALLBACK_ROW_HEIGHT_CELL_MULTIPLIER = 2f
+const val MOSAIC_SMALL_GROUP_FALLBACK_ROW_HEIGHT_CELL_MULTIPLIER = 3f
 
 // Mosaic fallback rows keep row-packing membership but render as cropped
 // Mosaic-owned rows, not standard rows.
