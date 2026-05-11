@@ -48,8 +48,10 @@ import immichgallery.composeapp.generated.resources.mosaic_cache_results
 import immichgallery.composeapp.generated.resources.mosaic_columns_option
 import immichgallery.composeapp.generated.resources.mosaic_columns_title
 import immichgallery.composeapp.generated.resources.mosaic_disable_zoom
+import immichgallery.composeapp.generated.resources.mosaic_family_eight
 import immichgallery.composeapp.generated.resources.mosaic_family_five
 import immichgallery.composeapp.generated.resources.mosaic_family_four
+import immichgallery.composeapp.generated.resources.mosaic_family_seven
 import immichgallery.composeapp.generated.resources.mosaic_family_six
 import immichgallery.composeapp.generated.resources.mosaic_settings
 import immichgallery.composeapp.generated.resources.mosaic_settings_tab_columns
@@ -396,6 +398,8 @@ private fun MosaicTemplateFamily.labelRes() = when (this) {
     MosaicTemplateFamily.FOUR_TILE -> Res.string.mosaic_family_four
     MosaicTemplateFamily.FIVE_TILE -> Res.string.mosaic_family_five
     MosaicTemplateFamily.SIX_TILE -> Res.string.mosaic_family_six
+    MosaicTemplateFamily.SEVEN_TILE -> Res.string.mosaic_family_seven
+    MosaicTemplateFamily.EIGHT_TILE -> Res.string.mosaic_family_eight
 }
 
 private val LargeScreenMosaicColumnsMinWidth = 600.dp

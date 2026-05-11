@@ -39,7 +39,7 @@ const val MOSAIC_FALLBACK_MIN_ROW_HEIGHT_CELL_MULTIPLIER = 0.75f
 const val MOSAIC_FALLBACK_TARGET_ROW_HEIGHT_BAND_MULTIPLIER = 1f
 const val MOSAIC_FALLBACK_ROW_MEDIAN_BAND_FRACTION = 0.75f
 
-// Small Mosaic groups cannot form a real 4-6 asset Mosaic band. Using a normal
+// Small Mosaic groups cannot form a real 4-8 asset Mosaic band. Using a normal
 // one-cell fallback row makes 1-4 asset buckets look like thumbnails, so empty
 // assignment groups get a taller fallback band target while keeping every
 // thumbnail visible with fit-style rendering.
@@ -240,7 +240,7 @@ fun buildMosaicAssignments(
     ) return emptyList()
     /*
      * Assignment is a source-order scan. At each source index we try to build
-     * one Mosaic band from the next 4-6 assets. If no template/permutation is
+     * one Mosaic band from the next 4-8 assets. If no template/permutation is
      * acceptable, advance by one asset and try again. Timeline Mosaic no longer
      * uses standard row packing as a scan heuristic, so difficult buckets may
      * do more candidate checks but can still find a valid band just after a bad
@@ -582,10 +582,10 @@ private fun bestCandidate(
     var best: MosaicCandidate? = null
     val maxCount = minOf(MAX_MOSAIC_ASSETS, assets.size - sourceStartIndex)
     /*
-     * Try larger bands first because a good 6-photo Mosaic usually gives more
+     * Try larger bands first because a good 7/8-photo Mosaic usually gives more
      * visual variety and reduces fallback churn. We still score every enabled
      * template/permutation for every supported count and return the lowest score
-     * overall, so a poor 6-photo candidate can lose to a cleaner 4-photo band.
+     * overall, so a poor large candidate can lose to a cleaner smaller band.
      */
     for (count in maxCount downTo MIN_MOSAIC_ASSETS) {
         shouldContinue()
@@ -593,7 +593,7 @@ private fun bestCandidate(
             MOSAIC_TEMPLATES.filter { it.slotCount == count && it.family in enabledFamilies }
         if (templates.isEmpty()) continue
         val window = assets.subList(sourceStartIndex, sourceStartIndex + count)
-        for (permutation in permutations(count)) {
+        for (permutation in mosaicCandidatePermutations(window, count)) {
             shouldContinue()
             // permutation[slot] maps a template slot to a source asset. This is
             // how the same template can choose which photo becomes the feature
@@ -629,6 +629,49 @@ private fun bestCandidate(
         }
     }
     return best
+}
+
+internal fun mosaicCandidatePermutations(
+    assets: List<Asset>,
+    count: Int
+): List<IntArray> {
+    if (count <= EXHAUSTIVE_MOSAIC_PERMUTATION_MAX_ASSETS) return permutations(count)
+    if (assets.size < count) return emptyList()
+    val window = assets.take(count)
+    val sourceOrder = IntArray(count) { it }
+    val candidates = mutableListOf<IntArray>()
+
+    fun addCandidate(values: IntArray) {
+        if (values.size != count || values.toSet().size != count) return
+        if (candidates.none { it.contentEquals(values) }) {
+            candidates.add(values)
+        }
+    }
+
+    addCandidate(sourceOrder)
+    addCandidate(IntArray(count) { count - 1 - it })
+    addCandidate(
+        window.indices
+            .sortedBy { window[it].aspectRatio }
+            .toIntArray()
+    )
+    addCandidate(
+        window.indices
+            .sortedByDescending { window[it].aspectRatio }
+            .toIntArray()
+    )
+
+    val featureCandidates = (
+            window.indices.sortedByDescending { window[it].aspectRatio }.take(2) +
+                    window.indices.sortedBy { window[it].aspectRatio }.take(2)
+            ).distinct()
+    featureCandidates.forEach { featureIndex ->
+        addCandidate(
+            (listOf(featureIndex) + window.indices.filter { it != featureIndex })
+                .toIntArray()
+        )
+    }
+    return candidates
 }
 
 private fun scoreCandidate(
@@ -749,7 +792,8 @@ private fun permutations(size: Int): List<IntArray> {
 }
 
 private const val MIN_MOSAIC_ASSETS = 4
-private const val MAX_MOSAIC_ASSETS = 6
+private const val MAX_MOSAIC_ASSETS = 8
+private const val EXHAUSTIVE_MOSAIC_PERMUTATION_MAX_ASSETS = 6
 private const val MIN_ASPECT_RATIO = 0.1f
 private const val MIN_TILE_SIZE = 42f
 private const val AREA_BALANCE_WEIGHT = 0.08f

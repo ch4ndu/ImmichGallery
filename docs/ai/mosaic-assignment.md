@@ -13,7 +13,7 @@ The complete ready path is:
 ```text
 ordered section assets
   -> source-order assignment scan
-  -> best 4/5/6-photo template assignments
+  -> best 4-through-8-photo template assignments
   -> completed projection
   -> REAL Mosaic bands plus completed fallback Mosaic rows for unassigned gaps
   -> display cache, section geometry, aggregate geometry
@@ -40,7 +40,7 @@ ordered section assets
 ## Source-Order Assignment Scan
 
 - `buildMosaicAssignmentsWithProgress(...)` scans the section assets in source order.
-- At each `sourceIndex`, the engine tries to build one real Mosaic band from the next 4, 5, or 6 assets.
+- At each `sourceIndex`, the engine tries to build one real Mosaic band from the next 4, 5, 6, 7, or 8 assets.
 - If the best candidate is valid, the engine emits one `MosaicBandAssignment`, advances `sourceIndex` by that band's `sourceCount`, and increments `bandIndex`.
 - If no candidate is valid for that window, the engine advances `sourceIndex` by one and tries again.
 - Skipped source ranges are not dropped. Completed projection later represents those ranges as cropped `RowItem(kind = MOSAIC_FALLBACK)` rows; strict partial projection represents them as placeholders.
@@ -50,7 +50,7 @@ The scan is:
 ```text
 sourceIndex = 0
 while sourceIndex <= assets.size - 4:
-  candidate = best 4/5/6-photo template candidate at sourceIndex
+  candidate = best 4-through-8-photo template candidate at sourceIndex
   if candidate exists:
     assignments += candidate.assignment
     sourceIndex += candidate.sourceCount
@@ -61,14 +61,14 @@ while sourceIndex <= assets.size - 4:
 
 ## Template Candidates
 
-- A real Mosaic band owns one contiguous source range of 4, 5, or 6 assets.
+- A real Mosaic band owns one contiguous source range of 4, 5, 6, 7, or 8 assets.
 - Candidate layouts come from fixed template families in `MosaicPacking.kt`.
 - Templates are small layout trees:
   - `leaf(slot)` is one photo slot.
   - `h(...)` places child groups horizontally.
   - `v(...)` stacks child groups vertically.
-- The engine tries every enabled template for the candidate source count and every permutation of those source assets. This lets the same source window choose which photo becomes the feature tile without changing source ownership.
-- The built-in families include 4-photo feature/stack templates, 5-photo feature/cluster templates, and 6-photo mixed, paired-column, and two-row templates.
+- The engine tries every enabled template for the candidate source count. For 4, 5, and 6 asset windows it tries every permutation. For 7 and 8 asset windows it uses bounded deterministic candidates: source order, reverse source order, aspect ascending, aspect descending, and top widest/tallest assets placed in the feature slot. This lets larger variants remain available without factorial assignment cost.
+- The built-in families include 4-photo feature/stack templates, 5-photo feature/cluster templates, 6-photo mixed, paired-column, and two-row templates, plus 7/8-photo feature-cluster and grid templates.
 
 ## Candidate Scoring
 
@@ -116,5 +116,5 @@ while sourceIndex <= assets.size - 4:
 - Fallback rows are `RowItem(kind = MOSAIC_FALLBACK)`, not standard row-packing rows and not `MosaicBandItem(kind = FALLBACK)`.
 - `buildFallbackMosaicRows(...)` packs the unresolved source range through the shared row-packing helper with stable Mosaic fallback keys and source indices.
 - Fallback thumbnails are cropped (`ContentScale.Crop`) and rendered full-width in UI so the completed fallback row reads as compact Mosaic fallback output rather than standard justified row packing. This full-width rendering applies even when the underlying row packer marks the final fallback row incomplete.
-- Completed ready projection may contain fallback rows when a source range could not be represented by a valid 4/5/6-photo template.
+- Completed ready projection may contain fallback rows when a source range could not be represented by a valid 4-through-8-photo template.
 - Pending, interrupted, failed, cache-miss, and partial-gap states must render placeholders instead of fallback rows.

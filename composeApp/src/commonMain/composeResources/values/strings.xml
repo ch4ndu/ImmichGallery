@@ -86,6 +86,8 @@
     <string name="mosaic_family_four">4-tile variants</string>
     <string name="mosaic_family_five">5-tile variants</string>
     <string name="mosaic_family_six">6-tile variants</string>
+    <string name="mosaic_family_seven">7-tile variants</string>
+    <string name="mosaic_family_eight">8-tile variants</string>
 
     <!-- People -->
     <string name="people_search_placeholder">Search people…</string>

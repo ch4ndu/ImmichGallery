@@ -251,6 +251,54 @@ internal val MOSAIC_TEMPLATES = listOf(
         MosaicTemplateFamily.SIX_TILE,
         6,
         v(h(leaf(0), leaf(1), leaf(2)), h(leaf(3), leaf(4), leaf(5)))
+    ),
+    MosaicTemplate(
+        "7_feature_left_cluster",
+        MosaicTemplateFamily.SEVEN_TILE,
+        7,
+        h(leaf(0), v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4)), h(leaf(5), leaf(6))))
+    ),
+    MosaicTemplate(
+        "7_feature_right_cluster",
+        MosaicTemplateFamily.SEVEN_TILE,
+        7,
+        h(v(h(leaf(1), leaf(2)), h(leaf(3), leaf(4)), h(leaf(5), leaf(6))), leaf(0))
+    ),
+    MosaicTemplate(
+        "7_top_feature_cluster",
+        MosaicTemplateFamily.SEVEN_TILE,
+        7,
+        v(leaf(0), h(v(leaf(1), leaf(2)), v(leaf(3), leaf(4)), v(leaf(5), leaf(6))))
+    ),
+    MosaicTemplate(
+        "7_bottom_feature_cluster",
+        MosaicTemplateFamily.SEVEN_TILE,
+        7,
+        v(h(v(leaf(1), leaf(2)), v(leaf(3), leaf(4)), v(leaf(5), leaf(6))), leaf(0))
+    ),
+    MosaicTemplate(
+        "8_two_rows_quads",
+        MosaicTemplateFamily.EIGHT_TILE,
+        8,
+        v(h(leaf(0), leaf(1), leaf(2), leaf(3)), h(leaf(4), leaf(5), leaf(6), leaf(7)))
+    ),
+    MosaicTemplate(
+        "8_four_columns_pairs",
+        MosaicTemplateFamily.EIGHT_TILE,
+        8,
+        h(v(leaf(0), leaf(1)), v(leaf(2), leaf(3)), v(leaf(4), leaf(5)), v(leaf(6), leaf(7)))
+    ),
+    MosaicTemplate(
+        "8_feature_left_cluster",
+        MosaicTemplateFamily.EIGHT_TILE,
+        8,
+        h(leaf(0), v(h(leaf(1), leaf(2), leaf(3)), h(leaf(4), leaf(5), leaf(6), leaf(7))))
+    ),
+    MosaicTemplate(
+        "8_feature_right_cluster",
+        MosaicTemplateFamily.EIGHT_TILE,
+        8,
+        h(v(h(leaf(1), leaf(2), leaf(3)), h(leaf(4), leaf(5), leaf(6), leaf(7))), leaf(0))
     )
 )
 

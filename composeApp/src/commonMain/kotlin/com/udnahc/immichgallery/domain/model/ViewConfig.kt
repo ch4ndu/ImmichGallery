@@ -28,7 +28,9 @@ enum class MosaicTemplateFamily(
 ) {
     FOUR_TILE("FOUR_TILE", 4),
     FIVE_TILE("FIVE_TILE", 5),
-    SIX_TILE("SIX_TILE", 6);
+    SIX_TILE("SIX_TILE", 6),
+    SEVEN_TILE("SEVEN_TILE", 7),
+    EIGHT_TILE("EIGHT_TILE", 8);
 
     companion object {
         fun defaultSet(): Set<MosaicTemplateFamily> = entries.toSet()

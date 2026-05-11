@@ -21,7 +21,7 @@ class MosaicPackingTest {
             )
 
             assertTrue(assignments.isNotEmpty(), "Expected runtime assignments for columnCount=$columnCount")
-            assertTrue(assignments.all { it.sourceCount in 4..6 })
+            assertTrue(assignments.all { it.sourceCount in 4..8 })
         }
     }
 
@@ -63,6 +63,44 @@ class MosaicPackingTest {
         )
 
         assertTrue(assignments.isEmpty())
+    }
+
+    @Test
+    fun sourceCountsBelowFourReturnNoAssignments() {
+        for (count in 1..3) {
+            val assignments = buildMosaicAssignments(
+                assets = sampleAssets(count),
+                layoutSpec = layoutSpec(4),
+                spacing = GRID_SPACING_DP
+            )
+
+            assertTrue(assignments.isEmpty(), "Expected no assignments for source count=$count")
+        }
+    }
+
+    @Test
+    fun sevenAndEightTileFamiliesBuildAssignments() {
+        listOf(
+            MosaicTemplateFamily.SEVEN_TILE to 7,
+            MosaicTemplateFamily.EIGHT_TILE to 8
+        ).forEach { (family, count) ->
+            val assignments = buildMosaicAssignments(
+                assets = sampleAssets(count),
+                layoutSpec = layoutSpec(4),
+                spacing = GRID_SPACING_DP,
+                enabledFamilies = setOf(family)
+            )
+
+            assertTrue(assignments.isNotEmpty(), "Expected assignments for $family")
+            assertEquals(count, assignments.first().sourceCount)
+        }
+    }
+
+    @Test
+    fun sevenAndEightTileCandidatePermutationsStayBounded() {
+        assertEquals(720, mosaicCandidatePermutations(sampleAssets(6), 6).size)
+        assertTrue(mosaicCandidatePermutations(sampleAssets(7), 7).size <= 8)
+        assertTrue(mosaicCandidatePermutations(sampleAssets(8), 8).size <= 8)
     }
 
     @Test
