@@ -197,19 +197,7 @@ Manual refresh is the top-bar full Timeline refresh after warm cache exists. It 
 
 ### Cache-Off Mosaic Cleanup
 
-If `ViewConfig.cacheMosaicResults = false`, manual refresh first clears all stale Mosaic state:
-
-1. Clear Timeline Mosaic artifacts with `ClearTimelineMosaicCacheAction.all()`.
-2. Clear Album/Person detail Mosaic artifacts with `ClearDetailMosaicCacheAction.all()`.
-3. Cancel Timeline Mosaic queue jobs and geometry jobs.
-4. Clear pending, running, and deferred Timeline Mosaic requests.
-5. Clear progressive chunk buffers.
-6. Clear runtime checkpoints and deferred publish maps.
-7. Clear `_mosaicStates`, `_mosaicGeometryStates`, and `_bucketGeometryStates`.
-8. Clear geometry-ready bucket markers.
-9. Increment Mosaic generations so stale async output is ignored.
-
-This cleanup runs before per-bucket manual asset sync. It does not clear row-packed bucket assets or display rows unless the bucket content changes.
+If `ViewConfig.cacheMosaicResults = false`, manual refresh does not clear Timeline or Detail Mosaic state before asset sync. A no-op manual refresh must preserve current rows, runtime Mosaic state, geometry state, and Album/Person Detail Mosaic artifacts. Changed Timeline buckets use the normal per-bucket invalidation path after `changed = true`; removed buckets clear their Timeline refs and Timeline Mosaic artifacts. Detail screens own Detail Mosaic invalidation because Timeline sync does not know the affected Album/Person owners.
 
 ### Asset Refresh Loop
 
@@ -237,11 +225,14 @@ A no-op bucket refresh is a successful server fetch whose ordered visible conten
 
 No-op refresh must not:
 
+- replace identical Timeline bucket metadata rows;
 - rewrite Room asset/ref rows when the repository skip predicate passes;
 - bump per-bucket asset revision;
 - clear Mosaic assignments, display cache, section geometry, or aggregate geometry;
+- clear Album/Person Detail Mosaic artifacts;
 - clear RowPacking derived bucket cache;
 - publish a new loaded state for already-loaded buckets;
+- publish a new bucket metadata state for identical bucket emissions;
 - request sync-time or render-demand Mosaic work.
 
 No-op refresh may:
@@ -269,6 +260,6 @@ Tests or manual log checks for sync changes should cover:
 - warm launch does not sync every bucket asset before first render;
 - cache-only warm launch skips metadata sync and all non-manual bucket server refresh while still materializing cached Room rows;
 - unchanged visible bucket refresh does not rewrite rows or bump revision;
-- manual refresh cache-off clears Timeline and Detail Mosaic caches once;
+- manual refresh cache-off no-op preserves Timeline runtime Mosaic state and Detail Mosaic artifacts;
 - manual refresh cache-off does not run sync-time or runtime Mosaic work;
 - render-demand Mosaic still computes when Mosaic is enabled and cache results are off.

@@ -129,19 +129,22 @@ class TimelineRepository(
             val removedBucketIds = metadataChanges.removedBucketIds
             log.d {
                 "Timeline bucket metadata changes stale=${staleBucketIds.size} " +
-                        "removed=${removedBucketIds.size} previous=${oldEntities.size} next=${entities.size}"
+                        "removed=${removedBucketIds.size} changed=${metadataChanges.metadataChanged} " +
+                        "previous=${oldEntities.size} next=${entities.size}"
             }
             withContext(Dispatchers.IO) {
-                // Count-changed buckets keep their old refs so cached Timeline
-                // rows remain visible until that bucket's asset refresh
-                // succeeds. Removed buckets are the only metadata-sync case
-                // that can safely clear relationship rows immediately.
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
-                        removedBucketIds.forEach { timeBucket ->
-                            timelineDao.clearTimelineRefsForBucket(timeBucket)
+                        if (metadataChanges.metadataChanged) {
+                            // Count-changed buckets keep their old refs so cached Timeline
+                            // rows remain visible until that bucket's asset refresh
+                            // succeeds. Removed buckets are the only metadata-sync case
+                            // that can safely clear relationship rows immediately.
+                            removedBucketIds.forEach { timeBucket ->
+                                timelineDao.clearTimelineRefsForBucket(timeBucket)
+                            }
+                            timelineDao.replaceBuckets(entities)
                         }
-                        timelineDao.replaceBuckets(entities)
                         syncMetadataDao.upsert(
                             SyncMetadataEntity(
                                 SYNC_SCOPE_TIMELINE_BUCKETS,
@@ -151,12 +154,16 @@ class TimelineRepository(
                     }
                 }
             }
-            log.d { "Timeline bucket metadata Room write completed buckets=${entities.size}" }
+            log.d {
+                "Timeline bucket metadata sync metadata write completed " +
+                        "buckets=${entities.size} changed=${metadataChanges.metadataChanged}"
+            }
             Result.success(
                 TimelineBucketSyncResult(
                     buckets = entities.map { it.toDomain() },
                     staleBucketIds = staleBucketIds,
-                    removedBucketIds = removedBucketIds
+                    removedBucketIds = removedBucketIds,
+                    metadataChanged = metadataChanges.metadataChanged
                 )
             )
         } catch (e: CancellationException) {
@@ -317,6 +324,7 @@ class TimelineRepository(
 }
 
 internal data class TimelineBucketMetadataChanges(
+    val metadataChanged: Boolean,
     val staleBucketIds: Set<String>,
     val removedBucketIds: Set<String>
 )
@@ -335,6 +343,7 @@ internal fun timelineBucketMetadataChanges(
         .map { it.timeBucket }
         .toSet()
     return TimelineBucketMetadataChanges(
+        metadataChanged = oldEntities != newEntities,
         staleBucketIds = staleBucketIds,
         removedBucketIds = oldById.keys - newIds
     )

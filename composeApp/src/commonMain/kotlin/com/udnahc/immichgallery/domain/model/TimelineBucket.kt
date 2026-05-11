@@ -13,7 +13,8 @@ data class TimelineBucket(
 data class TimelineBucketSyncResult(
     val buckets: List<TimelineBucket>,
     val staleBucketIds: Set<String> = emptySet(),
-    val removedBucketIds: Set<String> = emptySet()
+    val removedBucketIds: Set<String> = emptySet(),
+    val metadataChanged: Boolean = true
 )
 
 @Immutable

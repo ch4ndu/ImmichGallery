@@ -2,6 +2,8 @@ package com.udnahc.immichgallery.ui.screen.timeline
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class TimelineStartupModeTest {
     @Test
@@ -81,4 +83,28 @@ class TimelineStartupModeTest {
             )
         }
     }
+
+    @Test
+    fun unchangedBucketEmissionIsNotChanged() {
+        val buckets = listOf(bucket("2026-05", count = 10))
+
+        assertFalse(timelineBucketsChanged(buckets, buckets.toList()))
+    }
+
+    @Test
+    fun changedBucketEmissionIsChanged() {
+        val current = listOf(bucket("2026-05", count = 10))
+        val next = listOf(bucket("2026-05", count = 11))
+
+        assertTrue(timelineBucketsChanged(current, next))
+    }
+
+    private fun bucket(
+        timeBucket: String,
+        count: Int
+    ) = com.udnahc.immichgallery.domain.model.TimelineBucket(
+        displayLabel = timeBucket,
+        timeBucket = timeBucket,
+        count = count
+    )
 }

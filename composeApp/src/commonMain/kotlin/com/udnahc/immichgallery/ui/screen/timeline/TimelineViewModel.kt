@@ -8,7 +8,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.udnahc.immichgallery.domain.action.detail.ClearDetailMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
@@ -237,6 +236,12 @@ internal fun shouldComputeRuntimeTimelineMosaic(
     source: TimelineMosaicWorkSource
 ): Boolean =
     !cacheMosaicResults && source == TimelineMosaicWorkSource.RenderDemand
+
+internal fun timelineBucketsChanged(
+    current: List<TimelineBucket>,
+    next: List<TimelineBucket>
+): Boolean =
+    current != next
 
 internal data class TimelineRefreshQueueOrdering(
     val pendingBuckets: List<String>,
@@ -468,7 +473,6 @@ class TimelineViewModel(
     private val getTimelineBucketGeometryUseCase: GetTimelineBucketGeometryUseCase,
     private val getTimelineMosaicSectionGeometryUseCase: GetTimelineMosaicSectionGeometryUseCase,
     private val clearTimelineMosaicCacheAction: ClearTimelineMosaicCacheAction,
-    private val clearDetailMosaicCacheAction: ClearDetailMosaicCacheAction,
     getApiKeyUseCase: GetApiKeyUseCase,
     private val getAssetFileNameUseCase: GetAssetFileNameUseCase,
     private val getAssetDetailUseCase: GetAssetDetailUseCase,
@@ -755,6 +759,10 @@ class TimelineViewModel(
 
             getTimelineBucketsUseCase.observe().collect { buckets ->
                 log.d { "Room emitted ${buckets.size} buckets" }
+                if (!timelineBucketsChanged(_bucketData.value.buckets, buckets)) {
+                    log.d { "Timeline bucket emission ignored because metadata is unchanged" }
+                    return@collect
+                }
                 val bucketIds = buckets.map { it.timeBucket }.toSet()
                 _bucketData.update { data ->
                     data.copy(
@@ -1161,29 +1169,6 @@ class TimelineViewModel(
         }
     }
 
-    private suspend fun clearAllTimelineMosaicRuntimeState() {
-        advanceTimelineMosaicRuntimeGeneration("runtime-clear-all")
-        progressiveMosaicFlushJob?.cancel()
-        progressiveMosaicFlushJob = null
-        timelineMosaicQueue.send(TimelineMosaicQueueCommand.ClearAll)
-        cancelAllTimelineMosaicWorkers()
-        bucketGeometryCacheJob?.cancel()
-        bucketGeometryCacheJob = null
-        progressiveMosaicBuffer.clearAll()
-        runtimeMosaicResumeStates.clear()
-        deferredScrollMosaicStateUpdates.clear()
-        deferredScrollMosaicGeometryUpdates.clear()
-        deferredScrollActiveMosaicConfig = null
-        _mosaicStates.value = emptyMap()
-        _mosaicGeometryStates.value = emptyMap()
-        _bucketGeometryStates.value = emptyMap()
-        _bucketData.update { data -> data.copy(geometryReadyBuckets = emptySet()) }
-        ++bucketGeometryCacheGeneration
-        // Force the next mosaic queue request to wait for fresh geometry so
-        // post-clear placeholders are not built from stale or empty heights.
-        timelineGeometryReady.value = false
-    }
-
     private fun loadBucketIndexes(
         bucketIndexes: List<Int>,
         priority: TimelineRefreshQueuePriority = TimelineRefreshQueuePriority.Normal,
@@ -1382,9 +1367,6 @@ class TimelineViewModel(
                 if (isCachedManualRefresh) {
                     log.d { "Timeline manual refresh waiting for visible refresh queue to pause" }
                     beginManualRefresh()
-                    if (!_uiConfig.value.viewConfig.cacheMosaicResults) {
-                        clearAllMosaicCachesForCacheOffManualSync()
-                    }
                 }
                 try {
                     log.d { "Timeline bucket metadata sync started mode=$syncMode" }
@@ -1615,15 +1597,6 @@ class TimelineViewModel(
         refreshQueueMutex.withLock {
             manualRefreshActive = false
         }
-    }
-
-    private suspend fun clearAllMosaicCachesForCacheOffManualSync() {
-        val mark = TimeSource.Monotonic.markNow()
-        log.d { "Timeline cache-off manual sync clearing all Mosaic caches" }
-        clearAllTimelineMosaicRuntimeState()
-        clearTimelineMosaicCacheAction.all()
-        clearDetailMosaicCacheAction.all()
-        log.d { "Timeline cache-off manual sync cleared all Mosaic caches elapsed=${mark.elapsedNow()}" }
     }
 
     private suspend fun syncAllTimelineAssetsWithRetry(

@@ -105,6 +105,7 @@ class OrderedAssetChangeDetectionTest {
             newEntities = listOf(bucket("2026-05", count = 11))
         )
 
+        assertTrue(changes.metadataChanged)
         assertEquals(setOf("2026-05"), changes.staleBucketIds)
         assertEquals(emptySet(), changes.removedBucketIds)
     }
@@ -116,8 +117,67 @@ class OrderedAssetChangeDetectionTest {
             newEntities = emptyList()
         )
 
+        assertTrue(changes.metadataChanged)
         assertEquals(emptySet(), changes.staleBucketIds)
         assertEquals(setOf("2026-05"), changes.removedBucketIds)
+    }
+
+    @Test
+    fun identicalTimelineBucketMetadataIsUnchanged() {
+        val buckets = listOf(bucket("2026-05", count = 10))
+        val changes = timelineBucketMetadataChanges(
+            oldEntities = buckets,
+            newEntities = buckets.toList()
+        )
+
+        assertFalse(changes.metadataChanged)
+        assertEquals(emptySet(), changes.staleBucketIds)
+        assertEquals(emptySet(), changes.removedBucketIds)
+    }
+
+    @Test
+    fun timelineBucketLabelChangeIsMetadataChanged() {
+        val changes = timelineBucketMetadataChanges(
+            oldEntities = listOf(bucket("2026-05", count = 10, displayLabel = "May")),
+            newEntities = listOf(bucket("2026-05", count = 10, displayLabel = "May 2026"))
+        )
+
+        assertTrue(changes.metadataChanged)
+        assertEquals(emptySet(), changes.staleBucketIds)
+        assertEquals(emptySet(), changes.removedBucketIds)
+    }
+
+    @Test
+    fun timelineBucketOrderChangeIsMetadataChanged() {
+        val changes = timelineBucketMetadataChanges(
+            oldEntities = listOf(
+                bucket("2026-05", count = 10, sortOrder = 0),
+                bucket("2026-04", count = 8, sortOrder = 1)
+            ),
+            newEntities = listOf(
+                bucket("2026-04", count = 8, sortOrder = 0),
+                bucket("2026-05", count = 10, sortOrder = 1)
+            )
+        )
+
+        assertTrue(changes.metadataChanged)
+        assertEquals(emptySet(), changes.staleBucketIds)
+        assertEquals(emptySet(), changes.removedBucketIds)
+    }
+
+    @Test
+    fun addedTimelineBucketIsMetadataChanged() {
+        val changes = timelineBucketMetadataChanges(
+            oldEntities = listOf(bucket("2026-05", count = 10)),
+            newEntities = listOf(
+                bucket("2026-05", count = 10),
+                bucket("2026-04", count = 8, sortOrder = 1)
+            )
+        )
+
+        assertTrue(changes.metadataChanged)
+        assertEquals(emptySet(), changes.staleBucketIds)
+        assertEquals(emptySet(), changes.removedBucketIds)
     }
 
     private fun asset(
@@ -146,11 +206,12 @@ class OrderedAssetChangeDetectionTest {
     private fun bucket(
         timeBucket: String,
         count: Int,
-        sortOrder: Int = 0
+        sortOrder: Int = 0,
+        displayLabel: String = timeBucket
     ): TimelineBucketEntity =
         TimelineBucketEntity(
             timeBucket = timeBucket,
-            displayLabel = timeBucket,
+            displayLabel = displayLabel,
             count = count,
             sortOrder = sortOrder
         )
