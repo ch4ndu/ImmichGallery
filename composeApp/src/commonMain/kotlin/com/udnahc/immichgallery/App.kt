@@ -11,12 +11,9 @@ import androidx.compose.ui.Modifier
 import coil3.compose.setSingletonImageLoaderFactory
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.di.createImageLoader
-import com.udnahc.immichgallery.di.platformModule
-import com.udnahc.immichgallery.di.sharedModule
 import com.udnahc.immichgallery.ui.navigation.AppNavigation
 import com.udnahc.immichgallery.ui.theme.ImmichGalleryTheme
 import io.ktor.client.HttpClient
-import org.koin.compose.KoinApplication
 import org.koin.compose.koinInject
 
 val LocalAppActive = compositionLocalOf { true }
@@ -24,7 +21,7 @@ val LocalAppActive = compositionLocalOf { true }
 @Composable
 fun App() {
     val isAppActive by AppLifecycle.isForeground.collectAsState()
-    KoinApplication(application = { modules(sharedModule, platformModule()) }) {
+    AppKoin {
         ImmichGalleryTheme {
             val httpClient: HttpClient = koinInject()
             val serverConfigRepository: ServerConfigRepository = koinInject()

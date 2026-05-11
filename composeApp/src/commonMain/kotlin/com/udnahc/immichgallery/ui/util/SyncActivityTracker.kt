@@ -13,6 +13,14 @@ sealed class SyncActivityKey {
         override val id: String = "timeline"
     }
 
+    data object TimelineManualSync : SyncActivityKey() {
+        override val id: String = "timeline_manual_sync"
+    }
+
+    data object MosaicPreparation : SyncActivityKey() {
+        override val id: String = "mosaic_preparation"
+    }
+
     data object Albums : SyncActivityKey() {
         override val id: String = "albums"
     }

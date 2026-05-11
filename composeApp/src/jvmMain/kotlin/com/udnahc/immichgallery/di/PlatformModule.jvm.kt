@@ -3,6 +3,8 @@ package com.udnahc.immichgallery.di
 import com.udnahc.immichgallery.data.local.createDatabase
 import com.udnahc.immichgallery.ui.util.NoOpSyncActivityNotifier
 import com.udnahc.immichgallery.ui.util.PlatformSyncActivityNotifier
+import com.udnahc.immichgallery.ui.util.PlatformTimelineManualSyncStarter
+import com.udnahc.immichgallery.ui.util.TimelineManualSyncStarter
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -15,4 +17,5 @@ actual fun platformModule(): Module = module {
     single { get<com.udnahc.immichgallery.data.local.AppDatabase>().personDao() }
     single { get<com.udnahc.immichgallery.data.local.AppDatabase>().detailMosaicCacheDao() }
     single<PlatformSyncActivityNotifier> { NoOpSyncActivityNotifier() }
+    single<TimelineManualSyncStarter> { PlatformTimelineManualSyncStarter() }
 }

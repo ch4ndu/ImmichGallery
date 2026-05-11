@@ -189,26 +189,28 @@ class PersonDetailViewModel(
 
     suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
         withContext(Dispatchers.Default) {
-            val normalized = config.normalized
-            if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@withContext Result.success(
-                Unit
-            )
-            if (_state.value.hasMore) {
-                val result = getPersonAssetsUseCase.syncAll(personId)
-                    .onFailure { return@withContext Result.failure(it) }
-                    .getOrNull()
-                val assets = getPersonAssetsUseCase.getAssets(personId)
-                _state.update {
-                    it.copy(
-                        assets = assets,
-                        hasMore = false,
-                        nextPage = 1,
-                        isLoadingMore = false
-                    )
+            syncActivityTracker.track(SyncActivityKey.MosaicPreparation) {
+                val normalized = config.normalized
+                if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@track Result.success(
+                    Unit
+                )
+                if (_state.value.hasMore) {
+                    val result = getPersonAssetsUseCase.syncAll(personId)
+                        .onFailure { return@track Result.failure(it) }
+                        .getOrNull()
+                    val assets = getPersonAssetsUseCase.getAssets(personId)
+                    _state.update {
+                        it.copy(
+                            assets = assets,
+                            hasMore = false,
+                            nextPage = 1,
+                            isLoadingMore = false
+                        )
+                    }
+                    handleSyncedContentChange(result?.changed == true)
                 }
-                handleSyncedContentChange(result?.changed == true)
+                return@track layoutCoordinator.prepareMosaicViewConfig(normalized)
             }
-            return@withContext layoutCoordinator.prepareMosaicViewConfig(normalized)
         }
 
     fun setVisibleBucketIndexes(indexes: List<Int>) {

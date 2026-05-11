@@ -64,9 +64,11 @@ In short:
   only visible or targeted bucket assets. Current cache-only warm policy skips
   non-manual server refresh; if that policy is disabled, warm launch may also
   refresh metadata and visible bucket assets in the background.
-- Manual refresh blocks the visible-refresh queue, refreshes every metadata
-  bucket while preserving cached rows on failure, and clears all Mosaic caches
-  first when `cacheMosaicResults = false`.
+- Manual refresh blocks the visible-refresh queue and refreshes every metadata
+  bucket while preserving cached rows on failure. Android owns this work from
+  `SyncForegroundService` after the user action starts a foreground service;
+  JVM/iOS run the same coordinator from the ViewModel. Cache-off manual refresh
+  does not clear Mosaic state before asset sync.
 - Unchanged bucket refreshes must not rewrite rows, bump asset revisions, repack
   RowPacking output, or enqueue Mosaic work.
 

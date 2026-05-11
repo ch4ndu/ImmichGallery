@@ -188,7 +188,9 @@ class AlbumDetailViewModel(
 
     suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
         withContext(Dispatchers.Default) {
-            layoutCoordinator.prepareMosaicViewConfig(config)
+            syncActivityTracker.track(SyncActivityKey.MosaicPreparation) {
+                layoutCoordinator.prepareMosaicViewConfig(config)
+            }
         }
 
     fun setVisibleBucketIndexes(indexes: List<Int>) {

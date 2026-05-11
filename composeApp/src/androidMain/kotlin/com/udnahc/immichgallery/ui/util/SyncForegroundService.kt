@@ -12,20 +12,61 @@ import android.os.Build
 import android.os.IBinder
 import com.udnahc.immichgallery.MainActivity
 import com.udnahc.immichgallery.R
+import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncCoordinator
+import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncRequest
+import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
+import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import org.koin.mp.KoinPlatform
 import org.lighthousegames.logging.logging
 
 class SyncForegroundService : Service() {
     private val log = logging("SyncForegroundService")
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_MANUAL_TIMELINE_SYNC) {
+            startForegroundNow(activeCount = 1)
+            val request = intent.toManualSyncRequest() ?: run {
+                stopSyncForegroundService(startId)
+                return START_NOT_STICKY
+            }
+            serviceScope.launch {
+                runCatching {
+                    KoinPlatform.getKoin()
+                        .get<TimelineManualSyncCoordinator>()
+                        .run(request)
+                }.onFailure { e ->
+                    log.e(e) { "Manual Timeline sync failed in foreground service" }
+                }
+                stopSyncForegroundService(startId)
+            }
+            return START_NOT_STICKY
+        }
+
         val activeCount = intent?.getIntExtra(EXTRA_ACTIVE_COUNT, 0) ?: 0
         if (intent?.action == ACTION_STOP || activeCount <= 0) {
             stopSyncForegroundService(startId)
             return START_NOT_STICKY
         }
 
+        startForegroundNow(activeCount)
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    private fun startForegroundNow(activeCount: Int) {
         createNotificationChannel()
         val notification = buildNotification(activeCount)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -38,7 +79,6 @@ class SyncForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
         serviceStarted = true
-        return START_NOT_STICKY
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
@@ -96,12 +136,57 @@ class SyncForegroundService : Service() {
     companion object {
         private const val ACTION_UPDATE = "com.udnahc.immichgallery.sync.UPDATE"
         private const val ACTION_STOP = "com.udnahc.immichgallery.sync.STOP"
+        private const val ACTION_MANUAL_TIMELINE_SYNC =
+            "com.udnahc.immichgallery.sync.MANUAL_TIMELINE"
         private const val EXTRA_ACTIVE_COUNT = "active_count"
+        private const val EXTRA_GROUP_SIZE = "group_size"
+        private const val EXTRA_COLUMN_COUNT = "column_count"
+        private const val EXTRA_FAMILIES = "families"
+        private const val EXTRA_MOSAIC_ENABLED = "mosaic_enabled"
+        private const val EXTRA_CACHE_MOSAIC_RESULTS = "cache_mosaic_results"
+        private const val EXTRA_HAS_GEOMETRY = "has_geometry"
+        private const val EXTRA_AVAILABLE_WIDTH = "available_width"
+        private const val EXTRA_MAX_ROW_HEIGHT = "max_row_height"
+        private const val EXTRA_SPACING = "spacing"
+        private const val EXTRA_HAD_BANNER_ERROR = "had_banner_error"
         private const val CHANNEL_ID = "sync_status"
         private const val NOTIFICATION_ID = 1001
 
         @Volatile
         private var serviceStarted = false
+
+        fun startManualTimelineSync(
+            context: Context,
+            request: TimelineManualSyncRequest
+        ): Boolean {
+            val appContext = context.applicationContext
+            val intent = Intent(appContext, SyncForegroundService::class.java).apply {
+                action = ACTION_MANUAL_TIMELINE_SYNC
+                putExtra(EXTRA_GROUP_SIZE, request.groupSize.apiValue)
+                putExtra(EXTRA_COLUMN_COUNT, request.columnCount)
+                putExtra(
+                    EXTRA_FAMILIES,
+                    request.families.map { it.persistedId }.toTypedArray()
+                )
+                putExtra(EXTRA_MOSAIC_ENABLED, request.mosaicEnabled)
+                putExtra(EXTRA_CACHE_MOSAIC_RESULTS, request.cacheMosaicResults)
+                putExtra(EXTRA_HAD_BANNER_ERROR, request.hadBannerError)
+                val geometry = request.geometryRequest
+                putExtra(EXTRA_HAS_GEOMETRY, geometry != null)
+                if (geometry != null) {
+                    putExtra(EXTRA_AVAILABLE_WIDTH, geometry.availableWidth)
+                    putExtra(EXTRA_MAX_ROW_HEIGHT, geometry.maxRowHeight)
+                    putExtra(EXTRA_SPACING, geometry.spacing)
+                }
+            }
+            return runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    appContext.startForegroundService(intent)
+                } else {
+                    appContext.startService(intent)
+                }
+            }.isSuccess
+        }
 
         fun update(context: Context, activeCount: Int) {
             val appContext = context.applicationContext
@@ -132,4 +217,34 @@ class SyncForegroundService : Service() {
             }
         }
     }
+}
+
+private fun Intent.toManualSyncRequest(): TimelineManualSyncRequest? {
+    val groupSizeValue = getStringExtra("group_size") ?: return null
+    val groupSize = TimelineGroupSize.entries.firstOrNull { it.apiValue == groupSizeValue }
+        ?: return null
+    val families = getStringArrayExtra("families")
+        ?.mapNotNull { MosaicTemplateFamily.fromPersistedId(it) }
+        ?.toSet()
+        ?.ifEmpty { MosaicTemplateFamily.defaultSet() }
+        ?: MosaicTemplateFamily.defaultSet()
+    val geometryRequest =
+        if (getBooleanExtra("has_geometry", false)) {
+            TimelineMosaicGeometryRequest(
+                availableWidth = getFloatExtra("available_width", 0f),
+                maxRowHeight = getFloatExtra("max_row_height", 0f),
+                spacing = getFloatExtra("spacing", 0f)
+            )
+        } else {
+            null
+        }
+    return TimelineManualSyncRequest(
+        groupSize = groupSize,
+        columnCount = getIntExtra("column_count", 0),
+        families = families,
+        mosaicEnabled = getBooleanExtra("mosaic_enabled", false),
+        cacheMosaicResults = getBooleanExtra("cache_mosaic_results", false),
+        geometryRequest = geometryRequest,
+        hadBannerError = getBooleanExtra("had_banner_error", false)
+    )
 }

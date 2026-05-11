@@ -15,6 +15,10 @@ import com.udnahc.immichgallery.domain.action.timeline.ClearTimelineMosaicCacheA
 import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
 import com.udnahc.immichgallery.domain.action.timeline.PrepareTimelineMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.timeline.SyncAllTimelineAssetsAction
+import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncCoordinator
+import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncEvent
+import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncRequest
+import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncResult
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
@@ -85,6 +89,7 @@ import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import com.udnahc.immichgallery.ui.util.SyncActivityKey
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
 import com.udnahc.immichgallery.ui.util.TimelineMosaicDispatcherProvider
+import com.udnahc.immichgallery.ui.util.TimelineManualSyncStarter
 import com.udnahc.immichgallery.ui.util.TimelineMosaicQueueActor
 import com.udnahc.immichgallery.ui.util.TimelineMosaicQueueCommand
 import com.udnahc.immichgallery.ui.util.TimelineMosaicQueueEffect
@@ -483,6 +488,8 @@ class TimelineViewModel(
     private val setTargetRowHeightAction: SetTargetRowHeightAction,
     private val setViewConfigAction: SetViewConfigAction,
     private val timelineMosaicDispatcherProvider: TimelineMosaicDispatcherProvider,
+    private val timelineManualSyncCoordinator: TimelineManualSyncCoordinator,
+    private val timelineManualSyncStarter: TimelineManualSyncStarter,
     private val syncActivityTracker: SyncActivityTracker
 ) : ViewModel() {
 
@@ -782,6 +789,12 @@ class TimelineViewModel(
             }
         }
 
+        viewModelScope.launch(Dispatchers.IO) {
+            timelineManualSyncCoordinator.events.collect { event ->
+                handleManualSyncEvent(event)
+            }
+        }
+
         // Initial sync from network
         syncFromServer()
     }
@@ -795,7 +808,22 @@ class TimelineViewModel(
     }
 
     fun refreshAll() {
-        syncFromServer(isFullRefresh = true)
+        val request = manualSyncRequest()
+        syncJob?.cancel()
+        syncJob = viewModelScope.launch(Dispatchers.IO) {
+            beginManualRefresh()
+            _uiConfig.update {
+                it.copy(
+                    isSyncing = true,
+                    bannerError = null,
+                    bannerSuccess = null
+                )
+            }
+            val startedByPlatform = timelineManualSyncStarter.start(request)
+            if (!startedByPlatform) {
+                timelineManualSyncCoordinator.run(request)
+            }
+        }
     }
 
     fun setGroupSize(size: TimelineGroupSize) {
@@ -825,79 +853,8 @@ class TimelineViewModel(
 
     suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
         withContext(Dispatchers.Default) {
-            val normalized = config.normalized
-            if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@withContext Result.success(
-                Unit
-            )
-            val snapshot = _uiConfig.value
-            val data = _bucketData.value
-            val buckets = data.buckets
-            if (buckets.isEmpty()) return@withContext Result.success(Unit)
-            val geometryRequest = timelineMosaicGeometryRequest(
-                availableWidth = snapshot.availableWidth,
-                maxRowHeight = snapshot.rowHeightBounds.max,
-                columnCount = normalized.mosaicColumnCount
-            )
-                ?: return@withContext Result.failure(IllegalStateException("Timeline geometry metrics are not ready"))
-            log.d {
-                "Blocking Timeline Mosaic prepare started buckets=${buckets.size} " +
-                        "group=${snapshot.groupSize} columns=${normalized.mosaicColumnCount} " +
-                        "families=${normalized.mosaicFamilies}"
-            }
-            beginManualRefresh()
-            try {
-                val assetResult =
-                    if (allowTimelineServerRefresh(TimelineServerRefreshSource.BlockingMosaicPrepare)) {
-                        syncAllTimelineAssetsWithRetry(buckets, context = "blocking-mosaic-prepare")
-                            .getOrElse { return@withContext Result.failure(it) }
-                    } else {
-                        log.d { "Blocking Timeline Mosaic prepare using cached bucket assets; server sync disabled by experiment" }
-                        TimelineAssetSyncResult(
-                            successfulBucketIds = buckets.map { it.timeBucket }.toSet(),
-                            failedBucketIds = emptySet()
-                        )
-                    }
-                if (assetResult.failedBucketIds.isNotEmpty()) {
-                    Result.failure(
-                        IllegalStateException(
-                            "Failed to sync Timeline buckets=${assetResult.failedBucketIds.size}"
-                        )
-                    )
-                } else {
-                    val changedSuccessfulBucketIds =
-                        assetResult.changedBucketIds intersect assetResult.successfulBucketIds
-                    clearTimelineMosaicCacheAction.buckets(changedSuccessfulBucketIds)
-                    val precomputeResult = prepareTimelineMosaicCacheAction(
-                        timeBuckets = assetResult.successfulBucketIds,
-                        groupSize = snapshot.groupSize,
-                        columnCount = normalized.mosaicColumnCount,
-                        families = normalized.mosaicFamilies,
-                        geometryRequest = geometryRequest,
-                        cacheDisplayResults = true
-                    ).getOrElse { return@withContext Result.failure(it) }
-                    if (precomputeResult.failedBucketIds.isNotEmpty()) {
-                        return@withContext Result.failure(
-                            IllegalStateException(
-                                "Failed to prepare Timeline Mosaic buckets=${precomputeResult.failedBucketIds.size}"
-                            )
-                        )
-                    }
-                    publishBlockingMosaicPrepareResult(
-                        successfulBucketIds = precomputeResult.successfulBucketIds,
-                        changedBucketIds = changedSuccessfulBucketIds,
-                        bucketGeometrySummaries = precomputeResult.bucketGeometrySummaries,
-                        groupSize = snapshot.groupSize,
-                        columnCount = normalized.mosaicColumnCount,
-                        families = normalized.mosaicFamilies,
-                        geometryRequest = geometryRequest
-                    )
-                    log.d {
-                        "Blocking Timeline Mosaic prepare completed buckets=${precomputeResult.successfulBucketIds.size}"
-                    }
-                    Result.success(Unit)
-                }
-            } finally {
-                endManualRefresh()
+            syncActivityTracker.track(SyncActivityKey.MosaicPreparation) {
+                prepareMosaicViewConfigTracked(config)
             }
         }
 
@@ -1298,6 +1255,183 @@ class TimelineViewModel(
     }
 
     // --- Private ---
+
+    private fun manualSyncRequest(): TimelineManualSyncRequest {
+        val snapshot = _uiConfig.value
+        val geometryRequest =
+            if (snapshot.viewConfig.mosaicEnabled && snapshot.viewConfig.cacheMosaicResults) {
+                timelineMosaicGeometryRequest(snapshot, snapshot.mosaicColumnCount)
+            } else {
+                null
+            }
+        return TimelineManualSyncRequest(
+            groupSize = snapshot.groupSize,
+            columnCount = snapshot.mosaicColumnCount,
+            families = snapshot.viewConfig.mosaicFamilies,
+            mosaicEnabled = snapshot.viewConfig.mosaicEnabled,
+            cacheMosaicResults = snapshot.viewConfig.cacheMosaicResults,
+            geometryRequest = geometryRequest,
+            hadBannerError = snapshot.bannerError != null
+        )
+    }
+
+    private suspend fun handleManualSyncEvent(event: TimelineManualSyncEvent) {
+        when (event) {
+            is TimelineManualSyncEvent.Started -> {
+                _uiConfig.update {
+                    it.copy(
+                        isSyncing = true,
+                        bannerError = null,
+                        bannerSuccess = null
+                    )
+                }
+            }
+
+            is TimelineManualSyncEvent.Completed -> {
+                handleManualSyncCompleted(event.result)
+            }
+
+            is TimelineManualSyncEvent.Failed -> {
+                log.e(event.cause) { "Manual Timeline sync failed" }
+                _uiConfig.update {
+                    it.copy(
+                        isSyncing = false,
+                        bannerError = ConnectionUiMessage.CannotConnectToServer
+                    )
+                }
+                endManualRefresh()
+                enqueueCurrentVisibleBucketRefreshes()
+            }
+        }
+    }
+
+    private suspend fun handleManualSyncCompleted(result: TimelineManualSyncResult) {
+        val bucketResult = result.bucketSyncResult
+        rememberBucketMetadataChanges(
+            bucketResult.staleBucketIds,
+            bucketResult.removedBucketIds
+        )
+        invalidateRemovedBuckets(bucketResult.removedBucketIds)
+        val assetResult = result.assetSyncResult
+        publishAssetSyncResult(
+            successfulBucketIds = assetResult.successfulBucketIds,
+            failedBucketIds = assetResult.failedBucketIds,
+            changedBucketIds = assetResult.changedBucketIds
+        )
+        assetResult.successfulBucketIds.forEach { timeBucket ->
+            markBucketServerRefreshed(timeBucket)
+        }
+        val changedSuccessfulBucketIds =
+            assetResult.changedBucketIds intersect assetResult.successfulBucketIds
+        val mosaicResult = result.mosaicPrecomputeResult
+        if (mosaicResult != null && result.request.geometryRequest != null) {
+            publishBucketGeometrySummaries(
+                summaries = mosaicResult.bucketGeometrySummaries,
+                groupSize = result.request.groupSize,
+                columnCount = result.request.columnCount,
+                families = result.request.families,
+                geometryRequest = result.request.geometryRequest
+            )
+            requestTimelineMosaicCacheReadForBuckets(
+                timeBuckets = changedSuccessfulBucketIds,
+                source = TimelineMosaicWorkSource.SyncPrecompute
+            )
+            loadPersistedActiveMosaicAssignmentsForBuckets(changedSuccessfulBucketIds)
+            markTimelineMosaicFailedForBuckets(mosaicResult.failedBucketIds)
+        }
+        val failed = assetResult.failedBucketIds.isNotEmpty()
+        _uiConfig.update {
+            it.copy(
+                isSyncing = false,
+                bannerError = if (failed) ConnectionUiMessage.CannotConnectToServer else null,
+                bannerSuccess = if (!failed && result.request.hadBannerError) {
+                    ConnectionUiMessage.ConnectedToServer
+                } else {
+                    null
+                }
+            )
+        }
+        endManualRefresh()
+        log.d {
+            "Timeline manual refresh finished successful=${assetResult.successfulBucketIds.size} " +
+                    "failed=${assetResult.failedBucketIds.size} changed=${assetResult.changedBucketIds.size}"
+        }
+        enqueueCurrentVisibleBucketRefreshes()
+    }
+
+    private suspend fun prepareMosaicViewConfigTracked(config: ViewConfig): Result<Unit> {
+        val normalized = config.normalized
+        if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return Result.success(Unit)
+        val snapshot = _uiConfig.value
+        val data = _bucketData.value
+        val buckets = data.buckets
+        if (buckets.isEmpty()) return Result.success(Unit)
+        val geometryRequest = timelineMosaicGeometryRequest(
+            availableWidth = snapshot.availableWidth,
+            maxRowHeight = snapshot.rowHeightBounds.max,
+            columnCount = normalized.mosaicColumnCount
+        )
+            ?: return Result.failure(IllegalStateException("Timeline geometry metrics are not ready"))
+        log.d {
+            "Blocking Timeline Mosaic prepare started buckets=${buckets.size} " +
+                    "group=${snapshot.groupSize} columns=${normalized.mosaicColumnCount} " +
+                    "families=${normalized.mosaicFamilies}"
+        }
+        beginManualRefresh()
+        try {
+            val assetResult =
+                if (allowTimelineServerRefresh(TimelineServerRefreshSource.BlockingMosaicPrepare)) {
+                    syncAllTimelineAssetsWithRetry(buckets, context = "blocking-mosaic-prepare")
+                        .getOrElse { return Result.failure(it) }
+                } else {
+                    log.d { "Blocking Timeline Mosaic prepare using cached bucket assets; server sync disabled by experiment" }
+                    TimelineAssetSyncResult(
+                        successfulBucketIds = buckets.map { it.timeBucket }.toSet(),
+                        failedBucketIds = emptySet()
+                    )
+                }
+            if (assetResult.failedBucketIds.isNotEmpty()) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Failed to sync Timeline buckets=${assetResult.failedBucketIds.size}"
+                    )
+                )
+            }
+            val changedSuccessfulBucketIds =
+                assetResult.changedBucketIds intersect assetResult.successfulBucketIds
+            clearTimelineMosaicCacheAction.buckets(changedSuccessfulBucketIds)
+            val precomputeResult = prepareTimelineMosaicCacheAction(
+                timeBuckets = assetResult.successfulBucketIds,
+                groupSize = snapshot.groupSize,
+                columnCount = normalized.mosaicColumnCount,
+                families = normalized.mosaicFamilies,
+                geometryRequest = geometryRequest,
+                cacheDisplayResults = true
+            ).getOrElse { return Result.failure(it) }
+            if (precomputeResult.failedBucketIds.isNotEmpty()) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Failed to prepare Timeline Mosaic buckets=${precomputeResult.failedBucketIds.size}"
+                    )
+                )
+            }
+            publishBlockingMosaicPrepareResult(
+                successfulBucketIds = precomputeResult.successfulBucketIds,
+                changedBucketIds = changedSuccessfulBucketIds,
+                bucketGeometrySummaries = precomputeResult.bucketGeometrySummaries,
+                groupSize = snapshot.groupSize,
+                columnCount = normalized.mosaicColumnCount,
+                families = normalized.mosaicFamilies,
+                geometryRequest = geometryRequest
+            )
+            log.d {
+                "Blocking Timeline Mosaic prepare completed buckets=${precomputeResult.successfulBucketIds.size}"
+            }
+            return Result.success(Unit)
+        } finally {
+            endManualRefresh()
+        }
+    }
 
     private fun syncFromServer(isFullRefresh: Boolean = false) {
         syncJob?.cancel()
@@ -3916,22 +4050,24 @@ class TimelineViewModel(
                     "geometryWidth=${geometryRequest?.availableWidth} geometryMaxRowHeight=${geometryRequest?.maxRowHeight}"
         }
         val expectedRevisions = _bucketData.value.assetRevisions
-        return prepareTimelineMosaicCacheAction(
-            timeBuckets = timeBuckets,
-            groupSize = config.groupSize,
-            columnCount = config.mosaicColumnCount,
-            families = config.viewConfig.mosaicFamilies,
-            geometryRequest = geometryRequest,
-            cacheDisplayResults = config.viewConfig.cacheMosaicResults,
-            onProgressChunk = { chunk ->
-                publishProgressiveMosaicChunk(
-                    chunk = chunk,
-                    expectedConfig = config,
-                    expectedGeometryRequest = geometryRequest,
-                    expectedRevisions = expectedRevisions
-                )
-            }
-        ).fold(
+        return syncActivityTracker.track(SyncActivityKey.MosaicPreparation) {
+            prepareTimelineMosaicCacheAction(
+                timeBuckets = timeBuckets,
+                groupSize = config.groupSize,
+                columnCount = config.mosaicColumnCount,
+                families = config.viewConfig.mosaicFamilies,
+                geometryRequest = geometryRequest,
+                cacheDisplayResults = config.viewConfig.cacheMosaicResults,
+                onProgressChunk = { chunk ->
+                    publishProgressiveMosaicChunk(
+                        chunk = chunk,
+                        expectedConfig = config,
+                        expectedGeometryRequest = geometryRequest,
+                        expectedRevisions = expectedRevisions
+                    )
+                }
+            )
+        }.fold(
             onSuccess = { result ->
                 if (result.failedBucketIds.isNotEmpty()) {
                     log.e { "Failed to precompute Timeline Mosaic buckets=${result.failedBucketIds}" }

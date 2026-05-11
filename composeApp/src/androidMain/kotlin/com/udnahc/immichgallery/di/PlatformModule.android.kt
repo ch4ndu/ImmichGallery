@@ -5,6 +5,8 @@ import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.createDatabase
 import com.udnahc.immichgallery.ui.util.AndroidSyncActivityNotifier
 import com.udnahc.immichgallery.ui.util.PlatformSyncActivityNotifier
+import com.udnahc.immichgallery.ui.util.PlatformTimelineManualSyncStarter
+import com.udnahc.immichgallery.ui.util.TimelineManualSyncStarter
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -23,4 +25,5 @@ actual fun platformModule(): Module = module {
     single { get<AppDatabase>().personDao() }
     single { get<AppDatabase>().detailMosaicCacheDao() }
     single<PlatformSyncActivityNotifier> { AndroidSyncActivityNotifier(appContext) }
+    single<TimelineManualSyncStarter> { PlatformTimelineManualSyncStarter(appContext) }
 }

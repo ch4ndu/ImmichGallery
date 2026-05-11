@@ -30,6 +30,8 @@ import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
 import com.udnahc.immichgallery.domain.action.timeline.PrepareTimelineMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.timeline.SyncAllTimelineAssetsAction
 import com.udnahc.immichgallery.domain.action.timeline.TimelineBucketSnapshotReader
+import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncAction
+import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncCoordinator
 import com.udnahc.immichgallery.domain.model.TimelineMosaicArtifactBuilder
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
@@ -126,8 +128,17 @@ val sharedModule = module {
     factory { MonitorServerStatusAction(get()) }
     factory { LoadBucketAssetsAction(get()) }
     factory { SyncAllTimelineAssetsAction(get()) }
-    factory { PrepareTimelineMosaicCacheAction(get(), get(), get()) }
     factory { ClearTimelineMosaicCacheAction(get()) }
+    factory { PrepareTimelineMosaicCacheAction(get(), get(), get()) }
+    factory {
+        TimelineManualSyncAction(
+            getTimelineBucketsUseCase = get(),
+            syncAllTimelineAssetsAction = get(),
+            clearTimelineMosaicCacheAction = get(),
+            prepareTimelineMosaicCacheAction = get()
+        )
+    }
+    single { TimelineManualSyncCoordinator(get(), get()) }
     factory { SetTimelineGroupSizeAction(get()) }
     factory { SetTargetRowHeightAction(get()) }
     factory { SetViewConfigAction(get()) }
@@ -140,6 +151,8 @@ val sharedModule = module {
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel {
         TimelineViewModel(
+            get(),
+            get(),
             get(),
             get(),
             get(),

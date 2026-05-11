@@ -6,8 +6,9 @@ For Timeline rendering, overlay, scrollbar, and Mosaic display behavior, also re
 
 ## Sync Ownership
 
-- `TimelineViewModel.syncFromServer(...)` chooses sync mode and owns user-facing loading state.
-- `TimelineViewModel.syncFromServer(...)` wraps active sync work in `SyncActivityTracker` for Android foreground notification mirroring. The Android service does not own Timeline sync execution.
+- `TimelineViewModel.syncFromServer(...)` chooses cold-sync and cached-launch modes and owns their user-facing loading state.
+- Manual Timeline refresh is coordinated by `TimelineManualSyncCoordinator`. Android starts `SyncForegroundService` from the user action and the service runs the coordinator from a service-owned coroutine scope after entering foreground. JVM/iOS run the same coordinator from the ViewModel.
+- `TimelineViewModel` observes manual coordinator events/results and applies UI state, banners, removed-bucket invalidation, changed-bucket publication, Mosaic geometry publication, and visible-refresh resumption. The coordinator/action returns structured sync results and does not mutate screen state directly.
 - `GetTimelineBucketsUseCase.sync()` refreshes bucket metadata through `TimelineRepository.syncBuckets()`.
 - `SyncAllTimelineAssetsAction` and `LoadBucketAssetsAction` refresh bucket assets through `TimelineRepository.syncBucketAssets(...)`.
 - `TimelineRepository` owns Immich API fetches, Room writes, hidden-asset filtering, edit enrichment, ordered change detection, and sync metadata.
@@ -16,15 +17,13 @@ For Timeline rendering, overlay, scrollbar, and Mosaic display behavior, also re
 
 ## Sync Mode Selection
 
-`TimelineViewModel.syncFromServer(isFullRefresh)` computes:
+`TimelineViewModel.syncFromServer()` computes cold vs cached launch:
 
 ```text
 hasWarmTimelineCache = hasCachedBuckets && hasCompletedColdTimelineSync
 
 if !hasWarmTimelineCache:
   mode = Cold
-else if isFullRefresh:
-  mode = ManualRefresh
 else:
   mode = CachedLaunch
 ```
@@ -32,7 +31,7 @@ else:
 - Cached bucket metadata alone is not enough for warm launch. A failed cold sync can write metadata before assets and geometry are complete.
 - The cold-complete marker lives in `sync_metadata`.
 - Warm launch is allowed only when bucket metadata exists and the cold-complete marker exists.
-- Manual refresh is the explicit top-bar refresh path after warm cache exists.
+- Manual refresh is the explicit top-bar refresh path after warm cache exists and bypasses this mode function by building a `TimelineManualSyncRequest`.
 - `TimelineViewModel` can run a cache-only warm policy through `DISABLE_TIMELINE_NON_MANUAL_SERVER_SYNC`. When enabled, completed-cold-cache launch and bucket visibility changes do not hit the server; cold sync and manual refresh remain the only Timeline server refresh paths.
 
 ## Cold Sync
@@ -188,12 +187,13 @@ Manual refresh is the top-bar full Timeline refresh after warm cache exists. It 
 
 ### Entry
 
-1. `refreshAll()` calls `syncFromServer(isFullRefresh = true)`.
-2. Mode selection chooses `ManualRefresh` only when warm cache exists.
-3. `_uiConfig.isSyncing` becomes true and sync banners are cleared.
-4. `SyncActivityTracker` marks Timeline sync active so Android can show the foreground sync notification.
-5. `beginManualRefresh()` sets `manualRefreshActive = true`, clears pending visible refresh queues, and waits for any active visible refresh job to finish.
-6. Manual refresh then owns Timeline bucket asset sync until `endManualRefresh()`. Album/Person detail syncs may still run concurrently; the foreground notification stays active until every tracked sync operation finishes.
+1. `refreshAll()` builds a `TimelineManualSyncRequest` from the current group, Mosaic config, banner state, and valid geometry snapshot when available.
+2. `_uiConfig.isSyncing` becomes true and sync banners are cleared.
+3. `beginManualRefresh()` sets `manualRefreshActive = true`, clears pending visible refresh queues, and waits for any active visible refresh job to finish.
+4. On Android, `TimelineManualSyncStarter` starts `SyncForegroundService` with the request. The service calls `startForeground(...)` immediately, then runs `TimelineManualSyncCoordinator` from a service-owned coroutine scope. On JVM/iOS, the ViewModel runs the coordinator directly.
+5. `TimelineManualSyncAction` refreshes bucket metadata, refreshes every metadata bucket asset with one retry for failures, preserves cached data on failures, clears removed/changed Timeline Mosaic artifacts, and runs sync-time Mosaic precompute only when Mosaic cache results are enabled and a valid geometry request was supplied.
+6. `TimelineViewModel` consumes the coordinator result, publishes removed/changed buckets, records successful buckets as server-refreshed, publishes Mosaic geometry summaries from precompute, sets success/failure banners, calls `endManualRefresh()`, and resumes visible refresh.
+7. Album/Person detail syncs may still run concurrently; the foreground notification stays active until every tracked foreground work operation finishes.
 
 ### Cache-Off Mosaic Cleanup
 
@@ -201,14 +201,14 @@ If `ViewConfig.cacheMosaicResults = false`, manual refresh does not clear Timeli
 
 ### Asset Refresh Loop
 
-Manual refresh loops through every current metadata bucket:
+Manual refresh loops through every current metadata bucket inside `TimelineManualSyncAction`:
 
-1. Call `loadBucketAssetsIfNeeded(force = true, keepCachedRowsOnFailure = true)`.
-2. Keep cached rows visible on failure.
-3. Record whether any bucket failed.
-4. For changed buckets, publish the same per-bucket invalidation used by visible refresh.
-5. For unchanged already-loaded buckets, suppress publication and Mosaic work.
-6. At the end, set:
+1. Call `SyncAllTimelineAssetsAction` for all buckets.
+2. Retry failed buckets once.
+3. Keep cached rows visible on failure by applying failure state only after the coordinator result returns.
+4. For changed successful buckets, clear persisted Timeline Mosaic artifacts before optional precompute.
+5. For unchanged buckets, suppress publication and Mosaic work.
+6. At the end, the ViewModel sets:
    - `bannerError = CannotConnectToServer` if any bucket failed;
    - `bannerSuccess = ConnectedToServer` only when recovering from a previous banner error;
    - `isSyncing = false`.
