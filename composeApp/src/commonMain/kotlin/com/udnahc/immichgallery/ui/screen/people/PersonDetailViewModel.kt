@@ -31,6 +31,7 @@ import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutCoordinator
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutSnapshot
+import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.SyncActivityKey
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
@@ -75,6 +76,7 @@ class PersonDetailViewModel(
     private val getViewConfigUseCase: GetViewConfigUseCase,
     private val setTargetRowHeightAction: SetTargetRowHeightAction,
     private val setViewConfigAction: SetViewConfigAction,
+    private val mosaicConfigPreparationCoordinator: MosaicConfigPreparationCoordinator,
     private val mosaicWorkScheduler: MosaicWorkScheduler,
     private val getDetailMosaicArtifactsUseCase: GetDetailMosaicArtifactsUseCase,
     private val upsertDetailMosaicArtifactsAction: UpsertDetailMosaicArtifactsAction,
@@ -106,6 +108,7 @@ class PersonDetailViewModel(
         targetRowHeightScope = RowHeightScope.PERSON_DETAIL,
         ownerKey = mosaicOwnerKey,
         logTag = "PersonDetailViewModel",
+        mosaicConfigPreparationCoordinator = mosaicConfigPreparationCoordinator,
         mosaicWorkScheduler = mosaicWorkScheduler,
         getState = { _state.value },
         updateState = { transform -> _state.update(transform) },
@@ -194,6 +197,7 @@ class PersonDetailViewModel(
                 if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@track Result.success(
                     Unit
                 )
+                mosaicConfigPreparationCoordinator.cancelObsoleteWork()
                 if (_state.value.hasMore) {
                     val result = getPersonAssetsUseCase.syncAll(personId)
                         .onFailure { return@track Result.failure(it) }

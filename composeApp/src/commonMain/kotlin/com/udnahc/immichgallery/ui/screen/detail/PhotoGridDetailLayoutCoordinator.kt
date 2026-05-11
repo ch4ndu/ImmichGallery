@@ -45,6 +45,7 @@ import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.resolvedRealDisplayBandsOrEmpty
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.model.toRealMosaicDisplayItems
+import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicWorkCancelledException
 import com.udnahc.immichgallery.ui.util.MosaicWorkPriority
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
@@ -80,6 +81,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private val targetRowHeightScope: RowHeightScope,
     private val ownerKey: String,
     private val logTag: String,
+    private val mosaicConfigPreparationCoordinator: MosaicConfigPreparationCoordinator,
     private val mosaicWorkScheduler: MosaicWorkScheduler,
     private val getState: () -> S,
     private val updateState: ((S) -> S) -> Unit,
@@ -135,6 +137,12 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private val runtimeGroupStates =
         mutableMapOf<DetailGroupDisplayCacheKey, DetailRuntimeMosaicGroupState>()
 
+    init {
+        mosaicConfigPreparationCoordinator.register(ownerKey) {
+            cancelObsoleteMosaicWorkForConfigPrepare()
+        }
+    }
+
     fun activateForegroundMosaic() {
         scope.launch(backgroundDispatcher) {
             mosaicWorkScheduler.setActiveForegroundOwner(ownerKey)
@@ -150,6 +158,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
 
     fun onCleared() {
         resumeMosaicJob?.cancel()
+        mosaicConfigPreparationCoordinator.unregister(ownerKey)
         mosaicWorkScheduler.clearActiveForegroundOwnerAsync(ownerKey)
         mosaicWorkScheduler.cancelOwnerAsync(ownerKey)
     }
@@ -226,6 +235,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) return@withContext Result.success(Unit)
         val snapshot = snapshotOf(getState())
         if (snapshot.assets.isEmpty()) return@withContext Result.success(Unit)
+        mosaicConfigPreparationCoordinator.cancelObsoleteWork()
         if (!isPersistentCacheComplete()) {
             return@withContext Result.failure(IllegalStateException("Detail Mosaic cache requires a complete owner snapshot"))
         }
@@ -1480,6 +1490,22 @@ class PhotoGridDetailLayoutCoordinator<S>(
             groupDisplayCache.clear()
             groupDisplayBandCache.clear()
             groupSectionGeometryCache.clear()
+            runtimeGroupStates.clear()
+            deferredMosaicGroupItems.clear()
+        }
+    }
+
+    private suspend fun cancelObsoleteMosaicWorkForConfigPrepare() {
+        mosaicLayoutGeneration++
+        layoutRunner.cancel()
+        resumeMosaicJob?.cancel()
+        resumeMosaicJob = null
+        resumeRequestedAgain = false
+        requestedResumeDelayMs = 0L
+        deferredMosaicFlushJob?.cancel()
+        deferredMosaicFlushJob = null
+        mosaicWorkScheduler.cancelOwner(ownerKey)
+        mosaicRuntimeStateMutex.withLock {
             runtimeGroupStates.clear()
             deferredMosaicGroupItems.clear()
         }

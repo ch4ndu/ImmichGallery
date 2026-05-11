@@ -125,6 +125,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 - Detail runtime work is keyed by group, not Timeline bucket, and always runs through `MosaicWorkScheduler`.
 - `MosaicWorkScheduler` uses `DEFAULT_PARALLELISM = 1`, active owner priority, visible-group priority, and pending-work reprioritization.
 - Runtime states are `InFlight`, `Partial`, and `RetryableFailure`; incomplete states render placeholders or strict partial output, never row-packing fallback.
+- Cache-enabled Mosaic settings preparation broadcasts cancellation through `MosaicConfigPreparationCoordinator` before expensive preparation work starts. Live Timeline/detail owners cancel pending geometry calculations, layout runners, deferred flush/resume jobs, and scheduler work that belongs to obsolete configs while preserving ready display caches and persisted artifacts.
 
 ## Detail Pause, Resume, And Retry
 

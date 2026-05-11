@@ -174,6 +174,30 @@ class MosaicWorkSchedulerTest {
     }
 
     @Test
+    fun cancelOwnerCancelsRunningWork() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scheduler = MosaicWorkScheduler(dispatcher, this)
+        val order = mutableListOf<String>()
+
+        val work = async {
+            scheduler.run("album", "group_0", 0, MosaicWorkPriority.ForegroundVisible) { token ->
+                order += "start"
+                delay(100)
+                token.ensureActive()
+                order += "end"
+            }
+        }
+        runCurrent()
+
+        scheduler.cancelOwner("album")
+        testScheduler.advanceTimeBy(100)
+        runCurrent()
+
+        assertFailsWith<MosaicWorkCancelledException> { work.await() }
+        assertEquals(listOf("start"), order)
+    }
+
+    @Test
     fun reprioritizePendingMovesVisibleOwnerWorkAhead() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val scheduler = MosaicWorkScheduler(dispatcher, this)

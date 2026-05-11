@@ -268,6 +268,8 @@ flowchart TD
     Changed{Draft differs from current ViewConfig?}
     Cache{cacheMosaicResults true?}
     Prepare[prepareMosaicViewConfig]
+    Cancel[Cancel obsolete runtime/geometry work]
+    CacheWork[Prepare persistent artifacts]
     Success{Prepare success?}
     Persist[Persist ViewConfig]
     Rebuild[Coordinator clears layout caches and rebuilds display]
@@ -278,7 +280,9 @@ flowchart TD
     Changed -- yes --> Cache
     Cache -- no --> Persist
     Cache -- yes --> Prepare
-    Prepare --> Success
+    Prepare --> Cancel
+    Cancel --> CacheWork
+    CacheWork --> Success
     Success -- yes --> Persist
     Success -- no --> Error
     Persist --> Rebuild
@@ -307,15 +311,18 @@ Detail preparation algorithm:
 1. Normalize the draft config.
 2. Return success immediately if Mosaic is disabled or cache results are disabled.
 3. Return success immediately if there are no assets.
-4. Require a complete owner snapshot.
-5. Require measured Mosaic layout metrics from current width and draft column count.
-6. Build a `DetailMosaicCacheLookup` for owner, group size, draft columns, families, width/cell/max-row/spacing keys, and artifact versions.
-7. Read existing artifacts and accept only strict ready display rows for the current owner fingerprint.
-8. For each grouped section, reuse ready artifacts when valid.
-9. Compute missing groups through `MosaicRenderEngine.computeSection(...)`.
-10. Upsert assignment, display-band, and section-geometry artifacts for computed groups.
-11. Once every group has output, upsert aggregate owner geometry.
-12. Return success only after required preparation work completes.
+4. Cancel obsolete runtime/geometry work across live Timeline, Album Detail, and Person Detail owners through `MosaicConfigPreparationCoordinator`.
+5. Require a complete owner snapshot.
+6. Require measured Mosaic layout metrics from current width and draft column count.
+7. Build a `DetailMosaicCacheLookup` for owner, group size, draft columns, families, width/cell/max-row/spacing keys, and artifact versions.
+8. Read existing artifacts and accept only strict ready display rows for the current owner fingerprint.
+9. For each grouped section, reuse ready artifacts when valid.
+10. Compute missing groups through `MosaicRenderEngine.computeSection(...)`.
+11. Upsert assignment, display-band, and section-geometry artifacts for computed groups.
+12. Once every group has output, upsert aggregate owner geometry.
+13. Return success only after required preparation work completes.
+
+Config-prep cancellation cancels the coordinator's `PhotoGridLayoutRunner`, pending resume/deferred-flush jobs, and `MosaicWorkScheduler` work for the owner. It clears incomplete runtime/deferred state only; current display items, ready group caches, section geometry caches, and persisted artifacts are preserved. A failed preparation does not automatically resume cancelled old-config work.
 
 ```mermaid
 flowchart LR

@@ -64,6 +64,7 @@ import com.udnahc.immichgallery.ui.screen.people.PeopleViewModel
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailViewModel
 import com.udnahc.immichgallery.ui.screen.search.SearchViewModel
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineViewModel
+import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
 import com.udnahc.immichgallery.ui.util.TimelineMosaicDispatcherProvider
@@ -74,6 +75,7 @@ val sharedModule = module {
     // Settings
     single { Settings() }
     single { ServerConfigRepository(get()) }
+    single { MosaicConfigPreparationCoordinator() }
     single { MosaicWorkScheduler() }
     single { SyncActivityTracker(get()) }
     factory { TimelineMosaicDispatcherProvider() }
@@ -172,6 +174,7 @@ val sharedModule = module {
             get(),
             get(),
             get(),
+            get(),
             get()
         )
     }
@@ -189,12 +192,14 @@ val sharedModule = module {
             get(),
             get(),
             get(),
+            get(),
             params.get()
         )
     }
     viewModel { PeopleViewModel(get(), get()) }
     viewModel { params ->
         PersonDetailViewModel(
+            get(),
             get(),
             get(),
             get(),

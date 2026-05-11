@@ -37,6 +37,7 @@ import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.buildPhotoGridDisplayIndex
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
+import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicWorkCancelledException
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
@@ -278,6 +279,37 @@ class PhotoGridDetailLayoutCoordinatorTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
+    fun configPreparationCancellationKeepsReadyDisplayItems() = runTest {
+        val assets = multiMonthAssets()
+        var state = coordinatorState(
+            assets = assets,
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = true)
+        )
+        val preparationCoordinator = MosaicConfigPreparationCoordinator()
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
+            mosaicConfigPreparationCoordinator = preparationCoordinator
+        )
+
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+        val readyItems = state.displayItems
+        assertTrue(readyItems.any { it is MosaicBandItem || it is RowItem })
+
+        preparationCoordinator.cancelObsoleteWork()
+        advanceUntilIdle()
+
+        assertEquals(readyItems, state.displayItems)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
     fun offscreenRuntimePlaceholderUsesCachedHeightWhenAvailable() = runTest {
         val cachedHeight = 777f
         val assets = multiMonthAssets()
@@ -514,7 +546,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
         upsertPersistentArtifacts: suspend (DetailMosaicArtifactsUpsert) -> Unit = { artifacts ->
             artifacts.displayCache.forEach { upsertPersistentCache(it) }
         },
-        mosaicEngine: MosaicSectionComputer = MosaicRenderEngine()
+        mosaicEngine: MosaicSectionComputer = MosaicRenderEngine(),
+        mosaicConfigPreparationCoordinator: MosaicConfigPreparationCoordinator = MosaicConfigPreparationCoordinator()
     ): PhotoGridDetailLayoutCoordinator<TestDetailState> =
         PhotoGridDetailLayoutCoordinator(
             scope = scope,
@@ -523,6 +556,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
             targetRowHeightScope = RowHeightScope.ALBUM_DETAIL,
             ownerKey = "test",
             logTag = "PhotoGridDetailLayoutCoordinatorTest",
+            mosaicConfigPreparationCoordinator = mosaicConfigPreparationCoordinator,
             mosaicWorkScheduler = MosaicWorkScheduler(scope = scope),
             getState = getState,
             updateState = updateState,

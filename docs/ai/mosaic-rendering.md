@@ -81,6 +81,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
   - Persisted reads are limited to visible or explicitly targeted buckets.
   - Mosaic display replacement is deferred until scroll settles.
 - Complete ready rows supersede partial chunks. Stale chunks are ignored by owner/config/fingerprint/generation.
+- Starting a cache-enabled Mosaic settings preparation cancels obsolete in-process geometry/runtime work for all live Timeline, Album Detail, and Person Detail owners through `MosaicConfigPreparationCoordinator`. Cancellation clears only pending/incomplete runtime and geometry work; ready display caches and persisted artifacts remain available. If preparation fails, the cancelled old-config work is not auto-resumed; normal visibility/config events may enqueue new work later.
 - Partial chunks remain transient progress state; they are not converted into resolved display-band records. Timeline may display partial chunks only through geometry-backed projection with exact source-range placeholders.
 - Timeline pending sections, partial gaps, cache misses, interrupted chunks, and failed sections render placeholders while Mosaic is enabled. They must not render fallback-thumbnail bands or standard row-packing rows.
 - Timeline may display `RowItem(kind = MOSAIC_FALLBACK)` only as completed ready output for the active config, or from a completed mixed display-cache row that independently validates source coverage against the current ordered assets.

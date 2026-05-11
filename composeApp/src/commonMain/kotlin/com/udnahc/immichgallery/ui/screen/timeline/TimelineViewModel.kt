@@ -85,6 +85,7 @@ import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCas
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicSectionGeometryUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
+import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import com.udnahc.immichgallery.ui.util.SyncActivityKey
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
@@ -182,6 +183,7 @@ enum class TimelineBucketTargetReason {
 // refreshed only by explicit manual sync. Cached launch, visible/target loads,
 // retry, and Mosaic settings preparation use Room cache only.
 private const val DISABLE_TIMELINE_NON_MANUAL_SERVER_SYNC = true
+private const val TIMELINE_MOSAIC_CONFIG_PREP_OWNER_KEY = "timeline"
 
 internal enum class TimelineStartupMode {
     Cold,
@@ -490,6 +492,7 @@ class TimelineViewModel(
     private val timelineMosaicDispatcherProvider: TimelineMosaicDispatcherProvider,
     private val timelineManualSyncCoordinator: TimelineManualSyncCoordinator,
     private val timelineManualSyncStarter: TimelineManualSyncStarter,
+    private val mosaicConfigPreparationCoordinator: MosaicConfigPreparationCoordinator,
     private val syncActivityTracker: SyncActivityTracker
 ) : ViewModel() {
 
@@ -509,6 +512,7 @@ class TimelineViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        mosaicConfigPreparationCoordinator.unregister(TIMELINE_MOSAIC_CONFIG_PREP_OWNER_KEY)
         timelineMosaicQueue.close()
         timelineMosaicDispatcherProvider.close()
         mosaicPublishChannel.close()
@@ -658,6 +662,10 @@ class TimelineViewModel(
                 viewConfig = initialViewConfig
             )
         )
+
+        mosaicConfigPreparationCoordinator.register(TIMELINE_MOSAIC_CONFIG_PREP_OWNER_KEY) {
+            cancelObsoleteTimelineMosaicWorkForConfigPrepare()
+        }
 
         viewModelScope.launch(Dispatchers.Default) {
             getTimelineGroupSizeUseCase.observe().collect { saved ->
@@ -1126,6 +1134,14 @@ class TimelineViewModel(
         }
     }
 
+    private fun cancelObsoleteTimelineMosaicWorkForConfigPrepare() {
+        bucketGeometryCacheJob?.cancel()
+        bucketGeometryCacheJob = null
+        bucketGeometryCacheGeneration++
+        timelineGeometryReady.value = true
+        clearProgressiveMosaicState()
+    }
+
     private fun loadBucketIndexes(
         bucketIndexes: List<Int>,
         priority: TimelineRefreshQueuePriority = TimelineRefreshQueuePriority.Normal,
@@ -1366,6 +1382,7 @@ class TimelineViewModel(
         val data = _bucketData.value
         val buckets = data.buckets
         if (buckets.isEmpty()) return Result.success(Unit)
+        mosaicConfigPreparationCoordinator.cancelObsoleteWork()
         val geometryRequest = timelineMosaicGeometryRequest(
             availableWidth = snapshot.availableWidth,
             maxRowHeight = snapshot.rowHeightBounds.max,
