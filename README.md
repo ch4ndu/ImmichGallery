@@ -35,7 +35,7 @@ A read-only gallery app for self-hosted [Immich](https://immich.app/) photo serv
 
 ### Android
 ```shell
-./gradlew :composeApp:assembleDebug
+./gradlew :androidApp:assembleDebug
 ```
 
 ### Desktop (JVM)

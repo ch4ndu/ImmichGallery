@@ -59,6 +59,8 @@ composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/
 
 Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect`/`actual` only when shared common code cannot reasonably handle the behavior.
 
+`composeApp` is a KMP Android library, not the installable Android application. The thin `androidApp` module owns application ID/version/signing/packaging and the launcher manifest, then depends on `composeApp`. Android actuals, `MainActivity`, `ImmichGalleryApplication`, foreground sync service code/declaration, Room, and reusable Android resources remain in `composeApp`. The library temporarily retains the legacy `com.android.library` KMP target because the dedicated Android-KMP plugin cannot currently coexist with the required Room KSP configurations; the application-module boundary is already in place for the later plugin-only migration.
+
 ## Key Files
 
 | Purpose | Path |

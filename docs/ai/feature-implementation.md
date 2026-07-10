@@ -77,7 +77,8 @@ For a new persisted cache entity or schema change:
 
 ## Verification
 
-- Run `./gradlew :composeApp:compileKotlinJvm` for normal code changes.
+- Run `./gradlew :composeApp:compileKotlinJvm` for normal shared code changes.
+- Build the installable Android application with `./gradlew :androidApp:assembleDebug`; `composeApp` is the KMP library and must not apply `com.android.application`. Keep its legacy `com.android.library` integration until the dedicated Android-KMP plugin supports this project's Room KSP configurations.
 - For platform-sensitive changes, also run the relevant Android or iOS compile task.
 - For broad shared changes, prefer `./gradlew :composeApp:compileKotlinJvm :composeApp:compileKotlinIosSimulatorArm64`.
 - For UI-visible changes, manually run desktop with `./gradlew :composeApp:run` or verify on device/simulator when practical.
