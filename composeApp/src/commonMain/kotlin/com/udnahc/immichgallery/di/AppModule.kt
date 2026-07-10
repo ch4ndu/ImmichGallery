@@ -150,7 +150,7 @@ val sharedModule = module {
 
     // ViewModels
     viewModel { LoginViewModel(get(), get()) }
-    viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel {
         TimelineViewModel(
             get(),

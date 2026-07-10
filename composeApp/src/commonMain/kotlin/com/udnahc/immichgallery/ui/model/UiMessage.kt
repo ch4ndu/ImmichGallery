@@ -15,6 +15,10 @@ sealed interface PersonDetailUiMessage : UiMessage {
     data object SyncInProgress : PersonDetailUiMessage
 }
 
+sealed interface MainUiMessage : UiMessage {
+    data object LogoutFailed : MainUiMessage
+}
+
 sealed interface ConnectionUiMessage : UiMessage {
     data object NoConnectionToServer : ConnectionUiMessage
     data object CannotConnectToServer : ConnectionUiMessage

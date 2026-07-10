@@ -35,9 +35,12 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +71,7 @@ import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
+import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
@@ -117,6 +121,18 @@ fun MainScreen(
     val isServerOnline by viewModel.isServerOnline.collectAsState()
     val timelineGroupSize by viewModel.timelineGroupSize.collectAsState()
     val viewConfig by viewModel.viewConfig.collectAsState()
+    val screenState by viewModel.screenState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val logoutMessage = screenState.message.asTextOrNull()
+
+    LaunchedEffect(viewModel) {
+        viewModel.logoutCompleted.collect { onLogout() }
+    }
+    LaunchedEffect(screenState.message) {
+        val message = logoutMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.consumeMessage()
+    }
 
     val tabNavController = rememberNavController()
     val navBackStackEntry by tabNavController.currentBackStackEntryAsState()
@@ -202,7 +218,8 @@ fun MainScreen(
             isSyncing = tabIsSyncing,
             showRefresh = !isSearchTab,
             onRefresh = { tabRefreshCallback?.invoke() },
-            onLogout = onLogout,
+            onLogout = viewModel::logout,
+            logoutEnabled = !screenState.isLoggingOut,
             mosaicViewConfig = viewConfig.takeIf { isTimelineTab },
             onMosaicViewConfigChanged = viewModel::setViewConfig,
             onPrepareMosaicViewConfig = { config ->
@@ -212,6 +229,13 @@ fun MainScreen(
             timelineGroupEnabled = !viewConfig.mosaicEnabled,
             onTimelineGroupSelected = viewModel::setTimelineGroupSize,
             showTimelineGroup = isTimelineTab
+        )
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = Dimens.bottomBarHeight)
         )
     }
 }
@@ -277,6 +301,7 @@ private fun BoxScope.MainShellOverlays(
     showRefresh: Boolean,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
+    logoutEnabled: Boolean,
     mosaicViewConfig: ViewConfig?,
     onMosaicViewConfigChanged: (ViewConfig) -> Unit,
     onPrepareMosaicViewConfig: suspend (ViewConfig) -> Result<Unit>,
@@ -298,6 +323,7 @@ private fun BoxScope.MainShellOverlays(
             showRefresh = showRefresh,
             onRefresh = onRefresh,
             onLogout = onLogout,
+            logoutEnabled = logoutEnabled,
             mosaicViewConfig = mosaicViewConfig,
             onMosaicViewConfigChanged = onMosaicViewConfigChanged,
             onPrepareMosaicViewConfig = onPrepareMosaicViewConfig,
@@ -345,6 +371,7 @@ private fun TopBarOverlay(
     showRefresh: Boolean,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
+    logoutEnabled: Boolean,
     mosaicViewConfig: ViewConfig? = null,
     onMosaicViewConfigChanged: (ViewConfig) -> Unit = {},
     onPrepareMosaicViewConfig: suspend (ViewConfig) -> Result<Unit> = { Result.success(Unit) },
@@ -475,6 +502,7 @@ private fun TopBarOverlay(
                     }
                     DropdownMenuItem(
                         text = { Text(stringResource(Res.string.logout)) },
+                        enabled = logoutEnabled,
                         onClick = {
                             showMenu = false
                             onLogout()

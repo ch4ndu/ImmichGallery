@@ -17,6 +17,8 @@ For Album Detail and Person Detail screen architecture, cached-first loading, op
 - `multiplatform-settings` for server URL, API key, and lightweight settings.
 - `kotlinx-datetime` for date/time logic.
 - Android foreground work notifications are driven by common `SyncActivityTracker` keys for active sync and explicit Mosaic preparation. Android starts a `dataSync` foreground service for that notification state. Manual Timeline refresh is the exception: on Android the foreground service owns the manual sync command and runs the shared `TimelineManualSyncCoordinator`; other platforms run that coordinator from the ViewModel.
+- Logout is cache-first and configuration-last. `MainScreenViewModel` owns the action state and navigation success event; a cache-clear failure keeps the current server configuration, stays on Main, and surfaces a retryable message.
+- iOS declares local-network access and allows local-network ATS traffic so self-hosted HTTP servers on the LAN remain usable; arbitrary remote HTTP is not enabled.
 
 ## Layering
 

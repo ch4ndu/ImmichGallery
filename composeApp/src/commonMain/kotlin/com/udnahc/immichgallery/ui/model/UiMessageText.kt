@@ -6,6 +6,7 @@ import immichgallery.composeapp.generated.resources.error_search_failed
 import immichgallery.composeapp.generated.resources.login_connection_failed
 import immichgallery.composeapp.generated.resources.login_required_fields
 import immichgallery.composeapp.generated.resources.person_sync_in_progress
+import immichgallery.composeapp.generated.resources.logout_failed
 import immichgallery.composeapp.generated.resources.timeline_cannot_connect
 import immichgallery.composeapp.generated.resources.timeline_connected
 import immichgallery.composeapp.generated.resources.timeline_incompatible_api
@@ -25,6 +26,7 @@ val UiMessage.resource: StringResource
         LoginUiMessage.ConnectionFailed -> Res.string.login_connection_failed
         SearchUiMessage.SearchFailed -> Res.string.error_search_failed
         PersonDetailUiMessage.SyncInProgress -> Res.string.person_sync_in_progress
+        MainUiMessage.LogoutFailed -> Res.string.logout_failed
         ConnectionUiMessage.NoConnectionToServer -> Res.string.timeline_no_connection
         ConnectionUiMessage.CannotConnectToServer -> Res.string.timeline_cannot_connect
         ConnectionUiMessage.ConnectedToServer -> Res.string.timeline_connected
