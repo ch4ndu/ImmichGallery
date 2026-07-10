@@ -11,8 +11,13 @@ sealed interface SearchUiMessage : UiMessage {
     data object SearchFailed : SearchUiMessage
 }
 
+sealed interface PersonDetailUiMessage : UiMessage {
+    data object SyncInProgress : PersonDetailUiMessage
+}
+
 sealed interface ConnectionUiMessage : UiMessage {
     data object NoConnectionToServer : ConnectionUiMessage
     data object CannotConnectToServer : ConnectionUiMessage
     data object ConnectedToServer : ConnectionUiMessage
+    data object IncompatibleTimelineApi : ConnectionUiMessage
 }

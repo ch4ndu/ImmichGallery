@@ -7,6 +7,7 @@ import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.model.PeopleResponse
 import com.udnahc.immichgallery.data.model.SearchResponse
 import com.udnahc.immichgallery.data.model.ServerPingResponse
+import com.udnahc.immichgallery.data.model.ServerVersionResponse
 import com.udnahc.immichgallery.data.model.TimeBucketResponse
 import com.udnahc.immichgallery.data.model.TimelineBucketColumnarResponse
 import com.udnahc.immichgallery.data.model.UserResponse
@@ -16,10 +17,12 @@ import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.parameter
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import org.lighthousegames.logging.logging
 
 class ImmichApiService(
@@ -27,6 +30,7 @@ class ImmichApiService(
     private val serverConfigRepository: ServerConfigRepository
 ) {
     private val log = logging("ImmichApiService")
+    private var timelineServerVersion: ServerVersionResponse? = null
 
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
     private fun apiKey(): String = serverConfigRepository.getApiKey()
@@ -60,23 +64,44 @@ class ImmichApiService(
 
     suspend fun getTimelineBuckets(): List<TimeBucketResponse> {
         val endpoint = "${baseUrl()}/api/timeline/buckets"
+        val version = timelineServerVersion()
         log.d { "GET $endpoint" }
-        return httpClient.get(endpoint) {
-            header("x-api-key", apiKey())
-        }.body()
+        return try {
+            httpClient.get(endpoint) {
+                header("x-api-key", apiKey())
+            }.body()
+        } catch (error: SerializationException) {
+            throw TimelineApiCompatibilityException(version.toString(), endpoint, error)
+        }
     }
 
     suspend fun getTimelineBucket(
         timeBucket: String
     ): List<AssetResponse> {
         val endpoint = "${baseUrl()}/api/timeline/bucket?timeBucket=$timeBucket"
+        val version = timelineServerVersion()
         log.d { "GET $endpoint" }
-        val columnar = httpClient.get(endpoint) {
-            header("x-api-key", apiKey())
-        }.body<TimelineBucketColumnarResponse>()
-        val videoCount = columnar.isImage.count { it == false }
-        log.d { "Timeline bucket parsed ${columnar.id.size} assets ($videoCount videos)" }
-        return columnar.toAssetResponses()
+        try {
+            val columnar = httpClient.get(endpoint) {
+                header("x-api-key", apiKey())
+            }.body<TimelineBucketColumnarResponse>()
+            val videoCount = columnar.isImage.count { it == false }
+            log.d { "Timeline bucket parsed ${columnar.id.size} assets ($videoCount videos)" }
+            return columnar.toAssetResponses()
+        } catch (error: SerializationException) {
+            throw TimelineApiCompatibilityException(version.toString(), endpoint, error)
+        } catch (error: IllegalArgumentException) {
+            throw TimelineApiCompatibilityException(version.toString(), endpoint, error)
+        }
+    }
+
+    private suspend fun timelineServerVersion(): ServerVersionResponse {
+        timelineServerVersion?.let { return it }
+        val endpoint = "${baseUrl()}/api/server/version"
+        val version = httpClient.get(endpoint).body<ServerVersionResponse>()
+        timelineServerVersion = version
+        log.d { "Timeline compatibility session uses Immich $version" }
+        return version
     }
 
     suspend fun getAlbums(): List<AlbumResponse> {
@@ -93,10 +118,12 @@ class ImmichApiService(
         }.body()
     }
 
-    suspend fun getPeople(): PeopleResponse {
-        log.d { "GET ${baseUrl()}/api/people" }
+    suspend fun getPeople(page: Int, size: Int): PeopleResponse {
+        log.d { "GET ${baseUrl()}/api/people page=$page size=$size" }
         return httpClient.get("${baseUrl()}/api/people") {
             header("x-api-key", apiKey())
+            parameter("page", page)
+            parameter("size", size)
         }.body()
     }
 

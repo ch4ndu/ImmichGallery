@@ -48,6 +48,7 @@ For a new persisted cache entity or schema change:
 - Person detail page refreshes must avoid mixed cached snapshots. When a fetched page changes membership/order, truncate refs from that page start and let `loadMore()` refill later pages; final pages must also clear stale tail refs. Ignore `loadMore()` while a person detail sync is active and surface the one-shot Material snackbar message.
 - Do not preload Person detail assets from the People list. Person detail caching starts only when that person is opened; first open with no cached assets may perform the full opened-person sync.
 - Add nearby code comments for cache invalidation, sync freshness, and layout reuse logic when the invariant is not obvious from the type names alone.
+- Suspend UseCases and repositories that return `Result` must preserve structured concurrency by rethrowing `CancellationException`; use the shared cancellation-preserving Result helper instead of plain `runCatching` around suspend work.
 - Register UseCases and Actions in `di/AppModule.kt`.
 - Use a screen-specific ViewModel for screen state.
 - Register ViewModels in `di/AppModule.kt` with `viewModel { ... }`.

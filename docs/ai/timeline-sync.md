@@ -51,6 +51,7 @@ Cold sync is the only blocking Timeline sync path. It runs when there is no warm
 1. Wait until `availableWidth > 0`.
 2. Read the previous `lastSyncedAt` value for display.
 3. Fetch `/api/timeline/buckets`.
+   Before the first Timeline request in a process, fetch stable `/api/server/version` for diagnostics. Timeline endpoints remain internal, so decode failures and mismatched column lengths are reported as a typed incompatibility error that includes the server version and endpoint. Do not reject a server solely because its version is unfamiliar.
 4. Write `TimelineBucketEntity` rows and metadata sync timestamp.
 5. Set `_bucketData.buckets` to the fetched bucket list.
 6. Sync every bucket asset through `SyncAllTimelineAssetsAction`.

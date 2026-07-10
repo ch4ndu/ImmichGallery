@@ -14,14 +14,21 @@ data class AssetResponse(
     val isFavorite: Boolean = false,
     val isArchived: Boolean = false,
     val isEdited: Boolean = false,
-    val stackId: String? = null,
-    val stackCount: Int = 0,
+    val stack: AssetStackResponse? = null,
     val visibility: String = "timeline",
     val ratio: Float? = null,
     val width: Int? = null,
     val height: Int? = null,
     val exifInfo: ExifInfo? = null,
     val people: List<AssetPersonResponse> = emptyList()
+)
+
+@Immutable
+@Serializable
+data class AssetStackResponse(
+    val id: String,
+    val primaryAssetId: String,
+    val assetCount: Int = 0
 )
 
 @Immutable
@@ -72,6 +79,7 @@ data class TimelineBucketColumnarResponse(
     val visibility: List<String?> = emptyList()
 ) {
     fun toAssetResponses(): List<AssetResponse> {
+        validateColumnLengths()
         return id.indices.map { i ->
             val isImg = isImage.getOrElse(i) { true } ?: true
             val stackTuple = stack.getOrElse(i) { null }
@@ -84,10 +92,34 @@ data class TimelineBucketColumnarResponse(
                 isArchived = false,
                 thumbhash = thumbhash.getOrElse(i) { null },
                 ratio = ratio.getOrElse(i) { null },
-                stackId = stackTuple?.getOrNull(0),
-                stackCount = stackTuple?.getOrNull(1)?.toIntOrNull() ?: 0,
+                stack = stackTuple?.getOrNull(0)?.let { stackId ->
+                    AssetStackResponse(
+                        id = stackId,
+                        primaryAssetId = id[i],
+                        assetCount = stackTuple.getOrNull(1)?.toIntOrNull() ?: 0
+                    )
+                },
                 visibility = visibility.getOrElse(i) { "timeline" } ?: "timeline"
             )
+        }
+    }
+
+    private fun validateColumnLengths() {
+        val expected = id.size
+        val columns = listOf(
+            "isImage" to isImage.size,
+            "fileCreatedAt" to fileCreatedAt.size,
+            "isFavorite" to isFavorite.size,
+            "duration" to duration.size,
+            "thumbhash" to thumbhash.size,
+            "ratio" to ratio.size,
+            "stack" to stack.size,
+            "visibility" to visibility.size
+        )
+        val invalid = columns.filter { (_, size) -> size != 0 && size != expected }
+        require(invalid.isEmpty()) {
+            "Timeline column lengths do not match id count=$expected: " +
+                invalid.joinToString { (name, size) -> "$name=$size" }
         }
     }
 }

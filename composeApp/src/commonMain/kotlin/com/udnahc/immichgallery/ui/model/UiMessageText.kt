@@ -5,8 +5,10 @@ import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.error_search_failed
 import immichgallery.composeapp.generated.resources.login_connection_failed
 import immichgallery.composeapp.generated.resources.login_required_fields
+import immichgallery.composeapp.generated.resources.person_sync_in_progress
 import immichgallery.composeapp.generated.resources.timeline_cannot_connect
 import immichgallery.composeapp.generated.resources.timeline_connected
+import immichgallery.composeapp.generated.resources.timeline_incompatible_api
 import immichgallery.composeapp.generated.resources.timeline_no_connection
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -22,7 +24,9 @@ val UiMessage.resource: StringResource
         LoginUiMessage.RequiredFields -> Res.string.login_required_fields
         LoginUiMessage.ConnectionFailed -> Res.string.login_connection_failed
         SearchUiMessage.SearchFailed -> Res.string.error_search_failed
+        PersonDetailUiMessage.SyncInProgress -> Res.string.person_sync_in_progress
         ConnectionUiMessage.NoConnectionToServer -> Res.string.timeline_no_connection
         ConnectionUiMessage.CannotConnectToServer -> Res.string.timeline_cannot_connect
         ConnectionUiMessage.ConnectedToServer -> Res.string.timeline_connected
+        ConnectionUiMessage.IncompatibleTimelineApi -> Res.string.timeline_incompatible_api
     }

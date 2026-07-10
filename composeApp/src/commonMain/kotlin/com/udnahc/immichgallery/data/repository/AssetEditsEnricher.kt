@@ -6,6 +6,7 @@ import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.simulateEditDimensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -55,6 +56,8 @@ class AssetEditsEnricher(
             ) ?: return
             val aspect = finalDims[0].toFloat() / finalDims[1].toFloat()
             assetDao.updateAspectRatioResolved(asset.id, aspect)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             log.w(e) { "Failed to resolve edits for ${asset.id}" }
         }

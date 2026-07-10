@@ -29,6 +29,7 @@ import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
+import com.udnahc.immichgallery.ui.model.PersonDetailUiMessage
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutCoordinator
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutSnapshot
 import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
@@ -56,12 +57,13 @@ data class PersonDetailState(
     val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f),
     val groupSize: GroupSize = GroupSize.MONTH,
     val viewConfig: ViewConfig = ViewConfig(),
-    val nextPage: Int = 1,
+    val nextPage: Int? = 1,
     val hasMore: Boolean = true,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: ConnectionUiMessage? = null,
     val bannerError: ConnectionUiMessage? = null,
+    val snackbarMessage: PersonDetailUiMessage? = null,
     val lastSyncedAt: Long? = null,
     val isBuilding: Boolean = false,
     val isSyncing: Boolean = false
@@ -207,7 +209,7 @@ class PersonDetailViewModel(
                         it.copy(
                             assets = assets,
                             hasMore = false,
-                            nextPage = 1,
+                            nextPage = null,
                             isLoadingMore = false
                         )
                     }
@@ -232,18 +234,21 @@ class PersonDetailViewModel(
         // it, and both would launch duplicate requests — and both would try
         // to advance nextPage, skipping or refetching pages.
         val prev = _state.value
-        if (syncJob?.isActive == true || prev.isSyncing || prev.isBuilding) return
+        if (syncJob?.isActive == true || prev.isSyncing || prev.isBuilding) {
+            _state.update { it.copy(snackbarMessage = PersonDetailUiMessage.SyncInProgress) }
+            return
+        }
+        val page = prev.nextPage ?: return
         if (prev.isLoadingMore || !prev.hasMore) return
         if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
 
         loadMoreJob = viewModelScope.launch(Dispatchers.IO) {
-            val page = _state.value.nextPage
             getPersonAssetsPageUseCase(personId, page = page).fold(
                 onSuccess = { result ->
                     _state.update {
                         it.copy(
                             hasMore = result.hasMore,
-                            nextPage = page + 1,
+                            nextPage = result.nextPage,
                             isLoadingMore = false
                         )
                     }
@@ -262,6 +267,10 @@ class PersonDetailViewModel(
 
     fun dismissBannerError() {
         _state.update { it.copy(bannerError = null) }
+    }
+
+    fun consumeSnackbarMessage() {
+        _state.update { it.copy(snackbarMessage = null) }
     }
 
     fun getDisplayItemIndexForReturn(): Int? =
@@ -297,6 +306,7 @@ class PersonDetailViewModel(
                             _state.update {
                                 it.copy(
                                     hasMore = false,
+                                    nextPage = null,
                                     isBuilding = false,
                                     isSyncing = false,
                                     error = null
@@ -321,7 +331,7 @@ class PersonDetailViewModel(
                             _state.update {
                                 it.copy(
                                     hasMore = result.hasMore,
-                                    nextPage = 2,
+                                    nextPage = result.nextPage,
                                     isSyncing = false,
                                     error = null
                                 )

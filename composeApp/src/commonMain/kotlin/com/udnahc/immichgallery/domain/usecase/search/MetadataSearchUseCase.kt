@@ -2,8 +2,10 @@ package com.udnahc.immichgallery.domain.usecase.search
 
 import com.udnahc.immichgallery.data.repository.SearchRepository
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
+import com.udnahc.immichgallery.data.model.nextPageNumberOrNull
+import com.udnahc.immichgallery.runSuspendCatching
 import com.udnahc.immichgallery.domain.model.SearchResult
-import com.udnahc.immichgallery.domain.model.toDomain
+import com.udnahc.immichgallery.domain.model.toDomainOrNull
 
 class MetadataSearchUseCase(
     private val repository: SearchRepository,
@@ -13,12 +15,12 @@ class MetadataSearchUseCase(
         query: String,
         page: Int = 1
     ): Result<SearchResult> {
-        return runCatching {
+        return runSuspendCatching {
             val baseUrl = serverConfigRepository.getServerUrl().trimEnd('/')
             val response = repository.searchMetadata(query, page)
             SearchResult(
-                assets = response.assets.items.map { it.toDomain(baseUrl) },
-                hasMore = response.assets.nextPage != null
+                assets = response.assets.items.mapNotNull { it.toDomainOrNull(baseUrl) },
+                nextPage = response.assets.nextPageNumberOrNull()
             )
         }
     }

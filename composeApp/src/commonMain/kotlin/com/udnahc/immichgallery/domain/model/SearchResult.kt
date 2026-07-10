@@ -5,5 +5,7 @@ import androidx.compose.runtime.Immutable
 @Immutable
 data class SearchResult(
     val assets: List<Asset>,
-    val hasMore: Boolean
-)
+    val nextPage: Int?
+) {
+    val hasMore: Boolean get() = nextPage != null
+}

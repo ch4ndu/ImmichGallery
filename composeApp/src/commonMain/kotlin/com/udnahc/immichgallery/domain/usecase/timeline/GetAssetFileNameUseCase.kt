@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.domain.usecase.timeline
 
 import com.udnahc.immichgallery.data.repository.TimelineRepository
+import com.udnahc.immichgallery.runSuspendCatching
 
 class GetAssetFileNameUseCase(
     private val repository: TimelineRepository
@@ -10,6 +11,6 @@ class GetAssetFileNameUseCase(
         currentFileName: String
     ): Result<String> {
         if (currentFileName.isNotEmpty()) return Result.success(currentFileName)
-        return runCatching { repository.getAssetFileName(assetId) }
+        return runSuspendCatching { repository.getAssetFileName(assetId) }
     }
 }

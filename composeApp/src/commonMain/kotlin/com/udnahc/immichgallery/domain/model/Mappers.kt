@@ -52,21 +52,31 @@ private fun AssetResponse.aspectFromExif(): Float? = exifInfo?.let { exif ->
 
 // --- AssetResponse -> Domain ---
 
-fun AssetResponse.toDomain(baseUrl: String): Asset {
+private fun String.toSupportedAssetTypeOrNull(): AssetType? = when (this) {
+    "IMAGE" -> AssetType.IMAGE
+    "VIDEO" -> AssetType.VIDEO
+    else -> null
+}
+
+fun AssetResponse.toDomainOrNull(baseUrl: String): Asset? {
+    val assetType = type.toSupportedAssetTypeOrNull() ?: return null
     return Asset(
         id = id,
-        type = if (type == "VIDEO") AssetType.VIDEO else AssetType.IMAGE,
+        type = assetType,
         fileName = originalFileName,
         createdAt = fileCreatedAt,
         thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=thumbnail&edited=true",
         originalUrl = "$baseUrl/api/assets/$id/original?edited=true",
         videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
         isFavorite = isFavorite,
-        stackCount = stackCount,
+        stackCount = stack?.assetCount ?: 0,
         aspectRatio = computeAspectRatio(),
         isEdited = isEdited
     )
 }
+
+fun AssetResponse.toDomain(baseUrl: String): Asset =
+    requireNotNull(toDomainOrNull(baseUrl)) { "Unsupported Immich asset type: $type" }
 
 fun AssetResponse.toDetail(baseUrl: String): AssetDetail {
     val exif = exifInfo
@@ -102,25 +112,31 @@ fun AssetResponse.toDetail(baseUrl: String): AssetDetail {
 
 // --- AssetResponse -> Room Entity ---
 
-fun AssetResponse.toAssetEntity(): AssetEntity {
+fun AssetResponse.toAssetEntityOrNull(): AssetEntity? {
+    type.toSupportedAssetTypeOrNull() ?: return null
     return AssetEntity(
         id = id,
         type = type,
         fileName = originalFileName,
         createdAt = fileCreatedAt,
         isFavorite = isFavorite,
-        stackCount = stackCount,
+        stackCount = stack?.assetCount ?: 0,
         aspectRatio = computeAspectRatio(),
         isEdited = isEdited,
         editsResolved = false
     )
 }
 
+fun AssetResponse.toAssetEntity(): AssetEntity =
+    requireNotNull(toAssetEntityOrNull()) { "Unsupported Immich asset type: $type" }
+
 // --- Room Entity -> Domain ---
 
 fun AssetEntity.toDomain(baseUrl: String): Asset = Asset(
     id = id,
-    type = if (type == "VIDEO") AssetType.VIDEO else AssetType.IMAGE,
+    type = requireNotNull(type.toSupportedAssetTypeOrNull()) {
+        "Unsupported cached Immich asset type: $type"
+    },
     fileName = fileName,
     createdAt = createdAt,
     thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=thumbnail&edited=true",
@@ -131,6 +147,23 @@ fun AssetEntity.toDomain(baseUrl: String): Asset = Asset(
     aspectRatio = aspectRatio,
     isEdited = isEdited
 )
+
+fun AssetEntity.toDomainOrNull(baseUrl: String): Asset? {
+    val assetType = type.toSupportedAssetTypeOrNull() ?: return null
+    return Asset(
+        id = id,
+        type = assetType,
+        fileName = fileName,
+        createdAt = createdAt,
+        thumbnailUrl = "$baseUrl/api/assets/$id/thumbnail?size=thumbnail&edited=true",
+        originalUrl = "$baseUrl/api/assets/$id/original?edited=true",
+        videoPlaybackUrl = "$baseUrl/api/assets/$id/video/playback?edited=true",
+        isFavorite = isFavorite,
+        stackCount = stackCount,
+        aspectRatio = aspectRatio,
+        isEdited = isEdited
+    )
+}
 
 // --- TimeBucket mappers ---
 

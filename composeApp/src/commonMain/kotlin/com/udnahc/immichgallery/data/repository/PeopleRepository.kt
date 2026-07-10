@@ -14,8 +14,12 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.domain.model.PersonAssetsSyncResult
 import com.udnahc.immichgallery.domain.model.toAssetEntity
+import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomain
+import com.udnahc.immichgallery.domain.model.toDomainOrNull
 import com.udnahc.immichgallery.domain.model.toPersonEntity
+import com.udnahc.immichgallery.data.model.nextPageNumberOrNull
+import com.udnahc.immichgallery.runSuspendCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
@@ -50,7 +54,7 @@ class PeopleRepository(
         personDao.observePersonAssets(personId)
             .map { entities ->
                 val base = baseUrl()
-                entities.map { it.toDomain(base) }
+                entities.mapNotNull { it.toDomainOrNull(base) }
             }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
@@ -70,7 +74,7 @@ class PeopleRepository(
     suspend fun getPersonAssets(personId: String): List<Asset> {
         val base = baseUrl()
         return withContext(Dispatchers.IO) {
-            personDao.getPersonAssets(personId).map { it.toDomain(base) }
+            personDao.getPersonAssets(personId).mapNotNull { it.toDomainOrNull(base) }
         }
     }
 
@@ -89,10 +93,17 @@ class PeopleRepository(
     // --- Network sync ---
 
     suspend fun syncPeople(): Result<Unit> {
-        return try {
-            val response = apiService.getPeople()
-            val entities =
-                response.people.mapIndexed { index, person -> person.toPersonEntity(index) }
+        return runSuspendCatching {
+            val people = mutableListOf<com.udnahc.immichgallery.data.model.PersonResponse>()
+            var page = 1
+            var hasNextPage: Boolean
+            do {
+                val response = apiService.getPeople(page, PEOPLE_PAGE_SIZE)
+                people += response.people
+                hasNextPage = response.hasNextPage
+                page++
+            } while (hasNextPage)
+            val entities = people.mapIndexed { index, person -> person.toPersonEntity(index) }
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
@@ -103,9 +114,7 @@ class PeopleRepository(
                     }
                 }
             }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+            Unit
         }
     }
 
@@ -121,14 +130,15 @@ class PeopleRepository(
         page: Int,
         size: Int = 250
     ): Result<PersonAssetsSyncResult> {
-        return try {
+        return runSuspendCatching {
             val before = withContext(Dispatchers.IO) {
                 personDao.getPersonAssets(personId)
             }
             val response = apiService.getPersonAssets(personId, page, size)
-            val items = response.assets.items
-            val hasMore = response.assets.nextPage != null
-            val assetEntities = items.map { it.toAssetEntity() }
+            val nextPage = response.assets.nextPageNumberOrNull()
+            val items = response.assets.items.filter { it.toAssetEntityOrNull() != null }
+            val hasMore = nextPage != null
+            val assetEntities = items.mapNotNull { it.toAssetEntityOrNull() }
             val baseOffset = (page - 1) * size
             val pageChanged = personPageChanged(
                 beforeAssetIds = before.map { it.id },
@@ -176,14 +186,10 @@ class PeopleRepository(
             val after = withContext(Dispatchers.IO) {
                 personDao.getPersonAssets(personId)
             }
-            Result.success(
-                PersonAssetsSyncResult(
-                    changed = orderedAssetsChanged(before, after),
-                    hasMore = hasMore
-                )
+            PersonAssetsSyncResult(
+                changed = orderedAssetsChanged(before, after),
+                nextPage = nextPage
             )
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 
@@ -197,7 +203,7 @@ class PeopleRepository(
      * At 250 items/page and a few pages per person, this is a few hundred KB.
      */
     suspend fun syncAllPersonAssets(personId: String): Result<PersonAssetsSyncResult> {
-        return try {
+        return runSuspendCatching {
             val before = withContext(Dispatchers.IO) {
                 personDao.getPersonAssets(personId)
             }
@@ -206,11 +212,10 @@ class PeopleRepository(
             var page = 1
             while (true) {
                 val response = apiService.getPersonAssets(personId, page, pageSize)
-                allItems += response.assets.items
-                if (response.assets.nextPage == null) break
-                page++
+                allItems += response.assets.items.filter { it.toAssetEntityOrNull() != null }
+                page = response.assets.nextPageNumberOrNull() ?: break
             }
-            val assetEntities = allItems.map { it.toAssetEntity() }
+            val assetEntities = allItems.mapNotNull { it.toAssetEntityOrNull() }
             val crossRefs = allItems.mapIndexed { index, asset ->
                 PersonAssetCrossRef(personId, asset.id, index)
             }
@@ -232,14 +237,10 @@ class PeopleRepository(
             val after = withContext(Dispatchers.IO) {
                 personDao.getPersonAssets(personId)
             }
-            Result.success(
-                PersonAssetsSyncResult(
-                    changed = orderedAssetsChanged(before, after),
-                    hasMore = false
-                )
+            PersonAssetsSyncResult(
+                changed = orderedAssetsChanged(before, after),
+                nextPage = null
             )
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 
@@ -260,6 +261,7 @@ class PeopleRepository(
     companion object {
         const val SYNC_SCOPE_PEOPLE = "people"
         const val SYNC_SCOPE_PERSON_PREFIX = "person:"
+        private const val PEOPLE_PAGE_SIZE = 500
     }
 }
 

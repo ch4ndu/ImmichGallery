@@ -70,6 +70,8 @@
     <string name="timeline_no_connection">No connection to server</string>
     <string name="timeline_cannot_connect">Cannot connect to server</string>
     <string name="timeline_connected">Connected to server</string>
+    <string name="timeline_incompatible_api">This Immich server returned an incompatible Timeline response</string>
+    <string name="person_sync_in_progress">Wait for the current sync to finish before loading more</string>
     <string name="mosaic">Mosaic</string>
     <string name="mosaic_settings">Mosaic settings</string>
     <string name="mosaic_settings_title">Mosaic layout</string>

@@ -15,7 +15,10 @@ import com.udnahc.immichgallery.domain.model.AlbumDetailSyncResult
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.toAlbumEntity
 import com.udnahc.immichgallery.domain.model.toAssetEntity
+import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomain
+import com.udnahc.immichgallery.domain.model.toDomainOrNull
+import com.udnahc.immichgallery.runSuspendCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
@@ -50,7 +53,7 @@ class AlbumRepository(
         albumDao.observeAlbumAssets(albumId)
             .map { entities ->
                 val base = baseUrl()
-                entities.map { it.toDomain(base) }
+                entities.mapNotNull { it.toDomainOrNull(base) }
             }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
@@ -76,7 +79,7 @@ class AlbumRepository(
     suspend fun getAlbumAssets(albumId: String): List<Asset> {
         val base = baseUrl()
         return withContext(Dispatchers.IO) {
-            albumDao.getAlbumAssets(albumId).map { it.toDomain(base) }
+            albumDao.getAlbumAssets(albumId).mapNotNull { it.toDomainOrNull(base) }
         }
     }
 
@@ -95,7 +98,7 @@ class AlbumRepository(
     // --- Network sync ---
 
     suspend fun syncAlbums(): Result<Unit> {
-        return try {
+        return runSuspendCatching {
             val responses = apiService.getAlbums()
             val entities = responses.map { it.toAlbumEntity() }
             withContext(Dispatchers.IO) {
@@ -108,14 +111,12 @@ class AlbumRepository(
                     }
                 }
             }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
+            Unit
         }
     }
 
     suspend fun syncAlbumDetail(albumId: String): Result<AlbumDetailSyncResult> {
-        return try {
+        return runSuspendCatching {
             // A successful detail sync is not automatically a content change.
             // Compare persisted rows after the full write/enrichment path so
             // title-only updates do not force row packing or Mosaic rebuilds.
@@ -123,8 +124,9 @@ class AlbumRepository(
                 albumDao.getAlbumAssets(albumId)
             }
             val response = apiService.getAlbumDetail(albumId)
-            val assetEntities = response.assets.map { it.toAssetEntity() }
-            val crossRefs = response.assets.mapIndexed { index, asset ->
+            val supportedAssets = response.assets.filter { it.toAssetEntityOrNull() != null }
+            val assetEntities = supportedAssets.mapNotNull { it.toAssetEntityOrNull() }
+            val crossRefs = supportedAssets.mapIndexed { index, asset ->
                 AlbumAssetCrossRef(albumId, asset.id, index)
             }
             val cachedAlbum = withContext(Dispatchers.IO) {
@@ -157,18 +159,14 @@ class AlbumRepository(
             // post-edit aspect. Runs after the main upsert so the grid
             // renders immediately; updates land via Room's Flow as they
             // resolve.
-            editsEnricher.enrich(response.assets)
+            editsEnricher.enrich(supportedAssets)
             val after = withContext(Dispatchers.IO) {
                 albumDao.getAlbumAssets(albumId)
             }
-            Result.success(
-                AlbumDetailSyncResult(
-                    albumName = response.albumName,
-                    changed = orderedAssetsChanged(before, after)
-                )
+            AlbumDetailSyncResult(
+                albumName = response.albumName,
+                changed = orderedAssetsChanged(before, after)
             )
-        } catch (e: Exception) {
-            Result.failure(e)
         }
     }
 

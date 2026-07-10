@@ -16,5 +16,6 @@ data class PersonResponse(
 @Serializable
 data class PeopleResponse(
     val people: List<PersonResponse> = emptyList(),
-    val total: Int = 0
+    val total: Int = 0,
+    val hasNextPage: Boolean = false
 )

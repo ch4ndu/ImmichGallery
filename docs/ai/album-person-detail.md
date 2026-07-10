@@ -190,7 +190,7 @@ Person load-more rules:
 - ignore when already loading more;
 - ignore when `hasMore == false`;
 - claim `isLoadingMore` atomically before launching the page request;
-- update `hasMore` and `nextPage` only from the successful page response;
+- update `hasMore` and `nextPage` only from the successful page response; `nextPage` is the strictly parsed server-returned token, never `page + 1`;
 - call `handleSyncedContentChange(result.changed)` after page writes.
 
 Opened-owner sync is separate from Mosaic settings. Sync can change the ordered

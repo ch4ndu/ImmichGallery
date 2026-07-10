@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.udnahc.immichgallery.data.remote.TimelineApiCompatibilityException
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
@@ -178,6 +179,15 @@ enum class TimelineBucketTargetReason {
     ScrollbarDrag,
     ScrollbarStop
 }
+
+private fun Throwable.timelineMessageOr(
+    fallback: ConnectionUiMessage
+): ConnectionUiMessage =
+    if (this is TimelineApiCompatibilityException) {
+        ConnectionUiMessage.IncompatibleTimelineApi
+    } else {
+        fallback
+    }
 
 // Temporary local experiment: when true, a completed cold Timeline cache is
 // refreshed only by explicit manual sync. Cached launch, visible/target loads,
@@ -1312,7 +1322,9 @@ class TimelineViewModel(
                 _uiConfig.update {
                     it.copy(
                         isSyncing = false,
-                        bannerError = ConnectionUiMessage.CannotConnectToServer
+                        bannerError = event.cause.timelineMessageOr(
+                            ConnectionUiMessage.CannotConnectToServer
+                        )
                     )
                 }
                 endManualRefresh()
@@ -1678,8 +1690,9 @@ class TimelineViewModel(
                                         onFailure = { e ->
                                             log.e(e) { "Failed full first timeline asset sync" }
                                             _isBuilding.value = false
-                                            _buildError.value =
+                                            _buildError.value = e.timelineMessageOr(
                                                 ConnectionUiMessage.NoConnectionToServer
+                                            )
                                             _uiConfig.update { it.copy(isSyncing = false) }
                                             log.d { "Timeline cold sync finished with asset-sync failure" }
                                         }
@@ -1706,13 +1719,17 @@ class TimelineViewModel(
                             log.e(e) { "Failed to sync buckets from server" }
                             if (isColdSync) {
                                 _isBuilding.value = false
-                                _buildError.value = ConnectionUiMessage.NoConnectionToServer
+                                _buildError.value = e.timelineMessageOr(
+                                    ConnectionUiMessage.NoConnectionToServer
+                                )
                                 log.d { "Timeline cold sync finished with bucket metadata failure" }
                             } else {
                                 _uiConfig.update {
                                     it.copy(
                                         isSyncing = false,
-                                        bannerError = ConnectionUiMessage.CannotConnectToServer
+                                        bannerError = e.timelineMessageOr(
+                                            ConnectionUiMessage.CannotConnectToServer
+                                        )
                                     )
                                 }
                                 log.d { "Timeline cached sync finished with bucket metadata failure mode=$syncMode" }

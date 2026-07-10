@@ -3,9 +3,12 @@ package com.udnahc.immichgallery.ui.screen.people
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -14,7 +17,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -50,6 +58,14 @@ fun PersonDetailScreen(
     val unknownLabel = stringResource(Res.string.unknown)
     val listState = rememberLazyListState()
     val dismissScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val snackbarText = state.snackbarMessage.asTextOrNull()
+
+    LaunchedEffect(state.snackbarMessage) {
+        val message = snackbarText ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.consumeSnackbarMessage()
+    }
 
     DisposableEffect(viewModel) {
         viewModel.activateForegroundMosaic()
@@ -69,7 +85,8 @@ fun PersonDetailScreen(
     val contentTopPadding = statusBarPadding + Dimens.topBarHeight
     val contentBottomPadding = navBarPadding
 
-    PhotoOverlayHost(
+    Box(Modifier.fillMaxSize()) {
+        PhotoOverlayHost(
         initialIndexKey = state.assets,
         resolveInitialIndex = { id ->
             state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 }
@@ -136,7 +153,14 @@ fun PersonDetailScreen(
                 )
             }
         }
-    )
+        )
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+        )
+    }
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)

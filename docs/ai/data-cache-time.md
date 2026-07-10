@@ -39,7 +39,10 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Auth uses the configured API key as the `x-api-key` header.
 - Hidden assets should be filtered out before writing or presenting timeline bucket assets.
 - Album detail currently returns all assets at once; do not add pagination loops unless the endpoint behavior changes.
-- Person assets and search endpoints may paginate. Follow the endpoint's `nextPage` response and guard duplicate loads with `isLoadingMore`.
+- People list sync fetches every `/people` page into memory and replaces Room only after the complete paginated fetch succeeds.
+- Person assets and search endpoints may paginate. Parse and follow the endpoint's returned `nextPage` value; never synthesize the next page by incrementing local state. A malformed non-null token is an API compatibility failure. Guard duplicate loads with `isLoadingMore`.
+- `AssetResponseDto.stack` is nested and supplies the persisted/displayed stack count. Only `IMAGE` and `VIDEO` enter the gallery cache or domain model; filter `AUDIO` and `OTHER` responses at API-to-cache/domain boundaries.
+- Result-producing suspend boundaries must rethrow `CancellationException`; cancellation is control flow, not a connection or content failure.
 - Person detail page refreshes should replace the fetched ref window and truncate stale later refs when page membership/order changes. Preserving later cached refs after a changed page can mix snapshots because subsequent pages may have shifted.
 - Timeline buckets load lazily. Cached Room refs only mark asset availability. The ViewModel should materialize cached asset rows into memory for visible/nearby buckets and avoid render-facing loading/error mutations for unchanged cached refreshes. Under the cache-only warm policy, completed-cold-cache launch and visible/target bucket changes do not hit the server; top-bar manual refresh is the explicit full Timeline asset refresh. If warm server refresh is enabled, cached launch syncs metadata only and visible/nearby bucket asset refresh is serial and cache-preserving. Unchanged already-loaded refreshes should not republish bucket state or enqueue Mosaic reads.
 

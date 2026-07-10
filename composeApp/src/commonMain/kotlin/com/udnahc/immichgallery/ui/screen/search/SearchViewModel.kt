@@ -46,8 +46,7 @@ data class SearchState(
     val isLoadingMore: Boolean = false,
     val error: SearchUiMessage? = null,
     val hasSearched: Boolean = false,
-    val currentPage: Int = 1,
-    val hasMore: Boolean = false,
+    val nextPage: Int? = null,
     val availableWidth: Float = 0f,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
     val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f)
@@ -163,8 +162,7 @@ class SearchViewModel(
                     hasSearched = true,
                     results = emptyList(),
                     rows = emptyList(),
-                    currentPage = 1,
-                    hasMore = false
+                    nextPage = null
                 )
             }
             val result = when (currentState.searchType) {
@@ -178,8 +176,7 @@ class SearchViewModel(
                         it.copy(
                             results = searchResult.assets,
                             isLoading = false,
-                            currentPage = 1,
-                            hasMore = searchResult.hasMore
+                            nextPage = searchResult.nextPage
                         )
                     }
                     scheduleRows()
@@ -203,17 +200,17 @@ class SearchViewModel(
         // triggers could both observe isLoadingMore=false before either wrote
         // it, and both would launch duplicate requests.
         val prev = _state.value
-        if (prev.isLoadingMore || !prev.hasMore || prev.query.isBlank()) return
+        val page = prev.nextPage ?: return
+        if (prev.isLoadingMore || prev.query.isBlank()) return
         if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
 
         loadMoreJob = viewModelScope.launch(Dispatchers.IO) {
             val state = _state.value
-            val nextPage = state.currentPage + 1
-            log.d { "Loading more page=$nextPage for '${state.query}'" }
+            log.d { "Loading more page=$page for '${state.query}'" }
 
             val result = when (state.searchType) {
-                SearchType.SMART -> smartSearchUseCase(state.query, page = nextPage)
-                SearchType.METADATA -> metadataSearchUseCase(state.query, page = nextPage)
+                SearchType.SMART -> smartSearchUseCase(state.query, page = page)
+                SearchType.METADATA -> metadataSearchUseCase(state.query, page = page)
             }
             result.fold(
                 onSuccess = { searchResult ->
@@ -223,8 +220,7 @@ class SearchViewModel(
                         it.copy(
                             results = allAssets,
                             isLoadingMore = false,
-                            currentPage = nextPage,
-                            hasMore = searchResult.hasMore
+                            nextPage = searchResult.nextPage
                         )
                     }
                     scheduleRows()

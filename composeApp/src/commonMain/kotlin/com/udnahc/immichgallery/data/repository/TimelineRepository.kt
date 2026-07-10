@@ -11,6 +11,7 @@ import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.remote.ImmichApiService
+import com.udnahc.immichgallery.data.remote.TimelineApiCompatibilityException
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucket
@@ -264,6 +265,9 @@ class TimelineRepository(
                     async(Dispatchers.IO) {
                         val result = semaphore.withPermit {
                             syncBucketAssets(bucket.timeBucket)
+                        }
+                        result.exceptionOrNull()?.let { error ->
+                            if (error is TimelineApiCompatibilityException) throw error
                         }
                         val success = result.isSuccess
                         progressMutex.withLock {
