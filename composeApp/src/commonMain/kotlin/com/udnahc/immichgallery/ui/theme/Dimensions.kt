@@ -46,4 +46,7 @@ object Dimens {
     val serverStatusIndicatorSize = 12.dp
     val detailHandleWidth = 32.dp
     val detailHandleHeight = 4.dp
+    val photoDismissThreshold = 150.dp
+    val photoDismissFlickVelocity = 1200.dp
+    val largeScreenMosaicColumnsMinWidth = 600.dp
 }

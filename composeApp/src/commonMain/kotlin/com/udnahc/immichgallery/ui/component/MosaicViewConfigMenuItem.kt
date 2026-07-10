@@ -421,4 +421,4 @@ private fun MosaicTemplateFamily.labelRes() = when (this) {
     MosaicTemplateFamily.EIGHT_TILE -> Res.string.mosaic_family_eight
 }
 
-private val LargeScreenMosaicColumnsMinWidth = 600.dp
+private val LargeScreenMosaicColumnsMinWidth = Dimens.largeScreenMosaicColumnsMinWidth

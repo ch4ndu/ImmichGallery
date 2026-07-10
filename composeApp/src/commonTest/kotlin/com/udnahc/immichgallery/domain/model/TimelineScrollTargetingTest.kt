@@ -107,6 +107,10 @@ class TimelineScrollTargetingTest {
 
         assertEquals(1, displayIndex.assetDisplayIndexById[rowAsset.id])
         assertEquals(2, displayIndex.assetDisplayIndexById[mosaicAsset.id])
+        assertEquals(listOf(null, rowAsset.id, mosaicAsset.id), displayIndex.firstAssetIdByDisplayIndex)
+        assertEquals(listOf("h_0", "r_0", "m_1"), displayIndex.gridKeyByDisplayIndex)
+        assertEquals(1, displayIndex.displayIndexByGridKey["r_0"])
+        assertEquals(2, displayIndex.displayIndexByGridKey["m_1"])
     }
 
     @Test

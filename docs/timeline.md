@@ -584,6 +584,12 @@ first visible item to a label even while progressive Mosaic updates replace rows
 inside the same bucket. During a transient index/key mismatch it keeps the last
 non-null label instead of briefly clearing the header.
 
+The same index owns the first asset ID and grid key for every display position,
+plus reverse grid-key lookup. Scroll anchoring, bucket restoration, and
+scrollbar targeting read those mappings from long-lived effects keyed only on
+`LazyListState`; changing display indexes and callbacks flow through
+`rememberUpdatedState` rather than restarting effects or scanning display items.
+
 When display items change while the user is scrolled inside loaded content, the
 screen anchors the first visible real asset and its current item offset. After
 the new `TimelineDisplayIndex` is published, it scrolls that asset back to the

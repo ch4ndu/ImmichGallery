@@ -5,11 +5,11 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.ui.theme.Dimens
 
 object PhotoDismissMotion {
-    val dismissThreshold = 150.dp
-    val flickVelocity = 1200.dp
+    val dismissThreshold = Dimens.photoDismissThreshold
+    val flickVelocity = Dimens.photoDismissFlickVelocity
     const val MIN_SCALE = 0.5f
     const val EXIT_DURATION_MS = 300
 

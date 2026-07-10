@@ -32,7 +32,10 @@ data class TimelineDisplayIndex(
     val bucketByDisplayIndex: List<Int> = emptyList(),
     val displayIndexesByBucket: Map<Int, List<Int>> = emptyMap(),
     val assetDisplayIndexById: Map<String, Int> = emptyMap(),
-    val sectionLabelByDisplayIndex: List<String> = emptyList()
+    val sectionLabelByDisplayIndex: List<String> = emptyList(),
+    val firstAssetIdByDisplayIndex: List<String?> = emptyList(),
+    val gridKeyByDisplayIndex: List<String> = emptyList(),
+    val displayIndexByGridKey: Map<String, Int> = emptyMap()
 )
 
 fun buildTimelineDisplayIndex(displayItems: List<TimelineDisplayItem>): TimelineDisplayIndex {
@@ -43,32 +46,51 @@ fun buildPhotoGridDisplayIndex(displayItems: List<PhotoGridDisplayItem>): Timeli
     if (displayItems.isEmpty()) return TimelineDisplayIndex()
     val bucketByDisplayIndex = ArrayList<Int>(displayItems.size)
     val sectionLabelByDisplayIndex = ArrayList<String>(displayItems.size)
+    val firstAssetIdByDisplayIndex = ArrayList<String?>(displayItems.size)
+    val gridKeyByDisplayIndex = ArrayList<String>(displayItems.size)
     val mutableDisplayIndexesByBucket = linkedMapOf<Int, MutableList<Int>>()
     val mutableAssetDisplayIndexById = linkedMapOf<String, Int>()
+    val mutableDisplayIndexByGridKey = linkedMapOf<String, Int>()
     displayItems.forEachIndexed { index, item ->
         bucketByDisplayIndex.add(item.bucketIndex)
         sectionLabelByDisplayIndex.add(item.sectionLabel)
+        gridKeyByDisplayIndex.add(item.gridKey)
+        mutableDisplayIndexByGridKey[item.gridKey] = index
         mutableDisplayIndexesByBucket.getOrPut(item.bucketIndex) { mutableListOf() }.add(index)
-        when (item) {
-            is PhotoItem -> mutableAssetDisplayIndexById[item.asset.id] = index
-            is RowItem -> item.photos.forEach { photo ->
-                mutableAssetDisplayIndexById[photo.asset.id] = index
+        val firstAssetId = when (item) {
+            is PhotoItem -> {
+                mutableAssetDisplayIndexById[item.asset.id] = index
+                item.asset.id
             }
 
-            is MosaicBandItem -> item.tiles.forEach { tile ->
-                mutableAssetDisplayIndexById[tile.photo.asset.id] = index
+            is RowItem -> {
+                item.photos.forEach { photo ->
+                    mutableAssetDisplayIndexById[photo.asset.id] = index
+                }
+                item.photos.firstOrNull()?.asset?.id
+            }
+
+            is MosaicBandItem -> {
+                item.tiles.forEach { tile ->
+                    mutableAssetDisplayIndexById[tile.photo.asset.id] = index
+                }
+                item.tiles.minByOrNull { it.visualOrder }?.photo?.asset?.id
             }
 
             is HeaderItem,
             is PlaceholderItem,
-            is ErrorItem -> Unit
+            is ErrorItem -> null
         }
+        firstAssetIdByDisplayIndex.add(firstAssetId)
     }
     return TimelineDisplayIndex(
         bucketByDisplayIndex = bucketByDisplayIndex,
         displayIndexesByBucket = mutableDisplayIndexesByBucket,
         assetDisplayIndexById = mutableAssetDisplayIndexById,
-        sectionLabelByDisplayIndex = sectionLabelByDisplayIndex
+        sectionLabelByDisplayIndex = sectionLabelByDisplayIndex,
+        firstAssetIdByDisplayIndex = firstAssetIdByDisplayIndex,
+        gridKeyByDisplayIndex = gridKeyByDisplayIndex,
+        displayIndexByGridKey = mutableDisplayIndexByGridKey
     )
 }
 

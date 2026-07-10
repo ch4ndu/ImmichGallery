@@ -20,11 +20,11 @@ A read-only gallery app for self-hosted [Immich](https://immich.app/) photo serv
 ### UI & Interaction
 - 4-tab bottom navigation (Timeline, Albums, People, Search)
 - Material 3 theming with light/dark mode support
-- Ege-to-Edge support
+- Edge-to-edge support
 
 ### Connection & Data
 - API key authentication to self-hosted Immich servers
-- Authenticated image loading via Coil + Ktor
+- Authenticated Coil image loading via OkHttp on Android and Ktor on iOS/JVM
 
 ### Multi-Platform
 - Android (minSdk 24)
@@ -48,4 +48,4 @@ Open `iosApp/iosApp.xcodeproj` in Xcode and build the `iosApp` scheme.
 
 ## Tech Stack
 
-Kotlin 2.3.0 · Compose Multiplatform 1.10.0 · Ktor 3 · Coil 3 · Room 2.8.4 · Paging 3 · Koin · kotlinx-datetime
+Kotlin 2.3.0 · Compose Multiplatform 1.10.0 · Ktor 3 · Coil 3 · Room 2.8.4 · Koin · kotlinx-datetime

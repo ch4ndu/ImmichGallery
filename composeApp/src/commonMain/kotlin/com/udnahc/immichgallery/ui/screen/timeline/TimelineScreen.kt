@@ -281,7 +281,6 @@ fun TimelineContent(
         key(state.groupSize) {
             TimelineScrollEffects(
                 listState = listState,
-                displayItems = displayItems,
                 displayIndex = state.displayIndex,
                 scrollAnchor = scrollAnchor,
                 bucketScrollAnchor = bucketScrollAnchor,
@@ -356,7 +355,8 @@ fun TimelineContent(
                                 scrollAnchor = null
                                 bucketScrollAnchor = TimelineBucketScrollAnchor(
                                     bucketIndex = target.bucketIndex,
-                                    itemKey = latestDisplayItems.getOrNull(target.displayIndex)?.gridKey
+                                    itemKey = latestDisplayIndex.gridKeyByDisplayIndex
+                                        .getOrNull(target.displayIndex)
                                 )
                                 listState.requestScrollToItem(target.displayIndex)
                                 if (commit) {
@@ -455,7 +455,6 @@ fun TimelineContent(
 @Composable
 private fun TimelineScrollEffects(
     listState: LazyListState,
-    displayItems: List<TimelineDisplayItem>,
     displayIndex: TimelineDisplayIndex,
     scrollAnchor: TimelineScrollAnchor?,
     bucketScrollAnchor: TimelineBucketScrollAnchor?,
@@ -463,48 +462,53 @@ private fun TimelineScrollEffects(
     onVisibleBucketsChanged: (List<Int>, TimelineBucketTargetReason) -> Unit,
     onScrollInProgressChanged: (Boolean) -> Unit
 ) {
-    val latestDisplayItems by rememberUpdatedState(displayItems)
     val latestDisplayIndex by rememberUpdatedState(displayIndex)
+    val latestScrollAnchor by rememberUpdatedState(scrollAnchor)
+    val latestBucketScrollAnchor by rememberUpdatedState(bucketScrollAnchor)
+    val latestOnScrollAnchorChanged by rememberUpdatedState(onScrollAnchorChanged)
+    val latestOnVisibleBucketsChanged by rememberUpdatedState(onVisibleBucketsChanged)
+    val latestOnScrollInProgressChanged by rememberUpdatedState(onScrollInProgressChanged)
 
     LaunchedEffect(listState) {
         snapshotFlow {
             firstVisibleAssetAnchor(
-                displayItems = latestDisplayItems,
+                displayIndex = latestDisplayIndex,
                 visibleItems = listState.layoutInfo.visibleItemsInfo
             )
         }
             .distinctUntilChanged()
             .collectLatest { anchor ->
-                onScrollAnchorChanged(anchor)
+                latestOnScrollAnchorChanged(anchor)
             }
     }
-    LaunchedEffect(displayIndex) {
-        if (listState.isScrollInProgress) return@LaunchedEffect
-        val anchor = scrollAnchor
-        if (anchor != null) {
-            val targetIndex = latestDisplayIndex.assetDisplayIndexById[anchor.assetId]
-                ?: return@LaunchedEffect
-            val currentAnchor = firstVisibleAssetAnchor(
-                displayItems = latestDisplayItems,
-                visibleItems = listState.layoutInfo.visibleItemsInfo
-            )
-            if (currentAnchor?.assetId != anchor.assetId) {
-                listState.scrollToItem(targetIndex, anchor.scrollOffset)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            Triple(latestDisplayIndex, latestScrollAnchor, latestBucketScrollAnchor)
+        }.distinctUntilChanged().collectLatest { (currentIndex, anchor, bucketAnchor) ->
+            if (listState.isScrollInProgress) return@collectLatest
+            if (anchor != null) {
+                val targetIndex = currentIndex.assetDisplayIndexById[anchor.assetId]
+                    ?: return@collectLatest
+                val currentAnchor = firstVisibleAssetAnchor(
+                    displayIndex = currentIndex,
+                    visibleItems = listState.layoutInfo.visibleItemsInfo
+                )
+                if (currentAnchor?.assetId != anchor.assetId) {
+                    listState.scrollToItem(targetIndex, anchor.scrollOffset)
+                }
+                return@collectLatest
             }
-            return@LaunchedEffect
+            bucketAnchor ?: return@collectLatest
+            val currentFirstIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
+            val currentFirstBucket =
+                currentFirstIndex?.let { currentIndex.bucketByDisplayIndex.getOrNull(it) }
+            if (currentFirstBucket == bucketAnchor.bucketIndex) return@collectLatest
+            val targetIndex = bucketAnchor.itemKey
+                ?.let(currentIndex.displayIndexByGridKey::get)
+                ?: currentIndex.displayIndexesByBucket[bucketAnchor.bucketIndex]?.firstOrNull()
+                ?: return@collectLatest
+            listState.scrollToItem(targetIndex, bucketAnchor.scrollOffset)
         }
-        val bucketAnchor = bucketScrollAnchor ?: return@LaunchedEffect
-        val currentFirstIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
-        val currentFirstBucket =
-            currentFirstIndex?.let { latestDisplayIndex.bucketByDisplayIndex.getOrNull(it) }
-        if (currentFirstBucket == bucketAnchor.bucketIndex) return@LaunchedEffect
-        val targetIndex = bucketAnchor.itemKey
-            ?.let { itemKey ->
-                latestDisplayItems.indexOfFirst { it.gridKey == itemKey }.takeIf { it >= 0 }
-            }
-            ?: latestDisplayIndex.displayIndexesByBucket[bucketAnchor.bucketIndex]?.firstOrNull()
-            ?: return@LaunchedEffect
-        listState.scrollToItem(targetIndex, bucketAnchor.scrollOffset)
     }
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -515,20 +519,20 @@ private fun TimelineScrollEffects(
         }
             .distinctUntilChanged()
             .collectLatest { buckets ->
-                onVisibleBucketsChanged(buckets, TimelineBucketTargetReason.VisibleScroll)
+                latestOnVisibleBucketsChanged(buckets, TimelineBucketTargetReason.VisibleScroll)
             }
     }
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
             .collectLatest { isScrollInProgress ->
-                onScrollInProgressChanged(isScrollInProgress)
+                latestOnScrollInProgressChanged(isScrollInProgress)
                 if (!isScrollInProgress) {
                     val buckets = visibleBucketIndexesForDisplayIndexes(
                         latestDisplayIndex,
                         listState.layoutInfo.visibleItemsInfo.map { it.index }
                     )
-                    onVisibleBucketsChanged(
+                    latestOnVisibleBucketsChanged(
                         buckets,
                         TimelineBucketTargetReason.ScrollSettled
                     )
@@ -641,27 +645,16 @@ private fun nativeListScrollFraction(info: LazyListLayoutInfo): Float {
 }
 
 private fun firstVisibleAssetAnchor(
-    displayItems: List<TimelineDisplayItem>,
+    displayIndex: TimelineDisplayIndex,
     visibleItems: List<LazyListItemInfo>
 ): TimelineScrollAnchor? =
     visibleItems
         .asSequence()
         .mapNotNull { itemInfo ->
-            displayItems.getOrNull(itemInfo.index)
-                ?.firstAssetId()
+            displayIndex.firstAssetIdByDisplayIndex.getOrNull(itemInfo.index)
                 ?.let { assetId -> TimelineScrollAnchor(assetId, itemInfo.offset) }
         }
         .firstOrNull()
-
-private fun TimelineDisplayItem.firstAssetId(): String? =
-    when (this) {
-        is PhotoItem -> asset.id
-        is RowItem -> photos.firstOrNull()?.asset?.id
-        is MosaicBandItem -> tiles.minByOrNull { it.visualOrder }?.photo?.asset?.id
-        is HeaderItem,
-        is PlaceholderItem,
-        is ErrorItem -> null
-    }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
