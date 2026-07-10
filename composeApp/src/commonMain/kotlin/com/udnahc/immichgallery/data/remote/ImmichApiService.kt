@@ -21,6 +21,7 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.serialization.JsonConvertException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import org.lighthousegames.logging.logging
@@ -31,6 +32,7 @@ class ImmichApiService(
 ) {
     private val log = logging("ImmichApiService")
     private var timelineServerVersion: ServerVersionResponse? = null
+    private var timelineServerVersionBaseUrl: String? = null
 
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
     private fun apiKey(): String = serverConfigRepository.getApiKey()
@@ -72,6 +74,8 @@ class ImmichApiService(
             }.body()
         } catch (error: SerializationException) {
             throw TimelineApiCompatibilityException(version.toString(), endpoint, error)
+        } catch (error: JsonConvertException) {
+            throw TimelineApiCompatibilityException(version.toString(), endpoint, error)
         }
     }
 
@@ -90,16 +94,21 @@ class ImmichApiService(
             return columnar.toAssetResponses()
         } catch (error: SerializationException) {
             throw TimelineApiCompatibilityException(version.toString(), endpoint, error)
+        } catch (error: JsonConvertException) {
+            throw TimelineApiCompatibilityException(version.toString(), endpoint, error)
         } catch (error: IllegalArgumentException) {
             throw TimelineApiCompatibilityException(version.toString(), endpoint, error)
         }
     }
 
     private suspend fun timelineServerVersion(): ServerVersionResponse {
-        timelineServerVersion?.let { return it }
-        val endpoint = "${baseUrl()}/api/server/version"
+        val currentBaseUrl = baseUrl()
+        timelineServerVersion?.takeIf { timelineServerVersionBaseUrl == currentBaseUrl }
+            ?.let { return it }
+        val endpoint = "$currentBaseUrl/api/server/version"
         val version = httpClient.get(endpoint).body<ServerVersionResponse>()
         timelineServerVersion = version
+        timelineServerVersionBaseUrl = currentBaseUrl
         log.d { "Timeline compatibility session uses Immich $version" }
         return version
     }

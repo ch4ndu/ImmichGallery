@@ -106,9 +106,11 @@ data class TimelineBucketColumnarResponse(
 
     private fun validateColumnLengths() {
         val expected = id.size
-        val columns = listOf(
-            "isImage" to isImage.size,
-            "fileCreatedAt" to fileCreatedAt.size,
+        require(isImage.size == expected && fileCreatedAt.size == expected) {
+            "Timeline required column lengths do not match id count=$expected: " +
+                "isImage=${isImage.size}, fileCreatedAt=${fileCreatedAt.size}"
+        }
+        val optionalColumns = listOf(
             "isFavorite" to isFavorite.size,
             "duration" to duration.size,
             "thumbhash" to thumbhash.size,
@@ -116,7 +118,7 @@ data class TimelineBucketColumnarResponse(
             "stack" to stack.size,
             "visibility" to visibility.size
         )
-        val invalid = columns.filter { (_, size) -> size != 0 && size != expected }
+        val invalid = optionalColumns.filter { (_, size) -> size != 0 && size != expected }
         require(invalid.isEmpty()) {
             "Timeline column lengths do not match id count=$expected: " +
                 invalid.joinToString { (name, size) -> "$name=$size" }

@@ -68,6 +68,7 @@ class ImmichApiContractTest {
         val response = TimelineBucketColumnarResponse(
             id = listOf("a"),
             isImage = listOf(true),
+            fileCreatedAt = listOf("2026-01-01T00:00:00Z"),
             stack = listOf(listOf("stack-a", "4"))
         )
 
