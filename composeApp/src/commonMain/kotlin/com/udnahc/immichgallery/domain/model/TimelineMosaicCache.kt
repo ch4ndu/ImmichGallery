@@ -125,6 +125,12 @@ data class TimelineMosaicSection(
     val assets: List<Asset>
 )
 
+data class TimelineDaySection(
+    val sectionKey: String,
+    val date: LocalDate?,
+    val assets: List<Asset>
+)
+
 data class TimelineMosaicAssignmentArtifact(
     val timeBucket: String,
     val groupMode: String,
@@ -246,13 +252,11 @@ fun timelineMosaicSections(
         assets.isEmpty() -> emptyList()
         groupSize == TimelineGroupSize.DAY -> {
             timelineDaySections(timeBucket, assets)
-                .ifEmpty {
-                    listOf(
-                        TimelineMosaicSection(
-                            sectionKey = timelineMonthMosaicSectionKey(timeBucket),
-                            label = timeBucket,
-                            assets = assets
-                        )
+                .map { section ->
+                    TimelineMosaicSection(
+                        sectionKey = section.sectionKey,
+                        label = section.sectionKey,
+                        assets = section.assets
                     )
                 }
         }
@@ -316,10 +320,10 @@ fun timelineBucketGeometryDisplayItemCount(
                 ?: 0
     }
 
-private fun timelineDaySections(
+fun timelineDaySections(
     timeBucket: String,
     assets: List<Asset>
-): List<TimelineMosaicSection> {
+): List<TimelineDaySection> {
     val tz = TimeZone.currentSystemDefault()
     val grouped = assets.groupBy { asset ->
         try {
@@ -332,26 +336,36 @@ private fun timelineDaySections(
             }
         }
     }
-    return grouped
+    val datedSections = grouped
         .filterKeys { it != null }
         .entries
         .sortedByDescending { it.key }
         .mapNotNull { (date, dayAssets) ->
             val d = date ?: return@mapNotNull null
-            val monthName = d.month.name.lowercase()
-            val label = "${d.dayOfMonth} $monthName ${d.year}"
-            TimelineMosaicSection(
-                sectionKey = timelineDayMosaicSectionKey(timeBucket, label),
-                label = label,
+            TimelineDaySection(
+                sectionKey = timelineDayMosaicSectionKey(timeBucket, d.toString()),
+                date = d,
                 assets = dayAssets.sortedByDescending { it.createdAt }
             )
         }
+    val unknownAssets = grouped[null].orEmpty()
+    return if (unknownAssets.isEmpty()) {
+        datedSections
+    } else {
+        datedSections + TimelineDaySection(
+            sectionKey = timelineDayMosaicSectionKey(timeBucket, TIMELINE_UNKNOWN_DATE_SECTION_ID),
+            date = null,
+            assets = unknownAssets
+        )
+    }
 }
 
 fun timelineMonthMosaicSectionKey(timeBucket: String): String = "$timeBucket|month"
 
 fun timelineDayMosaicSectionKey(
     timeBucket: String,
-    dayLabel: String
+    dayIdentity: String
 ): String =
-    "$timeBucket|day|$dayLabel"
+    "$timeBucket|day|$dayIdentity"
+
+const val TIMELINE_UNKNOWN_DATE_SECTION_ID = "unknown-date"

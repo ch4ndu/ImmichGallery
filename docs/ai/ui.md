@@ -43,6 +43,9 @@ For standard justified row packing and `RowItem` behavior, load `docs/ai/row-pac
 
 - Use `@Immutable` on data classes passed to composables.
 - Do not transform data in composables. Filtering, sorting, mapping, grouping, and row packing belong in UseCases or ViewModels.
+- Timeline section identity uses stable domain keys. Timeline UI state maps those
+  keys to typed literal/resource labels so localized labels such as Unknown date
+  are resolved in Compose without becoming cache or lazy-item identity.
 - Pass `StateFlow` to children when useful and collect at the lowest practical scope.
 - Keep `LaunchedEffect` keys narrow and intentional.
 - Use `snapshotFlow` for frequently-changing state such as scroll position.

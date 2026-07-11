@@ -73,6 +73,7 @@ import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayRecordsOrEmpty
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.model.timelineScrollTargetForFraction
+import com.udnahc.immichgallery.domain.model.timelineDaySections
 import com.udnahc.immichgallery.domain.model.toPhotoGridDisplayItems
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
@@ -125,10 +126,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 import org.lighthousegames.logging.logging
 import kotlin.time.TimeSource
 import com.udnahc.immichgallery.domain.model.MosaicSectionState as RuntimeMosaicState
@@ -141,9 +139,16 @@ data class YearMarker(
 
 @Immutable
 data class DayGroup(
-    val label: String,
+    val sectionKey: String,
+    val label: TimelineSectionLabel,
     val assets: List<Asset>
 )
+
+@Immutable
+sealed interface TimelineSectionLabel {
+    data class Literal(val value: String) : TimelineSectionLabel
+    data object UnknownDate : TimelineSectionLabel
+}
 
 @Immutable
 data class TimelineState(
@@ -154,6 +159,7 @@ data class TimelineState(
     val error: String? = null,
     val displayItems: List<TimelineDisplayItem> = emptyList(),
     val displayIndex: TimelineDisplayIndex = TimelineDisplayIndex(),
+    val sectionLabelsByKey: Map<String, TimelineSectionLabel> = emptyMap(),
     val yearMarkers: List<YearMarker> = emptyList(),
     val totalItemCount: Int = 0,
     val cumulativeItemCounts: List<Int> = emptyList(),
@@ -2332,6 +2338,7 @@ class TimelineViewModel(
         val pageIndex = pageIndexForState(data)
         val scrollbarData = scrollbarDataForState(data.buckets, pageIndex)
         val displayIndex = displayIndexForItems(displayItems)
+        val sectionLabelsByKey = timelineSectionLabels(data, config.groupSize)
         val elapsed = mark.elapsedNow()
         if (elapsed.inWholeMilliseconds >= TIMELINE_REBUILD_LOG_THRESHOLD_MS) {
             log.d {
@@ -2348,6 +2355,7 @@ class TimelineViewModel(
             error = config.error,
             displayItems = displayItems,
             displayIndex = displayIndex,
+            sectionLabelsByKey = sectionLabelsByKey,
             yearMarkers = scrollbarData.yearMarkers,
             totalItemCount = scrollbarData.totalItemCount,
             cumulativeItemCounts = scrollbarData.cumulativeItemCounts,
@@ -2425,6 +2433,26 @@ class TimelineViewModel(
         return buildTimelineDisplayIndex(displayItems).also { displayIndex ->
             cachedDisplayIndexItems = displayItems
             cachedDisplayIndex = displayIndex
+        }
+    }
+
+    private fun timelineSectionLabels(
+        data: BucketData,
+        groupSize: TimelineGroupSize
+    ): Map<String, TimelineSectionLabel> = buildMap {
+        data.buckets.forEach { bucket ->
+            put(
+                monthMosaicSectionKey(bucket.timeBucket),
+                TimelineSectionLabel.Literal(bucket.displayLabel)
+            )
+            if (groupSize == TimelineGroupSize.DAY) {
+                val assets = bucketAssetsCache[bucket.timeBucket] ?: return@forEach
+                dayGroupsForBucket(
+                    timeBucket = bucket.timeBucket,
+                    assetRevision = data.assetRevisionFor(bucket.timeBucket),
+                    assets = assets
+                ).forEach { group -> put(group.sectionKey, group.label) }
+            }
         }
     }
 
@@ -2654,12 +2682,12 @@ class TimelineViewModel(
         ) { dayGroup ->
             val key = MosaicCacheKey(
                 timeBucket = timeBucket,
-                sectionKey = dayMosaicSectionKey(timeBucket, dayGroup.label),
+                sectionKey = dayGroup.sectionKey,
                 columnCount = mosaicColumnCount,
                 assetRevision = assetRevision,
                 familiesKey = familiesKey
             )
-            "${dayGroup.label}:${mosaicStates[key].cacheToken()}"
+            "${dayGroup.sectionKey}:${mosaicStates[key].cacheToken()}"
         }
     }
 
@@ -2723,12 +2751,12 @@ class TimelineViewModel(
         ) { dayGroup ->
             val key = MosaicCacheKey(
                 timeBucket = timeBucket,
-                sectionKey = dayMosaicSectionKey(timeBucket, dayGroup.label),
+                sectionKey = dayGroup.sectionKey,
                 columnCount = mosaicColumnCount,
                 assetRevision = assetRevision,
                 familiesKey = familiesKey
             )
-            "${dayGroup.label}:${mosaicGeometryStates[key]?.let { "${it.placeholderHeight}|${it.ranges.size}" } ?: "missing"}"
+            "${dayGroup.sectionKey}:${mosaicGeometryStates[key]?.let { "${it.placeholderHeight}|${it.ranges.size}" } ?: "missing"}"
         }
     }
 
@@ -2758,7 +2786,7 @@ class TimelineViewModel(
             HeaderItem(
                 gridKey = "h_$timeBucket",
                 bucketIndex = index,
-                sectionLabel = monthLabel,
+                sectionLabel = monthMosaicSectionKey(timeBucket),
                 label = monthLabel
             )
         )
@@ -2769,7 +2797,7 @@ class TimelineViewModel(
                     ErrorItem(
                         gridKey = "err_$timeBucket",
                         bucketIndex = index,
-                        sectionLabel = monthLabel,
+                        sectionLabel = monthMosaicSectionKey(timeBucket),
                         timeBucket = timeBucket
                     )
                 )
@@ -2794,7 +2822,7 @@ class TimelineViewModel(
                         timeBucket = timeBucket,
                         sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
                         bucketIndex = index,
-                        sectionLabel = monthLabel,
+                        sectionLabel = monthMosaicSectionKey(timeBucket),
                         placeholderHeight = bucketGeometryHeight
                     )
                 } else if (useMosaic && bucketGeometryKey != null && bucketGeometryKey in data.geometryReadyBuckets) {
@@ -2805,7 +2833,7 @@ class TimelineViewModel(
                         timeBucket = timeBucket,
                         sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
                         bucketIndex = index,
-                        sectionLabel = monthLabel,
+                        sectionLabel = monthMosaicSectionKey(timeBucket),
                         assets = cachedAssets,
                         assignments = null,
                         mosaicLayoutSpec = mosaicLayoutSpec,
@@ -2817,7 +2845,7 @@ class TimelineViewModel(
                         timeBucket = timeBucket,
                         sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
                         bucketIndex = index,
-                        sectionLabel = monthLabel,
+                        sectionLabel = monthMosaicSectionKey(timeBucket),
                         assetCount = bucket.count,
                         groupSize = groupSize,
                         availableWidth = availableWidth,
@@ -2860,7 +2888,7 @@ class TimelineViewModel(
                             mosaicStates[
                                 mosaicCacheKey(
                                     timeBucket = timeBucket,
-                                    sectionKey = dayMosaicSectionKey(timeBucket, dayGroup.label),
+                                    sectionKey = dayGroup.sectionKey,
                                     columnCount = mosaicLayoutSpec?.columnCount
                                         ?: DEFAULT_GRID_COLUMN_COUNT,
                                     assetRevision = assetRevision,
@@ -2878,20 +2906,20 @@ class TimelineViewModel(
                                 timeBucket = timeBucket,
                                 sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
                                 bucketIndex = index,
-                                sectionLabel = monthLabel,
+                                sectionLabel = monthMosaicSectionKey(timeBucket),
                                 placeholderHeight = aggregatePlaceholderHeight
                             )
                             return items
                         }
                         for (dayGroup in dayGroupList) {
                             val dayLabel = dayGroup.label
-                            val daySectionKey = dayMosaicSectionKey(timeBucket, dayLabel)
+                            val daySectionKey = dayGroup.sectionKey
                             items.add(
                                 HeaderItem(
                                     gridKey = "dh_${timeBucket}_$daySectionKey",
                                     bucketIndex = index,
-                                    sectionLabel = dayLabel,
-                                    label = dayLabel
+                                    sectionLabel = daySectionKey,
+                                    label = (dayLabel as? TimelineSectionLabel.Literal)?.value.orEmpty()
                                 )
                             )
                             val dayMosaicKey = mosaicCacheKey(
@@ -2912,7 +2940,7 @@ class TimelineViewModel(
                                         timeBucket = timeBucket,
                                         sectionKey = daySectionKey,
                                         bucketIndex = index,
-                                        sectionLabel = dayLabel,
+                                        sectionLabel = daySectionKey,
                                         assets = dayGroup.assets,
                                         mosaicLayoutSpec = mosaicLayoutSpec,
                                         sectionGeometry = mosaicGeometryStates[dayMosaicKey]
@@ -2925,7 +2953,7 @@ class TimelineViewModel(
                                         timeBucket = timeBucket,
                                         sectionKey = daySectionKey,
                                         bucketIndex = index,
-                                        sectionLabel = dayLabel,
+                                        sectionLabel = daySectionKey,
                                         assets = dayGroup.assets,
                                         partial = dayMosaicState,
                                         mosaicLayoutSpec = mosaicLayoutSpec,
@@ -2945,7 +2973,7 @@ class TimelineViewModel(
                                                 assets = dayGroup.assets,
                                                 state = dayMosaicState,
                                                 bucketIndex = index,
-                                                sectionLabel = dayLabel,
+                                                sectionLabel = daySectionKey,
                                                 mosaicLayoutSpec = mosaicLayoutSpec,
                                                 maxRowHeight = maxRowHeight,
                                                 families = viewConfig.mosaicFamilies
@@ -2962,7 +2990,7 @@ class TimelineViewModel(
                                         timeBucket = timeBucket,
                                         sectionKey = daySectionKey,
                                         bucketIndex = index,
-                                        sectionLabel = dayLabel,
+                                        sectionLabel = daySectionKey,
                                         assets = dayGroup.assets,
                                         mosaicLayoutSpec = mosaicLayoutSpec,
                                         sectionGeometry = mosaicGeometryStates[dayMosaicKey]
@@ -2975,7 +3003,7 @@ class TimelineViewModel(
                                         timeBucket = timeBucket,
                                         sectionKey = daySectionKey,
                                         bucketIndex = index,
-                                        sectionLabel = dayLabel,
+                                        sectionLabel = daySectionKey,
                                         assetCount = dayGroup.assets.size,
                                         groupSize = TimelineGroupSize.MONTH,
                                         availableWidth = availableWidth,
@@ -2986,7 +3014,7 @@ class TimelineViewModel(
                                 else -> {
                                     items.addAll(
                                         packIntoRows(
-                                            dayGroup.assets, index, dayLabel,
+                                            dayGroup.assets, index, daySectionKey,
                                             availableWidth,
                                             if (useMosaic && mosaicLayoutSpec != null) {
                                                 mosaicFallbackRowHeight(
@@ -3035,7 +3063,7 @@ class TimelineViewModel(
                                 timeBucket = timeBucket,
                                 sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
                                 bucketIndex = index,
-                                sectionLabel = monthLabel,
+                                sectionLabel = monthSectionKey,
                                 placeholderHeight = aggregatePlaceholderHeight
                             )
                             return items
@@ -3049,7 +3077,7 @@ class TimelineViewModel(
                                 timeBucket = timeBucket,
                                 sectionKey = monthSectionKey,
                                 bucketIndex = index,
-                                sectionLabel = monthLabel,
+                                sectionLabel = monthSectionKey,
                                 assets = assets,
                                 mosaicLayoutSpec = mosaicLayoutSpec,
                                 sectionGeometry = mosaicGeometryStates[monthMosaicKey]
@@ -3062,7 +3090,7 @@ class TimelineViewModel(
                                 timeBucket = timeBucket,
                                 sectionKey = monthSectionKey,
                                 bucketIndex = index,
-                                sectionLabel = monthLabel,
+                                sectionLabel = monthSectionKey,
                                 assets = assets,
                                 partial = monthMosaicState,
                                 mosaicLayoutSpec = mosaicLayoutSpec,
@@ -3083,7 +3111,7 @@ class TimelineViewModel(
                                         assets = assets,
                                         state = monthMosaicState,
                                         bucketIndex = index,
-                                        sectionLabel = monthLabel,
+                                        sectionLabel = monthSectionKey,
                                         mosaicLayoutSpec = mosaicLayoutSpec,
                                         maxRowHeight = maxRowHeight,
                                         families = viewConfig.mosaicFamilies
@@ -3098,7 +3126,7 @@ class TimelineViewModel(
                                 timeBucket = timeBucket,
                                 sectionKey = monthSectionKey,
                                 bucketIndex = index,
-                                sectionLabel = monthLabel,
+                                sectionLabel = monthSectionKey,
                                 assets = assets,
                                 mosaicLayoutSpec = mosaicLayoutSpec,
                                 sectionGeometry = mosaicGeometryStates[monthMosaicKey]
@@ -3109,7 +3137,7 @@ class TimelineViewModel(
                                 timeBucket = timeBucket,
                                 sectionKey = monthSectionKey,
                                 bucketIndex = index,
-                                sectionLabel = monthLabel,
+                                sectionLabel = monthSectionKey,
                                 assetCount = assets.size,
                                 groupSize = TimelineGroupSize.MONTH,
                                 availableWidth = availableWidth,
@@ -3118,7 +3146,7 @@ class TimelineViewModel(
                         } else {
                             items.addAll(
                                 packIntoRows(
-                                    assets, index, monthLabel,
+                                    assets, index, monthSectionKey,
                                     availableWidth,
                                     targetRowHeight,
                                     GRID_SPACING_DP,
@@ -4429,8 +4457,8 @@ class TimelineViewModel(
         if (groupSize == TimelineGroupSize.DAY) {
             dayGroupsForBucket(timeBucket, assetRevision, assets).map { dayGroup ->
                 TimelineRuntimeMosaicSection(
-                    sectionKey = dayMosaicSectionKey(timeBucket, dayGroup.label),
-                    sectionLabel = dayGroup.label,
+                    sectionKey = dayGroup.sectionKey,
+                    sectionLabel = dayGroup.sectionKey,
                     assets = dayGroup.assets
                 )
             }
@@ -4592,7 +4620,7 @@ class TimelineViewModel(
                 dayGroupsForBucket(timeBucket, assetRevision, assets).forEach { dayGroup ->
                     updates[mosaicCacheKey(
                         timeBucket = timeBucket,
-                        sectionKey = dayMosaicSectionKey(timeBucket, dayGroup.label),
+                        sectionKey = dayGroup.sectionKey,
                         columnCount = columnCount,
                         assetRevision = assetRevision,
                         families = families
@@ -4633,7 +4661,7 @@ class TimelineViewModel(
                 dayGroupsForBucket(timeBucket, assetRevision, assets).forEach { dayGroup ->
                     updates[mosaicCacheKey(
                         timeBucket = timeBucket,
-                        sectionKey = dayMosaicSectionKey(timeBucket, dayGroup.label),
+                        sectionKey = dayGroup.sectionKey,
                         columnCount = columnCount,
                         assetRevision = assetRevision,
                         families = families
@@ -4723,39 +4751,29 @@ class TimelineViewModel(
     ): List<DayGroup> {
         val key = DayGroupsCacheKey(timeBucket, assetRevision)
         return dayGroupsCache.getOrPut(key) {
-            computeDayGroups(assets)
+            computeDayGroups(timeBucket, assets)
         }
     }
 
-    private fun computeDayGroups(assets: List<Asset>): List<DayGroup> {
-        val tz = TimeZone.currentSystemDefault()
-        val grouped = assets.groupBy { asset ->
-            try {
-                Instant.parse(asset.createdAt).toLocalDateTime(tz).date
-            } catch (_: Exception) {
-                try {
-                    LocalDate.parse(asset.createdAt.take(10))
-                } catch (_: Exception) {
-                    null
-                }
-            }
-        }
-        val unparseable = grouped[null]?.size ?: 0
+    private fun computeDayGroups(timeBucket: String, assets: List<Asset>): List<DayGroup> {
+        val sections = timelineDaySections(timeBucket = timeBucket, assets = assets)
+        val unparseable = sections.firstOrNull { it.date == null }?.assets?.size ?: 0
         if (unparseable > 0) {
             log.w { "$unparseable assets have unparseable createdAt dates" }
         }
-        return grouped
-            .filterKeys { it != null }
-            .entries
-            .sortedByDescending { it.key }
-            .mapNotNull { (date, dayAssets) ->
-                val d = date ?: return@mapNotNull null
-                val monthName = d.month.name.lowercase()
-                DayGroup(
-                    label = "${d.dayOfMonth} $monthName ${d.year}",
-                    assets = dayAssets.sortedByDescending { it.createdAt }
-                )
-            }
+        return sections.map { section ->
+            DayGroup(
+                sectionKey = section.sectionKey,
+                label = section.date?.let { TimelineSectionLabel.Literal(it.timelineDisplayLabel()) }
+                    ?: TimelineSectionLabel.UnknownDate,
+                assets = section.assets
+            )
+        }
+    }
+
+    private fun LocalDate.timelineDisplayLabel(): String {
+        val monthName = month.name.lowercase()
+        return "$day $monthName $year"
     }
 
     companion object {

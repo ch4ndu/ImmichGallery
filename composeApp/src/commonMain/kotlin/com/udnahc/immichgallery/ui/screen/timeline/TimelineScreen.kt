@@ -81,6 +81,7 @@ import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_timeline
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
+import immichgallery.composeapp.generated.resources.timeline_unknown_date
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -424,6 +425,7 @@ fun TimelineContent(
                         TimelineLazyList(
                             state = listState,
                             displayItems = displayItems,
+                            sectionLabelsByKey = state.sectionLabelsByKey,
                             statusBarPadding = statusBarPadding,
                             navBarPadding = navBarPadding,
                             transitionAssetId = transitionAssetId,
@@ -438,6 +440,7 @@ fun TimelineContent(
                         showOverlay = showOverlay,
                         listState = listState,
                         displayIndex = state.displayIndex,
+                        sectionLabelsByKey = state.sectionLabelsByKey,
                         statusBarPadding = statusBarPadding,
                         bannerError = state.bannerError,
                         bannerSuccess = state.bannerSuccess,
@@ -546,6 +549,7 @@ private fun TimelineScrollEffects(
 private fun TimelineLazyList(
     state: LazyListState,
     displayItems: List<TimelineDisplayItem>,
+    sectionLabelsByKey: Map<String, TimelineSectionLabel>,
     statusBarPadding: Dp,
     navBarPadding: Dp,
     transitionAssetId: String?,
@@ -572,6 +576,7 @@ private fun TimelineLazyList(
         ) { item ->
             TimelineDisplayItemRenderer(
                 item = item,
+                sectionLabelsByKey = sectionLabelsByKey,
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 onPhotoClick = onPhotoClick,
@@ -587,6 +592,7 @@ private fun TimelineOverlayChrome(
     showOverlay: Boolean,
     listState: LazyListState,
     displayIndex: TimelineDisplayIndex,
+    sectionLabelsByKey: Map<String, TimelineSectionLabel>,
     statusBarPadding: Dp,
     bannerError: ConnectionUiMessage?,
     bannerSuccess: ConnectionUiMessage?,
@@ -603,6 +609,7 @@ private fun TimelineOverlayChrome(
         StickyHeaderOverlay(
             listState = listState,
             displayIndex = displayIndex,
+            sectionLabelsByKey = sectionLabelsByKey,
             statusBarPadding = statusBarPadding
         )
     }
@@ -660,6 +667,7 @@ private fun firstVisibleAssetAnchor(
 @Composable
 private fun TimelineDisplayItemRenderer(
     item: TimelineDisplayItem,
+    sectionLabelsByKey: Map<String, TimelineSectionLabel>,
     transitionAssetId: String?,
     hiddenAssetId: String?,
     onPhotoClick: (String) -> Unit,
@@ -667,7 +675,9 @@ private fun TimelineDisplayItemRenderer(
     sharedTransitionScope: SharedTransitionScope?
 ) {
     when (item) {
-        is HeaderItem -> SectionHeader(label = item.label)
+        is HeaderItem -> SectionHeader(
+            label = timelineSectionLabelText(sectionLabelsByKey[item.sectionLabel], item.label)
+        )
         is RowItem -> JustifiedPhotoRow(
             row = item,
             spacing = Dimens.gridSpacing,
@@ -713,13 +723,16 @@ private fun ErrorCell(onRetry: () -> Unit) {
 private fun StickyHeaderOverlay(
     listState: LazyListState,
     displayIndex: TimelineDisplayIndex,
+    sectionLabelsByKey: Map<String, TimelineSectionLabel>,
     statusBarPadding: Dp
 ) {
     val latestDisplayIndex by rememberUpdatedState(displayIndex)
-    var retainedLabel by remember { mutableStateOf<String?>(null) }
-    val label by remember(listState) {
+    var retainedLabel by remember { mutableStateOf<TimelineSectionLabel?>(null) }
+    val label by remember(listState, sectionLabelsByKey) {
         derivedStateOf {
-            latestDisplayIndex.sectionLabelByDisplayIndex.getOrNull(listState.firstVisibleItemIndex)
+            latestDisplayIndex.sectionLabelByDisplayIndex
+                .getOrNull(listState.firstVisibleItemIndex)
+                ?.let(sectionLabelsByKey::get)
         }
     }
     LaunchedEffect(label) {
@@ -741,12 +754,22 @@ private fun StickyHeaderOverlay(
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
-                text = currentLabel,
+                text = timelineSectionLabelText(currentLabel, ""),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onBackground
             )
         }
     }
+}
+
+@Composable
+private fun timelineSectionLabelText(
+    label: TimelineSectionLabel?,
+    fallback: String
+): String = when (label) {
+    is TimelineSectionLabel.Literal -> label.value
+    TimelineSectionLabel.UnknownDate -> stringResource(Res.string.timeline_unknown_date)
+    null -> fallback
 }
 
 @Preview
@@ -768,6 +791,7 @@ private fun StickyHeaderOverlayPreview() {
     StickyHeaderOverlay(
         listState = listState,
         displayIndex = TimelineDisplayIndex(),
+        sectionLabelsByKey = emptyMap(),
         statusBarPadding = 0.dp
     )
 }

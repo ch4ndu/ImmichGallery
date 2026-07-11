@@ -287,7 +287,10 @@ For each bucket:
 2. Compute `orderedTimelineAssetsFingerprint(assets)`.
 3. Split into Mosaic sections:
    - month/group modes use one month section.
-   - day group mode splits assets by local date and writes one section per day.
+   - day group mode uses one shared domain projector for both Timeline display and
+     Mosaic precompute. It writes valid local-date sections newest-first, then a
+     stable final unknown-date section for unparseable timestamps. Unknown-date
+     assets preserve Timeline source order, so grouping never drops an asset.
 4. For each section, call `MosaicRenderEngine.computeSection()` using the fixed
    assignment `MosaicLayoutSpec`, measured display `MosaicLayoutSpec`, grid
    spacing, max row height, and normalized enabled families.

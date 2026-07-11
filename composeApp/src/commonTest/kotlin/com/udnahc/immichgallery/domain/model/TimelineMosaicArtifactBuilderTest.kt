@@ -146,6 +146,43 @@ class TimelineMosaicArtifactBuilderTest {
         assertEquals(null, artifacts)
     }
 
+    @Test
+    fun daySectionsKeepUnparseableAssetsLastInSourceOrder() {
+        val assets = listOf(
+            sampleAsset("valid-new", "2026-01-02T12:00:00Z"),
+            sampleAsset("unknown-first", "not-a-date"),
+            sampleAsset("valid-old", "2026-01-01T12:00:00Z"),
+            sampleAsset("unknown-second", "")
+        )
+
+        val sections = timelineDaySections("2026-01", assets)
+
+        assertEquals(3, sections.size)
+        assertEquals(listOf("valid-new"), sections[0].assets.map { it.id })
+        assertEquals(listOf("valid-old"), sections[1].assets.map { it.id })
+        assertEquals(null, sections[2].date)
+        assertEquals(
+            listOf("unknown-first", "unknown-second"),
+            sections[2].assets.map { it.id }
+        )
+        assertTrue(sections[2].sectionKey.endsWith(TIMELINE_UNKNOWN_DATE_SECTION_ID))
+        assertEquals(assets.map { it.id }.toSet(), sections.flatMap { it.assets }.map { it.id }.toSet())
+    }
+
+    @Test
+    fun allUnparseableAssetsProduceOneUnknownSection() {
+        val assets = listOf(
+            sampleAsset("first", "bad"),
+            sampleAsset("second", "also-bad")
+        )
+
+        val sections = timelineMosaicSections("2026-01", TimelineGroupSize.DAY, assets)
+
+        assertEquals(1, sections.size)
+        assertTrue(sections.single().sectionKey.endsWith(TIMELINE_UNKNOWN_DATE_SECTION_ID))
+        assertEquals(listOf("first", "second"), sections.single().assets.map { it.id })
+    }
+
     private fun readySection(section: TimelineMosaicSection, height: Float): SectionReady =
         SectionReady(
             keyScope = keyScope(section),
@@ -200,4 +237,15 @@ class TimelineMosaicArtifactBuilderTest {
                 aspectRatio = 1f
             )
         }
+
+    private fun sampleAsset(id: String, createdAt: String): Asset =
+        Asset(
+            id = id,
+            type = AssetType.IMAGE,
+            fileName = "$id.jpg",
+            createdAt = createdAt,
+            thumbnailUrl = "",
+            originalUrl = "",
+            aspectRatio = 1f
+        )
 }
