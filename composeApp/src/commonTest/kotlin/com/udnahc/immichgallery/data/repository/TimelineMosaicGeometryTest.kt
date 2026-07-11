@@ -11,6 +11,7 @@ import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
 import com.udnahc.immichgallery.domain.model.MosaicRenderEngine
 import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.MosaicTileAssignment
+import com.udnahc.immichgallery.domain.model.PHOTO_GRID_SECTION_HEADER_HEIGHT_DP
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
@@ -128,7 +129,7 @@ class TimelineMosaicGeometryTest {
         )
 
         assertEquals(1, summaries.size)
-        assertEquals(300f, summaries.first().placeholderHeight)
+        assertEquals(302f, summaries.first().placeholderHeight)
         assertEquals(
             listOf(
                 MosaicSectionGeometryRange(sourceStartIndex = 0, sourceCount = 1, height = 100f),
@@ -136,6 +137,28 @@ class TimelineMosaicGeometryTest {
             ),
             summaries.first().ranges
         )
+    }
+
+    @Test
+    fun sectionGeometryValidationRejectsHeightThatOmitsRangeSpacing() {
+        val entities = listOf(assetEntity("a"), assetEntity("b"))
+        val row = geometryEntity(
+            timeBucket = "2026-01",
+            sectionKey = "2026-01|month",
+            assetFingerprint = orderedAssetsFingerprint(entities)
+        ).copy(placeholderHeight = 300f)
+
+        val summaries = validatedTimelineMosaicGeometrySummaries(
+            rows = listOf(row),
+            assetsByBucket = mapOf("2026-01" to entities),
+            requestedTimeBuckets = setOf("2026-01"),
+            groupSize = TimelineGroupSize.MONTH,
+            maxRowHeightKey = 100000,
+            spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
+            baseUrl = "https://server"
+        )
+
+        assertEquals(emptyList(), summaries)
     }
 
     @Test
@@ -155,6 +178,7 @@ class TimelineMosaicGeometryTest {
             displayRowsByBucketSection = emptyMap(),
             geometryRequired = true,
             includeDisplayCache = true,
+            geometrySpacing = GRID_SPACING_DP,
             baseUrl = "https://server"
         )
 
@@ -184,6 +208,7 @@ class TimelineMosaicGeometryTest {
             displayRowsByBucketSection = emptyMap(),
             geometryRequired = true,
             includeDisplayCache = true,
+            geometrySpacing = GRID_SPACING_DP,
             baseUrl = "https://server"
         )
 
@@ -192,6 +217,60 @@ class TimelineMosaicGeometryTest {
         assertEquals(emptySet(), status.completeBucketIds)
         assertEquals(1, status.assignments.size)
         assertEquals(emptyList(), status.geometrySummaries)
+        assertEquals(setOf(sectionKey), status.missingSectionKeysByBucket[timeBucket])
+    }
+
+    @Test
+    fun cacheStatusRejectsOnlyCorruptDaySectionAndPreservesValidSibling() {
+        val timeBucket = "2026-01"
+        val firstSectionKey = "$timeBucket|day|2026-01-01"
+        val secondSectionKey = "$timeBucket|day|2026-01-02"
+        val entities = listOf(
+            assetEntity("a", "2026-01-01T12:00:00Z"),
+            assetEntity("b", "2026-01-01T12:01:00Z"),
+            assetEntity("c", "2026-01-02T12:00:00Z"),
+            assetEntity("d", "2026-01-02T12:01:00Z")
+        )
+        val fingerprint = orderedAssetsFingerprint(entities)
+        val validAssignment = assignmentEntity(timeBucket, firstSectionKey, fingerprint)
+            .copy(groupMode = TimelineGroupSize.DAY.apiValue)
+        val corruptAssignment = assignmentEntity(timeBucket, secondSectionKey, fingerprint)
+            .copy(groupMode = TimelineGroupSize.DAY.apiValue, assignmentsJson = "not-json")
+        val firstGeometry = geometryEntity(timeBucket, firstSectionKey, fingerprint)
+            .copy(groupMode = TimelineGroupSize.DAY.apiValue)
+        val secondGeometry = geometryEntity(timeBucket, secondSectionKey, fingerprint)
+            .copy(groupMode = TimelineGroupSize.DAY.apiValue)
+        val bucketHeight = 302f * 2 + PHOTO_GRID_SECTION_HEADER_HEIGHT_DP * 2 + GRID_SPACING_DP * 3
+
+        val status = buildTimelineMosaicCacheStatus(
+            timeBuckets = setOf(timeBucket),
+            groupSize = TimelineGroupSize.DAY,
+            assetsByBucket = mapOf(timeBucket to entities),
+            rowsByBucketSection = mapOf(
+                (timeBucket to firstSectionKey) to validAssignment,
+                (timeBucket to secondSectionKey) to corruptAssignment
+            ),
+            geometryRowsByBucketSection = mapOf(
+                (timeBucket to firstSectionKey) to firstGeometry,
+                (timeBucket to secondSectionKey) to secondGeometry
+            ),
+            bucketGeometryRowsByBucket = mapOf(
+                timeBucket to bucketGeometryEntity(timeBucket, fingerprint).copy(
+                    groupMode = TimelineGroupSize.DAY.apiValue,
+                    placeholderHeight = bucketHeight
+                )
+            ),
+            displayRowsByBucketSection = emptyMap(),
+            geometryRequired = true,
+            includeDisplayCache = true,
+            geometrySpacing = GRID_SPACING_DP,
+            baseUrl = "https://server"
+        )
+
+        assertEquals(setOf(timeBucket), status.missingBucketIds)
+        assertEquals(setOf(secondSectionKey), status.missingSectionKeysByBucket[timeBucket])
+        assertEquals(listOf(firstSectionKey), status.assignments.map { it.sectionKey })
+        assertEquals(listOf(firstSectionKey), status.geometrySummaries.map { it.sectionKey })
     }
 
     private fun asset(id: String): Asset =
@@ -205,12 +284,15 @@ class TimelineMosaicGeometryTest {
             aspectRatio = 1f
         )
 
-    private fun assetEntity(id: String): AssetEntity =
+    private fun assetEntity(
+        id: String,
+        createdAt: String = "2026-01-01T00:00:00Z"
+    ): AssetEntity =
         AssetEntity(
             id = id,
             type = "IMAGE",
             fileName = "$id.jpg",
-            createdAt = "2026-01-01T00:00:00Z",
+            createdAt = createdAt,
             isFavorite = false,
             stackCount = 1,
             aspectRatio = 1f
@@ -230,7 +312,7 @@ class TimelineMosaicGeometryTest {
             assetFingerprint = assetFingerprint,
             availableWidthKey = 1000,
             geometryVersion = 3,
-            placeholderHeight = 300f,
+            placeholderHeight = 302f,
             displayItemCount = 2,
             maxRowHeightKey = 100000,
             spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
@@ -255,20 +337,7 @@ class TimelineMosaicGeometryTest {
             columnCount = 5,
             familiesKey = "four_tile",
             assetFingerprint = assetFingerprint,
-            assignmentsJson = Json.encodeToString(
-                listOf(
-                    MosaicBandAssignment(
-                        bandIndex = 0,
-                        sourceStartIndex = 0,
-                        sourceCount = 2,
-                        templateId = "two_equal",
-                        tiles = listOf(
-                            MosaicTileAssignment(assetId = "a", visualOrder = 0),
-                            MosaicTileAssignment(assetId = "b", visualOrder = 1)
-                        )
-                    ).toDto()
-                )
-            ),
+            assignmentsJson = Json.encodeToString(emptyList<com.udnahc.immichgallery.domain.model.MosaicBandAssignmentDto>()),
             updatedAt = 1L
         )
 
@@ -284,7 +353,7 @@ class TimelineMosaicGeometryTest {
             assetFingerprint = assetFingerprint,
             availableWidthKey = 1000,
             geometryVersion = 3,
-            placeholderHeight = 300f,
+            placeholderHeight = 302f,
             displayItemCount = 2,
             maxRowHeightKey = 100000,
             spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),

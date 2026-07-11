@@ -4,9 +4,9 @@ import com.udnahc.immichgallery.data.repository.TimelineMosaicCacheRepository
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
-import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary
+import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySnapshot
 
-class GetTimelineMosaicSectionGeometryUseCase(
+class GetTimelineMosaicGeometrySnapshotUseCase(
     private val repository: TimelineMosaicCacheRepository
 ) {
     suspend operator fun invoke(
@@ -15,8 +15,8 @@ class GetTimelineMosaicSectionGeometryUseCase(
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest
-    ): Result<List<TimelineMosaicGeometrySummary>> =
-        repository.getPersistedSectionGeometry(
+    ): Result<TimelineMosaicGeometrySnapshot> =
+        repository.getPersistedGeometrySnapshot(
             timeBuckets,
             groupSize,
             columnCount,

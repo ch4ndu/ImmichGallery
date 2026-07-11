@@ -118,6 +118,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 - After scroll settles, deferred state/geometry maps are published together.
 - Failed Timeline sections render placeholders and retry through normal requested-config cache/runtime repair; failure must not display fallback rows or fallback Mosaic bands.
 - Ready Timeline sections display validated cached mixed display records when available, or completed ready projection from assignments.
+- A cache-enabled render-demand miss persists successful repair only after every current bucket section is ready. Valid cached siblings are reused, invalid sections are recomputed, aggregate geometry is recalculated, and the repository atomically replaces the bucket. Repair writes remain untracked render-demand work.
 
 ## Album And Person Detail Scheduler
 

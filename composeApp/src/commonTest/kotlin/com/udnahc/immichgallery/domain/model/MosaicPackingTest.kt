@@ -54,6 +54,56 @@ class MosaicPackingTest {
     }
 
     @Test
+    fun assignmentValidationAllowsSourceGapsButRejectsWrongSliceIds() {
+        val assets = sampleAssets(8)
+        val validGap = manualAssignment(sourceStartIndex = 2, sourceCount = 4)
+
+        assertTrue(
+            validateMosaicAssignments(
+                listOf(validGap),
+                assets,
+                MosaicTemplateFamily.defaultSet()
+            )
+        )
+        assertFalse(
+            validateMosaicAssignments(
+                listOf(
+                    validGap.copy(
+                        tiles = validGap.tiles.mapIndexed { index, tile ->
+                            if (index == 0) tile.copy(assetId = "asset_0") else tile
+                        }
+                    )
+                ),
+                assets,
+                MosaicTemplateFamily.defaultSet()
+            )
+        )
+    }
+
+    @Test
+    fun readyProjectionDoesNotReserveAssetsForWrongSourceSlice() {
+        val assets = sampleAssets(8)
+        val invalid = manualAssignment(0, 4).copy(
+            tiles = (4..7).mapIndexed { index, sourceIndex ->
+                MosaicTileAssignment("asset_$sourceIndex", index)
+            }
+        )
+
+        val items = buildPhotoGridItemsWithMosaic(
+            assets = assets,
+            assignments = listOf(invalid),
+            bucketIndex = 0,
+            sectionLabel = "section",
+            layoutSpec = MosaicLayoutSpec(4, 400f, 100f),
+            spacing = 0f,
+            maxRowHeight = 400f
+        )
+
+        assertEquals(assets.map { it.id }, collectedAssetIds(items))
+        assertEquals(assets.map { it.id }.distinct(), collectedAssetIds(items))
+    }
+
+    @Test
     fun emptyTemplateFamiliesReturnNoAssignments() {
         val assignments = buildMosaicAssignments(
             assets = sampleAssets(8),

@@ -90,13 +90,14 @@ structure; it must not wait for every bucket's server refresh.
 4. Buckets with only metadata render headers and placeholders. They are not
    considered loaded until their assets are materialized into
    `bucketAssetsCache`.
-5. Cached aggregate geometry can provide accurate placeholder heights for
-   unloaded Mosaic buckets. Missing geometry falls back to projected or count-
-   based placeholders. Bucket-aggregate and per-section geometry read together
-   for visible/target buckets plus radius neighbors first. `timelineGeometryReady`
+5. A unified geometry snapshot reads ordered assets once with aggregate and
+   per-section geometry for each bucket batch. Valid aggregate geometry provides
+   accurate placeholder heights for unloaded Mosaic buckets. Missing geometry
+   falls back to projected or count-based placeholders. Priority reads cover
+   visible/target buckets plus radius neighbors first. `timelineGeometryReady`
    gates only that priority phase and opens even on read failure so visible
    Mosaic work cannot stall; remaining cached bucket geometry hydrates afterward
-   in small offscreen chunks.
+   in small offscreen chunks without loading assignments or display rows.
 6. Under the current cache-only warm policy, no background server sync runs on
    warm launch. If warm server refresh is enabled, a background sync refreshes
    bucket metadata and records stale or removed buckets without fetching every

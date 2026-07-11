@@ -15,6 +15,7 @@ import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
 import com.udnahc.immichgallery.domain.action.timeline.ClearTimelineMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
 import com.udnahc.immichgallery.domain.action.timeline.PrepareTimelineMosaicCacheAction
+import com.udnahc.immichgallery.domain.action.timeline.RepairTimelineMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.timeline.SyncAllTimelineAssetsAction
 import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncCoordinator
 import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncEvent
@@ -54,6 +55,8 @@ import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicProgressChunk
+import com.udnahc.immichgallery.domain.model.TimelineMosaicRepairSectionInput
+import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelinePageIndex
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.ViewConfig
@@ -82,10 +85,9 @@ import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseC
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
-import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketGeometryUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
-import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicSectionGeometryUseCase
+import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicGeometrySnapshotUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
@@ -492,9 +494,9 @@ class TimelineViewModel(
     private val loadBucketAssetsAction: LoadBucketAssetsAction,
     private val syncAllTimelineAssetsAction: SyncAllTimelineAssetsAction,
     private val prepareTimelineMosaicCacheAction: PrepareTimelineMosaicCacheAction,
+    private val repairTimelineMosaicCacheAction: RepairTimelineMosaicCacheAction,
     private val getTimelineMosaicCacheStatusUseCase: GetTimelineMosaicCacheStatusUseCase,
-    private val getTimelineBucketGeometryUseCase: GetTimelineBucketGeometryUseCase,
-    private val getTimelineMosaicSectionGeometryUseCase: GetTimelineMosaicSectionGeometryUseCase,
+    private val getTimelineMosaicGeometrySnapshotUseCase: GetTimelineMosaicGeometrySnapshotUseCase,
     private val clearTimelineMosaicCacheAction: ClearTimelineMosaicCacheAction,
     getApiKeyUseCase: GetApiKeyUseCase,
     private val getAssetFileNameUseCase: GetAssetFileNameUseCase,
@@ -3808,27 +3810,13 @@ class TimelineViewModel(
         generation: Long
     ) {
         if (buckets.isEmpty()) return
-        val (bucketResult, sectionResult) = coroutineScope {
-            val bucketDeferred = async(Dispatchers.IO) {
-                getTimelineBucketGeometryUseCase(
-                    timeBuckets = buckets.toSet(),
-                    groupSize = config.groupSize,
-                    columnCount = config.mosaicColumnCount,
-                    families = config.viewConfig.mosaicFamilies,
-                    geometryRequest = geometryRequest
-                )
-            }
-            val sectionDeferred = async(Dispatchers.IO) {
-                getTimelineMosaicSectionGeometryUseCase(
-                    timeBuckets = buckets.toSet(),
-                    groupSize = config.groupSize,
-                    columnCount = config.mosaicColumnCount,
-                    families = config.viewConfig.mosaicFamilies,
-                    geometryRequest = geometryRequest
-                )
-            }
-            bucketDeferred.await() to sectionDeferred.await()
-        }
+        val snapshotResult = getTimelineMosaicGeometrySnapshotUseCase(
+            timeBuckets = buckets.toSet(),
+            groupSize = config.groupSize,
+            columnCount = config.mosaicColumnCount,
+            families = config.viewConfig.mosaicFamilies,
+            geometryRequest = geometryRequest
+        )
         if (generation != bucketGeometryCacheGeneration) {
             log.d {
                 "Timeline geometry read ignored due to stale generation " +
@@ -3840,24 +3828,19 @@ class TimelineViewModel(
             log.d { "Timeline geometry read ignored due to stale config" }
             return
         }
-        bucketResult.onFailure { e ->
+        snapshotResult.onFailure { e ->
             if (e is CancellationException) throw e
-            log.e(e) { "Failed to load persisted Timeline bucket geometry" }
-        }.onSuccess { summaries ->
+            log.e(e) { "Failed to load persisted Timeline geometry snapshot" }
+        }.onSuccess { snapshot ->
             publishBucketGeometrySummaries(
-                summaries = summaries,
+                summaries = snapshot.bucketGeometrySummaries,
                 groupSize = config.groupSize,
                 columnCount = config.mosaicColumnCount,
                 families = config.viewConfig.mosaicFamilies,
                 geometryRequest = geometryRequest
             )
-        }
-        sectionResult.onFailure { e ->
-            if (e is CancellationException) throw e
-            log.e(e) { "Failed to load persisted Timeline section geometry" }
-        }.onSuccess { summaries ->
             publishSectionGeometrySummaries(
-                summaries = summaries,
+                summaries = snapshot.sectionGeometrySummaries,
                 columnCount = config.mosaicColumnCount,
                 families = config.viewConfig.mosaicFamilies
             )
@@ -4245,7 +4228,10 @@ class TimelineViewModel(
     private suspend fun computeRuntimeTimelineMosaicForBuckets(
         timeBuckets: Set<String>,
         expectedWorkToken: Long? = null,
-        expectedConfig: UiConfig? = null
+        expectedConfig: UiConfig? = null,
+        requestedSectionKeysByBucket: Map<String, Set<String>> = emptyMap(),
+        seedStateUpdates: Map<MosaicCacheKey, RuntimeMosaicState> = emptyMap(),
+        seedGeometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry> = emptyMap()
     ): Set<String> {
         if (timeBuckets.isEmpty()) return emptySet()
         if (isTimelineScrollActive.value) {
@@ -4277,8 +4263,8 @@ class TimelineViewModel(
         val bucketIndexes =
             _bucketData.value.buckets.mapIndexed { index, bucket -> bucket.timeBucket to index }
                 .toMap()
-        val stateUpdates = mutableMapOf<MosaicCacheKey, RuntimeMosaicState>()
-        val geometryUpdates = mutableMapOf<MosaicCacheKey, TimelineMosaicSectionGeometry>()
+        val stateUpdates = seedStateUpdates.toMutableMap()
+        val geometryUpdates = seedGeometryUpdates.toMutableMap()
         val failedBuckets = mutableSetOf<String>()
         for (timeBucket in timeBuckets) {
             if (!isActiveTimelineMosaicWorker(expectedWorkToken)) return failedBuckets
@@ -4297,7 +4283,9 @@ class TimelineViewModel(
                 assetRevision = assetRevision,
                 assets = assets
             )
+            val requestedSectionKeys = requestedSectionKeysByBucket[timeBucket]
             for (section in sections) {
+                if (requestedSectionKeys != null && section.sectionKey !in requestedSectionKeys) continue
                 val key = mosaicCacheKey(
                     timeBucket = timeBucket,
                     sectionKey = section.sectionKey,
@@ -4397,8 +4385,73 @@ class TimelineViewModel(
             }
         }
         if (!isActiveTimelineMosaicWorker(expectedWorkToken)) return failedBuckets
+        if (config.viewConfig.cacheMosaicResults) {
+            persistRuntimeMosaicRepairs(
+                timeBuckets = timeBuckets - failedBuckets,
+                config = config,
+                geometryRequest = timelineMosaicGeometryRequest(config, columnCount),
+                stateUpdates = stateUpdates,
+                geometryUpdates = geometryUpdates
+            )
+        }
         publishMosaicUpdates(stateUpdates = stateUpdates, geometryUpdates = geometryUpdates)
         return failedBuckets
+    }
+
+    private suspend fun persistRuntimeMosaicRepairs(
+        timeBuckets: Set<String>,
+        config: UiConfig,
+        geometryRequest: TimelineMosaicGeometryRequest?,
+        stateUpdates: Map<MosaicCacheKey, RuntimeMosaicState>,
+        geometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>
+    ) {
+        val request = geometryRequest ?: return
+        val states = _mosaicStates.value + stateUpdates
+        val geometries = _mosaicGeometryStates.value + geometryUpdates
+        val revisions = _bucketData.value.assetRevisions
+        timeBuckets.forEach { timeBucket ->
+            val assets = bucketAssetsCache[timeBucket] ?: return@forEach
+            val sections = runtimeMosaicSections(
+                timeBucket,
+                config.groupSize,
+                revisions[timeBucket] ?: 0,
+                assets
+            )
+            val inputs = sections.mapNotNull { section ->
+                val key = mosaicCacheKey(
+                    timeBucket,
+                    section.sectionKey,
+                    config.mosaicColumnCount,
+                    revisions[timeBucket] ?: 0,
+                    config.viewConfig.mosaicFamilies
+                )
+                val ready = states[key] as? RuntimeMosaicState.Ready ?: return@mapNotNull null
+                val geometry = geometries[key] ?: return@mapNotNull null
+                section.sectionKey to TimelineMosaicRepairSectionInput(
+                    assignments = ready.assignments,
+                    displayRecords = ready.displayRecords,
+                    geometry = TimelineMosaicGeometrySummary(
+                        timeBucket = timeBucket,
+                        sectionKey = section.sectionKey,
+                        placeholderHeight = geometry.placeholderHeight,
+                        displayItemCount = geometry.ranges.size,
+                        ranges = geometry.ranges
+                    )
+                )
+            }.toMap()
+            if (inputs.size != sections.size) return@forEach
+            repairTimelineMosaicCacheAction(
+                timeBucket = timeBucket,
+                groupSize = config.groupSize,
+                columnCount = config.mosaicColumnCount,
+                families = config.viewConfig.mosaicFamilies,
+                geometryRequest = request,
+                sectionsByKey = inputs
+            ).onFailure { error ->
+                if (error is CancellationException) throw error
+                log.e(error) { "Timeline runtime Mosaic repair persistence failed bucket=$timeBucket" }
+            }
+        }
     }
 
     private fun publishMosaicUpdates(
@@ -4524,11 +4577,7 @@ class TimelineViewModel(
                 return@onSuccess
             }
             val revisions = _bucketData.value.assetRevisions
-            val publishableAssignments = if (config.viewConfig.cacheMosaicResults) {
-                status.assignments.filter { it.timeBucket in status.assignmentGeometryReadyBucketIds }
-            } else {
-                status.assignments
-            }
+            val publishableAssignments = status.assignments
             val geometryUpdates = status.geometrySummaries.associate { geometry ->
                 mosaicCacheKey(
                     timeBucket = geometry.timeBucket,
@@ -4557,10 +4606,6 @@ class TimelineViewModel(
                         .orEmpty()
                 )
             }
-            publishMosaicUpdates(
-                stateUpdates = updates,
-                geometryUpdates = geometryUpdates
-            )
             if (status.missingBucketIds.isNotEmpty()) {
                 if (source == TimelineMosaicWorkSource.RenderDemand) {
                     log.d {
@@ -4569,13 +4614,27 @@ class TimelineViewModel(
                     computeRuntimeTimelineMosaicForBuckets(
                         timeBuckets = status.missingBucketIds,
                         expectedWorkToken = expectedWorkToken,
-                        expectedConfig = expectedConfig ?: config
+                        expectedConfig = expectedConfig ?: config,
+                        requestedSectionKeysByBucket = status.missingBucketIds.associateWith { bucket ->
+                            status.missingSectionKeysByBucket[bucket].orEmpty()
+                        },
+                        seedStateUpdates = updates,
+                        seedGeometryUpdates = geometryUpdates
                     )
                 } else {
+                    publishMosaicUpdates(
+                        stateUpdates = updates,
+                        geometryUpdates = geometryUpdates
+                    )
                     log.d {
                         "Timeline persisted Mosaic cache miss left for render demand buckets=${status.missingBucketIds.size}"
                     }
                 }
+            } else {
+                publishMosaicUpdates(
+                    stateUpdates = updates,
+                    geometryUpdates = geometryUpdates
+                )
             }
             log.d {
                 "Timeline persisted Mosaic read completed requested=${timeBuckets.size} " +

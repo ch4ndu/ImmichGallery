@@ -72,7 +72,19 @@ data class TimelineMosaicCacheStatus(
     val completeBucketIds: Set<String>,
     val missingBucketIds: Set<String>,
     val assignmentGeometryReadyBucketIds: Set<String> = completeBucketIds,
-    val displayCacheReadyBucketIds: Set<String> = completeBucketIds
+    val displayCacheReadyBucketIds: Set<String> = completeBucketIds,
+    val missingSectionKeysByBucket: Map<String, Set<String>> = emptyMap()
+)
+
+data class TimelineMosaicGeometrySnapshot(
+    val bucketGeometrySummaries: List<TimelineBucketGeometrySummary>,
+    val sectionGeometrySummaries: List<TimelineMosaicGeometrySummary>
+)
+
+data class TimelineMosaicRepairSectionInput(
+    val assignments: List<MosaicBandAssignment>,
+    val displayRecords: List<TimelineMosaicDisplayItemRecord>,
+    val geometry: TimelineMosaicGeometrySummary
 )
 
 fun List<TimelineMosaicDisplayItemRecord>.toTimelinePhotoGridDisplayItems(
@@ -283,6 +295,21 @@ fun mosaicGeometryRangesCoverSourceRange(
         if (cursor > assetCount) return false
     }
     return cursor == assetCount
+}
+
+fun validateMosaicSectionGeometry(
+    ranges: List<MosaicSectionGeometryRange>,
+    assetCount: Int,
+    placeholderHeight: Float,
+    spacing: Float,
+    tolerance: Float = 0.5f
+): Boolean {
+    if (!mosaicGeometryRangesCoverSourceRange(ranges, assetCount)) return false
+    if (assetCount == 0) return placeholderHeight == 0f
+    if (placeholderHeight <= 0f) return false
+    val rangesHeight = ranges.sumOf { it.height.toDouble() }.toFloat() +
+            spacing * (ranges.size - 1).coerceAtLeast(0)
+    return kotlin.math.abs(rangesHeight - placeholderHeight) <= tolerance
 }
 
 fun timelineBucketGeometryHeight(

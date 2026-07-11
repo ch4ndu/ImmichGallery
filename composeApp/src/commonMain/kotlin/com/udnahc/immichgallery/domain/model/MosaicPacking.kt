@@ -396,7 +396,12 @@ private fun MosaicAssignmentCheckpoint.isValidFor(assets: List<Asset>): Boolean 
     }
     if (assignments.isEmpty()) return bandIndex == 0
     val sortedAssignments = assignments.sortedBy { it.sourceStartIndex }
-    if (assignments != sortedAssignments) return false
+    if (assignments != sortedAssignments || !validateMosaicAssignments(
+            assignments = assignments,
+            assets = assets,
+            enabledFamilies = MosaicTemplateFamily.entries.toSet()
+        )
+    ) return false
     var previousEnd = 0
     assignments.forEach { assignment ->
         if (assignment.sourceStartIndex < previousEnd) return false
@@ -438,6 +443,7 @@ fun buildPhotoGridItemsWithMosaic(
      */
     val byStart = assignments
         .mapNotNull { assignment ->
+            if (!assignment.isValidForSourceAssets(assets)) return@mapNotNull null
             val item = assignment.toDisplayItem(
                 assets = assets,
                 bucketIndex = bucketIndex,
@@ -506,6 +512,36 @@ fun buildPhotoGridItemsWithMosaic(
         }
     }
     return items
+}
+
+fun validateMosaicAssignments(
+    assignments: List<MosaicBandAssignment>,
+    assets: List<Asset>,
+    enabledFamilies: Set<MosaicTemplateFamily>
+): Boolean {
+    if (assignments.isEmpty()) return true
+    var previousEnd = 0
+    assignments.forEachIndexed { index, assignment ->
+        val template = MOSAIC_TEMPLATES.firstOrNull { it.id == assignment.templateId }
+            ?: return false
+        if (template.family !in enabledFamilies || template.slotCount != assignment.sourceCount) {
+            return false
+        }
+        if (assignment.bandIndex != index || assignment.sourceStartIndex < previousEnd) return false
+        if (!assignment.isValidForSourceAssets(assets)) return false
+        previousEnd = assignment.sourceStartIndex + assignment.sourceCount
+    }
+    return true
+}
+
+private fun MosaicBandAssignment.isValidForSourceAssets(assets: List<Asset>): Boolean {
+    if (sourceStartIndex < 0 || sourceCount !in MIN_MOSAIC_ASSETS..MAX_MOSAIC_ASSETS) return false
+    val endExclusive = sourceStartIndex + sourceCount
+    if (endExclusive > assets.size || tiles.size != sourceCount) return false
+    val expectedIds = assets.subList(sourceStartIndex, endExclusive).map { it.id }.toSet()
+    val actualIds = tiles.map { it.assetId }.toSet()
+    if (actualIds.size != sourceCount || actualIds != expectedIds) return false
+    return tiles.map { it.visualOrder }.sorted() == (0 until sourceCount).toList()
 }
 
 private fun isStableProgressChunk(

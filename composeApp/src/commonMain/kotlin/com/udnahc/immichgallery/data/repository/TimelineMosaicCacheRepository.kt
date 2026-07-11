@@ -20,12 +20,17 @@ import com.udnahc.immichgallery.domain.model.TimelineMosaicDisplayItemRecord
 import com.udnahc.immichgallery.domain.model.TimelineMosaicDisplaySection
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary
+import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySnapshot
 import com.udnahc.immichgallery.domain.model.displayRecordsCoverOrderedAssets
+import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.normalizedMosaicFamilies
 import com.udnahc.immichgallery.domain.model.timelineMosaicFamiliesKey
 import com.udnahc.immichgallery.domain.model.timelineMosaicSections
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDto
+import com.udnahc.immichgallery.domain.model.toPhotoGridDisplayItems
+import com.udnahc.immichgallery.domain.model.validateMosaicAssignments
+import com.udnahc.immichgallery.domain.model.validateMosaicSectionGeometry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -33,6 +38,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.lighthousegames.logging.logging
 import kotlin.math.roundToInt
+import kotlin.math.abs
 
 class TimelineMosaicCacheRepository(
     private val timelineDao: TimelineDao,
@@ -43,80 +49,82 @@ class TimelineMosaicCacheRepository(
 
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
-    suspend fun getPersistedBucketGeometry(
+    suspend fun getPersistedGeometrySnapshot(
         timeBuckets: Set<String>,
         groupSize: TimelineGroupSize,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest
-    ): Result<List<TimelineBucketGeometrySummary>> {
-        if (timeBuckets.isEmpty()) return Result.success(emptyList())
-        return try {
-            val familiesKey = timelineMosaicFamiliesKey(families.normalizedMosaicFamilies())
-            val widthKey = timelineMosaicGeometryWidthKey(geometryRequest.availableWidth)
-            val maxRowHeightKey = timelineMosaicGeometryDimensionKey(geometryRequest.maxRowHeight)
-            val spacingKey = timelineMosaicGeometryDimensionKey(geometryRequest.spacing)
-            val rows = withContext(Dispatchers.IO) {
-                timelineDao.getBucketGeometry(
-                    timeBuckets = timeBuckets.toList(),
-                    groupMode = groupSize.apiValue,
-                    columnCount = columnCount,
-                    familiesKey = familiesKey,
-                    availableWidthKey = widthKey,
-                    geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION
-                )
-            }
-            Result.success(
-                rows
-                    .filter { it.maxRowHeightKey == maxRowHeightKey && it.spacingKey == spacingKey }
-                    .map { it.toDomain() }
-            )
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure(e)
+    ): Result<TimelineMosaicGeometrySnapshot> {
+        if (timeBuckets.isEmpty()) {
+            return Result.success(TimelineMosaicGeometrySnapshot(emptyList(), emptyList()))
         }
-    }
-
-    suspend fun getPersistedSectionGeometry(
-        timeBuckets: Set<String>,
-        groupSize: TimelineGroupSize,
-        columnCount: Int,
-        families: Set<MosaicTemplateFamily>,
-        geometryRequest: TimelineMosaicGeometryRequest
-    ): Result<List<TimelineMosaicGeometrySummary>> {
-        if (timeBuckets.isEmpty()) return Result.success(emptyList())
         return try {
             val familiesKey = timelineMosaicFamiliesKey(families.normalizedMosaicFamilies())
             val widthKey = timelineMosaicGeometryWidthKey(geometryRequest.availableWidth)
             val maxRowHeightKey = timelineMosaicGeometryDimensionKey(geometryRequest.maxRowHeight)
             val spacingKey = timelineMosaicGeometryDimensionKey(geometryRequest.spacing)
-            val rows = withContext(Dispatchers.IO) {
-                timelineDao.getMosaicGeometry(
-                    timeBuckets = timeBuckets.toList(),
-                    groupMode = groupSize.apiValue,
-                    columnCount = columnCount,
-                    familiesKey = familiesKey,
-                    availableWidthKey = widthKey,
-                    geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION
+            val geometryData: Triple<
+                    List<TimelineMosaicGeometryEntity>,
+                    List<TimelineBucketGeometryEntity>,
+                    Map<String, List<AssetEntity>>
+                    > = withContext(Dispatchers.IO) {
+                Triple(
+                    timelineDao.getMosaicGeometry(
+                        timeBuckets.toList(),
+                        groupSize.apiValue,
+                        columnCount,
+                        familiesKey,
+                        widthKey,
+                        TIMELINE_MOSAIC_GEOMETRY_VERSION
+                    ),
+                    timelineDao.getBucketGeometry(
+                        timeBuckets.toList(),
+                        groupSize.apiValue,
+                        columnCount,
+                        familiesKey,
+                        widthKey,
+                        TIMELINE_MOSAIC_GEOMETRY_VERSION
+                    ),
+                    timeBuckets.associateWith { timeBucket ->
+                        assetDao.getTimelineAssets(timeBucket)
+                    }
                 )
             }
-            val assetsByBucket = withContext(Dispatchers.IO) {
-                timeBuckets.associateWith { timeBucket ->
-                    assetDao.getTimelineAssets(timeBucket)
-                }
-            }
-            Result.success(
-                validatedTimelineMosaicGeometrySummaries(
-                    rows = rows,
-                    assetsByBucket = assetsByBucket,
-                    requestedTimeBuckets = timeBuckets,
-                    groupSize = groupSize,
-                    maxRowHeightKey = maxRowHeightKey,
-                    spacingKey = spacingKey,
-                    baseUrl = baseUrl()
-                )
+            val (sectionRows, bucketRows, assetsByBucket) = geometryData
+            val sectionSummaries = validatedTimelineMosaicGeometrySummaries(
+                rows = sectionRows,
+                assetsByBucket = assetsByBucket,
+                requestedTimeBuckets = timeBuckets,
+                groupSize = groupSize,
+                maxRowHeightKey = maxRowHeightKey,
+                spacingKey = spacingKey,
+                baseUrl = baseUrl()
             )
+            val summariesByBucket = sectionSummaries.groupBy { it.timeBucket }
+            val rowsByBucket = bucketRows
+                .filter { it.maxRowHeightKey == maxRowHeightKey && it.spacingKey == spacingKey }
+                .associateBy { it.timeBucket }
+            val bucketSummaries = timeBuckets.mapNotNull { timeBucket ->
+                val entities = assetsByBucket[timeBucket].orEmpty()
+                val fingerprint = orderedAssetsFingerprint(entities)
+                val assets = entities.map { it.toDomain(baseUrl()) }
+                val expectedSections = timelineMosaicSections(timeBucket, groupSize, assets)
+                val sections = summariesByBucket[timeBucket].orEmpty()
+                if (sections.map { it.sectionKey }.toSet() != expectedSections.map { it.sectionKey }.toSet()) {
+                    return@mapNotNull null
+                }
+                val expectedHeight = timelineGeometrySnapshotBucketHeight(
+                    groupSize,
+                    sections,
+                    geometryRequest.spacing
+                )
+                rowsByBucket[timeBucket]
+                    ?.takeIf { it.assetFingerprint == fingerprint }
+                    ?.takeIf { it.placeholderHeight >= 0f && abs(it.placeholderHeight - expectedHeight) <= 0.5f }
+                    ?.toDomain()
+            }
+            Result.success(TimelineMosaicGeometrySnapshot(bucketSummaries, sectionSummaries))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -222,6 +230,8 @@ class TimelineMosaicCacheRepository(
                     displayRowsByBucketSection = displayRowsByBucketSection,
                     geometryRequired = geometryRequest != null,
                     includeDisplayCache = includeDisplayCache,
+                    enabledFamilies = normalizedFamilies,
+                    geometrySpacing = geometryRequest?.spacing ?: 0f,
                     baseUrl = baseUrl()
                 )
             )
@@ -352,6 +362,8 @@ internal fun buildTimelineMosaicCacheStatus(
     displayRowsByBucketSection: Map<Pair<String, String>, TimelineMosaicDisplayCacheEntity>,
     geometryRequired: Boolean,
     includeDisplayCache: Boolean,
+    enabledFamilies: Set<MosaicTemplateFamily> = MosaicTemplateFamily.defaultSet(),
+    geometrySpacing: Float = 0f,
     baseUrl: String
 ): TimelineMosaicCacheStatus {
     val validAssignments = mutableListOf<TimelineMosaicAssignment>()
@@ -361,6 +373,7 @@ internal fun buildTimelineMosaicCacheStatus(
     val missingBucketIds = mutableSetOf<String>()
     val assignmentGeometryReadyBucketIds = mutableSetOf<String>()
     val displayCacheReadyBucketIds = mutableSetOf<String>()
+    val missingSectionKeysByBucket = mutableMapOf<String, MutableSet<String>>()
     for (timeBucket in timeBuckets) {
         val entities = assetsByBucket[timeBucket].orEmpty()
         val fingerprint = orderedAssetsFingerprint(entities)
@@ -368,6 +381,7 @@ internal fun buildTimelineMosaicCacheStatus(
         val expectedSections = timelineMosaicSections(timeBucket, groupSize, assets)
         var assignmentGeometryReady = geometryRequired
         var displayCacheReady = includeDisplayCache && geometryRequired
+        val validatedBucketSections = mutableListOf<TimelineMosaicGeometrySummary>()
         if (geometryRequired &&
             bucketGeometryRowsByBucket[timeBucket]?.assetFingerprint != fingerprint
         ) {
@@ -378,9 +392,12 @@ internal fun buildTimelineMosaicCacheStatus(
             val row = rowsByBucketSection[timeBucket to section.sectionKey]
             val assignments = row?.takeIf { it.assetFingerprint == fingerprint }
                 ?.decodeMosaicAssignments()
+                ?.takeIf { validateMosaicAssignments(it, section.assets, enabledFamilies) }
             if (assignments == null) {
                 assignmentGeometryReady = false
                 displayCacheReady = false
+                missingSectionKeysByBucket.getOrPut(timeBucket) { mutableSetOf() }
+                    .add(section.sectionKey)
             } else {
                 validAssignments.add(
                     TimelineMosaicAssignment(
@@ -392,19 +409,63 @@ internal fun buildTimelineMosaicCacheStatus(
                 val geometry = geometryRowsByBucketSection[timeBucket to section.sectionKey]
                     ?.takeIf { it.assetFingerprint == fingerprint }
                     ?.toDomain()
+                    ?.takeIf {
+                        validateMosaicSectionGeometry(
+                            ranges = it.ranges,
+                            assetCount = section.assets.size,
+                            placeholderHeight = it.placeholderHeight,
+                            spacing = geometrySpacing
+                        )
+                    }
                 if (geometryRequired && geometry == null) {
                     assignmentGeometryReady = false
                     displayCacheReady = false
+                    missingSectionKeysByBucket.getOrPut(timeBucket) { mutableSetOf() }
+                        .add(section.sectionKey)
                 }
-                geometry?.let(validGeometry::add)
-                val display = displayRowsByBucketSection[timeBucket to section.sectionKey]
+                geometry?.let {
+                    validGeometry.add(it)
+                    validatedBucketSections.add(it)
+                }
+                val displayRow = displayRowsByBucketSection[timeBucket to section.sectionKey]
                     ?.takeIf { it.assetFingerprint == fingerprint }
-                    ?.toDomain()
-                    ?.takeIf { it.displayRecords.displayRecordsCoverOrderedAssets(section.assets) }
+                val display = displayRow
+                    ?.toDomainOrNull()
+                    ?.takeIf { candidate ->
+                        candidate.displayRecords.displayRecordsCoverOrderedAssets(section.assets) &&
+                                geometry != null &&
+                                abs(displayRow.placeholderHeight - geometry.placeholderHeight) <= 0.5f &&
+                                abs(
+                                    estimatePhotoGridDisplayItemsHeight(
+                                        candidate.displayRecords.toPhotoGridDisplayItems(
+                                            section.assets,
+                                            0,
+                                            section.sectionKey
+                                        ),
+                                        geometrySpacing
+                                    ) - geometry.placeholderHeight
+                                ) <= 0.5f
+                    }
                 if (includeDisplayCache && geometryRequired && display == null) {
                     displayCacheReady = false
                 }
                 display?.let(validDisplaySections::add)
+            }
+        }
+        if (geometryRequired) {
+            val bucketGeometry = bucketGeometryRowsByBucket[timeBucket]
+            val expectedHeight = timelineGeometrySnapshotBucketHeight(
+                groupSize,
+                validatedBucketSections,
+                geometrySpacing
+            )
+            if (validatedBucketSections.size != expectedSections.size ||
+                bucketGeometry == null ||
+                bucketGeometry.assetFingerprint != fingerprint ||
+                abs(bucketGeometry.placeholderHeight - expectedHeight) > 0.5f
+            ) {
+                assignmentGeometryReady = false
+                displayCacheReady = false
             }
         }
         if (assignmentGeometryReady) {
@@ -431,7 +492,8 @@ internal fun buildTimelineMosaicCacheStatus(
         completeBucketIds = completeBucketIds,
         missingBucketIds = missingBucketIds,
         assignmentGeometryReadyBucketIds = assignmentGeometryReadyBucketIds,
-        displayCacheReadyBucketIds = displayCacheReadyBucketIds
+        displayCacheReadyBucketIds = displayCacheReadyBucketIds,
+        missingSectionKeysByBucket = missingSectionKeysByBucket.mapValues { it.value.toSet() }
     )
 }
 
@@ -456,6 +518,14 @@ internal fun validatedTimelineMosaicGeometrySummaries(
                 rowsByBucketSection[timeBucket to section.sectionKey]
                     ?.takeIf { it.assetFingerprint == fingerprint }
                     ?.toDomain()
+                    ?.takeIf {
+                        validateMosaicSectionGeometry(
+                            ranges = it.ranges,
+                            assetCount = section.assets.size,
+                            placeholderHeight = it.placeholderHeight,
+                            spacing = spacingKey / 100f
+                        )
+                    }
                     ?.let(::add)
             }
         }
@@ -493,12 +563,32 @@ private fun TimelineMosaicBucketGeometryArtifact.toDomainSummary(): TimelineBuck
         displayItemCount = displayItemCount
     )
 
-private fun TimelineMosaicDisplayCacheEntity.toDomain(): TimelineMosaicDisplaySection =
-    TimelineMosaicDisplaySection(
-        timeBucket = timeBucket,
-        sectionKey = sectionKey,
-        displayRecords = json.decodeFromString<List<TimelineMosaicDisplayItemRecord>>(itemsJson)
-    )
+private fun timelineGeometrySnapshotBucketHeight(
+    groupSize: TimelineGroupSize,
+    sections: List<TimelineMosaicGeometrySummary>,
+    spacing: Float
+): Float {
+    if (sections.isEmpty()) return 0f
+    val sectionHeight = sections.sumOf { it.placeholderHeight.toDouble() }.toFloat()
+    return if (groupSize == TimelineGroupSize.DAY) {
+        sectionHeight +
+                com.udnahc.immichgallery.domain.model.PHOTO_GRID_SECTION_HEADER_HEIGHT_DP * sections.size +
+                spacing * (sections.size * 2 - 1).coerceAtLeast(0)
+    } else {
+        sections.first().placeholderHeight
+    }
+}
+
+private fun TimelineMosaicDisplayCacheEntity.toDomainOrNull(): TimelineMosaicDisplaySection? =
+    try {
+        TimelineMosaicDisplaySection(
+            timeBucket = timeBucket,
+            sectionKey = sectionKey,
+            displayRecords = json.decodeFromString<List<TimelineMosaicDisplayItemRecord>>(itemsJson)
+        )
+    } catch (_: Exception) {
+        null
+    }
 
 private fun TimelineMosaicAssignmentEntity.decodeMosaicAssignments(): List<com.udnahc.immichgallery.domain.model.MosaicBandAssignment>? =
     try {
