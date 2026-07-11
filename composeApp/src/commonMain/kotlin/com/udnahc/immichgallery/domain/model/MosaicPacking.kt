@@ -625,8 +625,12 @@ private fun bestCandidate(
      */
     for (count in maxCount downTo MIN_MOSAIC_ASSETS) {
         shouldContinue()
-        val templates =
-            MOSAIC_TEMPLATES.filter { it.slotCount == count && it.family in enabledFamilies }
+        val family = MOSAIC_TEMPLATE_FAMILY_BY_COUNT[count]
+        val templates = if (family != null && family in enabledFamilies) {
+            MOSAIC_TEMPLATES_BY_COUNT_AND_FAMILY[count to family].orEmpty()
+        } else {
+            emptyList()
+        }
         if (templates.isEmpty()) continue
         val window = assets.subList(sourceStartIndex, sourceStartIndex + count)
         for (permutation in mosaicCandidatePermutations(window, count)) {
@@ -639,8 +643,8 @@ private fun bestCandidate(
             }
             for (template in templates) {
                 shouldContinue()
+                val height = template.root.heightForWidth(width, aspects, spacing)
                 val rects = template.root.layout(0f, 0f, width, aspects, spacing)
-                val height = rects.maxOfOrNull { it.y + it.height } ?: 0f
                 val score = scoreCandidate(rects, height, bandHeightLimit, width)
                 if (score != null && (best == null || score < best.score)) {
                     best = MosaicCandidate(
@@ -671,7 +675,9 @@ internal fun mosaicCandidatePermutations(
     assets: List<Asset>,
     count: Int
 ): List<IntArray> {
-    if (count <= EXHAUSTIVE_MOSAIC_PERMUTATION_MAX_ASSETS) return permutations(count)
+    if (count <= EXHAUSTIVE_MOSAIC_PERMUTATION_MAX_ASSETS) {
+        return EXHAUSTIVE_MOSAIC_PERMUTATIONS_BY_SIZE[count].orEmpty()
+    }
     if (assets.size < count) return emptyList()
     val window = assets.take(count)
     val sourceOrder = IntArray(count) { it }
@@ -720,6 +726,7 @@ private fun scoreCandidate(
     // protect rendering from huge bands, tiny tap targets, and degenerate
     // templates produced by extreme aspect ratios.
     if (height <= 0f || height > bandHeightLimit) return null
+    if (!rectsFormValidBand(rects, width, height)) return null
     if (rects.any { it.width < MIN_TILE_SIZE || it.height < MIN_TILE_SIZE }) return null
     val area = rects.map { it.width * it.height }
     val minArea = area.minOrNull() ?: return null
@@ -740,7 +747,7 @@ private fun MosaicBandAssignment.toDisplayItem(
     layoutSpec: MosaicLayoutSpec,
     spacing: Float
 ): MosaicBandItem? {
-    val template = MOSAIC_TEMPLATES.firstOrNull { it.id == templateId } ?: return null
+    val template = MOSAIC_TEMPLATES_BY_ID[templateId] ?: return null
     val assetsById = assets.associateBy { it.id }
     val orderedTiles = tiles.sortedBy { it.visualOrder }
     if (orderedTiles.size != template.slotCount) return null
@@ -749,8 +756,9 @@ private fun MosaicBandAssignment.toDisplayItem(
     val aspects = FloatArray(tileAssets.size) { index ->
         tileAssets[index].aspectRatio.coerceAtLeast(MIN_ASPECT_RATIO)
     }
+    val bandHeight = template.root.heightForWidth(layoutSpec.availableWidth, aspects, spacing)
     val rects = template.root.layout(0f, 0f, layoutSpec.availableWidth, aspects, spacing)
-    val bandHeight = rects.maxOfOrNull { it.y + it.height } ?: return null
+    if (!rectsFormValidBand(rects, layoutSpec.availableWidth, bandHeight)) return null
     // Rebuild display tiles from the template slots, not from source order.
     // visualOrder is the stable slot order used by the renderer and shared
     // element keys; source order is preserved by sourceStartIndex/sourceCount.
@@ -788,23 +796,52 @@ private fun MosaicBandItem.isValidFor(layoutSpec: MosaicLayoutSpec): Boolean {
     // than rendering overlapping tiles or a band far larger than nearby content.
     if (bandHeight <= 0f || bandHeight > layoutSpec.cellHeight * MOSAIC_MAX_BAND_HEIGHT_TARGET_MULTIPLIER) return false
     if (tiles.any { it.width < MIN_TILE_SIZE || it.height < MIN_TILE_SIZE }) return false
-    val filledWidth = tiles.maxOfOrNull { it.x + it.width } ?: return false
-    if (abs(filledWidth - layoutSpec.availableWidth) > GEOMETRY_TOLERANCE) return false
-    for (i in tiles.indices) {
-        for (j in i + 1 until tiles.size) {
-            if (tiles[i].overlaps(tiles[j])) return false
+    return rectsFormValidBand(
+        rects = tiles.map { TileRect(it.visualOrder, it.x, it.y, it.width, it.height) },
+        width = layoutSpec.availableWidth,
+        height = bandHeight
+    )
+}
+
+private fun rectsFormValidBand(
+    rects: List<TileRect>,
+    width: Float,
+    height: Float
+): Boolean {
+    if (rects.isEmpty() || width <= 0f || height <= 0f || !width.isFinite() || !height.isFinite()) return false
+    if (rects.any { rect ->
+            !rect.x.isFinite() || !rect.y.isFinite() ||
+                    !rect.width.isFinite() || !rect.height.isFinite() ||
+                    rect.x < -GEOMETRY_TOLERANCE || rect.y < -GEOMETRY_TOLERANCE ||
+                    rect.width <= 0f || rect.height <= 0f ||
+                    rect.x + rect.width > width + GEOMETRY_TOLERANCE ||
+                    rect.y + rect.height > height + GEOMETRY_TOLERANCE
+        }
+    ) {
+        return false
+    }
+    if (abs(rects.minOf { it.x }) > GEOMETRY_TOLERANCE ||
+        abs(rects.minOf { it.y }) > GEOMETRY_TOLERANCE ||
+        abs(rects.maxOf { it.x + it.width } - width) > GEOMETRY_TOLERANCE ||
+        abs(rects.maxOf { it.y + it.height } - height) > GEOMETRY_TOLERANCE
+    ) {
+        return false
+    }
+    for (i in rects.indices) {
+        for (j in i + 1 until rects.size) {
+            if (rects[i].overlaps(rects[j])) return false
         }
     }
     return true
 }
 
-private fun MosaicTile.overlaps(other: MosaicTile): Boolean =
+private fun TileRect.overlaps(other: TileRect): Boolean =
     x + width > other.x + GEOMETRY_TOLERANCE &&
             other.x + other.width > x + GEOMETRY_TOLERANCE &&
             y + height > other.y + GEOMETRY_TOLERANCE &&
             other.y + other.height > y + GEOMETRY_TOLERANCE
 
-private fun permutations(size: Int): List<IntArray> {
+private fun generatePermutations(size: Int): List<IntArray> {
     val result = mutableListOf<IntArray>()
     fun permute(
         values: IntArray,
@@ -826,6 +863,10 @@ private fun permutations(size: Int): List<IntArray> {
     permute(IntArray(size) { it }, 0)
     return result
 }
+
+private val EXHAUSTIVE_MOSAIC_PERMUTATIONS_BY_SIZE: Map<Int, List<IntArray>> =
+    (MIN_MOSAIC_ASSETS..EXHAUSTIVE_MOSAIC_PERMUTATION_MAX_ASSETS)
+        .associateWith(::generatePermutations)
 
 private const val MIN_MOSAIC_ASSETS = 4
 private const val MAX_MOSAIC_ASSETS = 8

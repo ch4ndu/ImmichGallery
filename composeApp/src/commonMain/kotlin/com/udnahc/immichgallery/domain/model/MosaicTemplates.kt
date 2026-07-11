@@ -22,17 +22,22 @@ internal data class TileRect(
  * storing fragile pixel rectangles in cache/state.
  */
 internal sealed interface MosaicNode {
+    fun affine(
+        aspects: FloatArray,
+        spacing: Float
+    ): MosaicAffine?
+
     fun widthForHeight(
         height: Float,
         aspects: FloatArray,
         spacing: Float
-    ): Float
+    ): Float = affine(aspects, spacing)?.widthForHeight(height) ?: Float.NaN
 
     fun heightForWidth(
         width: Float,
         aspects: FloatArray,
         spacing: Float
-    ): Float
+    ): Float = affine(aspects, spacing)?.heightForWidth(width) ?: Float.NaN
 
     fun layout(
         x: Float,
@@ -43,20 +48,25 @@ internal sealed interface MosaicNode {
     ): List<TileRect>
 }
 
-internal data class LeafNode(val slot: Int) : MosaicNode {
-    override fun widthForHeight(
-        height: Float,
-        aspects: FloatArray,
-        spacing: Float
-    ): Float =
-        height * aspects[slot]
+internal data class MosaicAffine(
+    val slope: Float,
+    val intercept: Float
+) {
+    fun widthForHeight(height: Float): Float = slope * height + intercept
 
-    override fun heightForWidth(
-        width: Float,
+    fun heightForWidth(width: Float): Float = (width - intercept) / slope
+
+    fun isValid(): Boolean = slope.isFinite() && slope > 0f && intercept.isFinite()
+}
+
+internal data class LeafNode(val slot: Int) : MosaicNode {
+    override fun affine(
         aspects: FloatArray,
         spacing: Float
-    ): Float =
-        width / aspects[slot]
+    ): MosaicAffine? {
+        val aspect = aspects.getOrNull(slot) ?: return null
+        return MosaicAffine(aspect, 0f).takeIf { it.isValid() }
+    }
 
     override fun layout(
         x: Float,
@@ -66,39 +76,23 @@ internal data class LeafNode(val slot: Int) : MosaicNode {
         spacing: Float
     ): List<TileRect> {
         val height = heightForWidth(width, aspects, spacing)
+        if (width <= 0f || height <= 0f || !width.isFinite() || !height.isFinite()) return emptyList()
         return listOf(TileRect(slot, x, y, width, height))
     }
 }
 
 internal data class HorizontalNode(val children: List<MosaicNode>) : MosaicNode {
-    override fun widthForHeight(
-        height: Float,
+    override fun affine(
         aspects: FloatArray,
         spacing: Float
-    ): Float =
-        children.sumOf { it.widthForHeight(height, aspects, spacing).toDouble() }.toFloat() +
-                spacing * (children.size - 1)
-
-    override fun heightForWidth(
-        width: Float,
-        aspects: FloatArray,
-        spacing: Float
-    ): Float {
-        val usableWidth = width.coerceAtLeast(0f)
-        var low = 0f
-        var high = usableWidth.coerceAtLeast(1f)
-        // Width is monotonic with height for horizontal groups, but there is no
-        // closed form once children contain nested vertical groups. Binary
-        // search gives stable enough geometry without introducing a solver.
-        repeat(BINARY_SEARCH_STEPS) {
-            val mid = (low + high) / 2f
-            if (widthForHeight(mid, aspects, spacing) > usableWidth) {
-                high = mid
-            } else {
-                low = mid
-            }
-        }
-        return low
+    ): MosaicAffine? {
+        if (children.isEmpty() || spacing < 0f || !spacing.isFinite()) return null
+        val childAffines = children.map { it.affine(aspects, spacing) ?: return null }
+        return MosaicAffine(
+            slope = childAffines.sumOf { it.slope.toDouble() }.toFloat(),
+            intercept = childAffines.sumOf { it.intercept.toDouble() }.toFloat() +
+                    spacing * (children.size - 1)
+        ).takeIf { it.isValid() }
     }
 
     override fun layout(
@@ -108,11 +102,14 @@ internal data class HorizontalNode(val children: List<MosaicNode>) : MosaicNode 
         aspects: FloatArray,
         spacing: Float
     ): List<TileRect> {
+        if (width <= 0f || !width.isFinite()) return emptyList()
         val height = heightForWidth(width, aspects, spacing)
+        if (height <= 0f || !height.isFinite()) return emptyList()
         val result = mutableListOf<TileRect>()
         var cursorX = x
         for (child in children) {
             val childWidth = child.widthForHeight(height, aspects, spacing)
+            if (childWidth <= 0f || !childWidth.isFinite()) return emptyList()
             result.addAll(child.layout(cursorX, y, childWidth, aspects, spacing))
             cursorX += childWidth + spacing
         }
@@ -121,24 +118,22 @@ internal data class HorizontalNode(val children: List<MosaicNode>) : MosaicNode 
 }
 
 internal data class VerticalNode(val children: List<MosaicNode>) : MosaicNode {
-    override fun widthForHeight(
-        height: Float,
+    override fun affine(
         aspects: FloatArray,
         spacing: Float
-    ): Float {
-        val usableHeight = (height - spacing * (children.size - 1)).coerceAtLeast(0f)
-        val inverseAspectSum =
-            children.sumOf { (1f / it.approxAspect(aspects)).toDouble() }.toFloat()
-        return if (inverseAspectSum > 0f) usableHeight / inverseAspectSum else 0f
+    ): MosaicAffine? {
+        if (children.isEmpty() || spacing < 0f || !spacing.isFinite()) return null
+        val childAffines = children.map { it.affine(aspects, spacing) ?: return null }
+        val inverseSlopeSum = childAffines.sumOf { (1f / it.slope).toDouble() }.toFloat()
+        if (inverseSlopeSum <= 0f || !inverseSlopeSum.isFinite()) return null
+        val heightIntercept = childAffines.sumOf {
+            (-it.intercept / it.slope).toDouble()
+        }.toFloat() + spacing * (children.size - 1)
+        return MosaicAffine(
+            slope = 1f / inverseSlopeSum,
+            intercept = -heightIntercept / inverseSlopeSum
+        ).takeIf { it.isValid() }
     }
-
-    override fun heightForWidth(
-        width: Float,
-        aspects: FloatArray,
-        spacing: Float
-    ): Float =
-        children.sumOf { it.heightForWidth(width, aspects, spacing).toDouble() }.toFloat() +
-                spacing * (children.size - 1)
 
     override fun layout(
         x: Float,
@@ -147,26 +142,18 @@ internal data class VerticalNode(val children: List<MosaicNode>) : MosaicNode {
         aspects: FloatArray,
         spacing: Float
     ): List<TileRect> {
+        if (width <= 0f || !width.isFinite()) return emptyList()
         val result = mutableListOf<TileRect>()
         var cursorY = y
         for (child in children) {
             val childHeight = child.heightForWidth(width, aspects, spacing)
+            if (childHeight <= 0f || !childHeight.isFinite()) return emptyList()
             result.addAll(child.layout(x, cursorY, width, aspects, spacing))
             cursorY += childHeight + spacing
         }
         return result
     }
 }
-
-private fun MosaicNode.approxAspect(aspects: FloatArray): Float =
-    when (this) {
-        is LeafNode -> aspects[slot]
-        is HorizontalNode -> children.sumOf { it.approxAspect(aspects).toDouble() }.toFloat()
-        is VerticalNode -> {
-            val inverse = children.sumOf { (1f / it.approxAspect(aspects)).toDouble() }.toFloat()
-            if (inverse > 0f) 1f / inverse else 1f
-        }
-    }
 
 internal data class MosaicTemplate(
     val id: String,
@@ -302,4 +289,11 @@ internal val MOSAIC_TEMPLATES = listOf(
     )
 )
 
-private const val BINARY_SEARCH_STEPS = 24
+internal val MOSAIC_TEMPLATES_BY_ID: Map<String, MosaicTemplate> =
+    MOSAIC_TEMPLATES.associateBy { it.id }
+
+internal val MOSAIC_TEMPLATES_BY_COUNT_AND_FAMILY: Map<Pair<Int, MosaicTemplateFamily>, List<MosaicTemplate>> =
+    MOSAIC_TEMPLATES.groupBy { it.slotCount to it.family }
+
+internal val MOSAIC_TEMPLATE_FAMILY_BY_COUNT: Map<Int, MosaicTemplateFamily> =
+    MosaicTemplateFamily.entries.associateBy { it.tileCount }

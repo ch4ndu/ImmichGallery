@@ -67,7 +67,8 @@ while sourceIndex <= assets.size - 4:
   - `leaf(slot)` is one photo slot.
   - `h(...)` places child groups horizontally.
   - `v(...)` stacks child groups vertically.
-- The engine tries every enabled template for the candidate source count. For 4, 5, and 6 asset windows it tries every permutation. For 7 and 8 asset windows it uses bounded deterministic candidates: source order, reverse source order, aspect ascending, aspect descending, and top widest/tallest assets placed in the feature slot. This lets larger variants remain available without factorial assignment cost.
+- Every node reduces to an exact affine width equation, `width = slope * height + intercept`, including nested spacing. Projection solves that equation analytically in both directions; it does not approximate nested vertical aspect ratios or cap a binary search by the requested width.
+- The engine tries every enabled template for the candidate source count using templates pre-indexed by count and family. For 4, 5, and 6 asset windows it reuses one precomputed exhaustive permutation table. For 7 and 8 asset windows it uses bounded deterministic candidates: source order, reverse source order, aspect ascending, aspect descending, and top widest/tallest assets placed in the feature slot. This lets larger variants remain available without factorial assignment cost.
 - The built-in families include 4-photo feature/stack templates, 5-photo feature/cluster templates, 6-photo mixed, paired-column, and two-row templates, plus 7/8-photo feature-cluster and grid templates.
 
 ## Candidate Scoring
@@ -77,7 +78,8 @@ while sourceIndex <= assets.size - 4:
 - A candidate is rejected before scoring when:
   - computed band height is non-positive or exceeds the assignment band-height limit.
   - any tile is below the minimum tile size.
-  - the template geometry is degenerate.
+  - any dimension is non-finite or the template geometry is degenerate.
+  - tiles underfill or overflow the solved width/height, begin outside the origin bounds, or overlap.
 - Valid candidates are scored by:
   - closeness to the target band height.
   - tile area balance.

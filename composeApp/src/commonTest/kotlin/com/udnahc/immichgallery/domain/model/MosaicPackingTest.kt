@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
@@ -151,6 +152,77 @@ class MosaicPackingTest {
         assertEquals(720, mosaicCandidatePermutations(sampleAssets(6), 6).size)
         assertTrue(mosaicCandidatePermutations(sampleAssets(7), 7).size <= 8)
         assertTrue(mosaicCandidatePermutations(sampleAssets(8), 8).size <= 8)
+    }
+
+    @Test
+    fun exhaustiveCandidatePermutationsArePrecomputedOnce() {
+        val first = mosaicCandidatePermutations(sampleAssets(6), 6)
+        val second = mosaicCandidatePermutations(sampleAssets(6), 6)
+
+        assertSame(first, second)
+        assertSame(first.first(), second.first())
+    }
+
+    @Test
+    fun everyTemplateSolvesNestedSpacingExactlyAtMeasuredWidth() {
+        val width = 451.25f
+        val spacing = 2.25f
+
+        MOSAIC_TEMPLATES.forEach { template ->
+            val aspects = FloatArray(template.slotCount) { slot ->
+                listOf(0.48f, 2.1f, 0.72f, 1.65f, 0.9f, 1.25f, 0.58f, 1.9f)[slot]
+            }
+            val height = template.root.heightForWidth(width, aspects, spacing)
+            val rects = template.root.layout(0f, 0f, width, aspects, spacing)
+
+            assertTrue(height.isFinite() && height > 0f, template.id)
+            assertTrue(abs(template.root.widthForHeight(height, aspects, spacing) - width) < 0.01f, template.id)
+            assertEquals(template.slotCount, rects.size, template.id)
+            assertTrue(abs(rects.maxOf { it.x + it.width } - width) < 0.01f, template.id)
+            assertTrue(abs(rects.maxOf { it.y + it.height } - height) < 0.01f, template.id)
+            rects.forEach { rect ->
+                assertTrue(rect.x >= 0f && rect.y >= 0f, template.id)
+                assertTrue(rect.x + rect.width <= width + 0.01f, template.id)
+                assertTrue(rect.y + rect.height <= height + 0.01f, template.id)
+                assertTrue(abs(rect.width / rect.height - aspects[rect.slot]) < 0.01f, template.id)
+            }
+            for (i in rects.indices) {
+                for (j in i + 1 until rects.size) {
+                    assertFalse(rects[i].overlaps(rects[j]), template.id)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun portraitHeavyTwoColumnMosaicFillsExactWidthWithoutOverlap() {
+        val assets = sampleAssets(count = 4, aspectRatio = 0.5f)
+        val layoutSpec = MosaicLayoutSpec(columnCount = 2, availableWidth = 240f, cellHeight = 120f)
+        val assignments = buildMosaicAssignments(
+            assets = assets,
+            layoutSpec = layoutSpec,
+            spacing = GRID_SPACING_DP,
+            enabledFamilies = setOf(MosaicTemplateFamily.FOUR_TILE)
+        )
+
+        val band = assertIs<MosaicBandItem>(
+            buildPhotoGridItemsWithMosaic(
+                assets = assets,
+                assignments = assignments,
+                bucketIndex = 0,
+                sectionLabel = "portrait",
+                layoutSpec = layoutSpec,
+                spacing = GRID_SPACING_DP,
+                maxRowHeight = 600f
+            ).single()
+        )
+        assertTrue(abs(band.tiles.maxOf { it.x + it.width } - layoutSpec.availableWidth) < 0.01f)
+        assertTrue(abs(band.tiles.maxOf { it.y + it.height } - band.bandHeight) < 0.01f)
+        for (i in band.tiles.indices) {
+            for (j in i + 1 until band.tiles.size) {
+                assertFalse(band.tiles[i].overlaps(band.tiles[j]))
+            }
+        }
     }
 
     @Test
@@ -602,6 +674,14 @@ class MosaicPackingTest {
         }
 
     private fun MosaicTile.overlaps(other: MosaicTile): Boolean {
+        val separated = x + width <= other.x ||
+            other.x + other.width <= x ||
+            y + height <= other.y ||
+            other.y + other.height <= y
+        return !separated
+    }
+
+    private fun TileRect.overlaps(other: TileRect): Boolean {
         val separated = x + width <= other.x ||
             other.x + other.width <= x ||
             y + height <= other.y ||
