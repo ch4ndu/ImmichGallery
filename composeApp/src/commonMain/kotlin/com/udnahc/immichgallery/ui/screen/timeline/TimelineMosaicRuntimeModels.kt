@@ -7,6 +7,7 @@ import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.ProgressChunk
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
+import com.udnahc.immichgallery.domain.model.TimelineMosaicRepairSectionInput
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.roundToInt
@@ -33,8 +34,28 @@ internal data class TimelineMosaicPublishStamp(
 internal data class PendingMosaicPublish(
     val stateUpdates: Map<MosaicCacheKey, RuntimeMosaicState>,
     val geometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>,
-    val stamp: TimelineMosaicPublishStamp
+    val stamp: TimelineMosaicPublishStamp,
+    val repairRequests: List<TimelineMosaicRepairRequest> = emptyList()
 )
+
+internal data class TimelineMosaicRepairRequest(
+    val timeBucket: String,
+    val groupSize: TimelineGroupSize,
+    val columnCount: Int,
+    val families: Set<MosaicTemplateFamily>,
+    val geometryRequest: TimelineMosaicGeometryRequest,
+    val assetRevision: Int,
+    val globalGeneration: Long,
+    val bucketGeneration: Long,
+    val sectionsByKey: Map<String, TimelineMosaicRepairSectionInput>
+)
+
+internal fun coalesceTimelineMosaicRepairRequests(
+    requests: List<TimelineMosaicRepairRequest>
+): List<TimelineMosaicRepairRequest> =
+    LinkedHashMap<String, TimelineMosaicRepairRequest>().apply {
+        requests.forEach { request -> put(request.timeBucket, request) }
+    }.values.toList()
 
 internal class TimelineMosaicPublishBuffer {
     fun coalesceCurrent(
@@ -44,6 +65,7 @@ internal class TimelineMosaicPublishBuffer {
     ): PendingMosaicPublish? {
         val accumulatedStates = LinkedHashMap<MosaicCacheKey, RuntimeMosaicState>()
         val accumulatedGeometry = LinkedHashMap<MosaicCacheKey, TimelineMosaicSectionGeometry>()
+        val accumulatedRepairs = LinkedHashMap<String, TimelineMosaicRepairRequest>()
         pending.forEach { item ->
             if (item.stamp.globalGeneration != currentGlobalGeneration) return@forEach
             item.stateUpdates.forEach { (key, state) ->
@@ -60,8 +82,17 @@ internal class TimelineMosaicPublishBuffer {
                     accumulatedGeometry[key] = geometry
                 }
             }
+            item.repairRequests.forEach { request ->
+                if (request.globalGeneration == currentGlobalGeneration &&
+                    request.bucketGeneration == (currentBucketGenerations[request.timeBucket] ?: 0L)
+                ) {
+                    accumulatedRepairs[request.timeBucket] = request
+                }
+            }
         }
-        if (accumulatedStates.isEmpty() && accumulatedGeometry.isEmpty()) return null
+        if (accumulatedStates.isEmpty() && accumulatedGeometry.isEmpty() && accumulatedRepairs.isEmpty()) {
+            return null
+        }
         return PendingMosaicPublish(
             stateUpdates = accumulatedStates,
             geometryUpdates = accumulatedGeometry,
@@ -69,9 +100,11 @@ internal class TimelineMosaicPublishBuffer {
                 globalGeneration = currentGlobalGeneration,
                 bucketGenerations = currentBucketGenerations.filterKeys { timeBucket ->
                     accumulatedStates.keys.any { it.timeBucket == timeBucket } ||
-                            accumulatedGeometry.keys.any { it.timeBucket == timeBucket }
+                            accumulatedGeometry.keys.any { it.timeBucket == timeBucket } ||
+                            timeBucket in accumulatedRepairs
                 }
-            )
+            ),
+            repairRequests = accumulatedRepairs.values.toList()
         )
     }
 }

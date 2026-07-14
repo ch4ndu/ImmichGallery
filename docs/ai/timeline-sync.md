@@ -127,7 +127,7 @@ in small offscreen chunks.
 3. `_bucketData.cachedBuckets` records buckets that have cached refs.
 4. `_bucketData.loadedBuckets` means renderable assets are already in `bucketAssetsCache`; it is not a synonym for cached Room refs.
 5. Timeline display projection is in-memory only. `buildTimelineState()`, `buildDisplayItems()`, and bucket projection must never read Room. If cached refs exist but assets are not materialized, the grid renders headers/placeholders.
-6. Visible or targeted buckets materialize assets from Room first. For Mosaic buckets with matching aggregate geometry but no renderable section state yet, materialization must keep the exact aggregate placeholder height instead of replacing it with a count estimate. The ViewModel publishes visible/target buckets before nearby prefetch buckets, then publishes the remaining current-radius prefetch work in bounded local chunks so launch does not trigger one RowPacking/display-index rebuild per bucket. If the cache-only warm policy is disabled, these buckets may then refresh from the server; if it is enabled, they stay cache-only until manual refresh.
+6. Visible or targeted buckets materialize assets from Room first. For Mosaic buckets with matching aggregate geometry but no renderable section state yet, materialization must keep the exact aggregate placeholder height instead of replacing it with a count estimate. While lazy-list scrolling or scrollbar dragging is active, target changes are recorded but do not start materialization, Mosaic reads, or geometry work. At settle, the final scrollbar target is published first, followed by settled visible buckets. Current-radius neighbor prefetch begins only after `250ms` of continued idle time and publishes in bounded local chunks so launch or fast scroll does not trigger one RowPacking/display-index rebuild per bucket. If the cache-only warm policy is disabled, these buckets may then refresh from the server; if it is enabled, they stay cache-only until manual refresh.
 
 ### Background Metadata Refresh
 
@@ -250,7 +250,7 @@ No-op refresh may:
 - Removed buckets clear refs and Mosaic artifacts immediately.
 - Count-changed buckets keep old refs until the bucket asset refresh succeeds.
 - Cache-only warm launch cannot discover removed or count-changed buckets until manual refresh or a future cold sync.
-- Runtime Mosaic cancellation during scroll is expected pause/resume behavior, not a sync failure.
+- Interactive scroll pauses new Timeline Mosaic demand without cancelling the active bucket worker. Cancellation from config/generation invalidation is control flow, not a sync failure.
 
 ## Verification Expectations
 

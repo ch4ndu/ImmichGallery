@@ -105,11 +105,10 @@ structure; it must not wait for every bucket's server refresh.
 7. Visible bucket reporting starts immediately from `TimelineContent`. The
    screen maps visible display indexes through `TimelineDisplayIndex` to bucket
    indexes, then calls `onVisibleBucketsChanged(...)`.
-8. The ViewModel expands visible buckets to the nearby prefetch window and
-   materializes cached assets for those buckets from Room before any optional
-   network work. Materialization is batched: visible/target buckets publish
-   first, then nearby prefetch buckets publish in small chunks with cooperative
-   yields between chunks.
+8. The ViewModel materializes visible/target cached assets from Room before any
+   optional network work. After `250ms` of continued idle time it expands to the
+   nearby prefetch window; that neighbor materialization publishes in small
+   chunks with cooperative yields between chunks.
 9. Materialized buckets update `bucketAssetsCache`, become loaded in
    `_bucketData`, bump a render-only materialization revision, and rebuild only
    their derived display items. Batched publication avoids one RowPacking/
@@ -217,14 +216,14 @@ by assignment or cache work. The expensive assignment calculation happens after
 server sync for buckets whose ordered asset content changed, or after scroll
 settles when cache results are disabled. Runtime Timeline Mosaic uses a
 dedicated ordered one-bucket worker and the Mosaic dispatcher. Requests merge
-into the worker queue instead of cancelling newer visible work: visible buckets
-and explicit scrollbar targets run before neighbors and before previously
-deferred offscreen buckets. Active scroll pauses runtime compute and preserves
-any running bucket as deferred/resumable work. Queued offscreen work stays behind
-visible/target requests and is deferred if the worker reaches it during active
-scroll. During active scroll, persisted Mosaic reads are limited to loaded
-visible or explicitly targeted buckets, and successful Mosaic display
-replacement is deferred until scroll settles.
+into the worker queue outside interactive scroll. Lazy-list scrolling and
+scrollbar dragging share one pause state: an already-running bucket may finish,
+but unstarted render-demand work is discarded and new drag targets replace one
+recorded final target instead of entering the queue. At settle, the final target
+runs before settled visible buckets. Radius neighbors are warmed only after
+`250ms` of continued idle time. Successful Mosaic display replacement produced
+during scroll is deferred and filtered to the final target and settled viewport
+before publication.
 
 If a materialized requested bucket misses current-config persisted Mosaic
 artifacts, the ViewModel computes runtime Mosaic for that same active config so
@@ -357,19 +356,19 @@ graph TD
 
 ### Normal Scroll
 
-Normal scroll is driven by `snapshotFlow` over visible lazy-list item indexes in
-`TimelineContent`.
+Normal scroll is driven by one `snapshotFlow` over lazy-list scroll activity and
+visible item indexes in `TimelineContent`.
 
-1. Compose reports visible display indexes.
+1. Compose reports scroll activity and visible display indexes from one
+   snapshot so settle visibility is recorded before the ViewModel resumes work.
 2. `visibleBucketIndexesForDisplayIndexes()` maps them through
    `TimelineDisplayIndex`.
-3. `onVisibleBucketsChanged(..., VisibleScroll)` stores visible bucket indexes,
-   expands the request to nearby buckets, materializes cached assets
-   immediately when available, moves those buckets ahead of stale pending
-   refresh work, requests persisted Mosaic rows for loaded visible/nearby
-   buckets, and updates the Mosaic anchor.
-4. Cached bucket assets are materialized from Room before network refresh when
-   possible, so cached rows can render immediately.
+3. `onVisibleBucketsChanged(..., VisibleScroll)` stores visible bucket indexes
+   and updates the Mosaic anchor while active scroll is paused; it does not
+   start materialization, geometry, or Mosaic reads for transient viewports.
+4. On settle, cached assets for the final visible buckets are materialized from
+   Room before network refresh when possible. Nearby prefetch begins after
+   `250ms` idle, so cached rows can render without per-frame rebuild churn.
 5. Persisted Mosaic rows are read for loaded requested buckets through the same
    ordered Mosaic worker queue. Visible or targeted buckets stay ahead of
    offscreen and deferred buckets. A generation and config guard prevents stale
@@ -377,8 +376,8 @@ Normal scroll is driven by `snapshotFlow` over visible lazy-list item indexes in
    config.
 6. `_mosaicStates` receives `Ready` assignments for available sections. The
    state combine pipeline rebuilds only bucket/section display items whose cache
-   key changed. New visible/target requests reprioritize the queue instead of
-   dropping already queued work.
+   key changed. Starting scroll drops unstarted render demand but does not cancel
+   the active bucket worker; settle queues only the final visible/target demand.
 7. If progressive Mosaic chunks were buffered for any visible or nearby bucket,
    the ViewModel flushes them immediately; offscreen chunks remain buffered
    until their bucket becomes visible, nearby, targeted, invalidated, or
@@ -393,7 +392,7 @@ sequenceDiagram
 
     UI->>UI: read visible list indexes
     UI->>VM: report visible buckets
-    VM->>VM: expand to nearby bucket indexes
+    VM->>VM: pause while scrolling; select settled buckets
     VM->>DB: materialize cached assets if available
     alt cache-only warm policy
         VM->>VM: stop before server refresh queue
@@ -406,6 +405,7 @@ sequenceDiagram
     Repo-->>VM: ready assignments and missing buckets
     VM->>VM: publish current Mosaic state
     VM-->>UI: timeline state with display items
+    VM->>VM: wait 250ms idle, then warm nearby buckets
 ```
 
 When scrolling stops, a second `snapshotFlow` sends `ScrollSettled`. This uses
@@ -423,27 +423,27 @@ targets aligned with asset counts instead of display row counts.
    `TimelinePageIndex` and `TimelineDisplayIndex` to a `TimelineScrollTarget`.
 3. The UI scrolls the `LazyColumn` to the target display index.
 4. The first drag target and each bucket change call
-   `onViewportBucketTargeted(..., ScrollbarDrag)` immediately. This target
-   callback is the authoritative fast-scroll loading signal, including
-   mid-bucket positions where no month header is visible.
+   `onViewportBucketTargeted(..., ScrollbarDrag)` immediately. The ViewModel
+   records only the latest target; it does not start per-target materialization,
+   Mosaic reads, or geometry work during the drag.
 5. Drag stop always calls `onViewportBucketTargeted(..., ScrollbarStop)`
    immediately, even if it stops on the last drag bucket.
-6. The ViewModel loads the target bucket plus nearby buckets immediately from
-   cache when possible. Drag buckets move ahead of normal offscreen work, older
-   unstarted drag buckets are demoted, and the stopped bucket is ordered before
-   its nearest neighbors and older work. In-flight refreshes are not canceled.
-7. Persisted Mosaic rows are requested for loaded buckets. The ViewModel does
-   not compute new Mosaic assignments during the drag.
+6. On drag stop, the ViewModel loads the final target first, followed by settled
+   visible buckets. It does not cancel an already-running Mosaic worker or
+   persisted-geometry read.
+7. If the viewport remains idle for `250ms`, nearby buckets are materialized and
+   persisted geometry is warmed. The ViewModel does not compute new Mosaic
+   assignments during the drag.
 
 ```mermaid
 graph LR
     drag["Scrollbar drag fraction"] --> target["Resolve scroll target"]
     target --> scroll["Scroll list to display index"]
     scroll --> commit{"Drag committed"}
-    commit -->|No| dragTarget["Immediate first/change drag target"]
+    commit -->|No| dragTarget["Record latest drag target"]
     commit -->|Yes| stop["Immediate stop target"]
-    dragTarget --> load["Load target and nearby buckets"]
-    stop --> load
+    dragTarget --> drag
+    stop --> load["Load final target and visible buckets"]
     load --> read["Read persisted Mosaic assignments"]
     read --> state["Update Mosaic state"]
     state --> render["Render Mosaic placeholders or bands"]
@@ -632,12 +632,12 @@ materialized yet.
 - Bucket metadata, cached refs, materialized assets, display items, and Mosaic
   assignments are distinct states; do not collapse them into one global loading
   flag or revision.
-- Visible or scrollbar-targeted buckets preempt stale offscreen work. Cache
-  materialization for those buckets should happen before their network refresh
-  and before waiting for another visible-bucket boundary.
-- Scrollbar drag-stop buckets outrank earlier drag buckets and nearby buckets.
-  Do not debounce the bucket-loading signal; visible item/header reporting is a
-  secondary settle signal after fast-scroll targeting.
+- Settled visible or scrollbar-targeted buckets preempt stale offscreen work.
+  Cache materialization for those buckets should happen before their network
+  refresh and before waiting for another visible-bucket boundary.
+- Scrollbar drag-stop buckets replace earlier drag targets and outrank settled
+  visible buckets. Do not debounce recording the target, but defer its actual
+  bucket-loading work until stop; warm radius neighbors after `250ms` idle.
 - Placeholder heights should match final cached geometry as closely as possible:
   exact persisted geometry first, cached-asset aspect projection second,
   count-only metadata estimates last. Missing geometry is repaired by explicit
@@ -650,16 +650,18 @@ materialized yet.
   retain the last non-null label during transient progressive updates; do not
   key header state directly on the whole display-item list.
 - Progressive Mosaic chunks should be throttled before publishing to UI state,
-  but visibility and scrollbar-target changes must flush eligible chunks
-  immediately. Do not debounce visible/target bucket loading.
+  but settled visibility and scrollbar-target changes must flush eligible chunks
+  immediately. Do not debounce recording the current target.
 - Geometry reads for warm launch are visible-first and generation/config
   guarded. Stale reads from a previous group, Mosaic family set, column count,
-  width, or full-screen height must be ignored.
+  width, or full-screen height must be ignored. Background hydration re-checks
+  interactive-scroll state before every chunk and yields until settle; settle
+  does not cancel a geometry read already in flight.
 - Bucket-load display updates must remain immediate for shared-element return
   transitions. Debounce zoom/config work, not bucket materialization signals.
 - No-op syncs must not bump revisions or repack unchanged buckets.
-- Scroll and scrollbar targeting may request persisted Mosaic rows, but must
-  not run continuous Mosaic assignment computation.
+- Settled scroll and scrollbar targets may request persisted Mosaic rows, but
+  active interaction must not start reads or continuous assignment computation.
 - Timeline Mosaic-enabled rendered ready photo content must be real
   `MosaicBandItem` output or completed cropped full-width `RowItem(kind = MOSAIC_FALLBACK)`
   rows. Missing, invalid, interrupted, cache-miss, and partially assigned ranges
@@ -669,7 +671,7 @@ materialized yet.
   generation/config changes. Timeline publish application is guarded by a global
   Mosaic runtime generation plus per-bucket generations, so one changed bucket
   cannot resurrect stale bands and does not invalidate unrelated visible work.
-  Runtime Mosaic cancellation from active scroll is expected and must leave the
-  bucket deferred/resumable.
+  Active scroll must not cancel the running Timeline Mosaic bucket. Cancellation
+  from config/generation invalidation may leave a valid checkpoint resumable.
 - Room asset rows should not store stale server URLs; domain assets reconstruct
   URLs from current server config where possible.

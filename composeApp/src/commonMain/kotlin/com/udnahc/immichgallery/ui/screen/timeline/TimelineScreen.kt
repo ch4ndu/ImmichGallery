@@ -174,6 +174,7 @@ fun TimelineScreen(
                 onVisibleBucketsChanged = viewModel::onVisibleBucketsChanged,
                 onViewportBucketTargeted = viewModel::onViewportBucketTargeted,
                 onScrollInProgressChanged = viewModel::onScrollInProgressChanged,
+                onScrollbarDragInProgressChanged = viewModel::onScrollbarDragInProgressChanged,
                 scrollTargetForFraction = viewModel::scrollTargetForFraction,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 onTimelineLayoutMetricsChanged = viewModel::setTimelineLayoutMetrics,
@@ -255,6 +256,7 @@ fun TimelineContent(
     onVisibleBucketsChanged: (List<Int>, TimelineBucketTargetReason) -> Unit,
     onViewportBucketTargeted: (Int, TimelineBucketTargetReason) -> Unit,
     onScrollInProgressChanged: (Boolean) -> Unit = {},
+    onScrollbarDragInProgressChanged: (Boolean) -> Unit = {},
     scrollTargetForFraction: (Float) -> TimelineScrollTarget?,
     onTargetRowHeightChanged: (Float) -> Unit = {},
     onTimelineLayoutMetricsChanged: (Float, Float, Int) -> Unit = { _, _, _ -> },
@@ -349,6 +351,9 @@ fun TimelineContent(
                     val latestOnViewportBucketTargeted by rememberUpdatedState(
                         onViewportBucketTargeted
                     )
+                    val latestOnScrollbarDragInProgressChanged by rememberUpdatedState(
+                        onScrollbarDragInProgressChanged
+                    )
                     val scrollToFractionTarget = remember<(Float, Boolean) -> Unit> {
                         { fraction, commit ->
                             val target = latestScrollTargetForFraction(fraction)
@@ -405,10 +410,16 @@ fun TimelineContent(
                         { fraction -> scrollToFractionTarget(fraction, false) }
                     }
                     val onDragStartedCallback = remember<() -> Unit> {
-                        { scrollbarTargetTracker.onDragStarted() }
+                        {
+                            latestOnScrollbarDragInProgressChanged(true)
+                            scrollbarTargetTracker.onDragStarted()
+                        }
                     }
                     val onDragStoppedCallback = remember<(Float) -> Unit> {
-                        { fraction -> scrollToFractionTarget(fraction, true) }
+                        { fraction ->
+                            scrollToFractionTarget(fraction, true)
+                            latestOnScrollbarDragInProgressChanged(false)
+                        }
                     }
 
                     ScrollbarOverlay(
@@ -515,30 +526,25 @@ private fun TimelineScrollEffects(
     }
     LaunchedEffect(listState) {
         snapshotFlow {
-            visibleBucketIndexesForDisplayIndexes(
-                latestDisplayIndex,
-                listState.layoutInfo.visibleItemsInfo.map { it.index }
+            listState.isScrollInProgress to visibleBucketIndexesForDisplayIndexes(
+                displayIndex = latestDisplayIndex,
+                visibleItemIndexes = listState.layoutInfo.visibleItemsInfo.map { it.index }
             )
         }
             .distinctUntilChanged()
-            .collectLatest { buckets ->
-                latestOnVisibleBucketsChanged(buckets, TimelineBucketTargetReason.VisibleScroll)
-            }
-    }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .distinctUntilChanged()
-            .collectLatest { isScrollInProgress ->
-                latestOnScrollInProgressChanged(isScrollInProgress)
-                if (!isScrollInProgress) {
-                    val buckets = visibleBucketIndexesForDisplayIndexes(
-                        latestDisplayIndex,
-                        listState.layoutInfo.visibleItemsInfo.map { it.index }
+            .collectLatest { (isScrollInProgress, buckets) ->
+                if (isScrollInProgress) {
+                    latestOnScrollInProgressChanged(true)
+                    latestOnVisibleBucketsChanged(
+                        buckets,
+                        TimelineBucketTargetReason.VisibleScroll
                     )
+                } else {
                     latestOnVisibleBucketsChanged(
                         buckets,
                         TimelineBucketTargetReason.ScrollSettled
                     )
+                    latestOnScrollInProgressChanged(false)
                 }
             }
     }

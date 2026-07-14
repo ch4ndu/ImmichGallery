@@ -95,12 +95,15 @@ internal class TimelineMosaicQueueActor(
             }
 
             is TimelineMosaicQueueCommand.Defer -> {
-                command.requests.forEach(::mergeDeferred)
+                command.requests
+                    .filterNot { paused && it.source == TimelineMosaicWorkSource.RenderDemand }
+                    .forEach(::mergeDeferred)
             }
 
             TimelineMosaicQueueCommand.PauseForScroll -> {
                 paused = true
-                cancelRunning(defer = true)
+                pending.removeAll { it.source == TimelineMosaicWorkSource.RenderDemand }
+                deferred.removeAll { it.source == TimelineMosaicWorkSource.RenderDemand }
             }
 
             is TimelineMosaicQueueCommand.ResumeAfterScroll -> {
@@ -148,7 +151,9 @@ internal class TimelineMosaicQueueActor(
         visiblePriority: Boolean,
         visibleOrTargetBuckets: Set<String>
     ) {
-        val uniqueRequests = requests.distinct()
+        val uniqueRequests = requests
+            .distinct()
+            .filterNot { paused && it.source == TimelineMosaicWorkSource.RenderDemand }
         if (uniqueRequests.isEmpty()) return
         uniqueRequests
             .filter { it.source == TimelineMosaicWorkSource.RenderDemand }

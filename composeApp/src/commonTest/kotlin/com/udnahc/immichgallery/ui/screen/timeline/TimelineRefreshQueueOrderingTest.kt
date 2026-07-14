@@ -124,6 +124,30 @@ class TimelineRefreshQueueOrderingTest {
     }
 
     @Test
+    fun settledScrollbarTargetPrecedesFinalVisibleBucketsWithoutNeighbors() {
+        val orderedIndexes = orderedSettledTimelineBucketIndexes(
+            targetBucketIndex = 12,
+            visibleBucketIndexes = listOf(11, 12, 13),
+            fallbackVisibleBucketIndexes = emptyList(),
+            bucketCount = 20
+        )
+
+        assertEquals(listOf(12, 11, 13), orderedIndexes)
+    }
+
+    @Test
+    fun settledBucketsUseLastVisibleFallbackWhenCurrentVisibilityIsEmpty() {
+        val orderedIndexes = orderedSettledTimelineBucketIndexes(
+            targetBucketIndex = null,
+            visibleBucketIndexes = emptyList(),
+            fallbackVisibleBucketIndexes = listOf(4, 5),
+            bucketCount = 10
+        )
+
+        assertEquals(listOf(4, 5), orderedIndexes)
+    }
+
+    @Test
     fun cachedMaterializationChunksVisibleBucketsBeforePrefetchBuckets() {
         val chunks = timelineCachedMaterializationChunks(
             requestedBuckets = listOf("neighbor_before", "visible", "neighbor_after", "target"),

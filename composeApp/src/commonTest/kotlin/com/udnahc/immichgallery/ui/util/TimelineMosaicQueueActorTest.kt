@@ -85,45 +85,41 @@ class TimelineMosaicQueueActorTest {
     }
 
     @Test
-    fun pauseDefersRunningWorkAndEmitsOneCancel() = runTest {
+    fun pauseLetsRunningWorkFinishWithoutStartingAnother() = runTest {
         val actor = TimelineMosaicQueueActor(this)
-        actor.send(enqueue(listOf(render("bucket"))))
+        actor.send(enqueue(listOf(render("running"), render("queued"))))
         runCurrent()
         val start = actor.effects.receive() as TimelineMosaicQueueEffect.StartWork
 
         actor.send(TimelineMosaicQueueCommand.PauseForScroll)
         runCurrent()
 
-        assertEquals(
-            TimelineMosaicQueueEffect.CancelWork(render("bucket"), start.token),
-            actor.effects.receive()
-        )
         assertEquals(null, actor.effects.tryReceive().getOrNull())
-        closeActor(actor)
-    }
-
-    @Test
-    fun pauseAndCancellationDeferDoesNotDuplicateWork() = runTest {
-        val actor = TimelineMosaicQueueActor(this)
-        actor.send(enqueue(listOf(render("bucket"))))
-        runCurrent()
-        val start = actor.effects.receive() as TimelineMosaicQueueEffect.StartWork
-        actor.send(TimelineMosaicQueueCommand.PauseForScroll)
-        runCurrent()
-        actor.effects.receive()
-
-        actor.send(TimelineMosaicQueueCommand.Defer(listOf(render("bucket"))))
         actor.send(TimelineMosaicQueueCommand.WorkerFinished(start.request, start.token))
-        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(emptyList()))
+        runCurrent()
+        assertEquals(null, actor.effects.tryReceive().getOrNull())
+        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(listOf("visible")))
+        runCurrent()
+        assertEquals(render("visible"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
+        closeActor(actor)
+    }
+
+    @Test
+    fun renderDemandReceivedWhilePausedIsSupersededByResumePriority() = runTest {
+        val actor = TimelineMosaicQueueActor(this)
+        actor.send(TimelineMosaicQueueCommand.PauseForScroll)
+        actor.send(enqueue(listOf(render("obsolete"))))
+        actor.send(TimelineMosaicQueueCommand.Defer(listOf(render("also_obsolete"))))
+        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(listOf("visible")))
         runCurrent()
 
-        assertEquals(render("bucket"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
+        assertEquals(render("visible"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
         assertEquals(null, actor.effects.tryReceive().getOrNull())
         closeActor(actor)
     }
 
     @Test
-    fun resumeStartsPriorityBucketsBeforeDeferredOffscreenWork() = runTest {
+    fun resumeStartsPriorityBucketsWithoutObsoleteRenderWork() = runTest {
         val actor = TimelineMosaicQueueActor(this)
         actor.send(TimelineMosaicQueueCommand.PauseForScroll)
         actor.send(TimelineMosaicQueueCommand.Defer(listOf(render("offscreen"))))
@@ -134,7 +130,7 @@ class TimelineMosaicQueueActorTest {
         assertEquals(render("visible"), visibleStart.request)
         actor.send(TimelineMosaicQueueCommand.WorkerFinished(visibleStart.request, visibleStart.token))
         runCurrent()
-        assertEquals(render("offscreen"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
+        assertEquals(null, actor.effects.tryReceive().getOrNull())
         closeActor(actor)
     }
 

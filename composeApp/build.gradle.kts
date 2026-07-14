@@ -124,6 +124,12 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.coil.network.okhttp)
         }
+        androidInstrumentedTest.dependencies {
+            implementation(libs.junit)
+            implementation(libs.androidx.testExt.junit)
+            implementation(libs.androidx.test.runner)
+            implementation(libs.room.testing)
+        }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
@@ -204,6 +210,7 @@ android {
 
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

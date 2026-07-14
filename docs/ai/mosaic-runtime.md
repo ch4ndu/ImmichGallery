@@ -73,22 +73,22 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 
 ## Timeline Pause And Resume
 
-- When scrolling starts, `onScrollInProgressChanged(true)` sends `PauseForScroll` to `TimelineMosaicQueueActor`.
+- Lazy-list scroll and scrollbar drag are combined into one interactive-scroll state. Entering either source sends `PauseForScroll` to `TimelineMosaicQueueActor`.
 - Pause behavior:
-  - the currently running bucket request, if any, is moved to actor-owned deferred state with its work source.
-  - the actor emits `CancelWork` for the running token.
-  - pending bucket work stays queued but does not start while paused.
-- Runtime compute also receives a cooperative `shouldContinue` callback. If scrolling becomes active during assignment, `shouldContinue` throws cancellation.
-- On runtime cancellation:
+  - the currently running bucket request is allowed to finish; entering scroll does not cancel it.
+  - pending and deferred `RenderDemand` requests are discarded so obsolete drag targets cannot accumulate.
+  - new `RenderDemand` requests are ignored while paused. Sync-precompute requests may remain deferred, but no new work starts.
+- Runtime compute does not use `shouldContinue` to cancel for interactive scroll. Non-scroll invalidation and stale-config changes cancel or reject the worker through its token and generation guards.
+- On runtime cancellation from invalidation, preemption, or stale config:
   - the latest valid checkpoint is stored in `runtimeMosaicResumeStates` under the section `MosaicCacheKey`.
   - accumulated progress chunks for that section are stored with the checkpoint.
-  - the bucket is sent back to the actor as `Defer(RenderDemand)`.
-  - duplicate defers from pause and cancellation collapse through actor merge rules.
-- When scrolling stops, `onScrollInProgressChanged(false)`:
-  - publishes any state/geometry updates deferred during scroll.
-  - sends `ResumeAfterScroll(priorityBuckets)` with visible loaded buckets first as render demand.
-  - the actor appends remaining deferred buckets with their original work source.
-  - requests persisted bucket geometry.
+  - the bucket is sent back to the actor as `Defer(RenderDemand)` when the queue is not paused; paused queues discard that obsolete render demand and rely on the settled target request.
+- When both scroll sources stop:
+  - filters deferred state/geometry to the final scrollbar target and settled visible buckets, then publishes those updates.
+  - sends `ResumeAfterScroll(priorityBuckets)` with the final target first and settled visible loaded buckets next as render demand.
+  - the actor appends only remaining deferred sync-precompute work; obsolete drag render demand is not resumed.
+  - requests exact-target persisted bucket geometry without cancelling a geometry read already in flight.
+  - starts radius-neighbor materialization and geometry warmup only after `250ms` of continued idle time.
   - flushes eligible progressive chunks immediately.
 - Visible-priority render demand may preempt a running offscreen bucket. It must not preempt a currently visible or explicitly targeted running bucket.
 
@@ -115,10 +115,10 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 ## Timeline Publication Rules
 
 - While scrolling, `publishMosaicUpdates(...)` does not mutate visible Mosaic state directly. It stores state and geometry updates in deferred maps.
-- After scroll settles, deferred state/geometry maps are published together.
+- After scroll settles, only deferred state/geometry for the final target and settled visible buckets is published; obsolete intermediate drag targets are discarded.
 - Failed Timeline sections render placeholders and retry through normal requested-config cache/runtime repair; failure must not display fallback rows or fallback Mosaic bands.
 - Ready Timeline sections display validated cached mixed display records when available, or completed ready projection from assignments.
-- A cache-enabled render-demand miss persists successful repair only after every current bucket section is ready. Valid cached siblings are reused, invalid sections are recomputed, aggregate geometry is recalculated, and the repository atomically replaces the bucket. Repair writes remain untracked render-demand work.
+- A cache-enabled render-demand miss persists successful repair only after every current bucket section is ready. Valid cached siblings are reused, invalid sections are recomputed, aggregate geometry is recalculated, and the repository atomically replaces the bucket. Ready state is queued for publication before repair persistence. Repair requests then run through one conflated serial writer that keeps only the newest request per bucket, pauses writes during interactive scroll, and revalidates config, generation, revision, families, and geometry immediately before writing.
 
 ## Album And Person Detail Scheduler
 

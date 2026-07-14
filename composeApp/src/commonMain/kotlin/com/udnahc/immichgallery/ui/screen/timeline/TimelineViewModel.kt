@@ -341,6 +341,22 @@ internal fun orderedTimelineBucketIndexesForMosaic(
     }
 }
 
+internal fun orderedSettledTimelineBucketIndexes(
+    targetBucketIndex: Int?,
+    visibleBucketIndexes: List<Int>,
+    fallbackVisibleBucketIndexes: List<Int>,
+    bucketCount: Int
+): List<Int> {
+    if (bucketCount <= 0) return emptyList()
+    return buildList {
+        targetBucketIndex?.takeIf { it in 0 until bucketCount }?.let(::add)
+        val visible = visibleBucketIndexes.ifEmpty { fallbackVisibleBucketIndexes }
+        visible.forEach { index ->
+            if (index in 0 until bucketCount && index !in this) add(index)
+        }
+    }
+}
+
 internal fun timelineCachedMaterializationChunks(
     requestedBuckets: List<String>,
     priorityBuckets: List<String>,
@@ -534,6 +550,7 @@ class TimelineViewModel(
         timelineMosaicQueue.close()
         timelineMosaicDispatcherProvider.close()
         mosaicPublishChannel.close()
+        mosaicRepairChannel.close()
     }
 
     private val log = logging("TimelineViewModel")
@@ -608,12 +625,17 @@ class TimelineViewModel(
     private val timelineMosaicWorkerMutex = Mutex()
     private val activeTimelineMosaicJobs = mutableMapOf<Long, Job>()
     private val isTimelineScrollActive = MutableStateFlow(false)
+    private var isLazyListScrollActive = false
+    private var isScrollbarDragActive = false
+    private var idleNeighborWarmupJob: Job? = null
     private val mosaicRuntimeGeneration = MutableStateFlow(0L)
     private val mosaicBucketGenerations = MutableStateFlow<Map<String, Long>>(emptyMap())
     private val deferredScrollMosaicStateUpdates =
         mutableMapOf<MosaicCacheKey, RuntimeMosaicState>()
     private val deferredScrollMosaicGeometryUpdates =
         mutableMapOf<MosaicCacheKey, TimelineMosaicSectionGeometry>()
+    private val deferredScrollMosaicRepairRequests =
+        mutableMapOf<String, TimelineMosaicRepairRequest>()
 
     // Materialization runs that complete during active scroll route their
     // _bucketData publishes through this buffer instead of firing combine
@@ -627,6 +649,7 @@ class TimelineViewModel(
     // single _mosaicStates update before suspending for the next item.
     private val mosaicPublishChannel = Channel<PendingMosaicPublish>(Channel.UNLIMITED)
     private val mosaicPublishBuffer = TimelineMosaicPublishBuffer()
+    private val mosaicRepairChannel = Channel<TimelineMosaicRepairRequest>(Channel.UNLIMITED)
 
     private data class TimelineMosaicReadyMemo(
         val recordsRef: List<MosaicDisplayItemRecord>,
@@ -646,6 +669,7 @@ class TimelineViewModel(
     private val runtimeMosaicResumeStates =
         mutableMapOf<MosaicCacheKey, TimelineRuntimeMosaicResumeState>()
     private var bucketGeometryCacheJob: Job? = null
+    private var bucketGeometryResumeJob: Job? = null
     private var bucketGeometryCacheGeneration = 0L
 
     // Closed (false) until a coordinated bucket+section geometry read completes
@@ -777,6 +801,13 @@ class TimelineViewModel(
                 if (publish.geometryUpdates.isNotEmpty()) {
                     scheduleProgressiveMosaicFlush(immediate = true)
                 }
+                publish.repairRequests.forEach(mosaicRepairChannel::trySend)
+            }
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            for (firstRequest in mosaicRepairChannel) {
+                processTimelineMosaicRepairBatch(firstRequest)
             }
         }
 
@@ -1023,14 +1054,9 @@ class TimelineViewModel(
         lastVisibleBucketIndexes = validBucketIndexes
         visibleBucketIndexes = validBucketIndexes
         log.d { "Timeline visible buckets changed reason=$reason buckets=$validBucketIndexes" }
-        loadBucketIndexes(
-            bucketIndexes = bucketIndexesForVisiblePriority(validBucketIndexes),
-            priority = TimelineRefreshQueuePriority.Visible,
-            source = TimelineServerRefreshSource.Visible
-        )
-        requestVisibleTimelineMosaicCacheRead()
-        scheduleProgressiveMosaicFlush(immediate = true)
         updateMosaicAnchor(validBucketIndexes.first(), reason)
+        if (isTimelineScrollActive.value) return
+        scheduleSettledTimelineWork()
     }
 
     fun onViewportBucketTargeted(
@@ -1041,50 +1067,123 @@ class TimelineViewModel(
         if (bucketIndex !in snapshot.buckets.indices) return
         lastTargetBucketIndex = bucketIndex
         log.d { "Timeline target bucket changed reason=$reason bucket=$bucketIndex" }
-        val priority = when (reason) {
-            TimelineBucketTargetReason.ScrollbarDrag -> TimelineRefreshQueuePriority.ScrollbarDrag
-            TimelineBucketTargetReason.ScrollbarStop -> TimelineRefreshQueuePriority.ScrollbarStop
-            TimelineBucketTargetReason.VisibleScroll,
-            TimelineBucketTargetReason.ScrollSettled -> TimelineRefreshQueuePriority.Visible
-        }
-        loadBucketIndexes(
-            bucketIndexes = bucketIndexesNearPriority(bucketIndex),
-            priority = priority,
-            source = TimelineServerRefreshSource.Target
-        )
-        requestVisibleTimelineMosaicCacheRead()
-        scheduleProgressiveMosaicFlush(immediate = true)
         updateMosaicAnchor(bucketIndex, reason)
+        if (isTimelineScrollActive.value) return
+        scheduleSettledTimelineWork()
     }
 
     fun onScrollInProgressChanged(inProgress: Boolean) {
+        if (inProgress == isLazyListScrollActive) return
+        if (inProgress && !isScrollbarDragActive) {
+            lastTargetBucketIndex = null
+        }
+        isLazyListScrollActive = inProgress
+        updateTimelineInteractiveScrollState()
+    }
+
+    fun onScrollbarDragInProgressChanged(inProgress: Boolean) {
+        if (inProgress == isScrollbarDragActive) return
+        isScrollbarDragActive = inProgress
+        updateTimelineInteractiveScrollState()
+    }
+
+    private fun updateTimelineInteractiveScrollState() {
+        val inProgress = isLazyListScrollActive || isScrollbarDragActive
         if (inProgress == isTimelineScrollActive.value) return
         isTimelineScrollActive.value = inProgress
         if (inProgress) {
+            idleNeighborWarmupJob?.cancel()
+            idleNeighborWarmupJob = null
             timelineMosaicQueue.send(TimelineMosaicQueueCommand.PauseForScroll)
             log.d { "Timeline Mosaic work paused for active scroll" }
         } else {
-            publishDeferredScrollMosaicUpdates()
-            drainDeferredScrollMaterialization()
-            val priorityBuckets = orderedVisibleLoadedTimelineBuckets()
-            timelineMosaicQueue.send(TimelineMosaicQueueCommand.ResumeAfterScroll(priorityBuckets))
-            log.d { "Timeline Mosaic work resumed after scroll priorityBuckets=${priorityBuckets.size}" }
-            requestPersistedBucketGeometryForCachedBuckets()
+            val priorityIndexes = settledTimelineBucketIndexes()
+            val priorityBuckets = timelineBucketsForIndexes(priorityIndexes)
+            publishDeferredScrollMosaicUpdates(priorityBuckets.toSet())
+            drainDeferredScrollMaterialization(priorityBuckets.toSet())
+            scheduleSettledTimelineWork(priorityIndexes)
+            val loadedBuckets = priorityBuckets.filter { it in _bucketData.value.loadedBuckets }
+            timelineMosaicQueue.send(TimelineMosaicQueueCommand.ResumeAfterScroll(loadedBuckets))
+            log.d { "Timeline Mosaic work resumed after scroll priorityBuckets=${loadedBuckets.size}" }
+            requestPersistedBucketGeometryForCachedBuckets(
+                priorityRadius = 0,
+                preserveInFlight = true,
+                hydrateBackground = false
+            )
             scheduleProgressiveMosaicFlush(immediate = true)
         }
     }
 
-    private fun drainDeferredScrollMaterialization() {
-        if (deferredScrollMaterializedBuckets.isEmpty()) return
-        val pending = deferredScrollMaterializedBuckets.toSet()
-        deferredScrollMaterializedBuckets.clear()
-        val published = publishMaterializedCachedBuckets(pending)
-        if (published.isNotEmpty() && _uiConfig.value.viewConfig.mosaicEnabled) {
-            requestTimelineMosaicCacheReadForBuckets(
-                timeBuckets = published,
-                source = TimelineMosaicWorkSource.SyncPrecompute
+    private fun scheduleSettledTimelineWork(
+        priorityIndexes: List<Int> = settledTimelineBucketIndexes()
+    ) {
+        if (priorityIndexes.isEmpty() || isTimelineScrollActive.value) return
+        val priorityBuckets = timelineBucketsForIndexes(priorityIndexes)
+        loadBucketIndexes(
+            bucketIndexes = priorityIndexes,
+            priority = if (lastTargetBucketIndex != null) {
+                TimelineRefreshQueuePriority.ScrollbarStop
+            } else {
+                TimelineRefreshQueuePriority.Visible
+            },
+            source = if (lastTargetBucketIndex != null) {
+                TimelineServerRefreshSource.Target
+            } else {
+                TimelineServerRefreshSource.Visible
+            }
+        )
+        val loadedPriorityBuckets = priorityBuckets.filter { it in _bucketData.value.loadedBuckets }
+        requestTimelineMosaicCacheReadForBuckets(
+            timeBuckets = loadedPriorityBuckets,
+            source = TimelineMosaicWorkSource.RenderDemand
+        )
+        scheduleProgressiveMosaicFlush(immediate = true)
+        scheduleIdleNeighborWarmup(priorityIndexes)
+    }
+
+    private fun scheduleIdleNeighborWarmup(priorityIndexes: List<Int>) {
+        idleNeighborWarmupJob?.cancel()
+        idleNeighborWarmupJob = viewModelScope.launch(Dispatchers.Default) {
+            delay(TIMELINE_IDLE_NEIGHBOR_WARMUP_DELAY_MS)
+            if (isTimelineScrollActive.value) return@launch
+            val bucketCount = state.value.buckets.size
+            val neighbors = priorityIndexes
+                .flatMap(::bucketIndexesNearPriority)
+                .filter { it in 0 until bucketCount && it !in priorityIndexes }
+                .distinct()
+            if (neighbors.isEmpty()) return@launch
+            loadBucketIndexes(
+                bucketIndexes = neighbors,
+                priority = TimelineRefreshQueuePriority.Visible,
+                source = TimelineServerRefreshSource.Visible
+            )
+            requestPersistedBucketGeometryForCachedBuckets(
+                preserveInFlight = true,
+                hydrateBackground = false
             )
         }
+    }
+
+    private fun settledTimelineBucketIndexes(): List<Int> =
+        orderedSettledTimelineBucketIndexes(
+            targetBucketIndex = lastTargetBucketIndex,
+            visibleBucketIndexes = visibleBucketIndexes,
+            fallbackVisibleBucketIndexes = lastVisibleBucketIndexes,
+            bucketCount = state.value.buckets.size
+        )
+
+    private fun timelineBucketsForIndexes(indexes: List<Int>): List<String> {
+        val buckets = state.value.buckets
+        return indexes.mapNotNull { index -> buckets.getOrNull(index)?.timeBucket }.distinct()
+    }
+
+    private fun drainDeferredScrollMaterialization(priorityBuckets: Set<String>) {
+        if (deferredScrollMaterializedBuckets.isEmpty()) return
+        val pending = deferredScrollMaterializedBuckets.filterTo(mutableSetOf()) {
+            it in priorityBuckets
+        }
+        deferredScrollMaterializedBuckets.clear()
+        publishMaterializedCachedBuckets(pending)
     }
 
     fun scrollTargetForFraction(fraction: Float): TimelineScrollTarget? {
@@ -1146,6 +1245,7 @@ class TimelineViewModel(
         runtimeMosaicResumeStates.clear()
         deferredScrollMosaicStateUpdates.clear()
         deferredScrollMosaicGeometryUpdates.clear()
+        deferredScrollMosaicRepairRequests.clear()
         deferredScrollActiveMosaicConfig = null
         _mosaicStates.update { states ->
             states.filterValues { it !is RuntimeMosaicState.Partial }
@@ -1153,6 +1253,8 @@ class TimelineViewModel(
     }
 
     private fun cancelObsoleteTimelineMosaicWorkForConfigPrepare() {
+        bucketGeometryResumeJob?.cancel()
+        bucketGeometryResumeJob = null
         bucketGeometryCacheJob?.cancel()
         bucketGeometryCacheJob = null
         bucketGeometryCacheGeneration++
@@ -1196,18 +1298,6 @@ class TimelineViewModel(
         }
             .filter { it in 0 until state.value.buckets.size }
             .distinct()
-
-    private fun bucketIndexesForVisiblePriority(bucketIndexes: List<Int>): List<Int> =
-        buildList {
-            bucketIndexes.forEach { index ->
-                if (index !in this) add(index)
-            }
-            bucketIndexes
-                .flatMap(::bucketIndexesNear)
-                .forEach { index ->
-                    if (index !in this) add(index)
-                }
-        }
 
     fun retryBucket(timeBucket: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -3675,6 +3765,7 @@ class TimelineViewModel(
         runtimeMosaicResumeStates.keys.removeAll { it.timeBucket == timeBucket }
         deferredScrollMosaicStateUpdates.keys.removeAll { it.timeBucket == timeBucket }
         deferredScrollMosaicGeometryUpdates.keys.removeAll { it.timeBucket == timeBucket }
+        deferredScrollMosaicRepairRequests.remove(timeBucket)
         viewModelScope.launch(Dispatchers.Default) {
             progressiveMosaicBuffer.clearBuckets(setOf(timeBucket))
         }
@@ -3732,7 +3823,26 @@ class TimelineViewModel(
             .distinct()
     }
 
-    private fun requestPersistedBucketGeometryForCachedBuckets() {
+    private fun requestPersistedBucketGeometryForCachedBuckets(
+        priorityRadius: Int = PREFETCH_BUCKET_RADIUS,
+        preserveInFlight: Boolean = false,
+        hydrateBackground: Boolean = true
+    ) {
+        val activeJob = bucketGeometryCacheJob
+        if (preserveInFlight && activeJob?.isActive == true) {
+            bucketGeometryResumeJob?.cancel()
+            bucketGeometryResumeJob = viewModelScope.launch(Dispatchers.Default) {
+                activeJob.join()
+                if (!isTimelineScrollActive.value) {
+                    requestPersistedBucketGeometryForCachedBuckets(
+                        priorityRadius = priorityRadius,
+                        preserveInFlight = false,
+                        hydrateBackground = hydrateBackground
+                    )
+                }
+            }
+            return
+        }
         val data = _bucketData.value
         val orderedBuckets = data.buckets.map { it.timeBucket }
         val selection = selectTimelineGeometryBuckets(
@@ -3741,7 +3851,7 @@ class TimelineViewModel(
             visibleBucketIndexes = visibleBucketIndexes,
             targetBucketIndex = lastTargetBucketIndex,
             fallbackVisibleBucketIndexes = lastVisibleBucketIndexes,
-            radius = PREFETCH_BUCKET_RADIUS,
+            radius = priorityRadius,
             backgroundChunkSize = CACHED_BUCKET_MATERIALIZATION_CHUNK_SIZE
         )
         if (selection.priorityBuckets.isEmpty()) {
@@ -3784,8 +3894,9 @@ class TimelineViewModel(
                 }
             }
             log.d { "Timeline priority geometry phase complete buckets=${selection.priorityBuckets.size}" }
-            if (!isTimelineScrollActive.value) {
+            if (hydrateBackground && !isTimelineScrollActive.value) {
                 for (chunk in selection.backgroundChunks) {
+                    if (isTimelineScrollActive.value) return@launch
                     if (generation != bucketGeometryCacheGeneration ||
                         !sameBucketGeometryReadConfig(config, geometryRequest, _uiConfig.value)
                     ) {
@@ -4333,11 +4444,7 @@ class TimelineViewModel(
                                     scheduleProgressiveMosaicFlush(immediate = false)
                                 }
                             },
-                            shouldContinue = {
-                                if (isTimelineScrollActive.value) {
-                                    throw CancellationException("Timeline Mosaic paused for scroll")
-                                }
-                            }
+                            shouldContinue = {}
                         )
                     }) {
                         is MosaicSectionResult.Ready -> {
@@ -4379,42 +4486,48 @@ class TimelineViewModel(
                         )
                         log.d { "Timeline runtime Mosaic checkpoint saved bucket=$timeBucket section=${section.sectionKey}" }
                     }
-                    if (isTimelineScrollActive.value) return failedBuckets
                     throw e
                 }
             }
         }
         if (!isActiveTimelineMosaicWorker(expectedWorkToken)) return failedBuckets
-        if (config.viewConfig.cacheMosaicResults) {
-            persistRuntimeMosaicRepairs(
+        val repairRequests = if (config.viewConfig.cacheMosaicResults) {
+            buildRuntimeMosaicRepairRequests(
                 timeBuckets = timeBuckets - failedBuckets,
                 config = config,
                 geometryRequest = timelineMosaicGeometryRequest(config, columnCount),
                 stateUpdates = stateUpdates,
                 geometryUpdates = geometryUpdates
             )
+        } else {
+            emptyList()
         }
-        publishMosaicUpdates(stateUpdates = stateUpdates, geometryUpdates = geometryUpdates)
+        publishMosaicUpdates(
+            stateUpdates = stateUpdates,
+            geometryUpdates = geometryUpdates,
+            repairRequests = repairRequests
+        )
         return failedBuckets
     }
 
-    private suspend fun persistRuntimeMosaicRepairs(
+    private fun buildRuntimeMosaicRepairRequests(
         timeBuckets: Set<String>,
         config: UiConfig,
         geometryRequest: TimelineMosaicGeometryRequest?,
         stateUpdates: Map<MosaicCacheKey, RuntimeMosaicState>,
         geometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>
-    ) {
-        val request = geometryRequest ?: return
+    ): List<TimelineMosaicRepairRequest> {
+        val request = geometryRequest ?: return emptyList()
         val states = _mosaicStates.value + stateUpdates
         val geometries = _mosaicGeometryStates.value + geometryUpdates
         val revisions = _bucketData.value.assetRevisions
-        timeBuckets.forEach { timeBucket ->
-            val assets = bucketAssetsCache[timeBucket] ?: return@forEach
+        return timeBuckets.mapNotNull { timeBucket ->
+            val assets = bucketAssetsCache[timeBucket] ?: return@mapNotNull null
+            val assetRevision = revisions[timeBucket] ?: 0
             val sections = runtimeMosaicSections(
                 timeBucket,
                 config.groupSize,
-                revisions[timeBucket] ?: 0,
+                assetRevision,
                 assets
             )
             val inputs = sections.mapNotNull { section ->
@@ -4422,7 +4535,7 @@ class TimelineViewModel(
                     timeBucket,
                     section.sectionKey,
                     config.mosaicColumnCount,
-                    revisions[timeBucket] ?: 0,
+                    assetRevision,
                     config.viewConfig.mosaicFamilies
                 )
                 val ready = states[key] as? RuntimeMosaicState.Ready ?: return@mapNotNull null
@@ -4439,30 +4552,97 @@ class TimelineViewModel(
                     )
                 )
             }.toMap()
-            if (inputs.size != sections.size) return@forEach
-            repairTimelineMosaicCacheAction(
+            if (inputs.size != sections.size) return@mapNotNull null
+            TimelineMosaicRepairRequest(
                 timeBucket = timeBucket,
                 groupSize = config.groupSize,
                 columnCount = config.mosaicColumnCount,
                 families = config.viewConfig.mosaicFamilies,
                 geometryRequest = request,
+                assetRevision = assetRevision,
+                globalGeneration = mosaicRuntimeGeneration.value,
+                bucketGeneration = mosaicBucketGenerations.value[timeBucket] ?: 0L,
                 sectionsByKey = inputs
+            )
+        }
+    }
+
+    private suspend fun processTimelineMosaicRepairBatch(
+        firstRequest: TimelineMosaicRepairRequest
+    ) {
+        val pending = mutableListOf(firstRequest)
+        drainTimelineMosaicRepairChannel(pending)
+        if (isTimelineScrollActive.value) {
+            isTimelineScrollActive.first { active -> !active }
+            drainTimelineMosaicRepairChannel(pending)
+        }
+        val requests = coalesceTimelineMosaicRepairRequests(pending)
+        requests.forEachIndexed { index, request ->
+            if (isTimelineScrollActive.value) {
+                requests.drop(index).forEach(mosaicRepairChannel::trySend)
+                return
+            }
+            if (!isCurrentTimelineMosaicRepair(request)) return@forEachIndexed
+            val mark = TimeSource.Monotonic.markNow()
+            repairTimelineMosaicCacheAction(
+                timeBucket = request.timeBucket,
+                groupSize = request.groupSize,
+                columnCount = request.columnCount,
+                families = request.families,
+                geometryRequest = request.geometryRequest,
+                sectionsByKey = request.sectionsByKey
             ).onFailure { error ->
                 if (error is CancellationException) throw error
-                log.e(error) { "Timeline runtime Mosaic repair persistence failed bucket=$timeBucket" }
+                log.e(error) {
+                    "Timeline runtime Mosaic repair persistence failed bucket=${request.timeBucket}"
+                }
+            }.onSuccess {
+                log.d {
+                    "Timeline runtime Mosaic repair persisted bucket=${request.timeBucket} " +
+                            "elapsed=${mark.elapsedNow()}"
+                }
             }
         }
+    }
+
+    private fun drainTimelineMosaicRepairChannel(
+        destination: MutableList<TimelineMosaicRepairRequest>
+    ) {
+        while (true) {
+            val next = mosaicRepairChannel.tryReceive().getOrNull() ?: return
+            destination.add(next)
+        }
+    }
+
+    private fun isCurrentTimelineMosaicRepair(request: TimelineMosaicRepairRequest): Boolean {
+        val config = _uiConfig.value
+        return config.viewConfig.mosaicEnabled &&
+                config.viewConfig.cacheMosaicResults &&
+                request.globalGeneration == mosaicRuntimeGeneration.value &&
+                request.bucketGeneration == (mosaicBucketGenerations.value[request.timeBucket] ?: 0L) &&
+                request.assetRevision == (_bucketData.value.assetRevisions[request.timeBucket] ?: 0) &&
+                request.groupSize == config.groupSize &&
+                request.columnCount == config.mosaicColumnCount &&
+                mosaicFamiliesKey(request.families) == mosaicFamiliesKey(config.viewConfig.mosaicFamilies) &&
+                request.geometryRequest == timelineMosaicGeometryRequest(
+                    config,
+                    config.mosaicColumnCount
+                )
     }
 
     private fun publishMosaicUpdates(
         stateUpdates: Map<MosaicCacheKey, RuntimeMosaicState>,
         geometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry> = emptyMap(),
-        activeConfig: ActiveMosaicConfig? = null
+        activeConfig: ActiveMosaicConfig? = null,
+        repairRequests: List<TimelineMosaicRepairRequest> = emptyList()
     ) {
-        if (stateUpdates.isEmpty() && geometryUpdates.isEmpty()) return
+        if (stateUpdates.isEmpty() && geometryUpdates.isEmpty() && repairRequests.isEmpty()) return
         if (isTimelineScrollActive.value) {
             deferredScrollMosaicStateUpdates.putAll(stateUpdates)
             deferredScrollMosaicGeometryUpdates.putAll(geometryUpdates)
+            repairRequests.forEach { request ->
+                deferredScrollMosaicRepairRequests[request.timeBucket] = request
+            }
             log.d {
                 "Timeline Mosaic updates deferred during scroll states=${stateUpdates.size} " +
                         "geometry=${geometryUpdates.size}"
@@ -4473,31 +4653,44 @@ class TimelineViewModel(
             PendingMosaicPublish(
                 stateUpdates = stateUpdates,
                 geometryUpdates = geometryUpdates,
-                stamp = mosaicPublishStampFor(stateUpdates.keys + geometryUpdates.keys)
+                stamp = mosaicPublishStampFor(stateUpdates.keys + geometryUpdates.keys),
+                repairRequests = repairRequests
             )
         )
     }
 
-    private fun publishDeferredScrollMosaicUpdates() {
+    private fun publishDeferredScrollMosaicUpdates(priorityBuckets: Set<String>) {
         if (deferredScrollMosaicStateUpdates.isEmpty() &&
             deferredScrollMosaicGeometryUpdates.isEmpty() &&
+            deferredScrollMosaicRepairRequests.isEmpty() &&
             deferredScrollActiveMosaicConfig == null
         ) {
             return
         }
-        val stateUpdates = deferredScrollMosaicStateUpdates.toMap()
-        val geometryUpdates = deferredScrollMosaicGeometryUpdates.toMap()
+        val stateUpdates = deferredScrollMosaicStateUpdates.filterKeys {
+            it.timeBucket in priorityBuckets
+        }
+        val geometryUpdates = deferredScrollMosaicGeometryUpdates.filterKeys {
+            it.timeBucket in priorityBuckets
+        }
+        val repairRequests = deferredScrollMosaicRepairRequests.filterKeys {
+            it in priorityBuckets
+        }.values.toList()
         val activeConfig = deferredScrollActiveMosaicConfig
         deferredScrollMosaicStateUpdates.clear()
         deferredScrollMosaicGeometryUpdates.clear()
+        deferredScrollMosaicRepairRequests.clear()
         deferredScrollActiveMosaicConfig = null
         publishMosaicUpdates(
             stateUpdates = stateUpdates,
             geometryUpdates = geometryUpdates,
-            activeConfig = activeConfig
+            activeConfig = activeConfig,
+            repairRequests = repairRequests
         )
         log.d {
-            "Timeline deferred Mosaic updates published states=${stateUpdates.size} geometry=${geometryUpdates.size}"
+                    "Timeline deferred Mosaic updates filtered and published " +
+                    "priorityBuckets=${priorityBuckets.size} states=${stateUpdates.size} " +
+                    "geometry=${geometryUpdates.size} repairs=${repairRequests.size}"
         }
     }
 
@@ -4839,6 +5032,7 @@ class TimelineViewModel(
         private const val PREFETCH_BUCKET_RADIUS = 2
         private const val CACHED_BUCKET_MATERIALIZATION_CHUNK_SIZE = 2
         private const val PROGRESSIVE_MOSAIC_FLUSH_DELAY_MS = 250L
+        private const val TIMELINE_IDLE_NEIGHBOR_WARMUP_DELAY_MS = 250L
         private const val TIMELINE_REBUILD_LOG_THRESHOLD_MS = 16L
     }
 }
