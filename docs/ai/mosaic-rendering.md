@@ -123,8 +123,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Detail artifacts:
   - Owner-scoped assignments, mixed display records, section geometry, and aggregate geometry are keyed by owner type/id, grouping, section index/key, column count, families, ordered asset fingerprint, geometry keys, and artifact versions.
   - Detail section geometry uses the same geometry-range payload as Timeline so Album/Person partial chunks can reserve exact unresolved heights.
-  - Album Detail may read/write owner cache when cache is enabled and the album owner snapshot is complete.
-  - Person Detail may read/write owner cache only after the full person asset set is known (`hasMore == false`).
+  - Album and Person Detail may read/write owner cache only after the full owner asset set is known (`hasMore == false`).
 - Full-owner cache readiness requires matching assignments, section geometry, and aggregate geometry. Per-section display recovery may use valid matching assignment, section geometry, and mixed display rows even when the owner aggregate geometry row is missing after an interrupted cache build.
 - Cache-disabled runtime rendering must not read or reuse disk Mosaic artifacts even if matching rows exist.
 - Applying Mosaic settings with cache enabled is blocking: prepare the applicable Timeline/detail cache first, then persist/apply the config. On preparation failure, keep the previous `ViewConfig`.

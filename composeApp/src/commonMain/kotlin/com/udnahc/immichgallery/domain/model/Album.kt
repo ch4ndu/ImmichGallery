@@ -21,5 +21,9 @@ data class AlbumDetail(
 @Immutable
 data class AlbumDetailSyncResult(
     val albumName: String,
-    val changed: Boolean
-)
+    val changed: Boolean,
+    val nextPage: Int? = null,
+    val order: String = "desc"
+) {
+    val hasMore: Boolean get() = nextPage != null
+}

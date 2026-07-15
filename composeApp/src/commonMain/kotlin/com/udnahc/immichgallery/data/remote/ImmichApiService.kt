@@ -127,6 +127,27 @@ class ImmichApiService(
         }.body()
     }
 
+    suspend fun getAlbumAssets(
+        id: String,
+        page: Int = 1,
+        size: Int = 250,
+        order: String = "desc"
+    ): SearchResponse {
+        log.d { "POST ${baseUrl()}/api/search/metadata albumId=$id page=$page" }
+        return httpClient.post("${baseUrl()}/api/search/metadata") {
+            header("x-api-key", apiKey())
+            contentType(ContentType.Application.Json)
+            setBody(
+                AlbumAssetsSearchRequest(
+                    albumIds = listOf(id),
+                    order = order,
+                    page = page,
+                    size = size
+                )
+            )
+        }.body()
+    }
+
     suspend fun getPeople(page: Int, size: Int): PeopleResponse {
         log.d { "GET ${baseUrl()}/api/people page=$page size=$size" }
         return httpClient.get("${baseUrl()}/api/people") {
@@ -208,6 +229,14 @@ private data class MetadataSearchRequest(
 @Serializable
 private data class PersonAssetsSearchRequest(
     val personIds: List<String>,
+    val page: Int = 1,
+    val size: Int = 250
+)
+
+@Serializable
+internal data class AlbumAssetsSearchRequest(
+    val albumIds: List<String>,
+    val order: String = "desc",
     val page: Int = 1,
     val size: Int = 250
 )

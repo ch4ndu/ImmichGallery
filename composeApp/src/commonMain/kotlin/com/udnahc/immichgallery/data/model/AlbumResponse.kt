@@ -18,6 +18,6 @@ data class AlbumResponse(
 data class AlbumDetailResponse(
     val id: String,
     val albumName: String,
-    val assets: List<AssetResponse> = emptyList(),
-    val assetCount: Int = 0
+    val assetCount: Int = 0,
+    val order: String = "desc"
 )

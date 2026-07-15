@@ -11,8 +11,15 @@ class GetAlbumDetailUseCase(
     fun observeAssets(albumId: String): Flow<List<Asset>> =
         repository.observeAlbumAssets(albumId)
 
-    suspend fun sync(albumId: String): Result<AlbumDetailSyncResult> =
-        repository.syncAlbumDetail(albumId)
+    suspend fun syncPage(
+        albumId: String,
+        page: Int,
+        order: String? = null
+    ): Result<AlbumDetailSyncResult> =
+        repository.syncAlbumAssetsPage(albumId, page, order)
+
+    suspend fun syncAll(albumId: String): Result<AlbumDetailSyncResult> =
+        repository.syncAllAlbumAssets(albumId)
 
     suspend fun getCachedAlbumName(albumId: String): String? =
         repository.getCachedAlbumName(albumId)

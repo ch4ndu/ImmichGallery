@@ -1,15 +1,23 @@
 package com.udnahc.immichgallery.data.model
 
+import com.udnahc.immichgallery.data.remote.AlbumAssetsSearchRequest
 import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomainOrNull
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class ImmichApiContractTest {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
 
     @Test
     fun assetResponseDecodesNestedStack() {
@@ -42,6 +50,41 @@ class ImmichApiContractTest {
         )
 
         assertEquals(true, response.hasNextPage)
+    }
+
+    @Test
+    fun albumDetailDecodesV3MetadataWithoutEmbeddedAssets() {
+        val response = json.decodeFromString<AlbumDetailResponse>(
+            """{
+                "id":"album-1",
+                "albumName":"Trips",
+                "assetCount":5230,
+                "order":"asc"
+            }"""
+        )
+
+        assertEquals("Trips", response.albumName)
+        assertEquals(5230, response.assetCount)
+        assertEquals("asc", response.order)
+    }
+
+    @Test
+    fun albumAssetsSearchEncodesPaginationAndOrder() {
+        val encoded = json.parseToJsonElement(
+            json.encodeToString(
+                AlbumAssetsSearchRequest(
+                    albumIds = listOf("album-1"),
+                    order = "asc",
+                    page = 2,
+                    size = 250
+                )
+            )
+        ).jsonObject
+
+        assertEquals("album-1", encoded.getValue("albumIds").jsonArray.single().jsonPrimitive.content)
+        assertEquals("asc", encoded.getValue("order").jsonPrimitive.content)
+        assertEquals(2, encoded.getValue("page").jsonPrimitive.content.toInt())
+        assertEquals(250, encoded.getValue("size").jsonPrimitive.content.toInt())
     }
 
     @Test

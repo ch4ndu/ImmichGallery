@@ -285,7 +285,6 @@ class PersonDetailViewModel(
 
     private fun syncFromServer() {
         if (syncJob?.isActive == true || _state.value.isLoadingMore || loadMoreJob?.isActive == true) return
-        _state.update { it.copy(nextPage = 1) }
         syncJob = viewModelScope.launch(Dispatchers.IO) {
             syncActivityTracker.track(SyncActivityKey.PersonDetail(personId)) {
                 val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
@@ -299,23 +298,22 @@ class PersonDetailViewModel(
                 val lastSync = getPersonAssetsUseCase.getLastSyncedAt(personId)
                 _state.update { it.copy(lastSyncedAt = lastSync) }
 
-                if (!hasCachedAssets) {
-                    log.d { "First launch — syncing all assets for person $personId..." }
-                    getPersonAssetsUseCase.syncAll(personId).fold(
-                        onSuccess = { result ->
-                            _state.update {
-                                it.copy(
-                                    hasMore = false,
-                                    nextPage = null,
-                                    isBuilding = false,
-                                    isSyncing = false,
-                                    error = null
-                                )
-                            }
-                            handleSyncedContentChange(result.changed)
-                        },
-                        onFailure = { e ->
-                            log.e(e) { "Failed to sync person assets for $personId" }
+                getPersonAssetsPageUseCase(personId, page = 1).fold(
+                    onSuccess = { result ->
+                        _state.update {
+                            it.copy(
+                                hasMore = result.hasMore,
+                                nextPage = result.nextPage,
+                                isBuilding = false,
+                                isSyncing = false,
+                                error = null
+                            )
+                        }
+                        handleSyncedContentChange(result.changed)
+                    },
+                    onFailure = { e ->
+                        log.e(e) { "Failed to sync person assets for $personId" }
+                        if (!hasCachedAssets) {
                             _state.update {
                                 it.copy(
                                     isBuilding = false,
@@ -323,23 +321,7 @@ class PersonDetailViewModel(
                                     error = ConnectionUiMessage.NoConnectionToServer
                                 )
                             }
-                        }
-                    )
-                } else {
-                    getPersonAssetsPageUseCase(personId, page = 1).fold(
-                        onSuccess = { result ->
-                            _state.update {
-                                it.copy(
-                                    hasMore = result.hasMore,
-                                    nextPage = result.nextPage,
-                                    isSyncing = false,
-                                    error = null
-                                )
-                            }
-                            handleSyncedContentChange(result.changed)
-                        },
-                        onFailure = { e ->
-                            log.e(e) { "Failed to sync person assets for $personId" }
+                        } else {
                             _state.update {
                                 it.copy(
                                     isSyncing = false,
@@ -347,8 +329,8 @@ class PersonDetailViewModel(
                                 )
                             }
                         }
-                    )
-                }
+                    }
+                )
             }
         }
     }

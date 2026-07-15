@@ -9,12 +9,13 @@ import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.entity.AlbumAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.AlbumEntity
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
+import com.udnahc.immichgallery.data.model.AssetResponse
+import com.udnahc.immichgallery.data.model.nextPageNumberOrNull
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.domain.model.AlbumDetailSyncResult
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.toAlbumEntity
-import com.udnahc.immichgallery.domain.model.toAssetEntity
 import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDomainOrNull
@@ -115,27 +116,115 @@ class AlbumRepository(
         }
     }
 
-    suspend fun syncAlbumDetail(albumId: String): Result<AlbumDetailSyncResult> {
+    suspend fun syncAlbumAssetsPage(
+        albumId: String,
+        page: Int,
+        order: String? = null,
+        size: Int = ALBUM_PAGE_SIZE
+    ): Result<AlbumDetailSyncResult> {
         return runSuspendCatching {
-            // A successful detail sync is not automatically a content change.
-            // Compare persisted rows after the full write/enrichment path so
-            // title-only updates do not force row packing or Mosaic rebuilds.
             val before = withContext(Dispatchers.IO) {
                 albumDao.getAlbumAssets(albumId)
             }
-            val response = apiService.getAlbumDetail(albumId)
-            val supportedAssets = response.assets.filter { it.toAssetEntityOrNull() != null }
+            val detail = if (page == 1) apiService.getAlbumDetail(albumId) else null
+            val resolvedOrder = normalizeAlbumOrder(detail?.order ?: order)
+            val response = apiService.getAlbumAssets(albumId, page, size, resolvedOrder)
+            val nextPage = response.assets.nextPageNumberOrNull()
+            val supportedAssets = response.assets.items.filter { it.toAssetEntityOrNull() != null }
+            val hasMore = nextPage != null
             val assetEntities = supportedAssets.mapNotNull { it.toAssetEntityOrNull() }
+            val baseOffset = (page - 1) * size
+            val pageChanged = pagedOwnerPageChanged(
+                beforeAssetIds = before.map { it.id },
+                baseOffset = baseOffset,
+                fetchedAssetIds = supportedAssets.map { it.id },
+                hasMore = hasMore
+            )
             val crossRefs = supportedAssets.mapIndexed { index, asset ->
+                AlbumAssetCrossRef(albumId, asset.id, baseOffset + index)
+            }
+            val cachedAlbum = withContext(Dispatchers.IO) {
+                albumDao.getAlbum(albumId)
+            }
+            val detailAlbum = detail?.let {
+                AlbumEntity(
+                    id = it.id,
+                    name = it.albumName,
+                    assetCount = it.assetCount,
+                    thumbnailAssetId = cachedAlbum?.thumbnailAssetId,
+                    updatedAt = cachedAlbum?.updatedAt ?: ""
+                )
+            }
+            withContext(Dispatchers.IO) {
+                database.useWriterConnection { transactor ->
+                    transactor.immediateTransaction {
+                        if (detailAlbum != null) {
+                            albumDao.upsertAlbums(listOf(detailAlbum))
+                        }
+                        assetDao.upsertAssets(assetEntities)
+                        if (pageChanged || !hasMore) {
+                            albumDao.replaceAlbumRefsFromSortOrder(
+                                albumId,
+                                baseOffset,
+                                crossRefs
+                            )
+                        } else {
+                            albumDao.replaceAlbumRefsInSortRange(
+                                albumId = albumId,
+                                startSortOrder = baseOffset,
+                                endSortOrder = baseOffset + size,
+                                refs = crossRefs
+                            )
+                        }
+                        if (!hasMore) {
+                            syncMetadataDao.upsert(
+                                SyncMetadataEntity(
+                                    "$SYNC_SCOPE_ALBUM_PREFIX$albumId",
+                                    currentEpochMillis()
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            editsEnricher.enrich(supportedAssets)
+            val after = withContext(Dispatchers.IO) {
+                albumDao.getAlbumAssets(albumId)
+            }
+            AlbumDetailSyncResult(
+                albumName = detail?.albumName ?: cachedAlbum?.name.orEmpty(),
+                changed = orderedAssetsChanged(before, after),
+                nextPage = nextPage,
+                order = resolvedOrder
+            )
+        }
+    }
+
+    suspend fun syncAllAlbumAssets(albumId: String): Result<AlbumDetailSyncResult> {
+        return runSuspendCatching {
+            val before = withContext(Dispatchers.IO) {
+                albumDao.getAlbumAssets(albumId)
+            }
+            val detail = apiService.getAlbumDetail(albumId)
+            val order = normalizeAlbumOrder(detail.order)
+            val allItems = mutableListOf<AssetResponse>()
+            var page = 1
+            while (true) {
+                val response = apiService.getAlbumAssets(albumId, page, ALBUM_PAGE_SIZE, order)
+                allItems += response.assets.items.filter { it.toAssetEntityOrNull() != null }
+                page = response.assets.nextPageNumberOrNull() ?: break
+            }
+            val assetEntities = allItems.mapNotNull { it.toAssetEntityOrNull() }
+            val crossRefs = allItems.mapIndexed { index, asset ->
                 AlbumAssetCrossRef(albumId, asset.id, index)
             }
             val cachedAlbum = withContext(Dispatchers.IO) {
                 albumDao.getAlbum(albumId)
             }
             val detailAlbum = AlbumEntity(
-                id = response.id,
-                name = response.albumName,
-                assetCount = response.assetCount,
+                id = detail.id,
+                name = detail.albumName,
+                assetCount = detail.assetCount,
                 thumbnailAssetId = cachedAlbum?.thumbnailAssetId,
                 updatedAt = cachedAlbum?.updatedAt ?: ""
             )
@@ -154,18 +243,15 @@ class AlbumRepository(
                     }
                 }
             }
-            // Precise aspect for edited assets: fetch /edits in parallel and
-            // replace the sync-time approximation with the simulated
-            // post-edit aspect. Runs after the main upsert so the grid
-            // renders immediately; updates land via Room's Flow as they
-            // resolve.
-            editsEnricher.enrich(supportedAssets)
+            editsEnricher.enrich(allItems)
             val after = withContext(Dispatchers.IO) {
                 albumDao.getAlbumAssets(albumId)
             }
             AlbumDetailSyncResult(
-                albumName = response.albumName,
-                changed = orderedAssetsChanged(before, after)
+                albumName = detail.albumName,
+                changed = orderedAssetsChanged(before, after),
+                nextPage = null,
+                order = order
             )
         }
     }
@@ -184,8 +270,12 @@ class AlbumRepository(
     private fun currentEpochMillis(): Long =
         kotlin.time.Clock.System.now().toEpochMilliseconds()
 
+    private fun normalizeAlbumOrder(order: String?): String =
+        if (order.equals("asc", ignoreCase = true)) "asc" else "desc"
+
     companion object {
         const val SYNC_SCOPE_ALBUMS = "albums"
         const val SYNC_SCOPE_ALBUM_PREFIX = "album:"
+        private const val ALBUM_PAGE_SIZE = 250
     }
 }

@@ -8,7 +8,7 @@ class PersonPageChangeDetectionTest {
     @Test
     fun unchangedNonFinalPageDoesNotNeedTailTruncation() {
         assertFalse(
-            personPageChanged(
+            pagedOwnerPageChanged(
                 beforeAssetIds = listOf("a", "b", "c", "d"),
                 baseOffset = 0,
                 fetchedAssetIds = listOf("a", "b"),
@@ -20,7 +20,7 @@ class PersonPageChangeDetectionTest {
     @Test
     fun reorderedPageNeedsTailTruncation() {
         assertTrue(
-            personPageChanged(
+            pagedOwnerPageChanged(
                 beforeAssetIds = listOf("a", "b", "c", "d"),
                 baseOffset = 0,
                 fetchedAssetIds = listOf("b", "a"),
@@ -32,7 +32,7 @@ class PersonPageChangeDetectionTest {
     @Test
     fun finalShortPageWithStaleTailNeedsCleanup() {
         assertTrue(
-            personPageChanged(
+            pagedOwnerPageChanged(
                 beforeAssetIds = listOf("a", "b", "c", "d"),
                 baseOffset = 2,
                 fetchedAssetIds = listOf("c"),

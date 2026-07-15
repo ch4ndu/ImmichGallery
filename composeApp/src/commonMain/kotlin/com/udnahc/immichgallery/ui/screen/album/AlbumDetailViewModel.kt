@@ -61,7 +61,10 @@ data class AlbumDetailState(
     val bannerError: ConnectionUiMessage? = null,
     val lastSyncedAt: Long? = null,
     val isBuilding: Boolean = false,
-    val isSyncing: Boolean = false
+    val isSyncing: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val hasMore: Boolean = true,
+    val nextPage: Int? = 1
 )
 
 class AlbumDetailViewModel(
@@ -89,6 +92,8 @@ class AlbumDetailViewModel(
     private var savedTargetRowHeight = getTargetRowHeightUseCase(RowHeightScope.ALBUM_DETAIL)
     private val mosaicOwnerKey = "album:$albumId"
     private var syncJob: Job? = null
+    private var loadMoreJob: Job? = null
+    private var albumOrder: String = "desc"
     private val _state = MutableStateFlow(
         AlbumDetailState(
             targetRowHeight = savedTargetRowHeight,
@@ -128,6 +133,7 @@ class AlbumDetailViewModel(
         persistViewConfig = setViewConfigAction::invoke,
         cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
         cacheOwnerId = albumId,
+        isPersistentCacheComplete = { _state.value.hasMore == false },
         readPersistentArtifacts = getDetailMosaicArtifactsUseCase::invoke,
         upsertPersistentArtifacts = upsertDetailMosaicArtifactsAction::invoke
     )
@@ -192,7 +198,31 @@ class AlbumDetailViewModel(
     suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
         withContext(Dispatchers.Default) {
             syncActivityTracker.track(SyncActivityKey.MosaicPreparation) {
-                layoutCoordinator.prepareMosaicViewConfig(config)
+                val normalized = config.normalized
+                if (!normalized.cacheMosaicResults || !normalized.mosaicEnabled) {
+                    return@track Result.success(Unit)
+                }
+                mosaicConfigPreparationCoordinator.cancelObsoleteWork()
+                if (_state.value.hasMore) {
+                    val result = getAlbumDetailUseCase.syncAll(albumId)
+                        .onFailure { return@track Result.failure(it) }
+                        .getOrNull()
+                    val assets = getAlbumDetailUseCase.getAlbumAssets(albumId)
+                    if (result != null) {
+                        albumOrder = result.order
+                    }
+                    _state.update {
+                        it.copy(
+                            albumName = result?.albumName ?: it.albumName,
+                            assets = assets,
+                            hasMore = false,
+                            nextPage = null,
+                            isLoadingMore = false
+                        )
+                    }
+                    handleSyncedContentChange(result?.changed == true)
+                }
+                return@track layoutCoordinator.prepareMosaicViewConfig(normalized)
             }
         }
 
@@ -206,6 +236,34 @@ class AlbumDetailViewModel(
 
     fun refreshAll() {
         syncFromServer()
+    }
+
+    fun loadMore() {
+        val previous = _state.value
+        if (syncJob?.isActive == true || previous.isSyncing || previous.isBuilding) return
+        val page = previous.nextPage ?: return
+        if (previous.isLoadingMore || !previous.hasMore) return
+        if (!_state.compareAndSet(previous, previous.copy(isLoadingMore = true))) return
+
+        loadMoreJob = viewModelScope.launch(Dispatchers.IO) {
+            getAlbumDetailUseCase.syncPage(albumId, page, albumOrder).fold(
+                onSuccess = { result ->
+                    albumOrder = result.order
+                    _state.update {
+                        it.copy(
+                            albumName = result.albumName.ifBlank { it.albumName },
+                            hasMore = result.hasMore,
+                            nextPage = result.nextPage,
+                            isLoadingMore = false
+                        )
+                    }
+                    handleSyncedContentChange(result.changed)
+                },
+                onFailure = {
+                    _state.update { it.copy(isLoadingMore = false) }
+                }
+            )
+        }
     }
 
     fun dismissBannerError() {
@@ -223,7 +281,7 @@ class AlbumDetailViewModel(
     }
 
     private fun syncFromServer() {
-        if (syncJob?.isActive == true) return
+        if (syncJob?.isActive == true || _state.value.isLoadingMore || loadMoreJob?.isActive == true) return
         syncJob = viewModelScope.launch(Dispatchers.IO) {
             syncActivityTracker.track(SyncActivityKey.AlbumDetail(albumId)) {
                 val hasCachedAssets = getAlbumDetailUseCase.hasCachedAssets(albumId)
@@ -237,9 +295,10 @@ class AlbumDetailViewModel(
                 val lastSync = getAlbumDetailUseCase.getLastSyncedAt(albumId)
                 _state.update { it.copy(lastSyncedAt = lastSync) }
 
-                getAlbumDetailUseCase.sync(albumId).fold(
+                getAlbumDetailUseCase.syncPage(albumId, page = 1).fold(
                     onSuccess = { result ->
                         log.d { "Synced album detail for $albumId" }
+                        albumOrder = result.order
                         // Network success and grid-visible content changes are
                         // separate signals. Album-name-only refreshes update the
                         // title while keeping the current packed rows/Mosaic work.
@@ -247,6 +306,8 @@ class AlbumDetailViewModel(
                         _state.update {
                             it.copy(
                                 albumName = result.albumName,
+                                hasMore = result.hasMore,
+                                nextPage = result.nextPage,
                                 isBuilding = false,
                                 isSyncing = false,
                                 error = null

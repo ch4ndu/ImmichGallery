@@ -140,7 +140,7 @@ class PeopleRepository(
             val hasMore = nextPage != null
             val assetEntities = items.mapNotNull { it.toAssetEntityOrNull() }
             val baseOffset = (page - 1) * size
-            val pageChanged = personPageChanged(
+            val pageChanged = pagedOwnerPageChanged(
                 beforeAssetIds = before.map { it.id },
                 baseOffset = baseOffset,
                 fetchedAssetIds = items.map { it.id },
@@ -265,7 +265,7 @@ class PeopleRepository(
     }
 }
 
-internal fun personPageChanged(
+internal fun pagedOwnerPageChanged(
     beforeAssetIds: List<String>,
     baseOffset: Int,
     fetchedAssetIds: List<String>,

@@ -78,6 +78,7 @@ fun AlbumDetailScreen(
                 onPhotoClick = onPhotoClick,
                 onRetry = viewModel::refreshAll,
                 onDismissBanner = viewModel::dismissBannerError,
+                onLoadMore = viewModel::loadMore,
                 onAvailableWidthChanged = viewModel::setAvailableWidth,
                 onAvailableViewportHeightChanged = viewModel::setAvailableViewportHeight,
                 onVisibleBucketIndexesChanged = viewModel::setVisibleBucketIndexes,
@@ -143,6 +144,7 @@ fun AlbumDetailContent(
     onPhotoClick: (String) -> Unit,
     onRetry: () -> Unit,
     onDismissBanner: () -> Unit = {},
+    onLoadMore: () -> Unit = {},
     onAvailableWidthChanged: (Float) -> Unit = {},
     onAvailableViewportHeightChanged: (Float) -> Unit = {},
     onVisibleBucketIndexesChanged: (List<Int>) -> Unit = {},
@@ -179,6 +181,8 @@ fun AlbumDetailContent(
         contentTopPadding = contentTopPadding,
         contentBottomPadding = contentBottomPadding,
         listState = listState,
+        isLoadingMore = state.isLoadingMore,
+        onLoadMore = onLoadMore,
         sharedTransitionScope = sharedTransitionScope,
     )
 }

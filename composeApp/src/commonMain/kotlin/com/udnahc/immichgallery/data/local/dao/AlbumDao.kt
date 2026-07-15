@@ -26,6 +26,32 @@ interface AlbumDao {
     @Query("DELETE FROM album_asset_refs WHERE albumId = :albumId")
     suspend fun clearAlbumRefs(albumId: String)
 
+    @Query(
+        """
+        DELETE FROM album_asset_refs
+        WHERE albumId = :albumId
+        AND sortOrder >= :startSortOrder
+        AND sortOrder < :endSortOrder
+        """
+    )
+    suspend fun clearAlbumRefsInSortRange(
+        albumId: String,
+        startSortOrder: Int,
+        endSortOrder: Int
+    )
+
+    @Query(
+        """
+        DELETE FROM album_asset_refs
+        WHERE albumId = :albumId
+        AND sortOrder >= :startSortOrder
+        """
+    )
+    suspend fun clearAlbumRefsFromSortOrder(
+        albumId: String,
+        startSortOrder: Int
+    )
+
     @Transaction
     @Query(
         """
@@ -72,6 +98,27 @@ interface AlbumDao {
         refs: List<AlbumAssetCrossRef>
     ) {
         clearAlbumRefs(albumId)
+        upsertAlbumRefs(refs)
+    }
+
+    @Transaction
+    suspend fun replaceAlbumRefsInSortRange(
+        albumId: String,
+        startSortOrder: Int,
+        endSortOrder: Int,
+        refs: List<AlbumAssetCrossRef>
+    ) {
+        clearAlbumRefsInSortRange(albumId, startSortOrder, endSortOrder)
+        upsertAlbumRefs(refs)
+    }
+
+    @Transaction
+    suspend fun replaceAlbumRefsFromSortOrder(
+        albumId: String,
+        startSortOrder: Int,
+        refs: List<AlbumAssetCrossRef>
+    ) {
+        clearAlbumRefsFromSortOrder(albumId, startSortOrder)
         upsertAlbumRefs(refs)
     }
 }

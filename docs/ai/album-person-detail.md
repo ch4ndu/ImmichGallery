@@ -63,7 +63,7 @@ The screens do not group assets, pack rows, compute Mosaic bands, read cache art
 - visible grid height after top/bottom chrome padding;
 - visible group indexes from `visibleBucketIndexesForDisplayIndexes(...)`;
 - active scroll state from `LazyListState.isScrollInProgress`;
-- near-end load-more triggers for Person Detail.
+- near-end load-more triggers for Album and Person Detail.
 
 `PhotoGridDetailContent` renders the same shared photo-grid display surface as
 Timeline. Its `LazyColumn` must use stable `gridKey` values and
@@ -94,17 +94,17 @@ Album Detail owns:
 - `albumId` and album title;
 - cached album-name lookup before network sync;
 - `GetAlbumDetailUseCase.observeAssets(albumId)` collection;
-- opened-album sync through `GetAlbumDetailUseCase.sync(albumId)`;
+- page-1 refresh and near-end pagination through `GetAlbumDetailUseCase`;
+- server-provided album order and `nextPage` tracking;
 - banner versus full-screen error state;
 - `DetailMosaicCacheOwnerType.ALBUM`;
-- persistent Mosaic cache eligibility for the complete album snapshot.
+- persistent Mosaic cache eligibility only when the full owner is known (`hasMore == false`).
 
 Person Detail owns:
 
 - `personId` and display name from navigation;
 - `GetPersonAssetsUseCase.observe(personId)` collection;
-- first-open full sync when no cached assets exist;
-- warm page-1 refresh when cached assets exist;
+- page-1 refresh on cold and warm opens;
 - `loadMore()` pagination through `GetPersonAssetsPageUseCase`;
 - duplicate load-more guards and sync-in-progress snackbar;
 - `DetailMosaicCacheOwnerType.PERSON`;
@@ -142,12 +142,14 @@ sequenceDiagram
     UC-->>VM: cached Room assets
     VM->>Coord: handleAssetEmission(assets)
     Coord-->>VM: displayItems
-    VM->>UC: sync(albumId)
-    UC->>API: fetch album detail
-    UC->>Room: write changed ordered refs/assets
-    UC-->>VM: albumName + changed
+    VM->>UC: sync page 1
+    UC->>API: fetch album metadata and albumIds search page
+    UC->>Room: update page refs/assets
+    UC-->>VM: albumName + order + hasMore,nextPage,changed
     VM->>Coord: handleSyncedContentChange(changed)
     Coord-->>VM: rebuild only if ordered content changed
+    UI->>VM: near end
+    VM->>UC: sync nextPage with album order
 ```
 
 Person Detail:
@@ -165,18 +167,10 @@ sequenceDiagram
     VM->>UC: observe(personId)
     UC-->>VM: cached Room assets
     VM->>Coord: handleAssetEmission(assets)
-    alt no cached assets
-        VM->>UC: syncAll(personId)
-        UC->>API: fetch all pages
-        UC->>Room: replace complete owner refs
-        UC-->>VM: changed
-        VM->>VM: hasMore=false
-    else cached assets exist
-        VM->>UC: get page 1
-        UC->>API: fetch first page
-        UC->>Room: update page refs
-        UC-->>VM: hasMore,nextPage,changed
-    end
+    VM->>UC: get page 1
+    UC->>API: fetch first page
+    UC->>Room: update page refs
+    UC-->>VM: hasMore,nextPage,changed
     VM->>Coord: handleSyncedContentChange(changed)
     UI->>VM: near end
     VM->>UC: get page nextPage
@@ -184,7 +178,7 @@ sequenceDiagram
 
 Sync success and ordered content change are separate signals. Album-name updates, pagination flags, last-sync timestamps, and cache bookkeeping must not repack rows or rebuild Mosaic unless ordered assets or layout-affecting metadata changed.
 
-Person load-more rules:
+Album and Person load-more rules:
 
 - ignore when sync/build is active and emit `SyncInProgress`;
 - ignore when already loading more;
@@ -328,7 +322,7 @@ Config-prep cancellation cancels the coordinator's `PhotoGridLayoutRunner`, pend
 flowchart LR
     Config[Draft ViewConfig]
     Complete{Complete owner?}
-    PersonSync[Person ViewModel syncAll if hasMore]
+    OwnerSync[Album or Person ViewModel syncAll if hasMore]
     Failure[Coordinator returns failure if owner incomplete]
     Lookup[DetailMosaicCacheLookup]
     Artifacts[Read artifacts]
@@ -339,10 +333,10 @@ flowchart LR
     Aggregate[Upsert aggregate geometry]
 
     Config --> Complete
-    Complete -- Person hasMore --> PersonSync
+    Complete -- owner hasMore --> OwnerSync
     Complete -- still incomplete --> Failure
     Complete -- yes --> Lookup
-    PersonSync --> Lookup
+    OwnerSync --> Lookup
     Lookup --> Artifacts
     Artifacts --> Groups
     Groups --> Ready
@@ -352,14 +346,10 @@ flowchart LR
     Write --> Aggregate
 ```
 
-The complete-owner requirement differs by screen:
-
-- Album Detail: the album detail asset list is treated as complete after the
-  album owner snapshot is cached.
-- Person Detail: cache preparation cannot use partial paged data. If the user
-  enables cached Mosaic results while `hasMore == true`, the ViewModel first
-  performs `syncAll(personId)`, updates assets, sets `hasMore = false`, handles
-  any content change, and only then prepares detail Mosaic artifacts.
+Album and Person cache preparation cannot use partial paged data. If the user
+enables cached Mosaic results while `hasMore == true`, the owner ViewModel first
+performs its full sync, updates assets, sets `hasMore = false`, handles any
+content change, and only then prepares detail Mosaic artifacts.
 
 Cache results affect runtime reads and writes, not opened-owner sync. Normal
 album/person sync may update ordered assets; it does not build Mosaic artifacts
@@ -518,8 +508,9 @@ Strict persistent display read:
 
 Album cache policy:
 
-- albums are complete owner snapshots once their detail assets are cached;
-- Album Detail can read/write owner artifacts whenever cache is enabled and assets are available.
+- Album Detail can render partial paged data at runtime;
+- persistent owner Mosaic artifacts may be read/written only when `hasMore == false`;
+- `prepareMosaicViewConfig(...)` with cache enabled performs full album sync first if pages remain.
 
 Person cache policy:
 
@@ -533,7 +524,7 @@ flowchart TD
     Prepare[prepareMosaicViewConfig]
     CacheEnabled{Mosaic + cache enabled?}
     OwnerComplete{Owner snapshot complete?}
-    PersonFullSync[Person syncAll if hasMore]
+    OwnerFullSync[Album or Person syncAll if hasMore]
     Lookup[Build DetailMosaicCacheLookup]
     Read[Read artifacts]
     Missing{Group artifact ready?}
@@ -545,9 +536,9 @@ flowchart TD
     Prepare --> CacheEnabled
     CacheEnabled -- no --> Apply
     CacheEnabled -- yes --> OwnerComplete
-    OwnerComplete -- Album yes --> Lookup
-    OwnerComplete -- Person no --> PersonFullSync
-    PersonFullSync --> Lookup
+    OwnerComplete -- yes --> Lookup
+    OwnerComplete -- no --> OwnerFullSync
+    OwnerFullSync --> Lookup
     Lookup --> Read
     Read --> Missing
     Missing -- yes --> Compute
@@ -600,7 +591,7 @@ Mosaic runtime failure:
 Load-more failure:
 
 - clear `isLoadingMore`;
-- keep current person assets and display output;
+- keep current album/person assets and display output;
 - a later near-end trigger may retry.
 
 ## Invariants
@@ -612,7 +603,7 @@ Load-more failure:
 - Timeline Mosaic queue rules must not be copied into detail screens.
 - Search remains row-packing only and is not part of this architecture.
 - Cache-disabled detail rendering must not read persistent Mosaic artifacts.
-- Persistent Person Mosaic artifacts require a complete owner snapshot.
+- Persistent Album and Person Mosaic artifacts require a complete owner snapshot.
 - Final display caches must not contain placeholders, partial runtime output, or standard `RowItemKind.STANDARD` rows while Mosaic is enabled. Completed `RowItemKind.MOSAIC_FALLBACK` rows are valid final Mosaic output.
 - Shared element return targeting depends on stable grid keys and `assetDisplayIndexById`.
 
