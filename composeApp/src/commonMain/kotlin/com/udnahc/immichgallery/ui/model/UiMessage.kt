@@ -5,6 +5,7 @@ sealed interface UiMessage
 sealed interface LoginUiMessage : UiMessage {
     data object RequiredFields : LoginUiMessage
     data object ConnectionFailed : LoginUiMessage
+    data object LocalNetworkPermissionDenied : LoginUiMessage
 }
 
 sealed interface SearchUiMessage : UiMessage {

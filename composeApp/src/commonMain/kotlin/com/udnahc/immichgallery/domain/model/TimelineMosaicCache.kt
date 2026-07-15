@@ -1,9 +1,9 @@
 package com.udnahc.immichgallery.domain.model
 
-import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Instant
 import kotlinx.serialization.Serializable
 
 const val TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT = 4

@@ -25,9 +25,9 @@ import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.dismiss
 import immichgallery.composeapp.generated.resources.ic_close
 import kotlinx.coroutines.delay
-import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Instant
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -118,7 +118,7 @@ private fun formatLastSynced(epochMillis: Long): String {
         val instant = Instant.fromEpochMilliseconds(epochMillis)
         val local = instant.toLocalDateTime(TimeZone.currentSystemDefault())
         val monthName = local.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
-        "${local.dayOfMonth} $monthName ${local.year}"
+        "${local.day} $monthName ${local.year}"
     } catch (_: Exception) {
         "unknown"
     }

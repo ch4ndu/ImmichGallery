@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.di
 
 import coil3.ImageLoader
 import coil3.PlatformContext
+import coil3.annotation.ExperimentalCoilApi
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
@@ -14,7 +15,7 @@ import okio.FileSystem
 
 private const val DECODE_PARALLELISM = 4
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoilApi::class, ExperimentalCoroutinesApi::class)
 actual fun createImageLoader(
     context: PlatformContext,
     httpClient: HttpClient,

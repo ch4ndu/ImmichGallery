@@ -54,9 +54,9 @@ import immichgallery.composeapp.generated.resources.detail_people
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
-import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Instant
 import org.jetbrains.compose.resources.stringResource
 
 private const val BYTES_PER_KB = 1_024.0
@@ -287,7 +287,7 @@ private fun formatDateTime(dateTime: String): String? {
         val instant = Instant.parse(dateTime)
         val local = instant.toLocalDateTime(TimeZone.currentSystemDefault())
         val monthName = local.month.name.lowercase().replaceFirstChar { it.uppercase() }
-        "$monthName ${local.dayOfMonth}, ${local.year} at ${
+        "$monthName ${local.day}, ${local.year} at ${
             local.hour.toString().padStart(2, '0')
         }:${local.minute.toString().padStart(2, '0')}"
     } catch (_: Exception) {

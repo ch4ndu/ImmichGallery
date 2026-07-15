@@ -1,10 +1,10 @@
 package com.udnahc.immichgallery.domain.model
 
 import androidx.compose.runtime.Immutable
-import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Instant
 
 @Immutable
 data class AssetGroup(
@@ -76,7 +76,7 @@ private fun computeDayGroups(assets: List<Asset>): List<AssetGroup> {
         .map { (d, groupAssets) ->
             val monthName = d.month.name.lowercase().replaceFirstChar { it.uppercase() }
             AssetGroup(
-                label = "${d.dayOfMonth} $monthName ${d.year}",
+                label = "${d.day} $monthName ${d.year}",
                 assets = groupAssets.sortedByDescending { it.createdAt }
             )
         }

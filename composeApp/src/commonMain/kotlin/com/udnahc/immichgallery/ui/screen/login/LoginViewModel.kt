@@ -3,7 +3,12 @@ package com.udnahc.immichgallery.ui.screen.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.LocalLoginDefaults
+import com.udnahc.immichgallery.domain.action.auth.EnsureLocalNetworkAccessAction
+import com.udnahc.immichgallery.domain.action.auth.LocalNetworkAccessResult
+import com.udnahc.immichgallery.domain.action.auth.OpenLocalNetworkSettingsAction
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
+import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
+import com.udnahc.immichgallery.domain.usecase.auth.GetServerUrlUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
 import com.udnahc.immichgallery.ui.model.LoginUiMessage
 import kotlinx.coroutines.Dispatchers
@@ -21,24 +26,47 @@ data class LoginState(
     val apiKey: String = LocalLoginDefaults.API_KEY,
     val isLoading: Boolean = false,
     val error: LoginUiMessage? = null,
-    val isLoggedIn: Boolean = false
+    val isLoggedIn: Boolean = false,
+    val canOpenLocalNetworkSettings: Boolean = false
 )
 
 class LoginViewModel(
     private val validateServerUseCase: ValidateServerUseCase,
-    private val saveServerConfigAction: SaveServerConfigAction
+    private val saveServerConfigAction: SaveServerConfigAction,
+    getServerUrlUseCase: GetServerUrlUseCase,
+    getApiKeyUseCase: GetApiKeyUseCase,
+    private val ensureLocalNetworkAccessAction: EnsureLocalNetworkAccessAction,
+    private val openLocalNetworkSettingsAction: OpenLocalNetworkSettingsAction
 ) : ViewModel() {
 
     private val log = logging("LoginViewModel")
-    private val _state = MutableStateFlow(LoginState())
+    private val _state = MutableStateFlow(
+        LoginState(
+            serverUrl = getServerUrlUseCase().ifBlank { LocalLoginDefaults.SERVER_URL },
+            apiKey = getApiKeyUseCase().ifBlank { LocalLoginDefaults.API_KEY }
+        )
+    )
     val state: StateFlow<LoginState> = _state.asStateFlow()
 
     fun updateServerUrl(url: String) {
-        _state.update { it.copy(serverUrl = url, error = null) }
+        _state.update { it.copy(serverUrl = url, error = null, canOpenLocalNetworkSettings = false) }
     }
 
     fun updateApiKey(key: String) {
-        _state.update { it.copy(apiKey = key, error = null) }
+        _state.update { it.copy(apiKey = key, error = null, canOpenLocalNetworkSettings = false) }
+    }
+
+    fun showLocalNetworkPermissionMessage() {
+        _state.update {
+            it.copy(
+                error = LoginUiMessage.LocalNetworkPermissionDenied,
+                canOpenLocalNetworkSettings = true
+            )
+        }
+    }
+
+    fun openLocalNetworkSettings() {
+        openLocalNetworkSettingsAction()
     }
 
     fun login() {
@@ -49,14 +77,37 @@ class LoginViewModel(
                 return@launch
             }
 
-            log.d { "Login attempt to ${currentState.serverUrl}" }
+            val normalizedServerUrl = currentState.serverUrl.trimEnd('/')
+            log.d { "Login attempt to $normalizedServerUrl" }
             _state.update { it.copy(isLoading = true, error = null) }
-            val result =
-                validateServerUseCase(currentState.serverUrl.trimEnd('/'), currentState.apiKey)
+            when (ensureLocalNetworkAccessAction(normalizedServerUrl)) {
+                LocalNetworkAccessResult.Denied -> {
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            error = LoginUiMessage.LocalNetworkPermissionDenied,
+                            canOpenLocalNetworkSettings = true
+                        )
+                    }
+                    return@launch
+                }
+
+                LocalNetworkAccessResult.Unavailable -> {
+                    _state.update {
+                        it.copy(isLoading = false, error = LoginUiMessage.ConnectionFailed)
+                    }
+                    return@launch
+                }
+
+                LocalNetworkAccessResult.Granted,
+                LocalNetworkAccessResult.NotRequired -> Unit
+            }
+
+            val result = validateServerUseCase(normalizedServerUrl, currentState.apiKey)
             result.fold(
                 onSuccess = {
                     log.d { "Login successful" }
-                    saveServerConfigAction(currentState.serverUrl.trimEnd('/'), currentState.apiKey)
+                    saveServerConfigAction(normalizedServerUrl, currentState.apiKey)
                     _state.update { it.copy(isLoading = false, isLoggedIn = true) }
                 },
                 onFailure = { e ->

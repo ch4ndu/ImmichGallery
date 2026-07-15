@@ -69,7 +69,7 @@ abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
         }
 }
 
-val generateLocalLoginDefaults by tasks.registering(GenerateLocalLoginDefaultsTask::class) {
+val generateLocalLoginDefaults = tasks.register<GenerateLocalLoginDefaultsTask>("generateLocalLoginDefaults") {
     localProperties.set(rootProject.layout.projectDirectory.file("local.properties"))
     loginServerUrl.set(
         providers.gradleProperty("immichGallery.loginServerUrl")
@@ -86,19 +86,35 @@ val generateLocalLoginDefaults by tasks.registering(GenerateLocalLoginDefaultsTa
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.androidLibrary)
+    alias(libs.plugins.androidKmpLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
-    alias(libs.plugins.composeHotReload)
     alias(libs.plugins.kotlinxSerialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
 }
 
 kotlin {
-    androidTarget {
+    android {
+        namespace = "com.udnahc.immichgallery"
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk = libs.versions.android.minSdk.get().toInt()
+
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
+        }
+
+        androidResources {
+            enable = true
+        }
+
+        withHostTest {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+
+        withDeviceTest {
+            instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         }
     }
 
@@ -124,7 +140,7 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.coil.network.okhttp)
         }
-        androidInstrumentedTest.dependencies {
+        getByName("androidDeviceTest").dependencies {
             implementation(libs.junit)
             implementation(libs.androidx.testExt.junit)
             implementation(libs.androidx.test.runner)
@@ -204,28 +220,8 @@ kotlin {
     }
 }
 
-android {
-    namespace = "com.udnahc.immichgallery"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
-
-    defaultConfig {
-        minSdk = libs.versions.android.minSdk.get().toInt()
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
-    testOptions {
-        // Common tests exercise platform logging from Mosaic code. Android local
-        // unit tests do not provide android.util.Log, so use its default no-op
-        // return values rather than failing before test assertions can run.
-        unitTests.isReturnDefaultValues = true
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-}
-
 dependencies {
-    debugImplementation(libs.compose.uiTooling)
+    add("androidRuntimeClasspath", libs.compose.uiTooling)
     add("kspAndroid", libs.room.compiler)
     add("kspIosArm64", libs.room.compiler)
     add("kspIosSimulatorArm64", libs.room.compiler)

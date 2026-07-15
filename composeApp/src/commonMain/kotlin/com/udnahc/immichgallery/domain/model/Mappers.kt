@@ -8,10 +8,10 @@ import com.udnahc.immichgallery.data.model.AlbumResponse
 import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.model.PersonResponse
 import com.udnahc.immichgallery.data.model.TimeBucketResponse
-import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Instant
 
 private fun AssetResponse.computeAspectRatio(): Float {
     // For edited assets, the server does NOT update width/height/ratio after

@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.error_search_failed
 import immichgallery.composeapp.generated.resources.login_connection_failed
+import immichgallery.composeapp.generated.resources.login_local_network_permission_denied
 import immichgallery.composeapp.generated.resources.login_required_fields
 import immichgallery.composeapp.generated.resources.person_sync_in_progress
 import immichgallery.composeapp.generated.resources.logout_failed
@@ -24,6 +25,7 @@ val UiMessage.resource: StringResource
     get() = when (this) {
         LoginUiMessage.RequiredFields -> Res.string.login_required_fields
         LoginUiMessage.ConnectionFailed -> Res.string.login_connection_failed
+        LoginUiMessage.LocalNetworkPermissionDenied -> Res.string.login_local_network_permission_denied
         SearchUiMessage.SearchFailed -> Res.string.error_search_failed
         PersonDetailUiMessage.SyncInProgress -> Res.string.person_sync_in_progress
         MainUiMessage.LogoutFailed -> Res.string.logout_failed

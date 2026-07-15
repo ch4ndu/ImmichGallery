@@ -17,7 +17,9 @@ import com.udnahc.immichgallery.data.repository.ServerStatusRepository
 import com.udnahc.immichgallery.data.repository.TimelineMosaicCacheRepository
 import com.udnahc.immichgallery.data.repository.TimelineRepository
 import com.udnahc.immichgallery.domain.action.auth.ClearServerConfigAction
+import com.udnahc.immichgallery.domain.action.auth.EnsureLocalNetworkAccessAction
 import com.udnahc.immichgallery.domain.action.auth.MonitorServerStatusAction
+import com.udnahc.immichgallery.domain.action.auth.OpenLocalNetworkSettingsAction
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
 import com.udnahc.immichgallery.domain.action.detail.ClearDetailMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
@@ -39,6 +41,7 @@ import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
+import com.udnahc.immichgallery.domain.usecase.auth.GetServerUrlUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
 import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicArtifactsUseCase
@@ -57,6 +60,7 @@ import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCas
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicGeometrySnapshotUseCase
 import com.udnahc.immichgallery.ui.navigation.MainScreenViewModel
+import com.udnahc.immichgallery.ui.navigation.AppStartupViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumListViewModel
 import com.udnahc.immichgallery.ui.screen.login.LoginViewModel
@@ -102,6 +106,7 @@ val sharedModule = module {
     // UseCases
     factory { ValidateServerUseCase(get()) }
     factory { GetLoginStatusUseCase(get()) }
+    factory { GetServerUrlUseCase(get()) }
     factory { GetApiKeyUseCase(get()) }
     factory { GetServerStatusUseCase(get()) }
     factory { GetTimelineBucketsUseCase(get()) }
@@ -125,6 +130,8 @@ val sharedModule = module {
 
     // Actions
     factory { SaveServerConfigAction(get()) }
+    factory { EnsureLocalNetworkAccessAction(get()) }
+    factory { OpenLocalNetworkSettingsAction(get()) }
     factory { ClearServerConfigAction(get(), get(), get(), get(), get(), get(), get()) }
     factory { MonitorServerStatusAction(get()) }
     factory { LoadBucketAssetsAction(get()) }
@@ -149,7 +156,8 @@ val sharedModule = module {
     factory { ClearDetailMosaicCacheAction(get()) }
 
     // ViewModels
-    viewModel { LoginViewModel(get(), get()) }
+    viewModel { LoginViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { AppStartupViewModel(get(), get(), get()) }
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel {
         TimelineViewModel(

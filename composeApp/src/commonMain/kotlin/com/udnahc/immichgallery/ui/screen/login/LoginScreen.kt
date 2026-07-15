@@ -14,6 +14,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,6 +31,7 @@ import immichgallery.composeapp.generated.resources.app_title
 import immichgallery.composeapp.generated.resources.login_api_key_label
 import immichgallery.composeapp.generated.resources.login_api_key_placeholder
 import immichgallery.composeapp.generated.resources.login_connect
+import immichgallery.composeapp.generated.resources.login_open_settings
 import immichgallery.composeapp.generated.resources.login_server_url_label
 import immichgallery.composeapp.generated.resources.login_server_url_placeholder
 import immichgallery.composeapp.generated.resources.login_subtitle
@@ -39,9 +41,14 @@ import org.koin.compose.viewmodel.koinViewModel
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
+    showLocalNetworkPermissionMessage: Boolean = false,
     viewModel: LoginViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+
+    LaunchedEffect(showLocalNetworkPermissionMessage) {
+        if (showLocalNetworkPermissionMessage) viewModel.showLocalNetworkPermissionMessage()
+    }
 
     LaunchedEffect(state.isLoggedIn) {
         if (state.isLoggedIn) onLoginSuccess()
@@ -51,7 +58,8 @@ fun LoginScreen(
         state = state,
         onServerUrlChange = viewModel::updateServerUrl,
         onApiKeyChange = viewModel::updateApiKey,
-        onLoginClick = viewModel::login
+        onLoginClick = viewModel::login,
+        onOpenSettingsClick = viewModel::openLocalNetworkSettings
     )
 }
 
@@ -60,7 +68,8 @@ fun LoginContent(
     state: LoginState,
     onServerUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
-    onLoginClick: () -> Unit
+    onLoginClick: () -> Unit,
+    onOpenSettingsClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -117,6 +126,12 @@ fun LoginContent(
             )
         }
 
+        if (state.canOpenLocalNetworkSettings) {
+            TextButton(onClick = onOpenSettingsClick) {
+                Text(stringResource(Res.string.login_open_settings))
+            }
+        }
+
         Spacer(modifier = Modifier.height(Dimens.largeSpacing))
 
         Button(
@@ -143,6 +158,7 @@ private fun LoginContentPreview() {
         state = LoginState(),
         onServerUrlChange = {},
         onApiKeyChange = {},
-        onLoginClick = {}
+        onLoginClick = {},
+        onOpenSettingsClick = {}
     )
 }

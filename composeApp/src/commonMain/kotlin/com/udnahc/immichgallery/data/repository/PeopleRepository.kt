@@ -128,7 +128,6 @@ class PeopleRepository(
                     }
                 }
             }
-            Unit
         }
     }
 

@@ -48,4 +48,4 @@ Open `iosApp/iosApp.xcodeproj` in Xcode and build the `iosApp` scheme.
 
 ## Tech Stack
 
-Kotlin 2.3.0 · Compose Multiplatform 1.10.0 · Ktor 3 · Coil 3 · Room 2.8.4 · Koin · kotlinx-datetime
+Kotlin 2.4.10 · Compose Multiplatform 1.11.1 · Ktor 3.5 · Coil 3.5 · Room 2.8.4 · Koin 4.2 · kotlinx-datetime 0.8

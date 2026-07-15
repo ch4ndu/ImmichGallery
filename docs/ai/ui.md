@@ -50,6 +50,7 @@ For Compose performance or correctness audits, also load `docs/ai/compose-perfor
   keys to typed literal/resource labels so localized labels such as Unknown date
   are resolved in Compose without becoming cache or lazy-item identity.
 - Pass `StateFlow` to children when useful and collect at the lowest practical scope.
+- Startup checks that can block server access must resolve before composing the main navigation graph. Keep the recovery path on Login, preserve the entered credentials, and use resource-backed permission guidance rather than rendering Main and redirecting afterward.
 - Keep `LaunchedEffect` keys narrow and intentional.
 - Use `snapshotFlow` for frequently-changing state such as scroll position.
 - Wrap composition-time `layoutInfo` reads in `remember { derivedStateOf { ... } }`.

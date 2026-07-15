@@ -59,7 +59,7 @@ composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/
 
 Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect`/`actual` only when shared common code cannot reasonably handle the behavior.
 
-`composeApp` is a KMP Android library, not the installable Android application. The thin `androidApp` module owns application ID/version/signing/packaging and the launcher manifest, then depends on `composeApp`. Android actuals, `MainActivity`, `ImmichGalleryApplication`, foreground sync service code/declaration, Room, and reusable Android resources remain in `composeApp`. The library temporarily retains the legacy `com.android.library` KMP target because the dedicated Android-KMP plugin cannot currently coexist with the required Room KSP configurations; the application-module boundary is already in place for the later plugin-only migration.
+`composeApp` is a KMP Android library, not the installable Android application. The thin `androidApp` module owns application ID/version/signing/packaging and the launcher manifest, then depends on `composeApp`. Android actuals, `MainActivity`, `ImmichGalleryApplication`, foreground sync service code/declaration, Room, and reusable Android resources remain in `composeApp`. `composeApp` uses AGP's dedicated `com.android.kotlin.multiplatform.library` target; Android resources, host tests, and device tests are explicitly enabled, and Room KSP runs for Android, JVM, and both iOS targets.
 
 ## Key Files
 
@@ -133,12 +133,12 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 
 ## Key Tech Stack
 
-- Kotlin 2.3.0, Compose Multiplatform 1.10.0.
+- Kotlin 2.4.10, Compose Multiplatform 1.11.1.
 - Material3 for theming.
-- Room 2.8.4, SQLite Bundled 2.6.2.
-- KSP 2.3.6.
-- Ktor 3.1.3.
-- Coil 3.1.0 with Ktor3 networking.
-- Koin 4.1.0.
-- Android: minSdk 24, targetSdk 36, JVM target 11.
+- Room 2.8.4, SQLite Bundled 2.7.0.
+- KSP 2.3.10.
+- Ktor 3.5.1.
+- Coil 3.5.0 with Ktor3 networking.
+- Koin 4.2.2.
+- Android: minSdk 24, targetSdk 37, JVM target 11.
 - Package: `com.udnahc.immichgallery`.

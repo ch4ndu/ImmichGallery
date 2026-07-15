@@ -127,7 +127,6 @@ class AlbumRepository(
                     }
                 }
             }
-            Unit
         }
     }
 

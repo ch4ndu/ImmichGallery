@@ -73,12 +73,13 @@ For a new persisted cache entity or schema change:
 - Android context-dependent setup belongs in Android entry points and platform modules.
 - Android foreground work notifications use a platform notifier plus `SyncForegroundService`; the service should start foreground immediately, handle `dataSync` foreground-service requirements, and stop when tracked foreground work completes. Android manual Timeline refresh starts this service with a manual-sync command, and the service resolves the shared coordinator from process-level Koin.
 - Android Koin startup must be process-level when a service needs shared actions/coordinators. Compose should reuse the existing Koin context on Android instead of owning the only startup path.
+- Android API-37 permissions that need an Activity Result launcher must bind from each `MainActivity` instance; do not route them through the process-wide weak activity reference used by unrelated utility helpers. Keep the platform controller behind a domain Action so ViewModels never access Android APIs directly.
 - Local developer login defaults come from gitignored root `local.properties` keys `immichGallery.loginServerUrl` and `immichGallery.loginApiKey`; Gradle generates blank-fallback common constants for builds where those keys are absent.
 
 ## Verification
 
 - Run `./gradlew :composeApp:compileKotlinJvm` for normal shared code changes.
-- Build the installable Android application with `./gradlew :androidApp:assembleDebug`; `composeApp` is the KMP library and must not apply `com.android.application`. Keep its legacy `com.android.library` integration until the dedicated Android-KMP plugin supports this project's Room KSP configurations.
+- Build the installable Android application with `./gradlew :androidApp:assembleDebug`; `composeApp` is the KMP library and must not apply `com.android.application`. It uses `com.android.kotlin.multiplatform.library`, so use `:composeApp:compileAndroidMain`, `:composeApp:testAndroidHostTest`, and `:composeApp:connectedAndroidDeviceTest` rather than legacy variant task names.
 - For platform-sensitive changes, also run the relevant Android or iOS compile task.
 - For broad shared changes, prefer `./gradlew :composeApp:compileKotlinJvm :composeApp:compileKotlinIosSimulatorArm64`.
 - For UI-visible changes, manually run desktop with `./gradlew :composeApp:run` or verify on device/simulator when practical.

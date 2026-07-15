@@ -12,6 +12,8 @@
     <string name="login_connect">Connect</string>
     <string name="login_required_fields">Server URL and API key are required</string>
     <string name="login_connection_failed">Connection failed</string>
+    <string name="login_local_network_permission_denied">Local network access is required to connect to this server</string>
+    <string name="login_open_settings">Open settings</string>
 
     <!-- Common -->
     <string name="retry">Retry</string>

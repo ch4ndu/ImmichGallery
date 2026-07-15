@@ -53,6 +53,8 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 ## Settings And Credentials
 
 - Server URL and API key live in `ServerConfigRepository` backed by `multiplatform-settings`.
+- On Android API 37+, local Immich endpoints require `ACCESS_LOCAL_NETWORK` before validation or cached-session startup. Classify literal loopback/private/link-local/CGNAT IPv4, local IPv6, single-label hosts, and `.local` as local immediately; resolve other hostnames on IO for at most 1.5 seconds and classify them as local when any address is local. Keep classifications in memory only. A timeout or resolution failure does not prompt and follows ordinary connection handling.
+- A saved local endpoint must resolve permission before `MainScreen` is composed. If access is denied, return to Login with the saved credentials available for editing; new local logins retain entered credentials and offer retry plus app settings. Public endpoints and iOS/JVM bypass this Android-only gate.
 - Lightweight user view preferences, including per-screen row height and Mosaic `ViewConfig`, also live in `ServerConfigRepository` backed by `multiplatform-settings`.
 - Treat view preferences as settings, not Room cache data.
 - Clear-login flows must clear credentials and cache data that would otherwise leak data from the previous server.
