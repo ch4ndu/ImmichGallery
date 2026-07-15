@@ -17,6 +17,9 @@ interface PersonDao {
     @Query("SELECT * FROM people WHERE isHidden = 0 ORDER BY sortOrder ASC")
     fun observePeople(): Flow<List<PersonEntity>>
 
+    @Query("SELECT id FROM people")
+    suspend fun getPersonIds(): List<String>
+
     @Upsert
     suspend fun upsertPersonRefs(refs: List<PersonAssetCrossRef>)
 
@@ -82,6 +85,9 @@ interface PersonDao {
 
     @Query("DELETE FROM person_asset_refs")
     suspend fun clearAllPersonRefs()
+
+    @Query("DELETE FROM person_asset_refs WHERE personId IN (:personIds)")
+    suspend fun clearPersonRefsForPeople(personIds: List<String>)
 
     @Transaction
     suspend fun replacePeople(people: List<PersonEntity>) {

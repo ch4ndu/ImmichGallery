@@ -11,6 +11,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - `MosaicRenderEngine` is the domain facade for Mosaic behavior. Assignment, progressive chunks, completed fallback-row projection, strict partial projection, section geometry, and aggregate geometry must go through this facade.
 - Low-level helpers in `MosaicPacking.kt` are implementation details for the engine and focused tests. Screen packages and repositories must not call them to bypass the engine.
 - Repositories persist, read, and clear artifacts only. They may parse and validate persisted rows against the current ordered assets, but they must not compute assignments, project display records, choose fallback behavior, derive artifact payloads, or calculate geometry.
+- Detail repository writes resolve edited dimensions before the owner transaction, then replace changed owner refs and clear matching owner artifacts in that same transaction. The invalidation boundary is the current Album or Person owner only; shared assets do not trigger cross-owner or live Timeline invalidation.
 - ViewModels/coordinators own screen state, scheduling, generation guards, cache-read requests, and display publication.
 - Composables render `PhotoGridDisplayItem` values only. They must not group assets, assign Mosaic bands, or choose fallback policy.
 
@@ -102,6 +103,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
   - `Partial` means a group has checkpoint/chunk progress.
   - `RetryableFailure` means compute failed and may retry when the group is visible.
 - Scheduler cancellation is resumable, not final failure. Cancellation before the first checkpoint must still leave resumable state.
+- Cancellation is control flow through detail preparation, artifact reads, and asynchronous artifact writes. `CancellationException` must be rethrown rather than logged as a cache or compute failure.
 - Pending, cancelled, failed, invalid, and partial-gap detail runtime states render placeholders. They must not render fallback-thumbnail bands.
 - Detail runtime thumbnails may appear only from real ready assignments, valid completed progressive chunks, or fallback rows produced by a completed ready projection for the current group.
 - Detail runtime compute stores exact section geometry in memory even when disk Mosaic cache is disabled. Cache-off runtime remains disk-free, but ready or partial display still needs in-memory exact geometry before replacing placeholders.
@@ -124,6 +126,7 @@ For the broader Album Detail and Person Detail screen experience around cached-f
   - Owner-scoped assignments, mixed display records, section geometry, and aggregate geometry are keyed by owner type/id, grouping, section index/key, column count, families, ordered asset fingerprint, geometry keys, and artifact versions.
   - Detail section geometry uses the same geometry-range payload as Timeline so Album/Person partial chunks can reserve exact unresolved heights.
   - Album and Person Detail may read/write owner cache only after the full owner asset set is known (`hasMore == false`).
+  - A changed or removed owner clears assignments, mixed display records, section geometry, and aggregate geometry atomically with its relation update. No-op owner refreshes preserve all artifact families.
 - Full-owner cache readiness requires matching assignments, section geometry, and aggregate geometry. Per-section display recovery may use valid matching assignment, section geometry, and mixed display rows even when the owner aggregate geometry row is missing after an interrupted cache build.
 - Cache-disabled runtime rendering must not read or reuse disk Mosaic artifacts even if matching rows exist.
 - Applying Mosaic settings with cache enabled is blocking: prepare the applicable Timeline/detail cache first, then persist/apply the config. On preparation failure, keep the previous `ViewConfig`.

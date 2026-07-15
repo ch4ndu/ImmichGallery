@@ -212,6 +212,12 @@ android {
         minSdk = libs.versions.android.minSdk.get().toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    testOptions {
+        // Common tests exercise platform logging from Mosaic code. Android local
+        // unit tests do not provide android.util.Log, so use its default no-op
+        // return values rather than failing before test assertions can run.
+        unitTests.isReturnDefaultValues = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

@@ -35,33 +35,52 @@ class AssetEditsEnricher(
     private val log = logging("AssetEditsEnricher")
 
     suspend fun enrich(assets: List<AssetResponse>) {
-        val edited = assets.filter { it.isEdited && it.width != null && it.height != null }
-        if (edited.isEmpty()) return
-        log.d { "Enriching aspect for ${edited.size} edited assets" }
-        val semaphore = Semaphore(EDIT_FETCH_PARALLELISM)
-        coroutineScope {
-            edited.map { asset ->
-                async(Dispatchers.IO) {
-                    semaphore.withPermit { resolveAndPersist(asset) }
-                }
-            }.awaitAll()
+        resolve(assets).forEach { (assetId, aspectRatio) ->
+            assetDao.updateAspectRatioResolved(assetId, aspectRatio)
         }
     }
 
-    private suspend fun resolveAndPersist(asset: AssetResponse) {
+    /**
+     * Resolves edited asset aspects without mutating Room. Detail repositories use
+     * this before their writer transaction so relation replacement and Mosaic
+     * invalidation describe the final persisted content atomically.
+     */
+    suspend fun resolve(assets: List<AssetResponse>): Map<String, Float> {
+        val edited = assets.filter { it.isEdited && it.width != null && it.height != null }
+        if (edited.isEmpty()) return emptyMap()
+        log.d { "Enriching aspect for ${edited.size} edited assets" }
+        val semaphore = Semaphore(EDIT_FETCH_PARALLELISM)
+        return coroutineScope {
+            edited.map { asset ->
+                async(Dispatchers.IO) {
+                    semaphore.withPermit { resolveAspect(asset) }
+                }
+            }.awaitAll()
+                .mapNotNull { it }
+                .associate { it.assetId to it.aspectRatio }
+        }
+    }
+
+    private suspend fun resolveAspect(asset: AssetResponse): ResolvedEditAspect? {
         try {
             val editsResp = apiService.getAssetEdits(asset.id)
             val finalDims = simulateEditDimensions(
                 asset.width, asset.height, editsResp.edits
-            ) ?: return
+            ) ?: return null
             val aspect = finalDims[0].toFloat() / finalDims[1].toFloat()
-            assetDao.updateAspectRatioResolved(asset.id, aspect)
+            return ResolvedEditAspect(asset.id, aspect)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.w(e) { "Failed to resolve edits for ${asset.id}" }
+            return null
         }
     }
+
+    private data class ResolvedEditAspect(
+        val assetId: String,
+        val aspectRatio: Float
+    )
 
     companion object {
         private const val EDIT_FETCH_PARALLELISM = 8

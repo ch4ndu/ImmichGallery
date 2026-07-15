@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.detail
 
+import com.udnahc.immichgallery.runSuspendCatching
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.DetailMosaicAggregateGeometryEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicArtifacts
@@ -245,7 +246,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         val lookup =
             persistentCacheLookup(snapshot.copy(viewConfig = normalized), layoutSpec.cellHeight)
                 ?: return@withContext Result.failure(IllegalStateException("Detail Mosaic cache is unavailable"))
-        runCatching {
+        runSuspendCatching {
             val groups = groupAssets(snapshot.assets, snapshot.groupSize)
             val ownerFingerprint = snapshot.assets.detailPersistentFingerprint()
             val existingArtifacts = readPersistentArtifacts(lookup, DETAIL_MOSAIC_GEOMETRY_VERSION)
@@ -425,7 +426,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         val persistentCacheLookup = persistentCacheLookup(snapshot, layoutSpec.cellHeight)
         val ownerFingerprint = snapshot.assets.detailPersistentFingerprint()
         val persistentArtifacts = if (persistentCacheLookup != null) {
-            runCatching {
+            runSuspendCatching {
                 readPersistentArtifacts(
                     persistentCacheLookup,
                     DETAIL_MOSAIC_GEOMETRY_VERSION
@@ -769,7 +770,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
         onFailure: (Throwable) -> Unit
     ) {
         scope.launch(ioDispatcher) {
-            runCatching { upsertPersistentArtifacts(artifacts) }.onFailure(onFailure)
+            runSuspendCatching { upsertPersistentArtifacts(artifacts) }.onFailure(onFailure)
         }
     }
 

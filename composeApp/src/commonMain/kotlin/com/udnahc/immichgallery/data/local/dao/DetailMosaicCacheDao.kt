@@ -149,6 +149,30 @@ interface DetailMosaicCacheDao {
         ownerId: String
     )
 
+    @Query("DELETE FROM detail_mosaic_display_cache WHERE ownerType = :ownerType AND ownerId IN (:ownerIds)")
+    suspend fun clearOwnerDisplayCaches(
+        ownerType: String,
+        ownerIds: List<String>
+    )
+
+    @Query("DELETE FROM detail_mosaic_assignments WHERE ownerType = :ownerType AND ownerId IN (:ownerIds)")
+    suspend fun clearOwnerAssignmentsForOwners(
+        ownerType: String,
+        ownerIds: List<String>
+    )
+
+    @Query("DELETE FROM detail_mosaic_section_geometry WHERE ownerType = :ownerType AND ownerId IN (:ownerIds)")
+    suspend fun clearOwnerSectionGeometryForOwners(
+        ownerType: String,
+        ownerIds: List<String>
+    )
+
+    @Query("DELETE FROM detail_mosaic_aggregate_geometry WHERE ownerType = :ownerType AND ownerId IN (:ownerIds)")
+    suspend fun clearOwnerAggregateGeometryForOwners(
+        ownerType: String,
+        ownerIds: List<String>
+    )
+
     @Query("DELETE FROM detail_mosaic_display_cache")
     suspend fun clearAllDisplayCache()
 
@@ -191,6 +215,18 @@ interface DetailMosaicCacheDao {
         clearOwnerDisplayCache(ownerType, ownerId)
         clearOwnerSectionGeometry(ownerType, ownerId)
         clearOwnerAggregateGeometry(ownerType, ownerId)
+    }
+
+    @Transaction
+    suspend fun clearOwnerCaches(
+        ownerType: String,
+        ownerIds: List<String>
+    ) {
+        if (ownerIds.isEmpty()) return
+        clearOwnerAssignmentsForOwners(ownerType, ownerIds)
+        clearOwnerDisplayCaches(ownerType, ownerIds)
+        clearOwnerSectionGeometryForOwners(ownerType, ownerIds)
+        clearOwnerAggregateGeometryForOwners(ownerType, ownerIds)
     }
 
     @Transaction

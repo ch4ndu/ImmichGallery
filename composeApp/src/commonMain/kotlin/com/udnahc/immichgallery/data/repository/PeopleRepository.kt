@@ -4,6 +4,7 @@ import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
 import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.dao.AssetDao
+import com.udnahc.immichgallery.data.local.dao.DetailMosaicCacheDao
 import com.udnahc.immichgallery.data.local.dao.PersonDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.entity.PersonAssetCrossRef
@@ -11,9 +12,9 @@ import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
 import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.domain.model.PersonAssetsSyncResult
-import com.udnahc.immichgallery.domain.model.toAssetEntity
 import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDomainOrNull
@@ -35,7 +36,8 @@ class PeopleRepository(
     private val assetDao: AssetDao,
     private val syncMetadataDao: SyncMetadataDao,
     private val serverConfigRepository: ServerConfigRepository,
-    private val editsEnricher: AssetEditsEnricher
+    private val editsEnricher: AssetEditsEnricher,
+    private val detailMosaicCacheDao: DetailMosaicCacheDao
 ) {
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -107,6 +109,18 @@ class PeopleRepository(
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
+                        val removedPersonIds = personDao.getPersonIds().toSet() - entities.map { it.id }.toSet()
+                        if (removedPersonIds.isNotEmpty()) {
+                            val removedIds = removedPersonIds.toList()
+                            personDao.clearPersonRefsForPeople(removedIds)
+                            detailMosaicCacheDao.clearOwnerCaches(
+                                DetailMosaicCacheOwnerType.PERSON.name,
+                                removedIds
+                            )
+                            syncMetadataDao.clearScopes(
+                                removedIds.map { "$SYNC_SCOPE_PERSON_PREFIX$it" }
+                            )
+                        }
                         personDao.replacePeople(entities)
                         syncMetadataDao.upsert(
                             SyncMetadataEntity(SYNC_SCOPE_PEOPLE, currentEpochMillis())
@@ -138,7 +152,11 @@ class PeopleRepository(
             val nextPage = response.assets.nextPageNumberOrNull()
             val items = response.assets.items.filter { it.toAssetEntityOrNull() != null }
             val hasMore = nextPage != null
-            val assetEntities = items.mapNotNull { it.toAssetEntityOrNull() }
+            val assetEntities = prepareDetailAssetEntities(
+                items,
+                assetDao,
+                editsEnricher
+            )
             val baseOffset = (page - 1) * size
             val pageChanged = pagedOwnerPageChanged(
                 beforeAssetIds = before.map { it.id },
@@ -149,26 +167,44 @@ class PeopleRepository(
             val crossRefs = items.mapIndexed { index, asset ->
                 PersonAssetCrossRef(personId, asset.id, baseOffset + index)
             }
+            var changed = false
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
-                        assetDao.upsertAssets(assetEntities)
-                        if (pageChanged || !hasMore) {
-                            // If a fetched page changed, later cached pages may now be
-                            // shifted. Truncate from this page and let loadMore refill a
-                            // consistent snapshot instead of mixing old tail refs with
-                            // fresh page refs.
-                            personDao.replacePersonRefsFromSortOrder(
-                                personId,
-                                baseOffset,
-                                crossRefs
-                            )
-                        } else {
-                            personDao.replacePersonRefsInSortRange(
-                                personId = personId,
-                                startSortOrder = baseOffset,
-                                endSortOrder = baseOffset + size,
-                                refs = crossRefs
+                        val skipAssetWrite = detailPageWriteUnchanged(
+                            before = before,
+                            candidates = assetEntities,
+                            baseOffset = baseOffset,
+                            pageChanged = pageChanged,
+                            hasMore = hasMore
+                        )
+                        if (!skipAssetWrite) {
+                            assetDao.upsertAssets(assetEntities)
+                            if (pageChanged || !hasMore) {
+                                // If a fetched page changed, later cached pages may now be
+                                // shifted. Truncate from this page and let loadMore refill a
+                                // consistent snapshot instead of mixing old tail refs with
+                                // fresh page refs.
+                                personDao.replacePersonRefsFromSortOrder(
+                                    personId,
+                                    baseOffset,
+                                    crossRefs
+                                )
+                            } else {
+                                personDao.replacePersonRefsInSortRange(
+                                    personId = personId,
+                                    startSortOrder = baseOffset,
+                                    endSortOrder = baseOffset + size,
+                                    refs = crossRefs
+                                )
+                            }
+                        }
+                        val after = if (skipAssetWrite) before else personDao.getPersonAssets(personId)
+                        changed = orderedAssetsChanged(before, after)
+                        if (changed) {
+                            detailMosaicCacheDao.clearOwnerCache(
+                                DetailMosaicCacheOwnerType.PERSON.name,
+                                personId
                             )
                         }
                         if (!hasMore) {
@@ -182,12 +218,8 @@ class PeopleRepository(
                     }
                 }
             }
-            editsEnricher.enrich(items)
-            val after = withContext(Dispatchers.IO) {
-                personDao.getPersonAssets(personId)
-            }
             PersonAssetsSyncResult(
-                changed = orderedAssetsChanged(before, after),
+                changed = changed,
                 nextPage = nextPage
             )
         }
@@ -215,15 +247,31 @@ class PeopleRepository(
                 allItems += response.assets.items.filter { it.toAssetEntityOrNull() != null }
                 page = response.assets.nextPageNumberOrNull() ?: break
             }
-            val assetEntities = allItems.mapNotNull { it.toAssetEntityOrNull() }
+            val assetEntities = prepareDetailAssetEntities(
+                allItems,
+                assetDao,
+                editsEnricher
+            )
             val crossRefs = allItems.mapIndexed { index, asset ->
                 PersonAssetCrossRef(personId, asset.id, index)
             }
+            var changed = false
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
-                        assetDao.upsertAssets(assetEntities)
-                        personDao.replacePersonRefs(personId, crossRefs)
+                        val skipAssetWrite = !orderedAssetsChanged(before, assetEntities)
+                        if (!skipAssetWrite) {
+                            assetDao.upsertAssets(assetEntities)
+                            personDao.replacePersonRefs(personId, crossRefs)
+                        }
+                        val after = if (skipAssetWrite) before else personDao.getPersonAssets(personId)
+                        changed = orderedAssetsChanged(before, after)
+                        if (changed) {
+                            detailMosaicCacheDao.clearOwnerCache(
+                                DetailMosaicCacheOwnerType.PERSON.name,
+                                personId
+                            )
+                        }
                         syncMetadataDao.upsert(
                             SyncMetadataEntity(
                                 "$SYNC_SCOPE_PERSON_PREFIX$personId",
@@ -233,12 +281,8 @@ class PeopleRepository(
                     }
                 }
             }
-            editsEnricher.enrich(allItems)
-            val after = withContext(Dispatchers.IO) {
-                personDao.getPersonAssets(personId)
-            }
             PersonAssetsSyncResult(
-                changed = orderedAssetsChanged(before, after),
+                changed = changed,
                 nextPage = null
             )
         }

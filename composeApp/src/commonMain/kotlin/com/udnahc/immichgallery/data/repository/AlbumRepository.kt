@@ -5,6 +5,7 @@ import androidx.room.useWriterConnection
 import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.dao.AlbumDao
 import com.udnahc.immichgallery.data.local.dao.AssetDao
+import com.udnahc.immichgallery.data.local.dao.DetailMosaicCacheDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.entity.AlbumAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.AlbumEntity
@@ -15,6 +16,7 @@ import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.domain.model.AlbumDetailSyncResult
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.toAlbumEntity
 import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomain
@@ -35,7 +37,8 @@ class AlbumRepository(
     private val assetDao: AssetDao,
     private val syncMetadataDao: SyncMetadataDao,
     private val serverConfigRepository: ServerConfigRepository,
-    private val editsEnricher: AssetEditsEnricher
+    private val editsEnricher: AssetEditsEnricher,
+    private val detailMosaicCacheDao: DetailMosaicCacheDao
 ) {
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -105,6 +108,18 @@ class AlbumRepository(
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
+                        val removedAlbumIds = albumDao.getAlbumIds().toSet() - entities.map { it.id }.toSet()
+                        if (removedAlbumIds.isNotEmpty()) {
+                            val removedIds = removedAlbumIds.toList()
+                            albumDao.clearAlbumRefsForAlbums(removedIds)
+                            detailMosaicCacheDao.clearOwnerCaches(
+                                DetailMosaicCacheOwnerType.ALBUM.name,
+                                removedIds
+                            )
+                            syncMetadataDao.clearScopes(
+                                removedIds.map { "$SYNC_SCOPE_ALBUM_PREFIX$it" }
+                            )
+                        }
                         albumDao.replaceAlbums(entities)
                         syncMetadataDao.upsert(
                             SyncMetadataEntity(SYNC_SCOPE_ALBUMS, currentEpochMillis())
@@ -132,7 +147,11 @@ class AlbumRepository(
             val nextPage = response.assets.nextPageNumberOrNull()
             val supportedAssets = response.assets.items.filter { it.toAssetEntityOrNull() != null }
             val hasMore = nextPage != null
-            val assetEntities = supportedAssets.mapNotNull { it.toAssetEntityOrNull() }
+            val assetEntities = prepareDetailAssetEntities(
+                supportedAssets,
+                assetDao,
+                editsEnricher
+            )
             val baseOffset = (page - 1) * size
             val pageChanged = pagedOwnerPageChanged(
                 beforeAssetIds = before.map { it.id },
@@ -155,25 +174,43 @@ class AlbumRepository(
                     updatedAt = cachedAlbum?.updatedAt ?: ""
                 )
             }
+            var changed = false
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
                         if (detailAlbum != null) {
                             albumDao.upsertAlbums(listOf(detailAlbum))
                         }
-                        assetDao.upsertAssets(assetEntities)
-                        if (pageChanged || !hasMore) {
-                            albumDao.replaceAlbumRefsFromSortOrder(
-                                albumId,
-                                baseOffset,
-                                crossRefs
-                            )
-                        } else {
-                            albumDao.replaceAlbumRefsInSortRange(
-                                albumId = albumId,
-                                startSortOrder = baseOffset,
-                                endSortOrder = baseOffset + size,
-                                refs = crossRefs
+                        val skipAssetWrite = detailPageWriteUnchanged(
+                            before = before,
+                            candidates = assetEntities,
+                            baseOffset = baseOffset,
+                            pageChanged = pageChanged,
+                            hasMore = hasMore
+                        )
+                        if (!skipAssetWrite) {
+                            assetDao.upsertAssets(assetEntities)
+                            if (pageChanged || !hasMore) {
+                                albumDao.replaceAlbumRefsFromSortOrder(
+                                    albumId,
+                                    baseOffset,
+                                    crossRefs
+                                )
+                            } else {
+                                albumDao.replaceAlbumRefsInSortRange(
+                                    albumId = albumId,
+                                    startSortOrder = baseOffset,
+                                    endSortOrder = baseOffset + size,
+                                    refs = crossRefs
+                                )
+                            }
+                        }
+                        val after = if (skipAssetWrite) before else albumDao.getAlbumAssets(albumId)
+                        changed = orderedAssetsChanged(before, after)
+                        if (changed) {
+                            detailMosaicCacheDao.clearOwnerCache(
+                                DetailMosaicCacheOwnerType.ALBUM.name,
+                                albumId
                             )
                         }
                         if (!hasMore) {
@@ -187,13 +224,9 @@ class AlbumRepository(
                     }
                 }
             }
-            editsEnricher.enrich(supportedAssets)
-            val after = withContext(Dispatchers.IO) {
-                albumDao.getAlbumAssets(albumId)
-            }
             AlbumDetailSyncResult(
                 albumName = detail?.albumName ?: cachedAlbum?.name.orEmpty(),
-                changed = orderedAssetsChanged(before, after),
+                changed = changed,
                 nextPage = nextPage,
                 order = resolvedOrder
             )
@@ -214,7 +247,11 @@ class AlbumRepository(
                 allItems += response.assets.items.filter { it.toAssetEntityOrNull() != null }
                 page = response.assets.nextPageNumberOrNull() ?: break
             }
-            val assetEntities = allItems.mapNotNull { it.toAssetEntityOrNull() }
+            val assetEntities = prepareDetailAssetEntities(
+                allItems,
+                assetDao,
+                editsEnricher
+            )
             val crossRefs = allItems.mapIndexed { index, asset ->
                 AlbumAssetCrossRef(albumId, asset.id, index)
             }
@@ -228,12 +265,24 @@ class AlbumRepository(
                 thumbnailAssetId = cachedAlbum?.thumbnailAssetId,
                 updatedAt = cachedAlbum?.updatedAt ?: ""
             )
+            var changed = false
             withContext(Dispatchers.IO) {
                 database.useWriterConnection { transactor ->
                     transactor.immediateTransaction {
                         albumDao.upsertAlbums(listOf(detailAlbum))
-                        assetDao.upsertAssets(assetEntities)
-                        albumDao.replaceAlbumRefs(albumId, crossRefs)
+                        val skipAssetWrite = !orderedAssetsChanged(before, assetEntities)
+                        if (!skipAssetWrite) {
+                            assetDao.upsertAssets(assetEntities)
+                            albumDao.replaceAlbumRefs(albumId, crossRefs)
+                        }
+                        val after = if (skipAssetWrite) before else albumDao.getAlbumAssets(albumId)
+                        changed = orderedAssetsChanged(before, after)
+                        if (changed) {
+                            detailMosaicCacheDao.clearOwnerCache(
+                                DetailMosaicCacheOwnerType.ALBUM.name,
+                                albumId
+                            )
+                        }
                         syncMetadataDao.upsert(
                             SyncMetadataEntity(
                                 "$SYNC_SCOPE_ALBUM_PREFIX$albumId",
@@ -243,13 +292,9 @@ class AlbumRepository(
                     }
                 }
             }
-            editsEnricher.enrich(allItems)
-            val after = withContext(Dispatchers.IO) {
-                albumDao.getAlbumAssets(albumId)
-            }
             AlbumDetailSyncResult(
                 albumName = detail.albumName,
-                changed = orderedAssetsChanged(before, after),
+                changed = changed,
                 nextPage = null,
                 order = order
             )

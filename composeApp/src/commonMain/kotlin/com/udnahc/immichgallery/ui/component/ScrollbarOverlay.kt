@@ -256,16 +256,16 @@ private fun ScrollbarHandle(
     val dragDescription = stringResource(Res.string.scroll_drag)
 
     var trackHeightPx by remember { mutableStateOf(0) }
-    // Pre-compute pixel values once (stable across recompositions for same Dp inputs)
-    val topPaddingPx = remember(topPadding) { with(density) { topPadding.toPx() } }
-    val bottomPaddingPx = remember(bottomPadding) { with(density) { bottomPadding.toPx() } }
-    val handleSizePx = remember { with(density) { Dimens.scrollbarHandleSize.toPx() } }
-    val handleEdgePaddingPx = remember { with(density) { HANDLE_EDGE_PADDING.dp.toPx() } }
-    val yearMarkerEdgePaddingPx = remember { with(density) { YEAR_MARKER_EDGE_PADDING.dp.toPx() } }
+    // Pixel values must be recalculated when display density or font scale changes.
+    val topPaddingPx = remember(density, topPadding) { with(density) { topPadding.toPx() } }
+    val bottomPaddingPx = remember(density, bottomPadding) { with(density) { bottomPadding.toPx() } }
+    val handleSizePx = remember(density) { with(density) { Dimens.scrollbarHandleSize.toPx() } }
+    val handleEdgePaddingPx = remember(density) { with(density) { HANDLE_EDGE_PADDING.dp.toPx() } }
+    val yearMarkerEdgePaddingPx = remember(density) { with(density) { YEAR_MARKER_EDGE_PADDING.dp.toPx() } }
     val handleClipOffsetPx =
-        remember { with(density) { Dimens.scrollbarHandleClipOffset.toPx() }.toInt() }
+        remember(density) { with(density) { Dimens.scrollbarHandleClipOffset.toPx() }.toInt() }
     val bubbleVerticalOffsetPx =
-        remember { with(density) { Dimens.scrollbarBubbleVerticalOffset.toPx() }.toInt() }
+        remember(density) { with(density) { Dimens.scrollbarBubbleVerticalOffset.toPx() }.toInt() }
 
     // Drag state
     var dragFraction by remember { mutableFloatStateOf(scrollFraction) }
@@ -336,7 +336,9 @@ private fun ScrollbarHandle(
     val yearLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     // Filter out overlapping year markers — skip markers too close to the previous one
-    val yearMarkerMinSpacingPx = remember { with(density) { YEAR_MARKER_MIN_SPACING_DP.dp.toPx() } }
+    val yearMarkerMinSpacingPx = remember(density) {
+        with(density) { YEAR_MARKER_MIN_SPACING_DP.dp.toPx() }
+    }
     val visibleMarkers = remember(
         yearMarkers,
         trackHeightPx,

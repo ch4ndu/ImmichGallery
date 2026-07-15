@@ -50,16 +50,10 @@ fun PhotoOverlayHost(
 ) {
     var selectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
     var lastSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
-    if (selectedAssetId != null) lastSelectedAssetId = selectedAssetId
 
     // Remount SharedTransitionLayout on every open so same-asset re-taps do
     // not reuse stale shared-element bounds from the previous transition.
     var selectionEpoch by rememberSaveable { mutableStateOf(0) }
-    var prevSelectedAssetId by rememberSaveable { mutableStateOf<String?>(null) }
-    if (prevSelectedAssetId == null && selectedAssetId != null) {
-        selectionEpoch++
-    }
-    prevSelectedAssetId = selectedAssetId
 
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
@@ -118,6 +112,10 @@ fun PhotoOverlayHost(
                         hiddenAssetIdForGrid,
                         remember {
                             { id: String ->
+                                if (selectedAssetId == null) {
+                                    selectionEpoch++
+                                }
+                                lastSelectedAssetId = id
                                 overlayInitialIndex = null
                                 overlayAnimActive = true
                                 transitionAssetIdForGrid = id

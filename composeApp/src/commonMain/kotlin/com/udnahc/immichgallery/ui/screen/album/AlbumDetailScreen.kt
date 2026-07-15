@@ -182,7 +182,7 @@ fun AlbumDetailContent(
         contentBottomPadding = contentBottomPadding,
         listState = listState,
         isLoadingMore = state.isLoadingMore,
-        onLoadMore = onLoadMore,
+        onLoadMore = if (state.hasMore) onLoadMore else null,
         sharedTransitionScope = sharedTransitionScope,
     )
 }

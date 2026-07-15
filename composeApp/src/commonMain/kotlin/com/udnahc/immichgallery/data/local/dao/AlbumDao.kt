@@ -20,6 +20,9 @@ interface AlbumDao {
     @Query("SELECT * FROM albums WHERE id = :albumId")
     suspend fun getAlbum(albumId: String): AlbumEntity?
 
+    @Query("SELECT id FROM albums")
+    suspend fun getAlbumIds(): List<String>
+
     @Upsert
     suspend fun upsertAlbumRefs(refs: List<AlbumAssetCrossRef>)
 
@@ -85,6 +88,9 @@ interface AlbumDao {
 
     @Query("DELETE FROM album_asset_refs")
     suspend fun clearAllAlbumRefs()
+
+    @Query("DELETE FROM album_asset_refs WHERE albumId IN (:albumIds)")
+    suspend fun clearAlbumRefsForAlbums(albumIds: List<String>)
 
     @Transaction
     suspend fun replaceAlbums(albums: List<AlbumEntity>) {

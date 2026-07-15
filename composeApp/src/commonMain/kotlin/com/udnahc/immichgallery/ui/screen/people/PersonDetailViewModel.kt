@@ -32,6 +32,7 @@ import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.model.PersonDetailUiMessage
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutCoordinator
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutSnapshot
+import com.udnahc.immichgallery.ui.util.DetailSyncGate
 import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.SyncActivityKey
@@ -96,6 +97,7 @@ class PersonDetailViewModel(
     private val mosaicOwnerKey = "person:$personId"
     private var syncJob: Job? = null
     private var loadMoreJob: Job? = null
+    private val detailSyncGate = DetailSyncGate()
     private val _state = MutableStateFlow(
         PersonDetailState(
             targetRowHeight = savedTargetRowHeight,
@@ -200,20 +202,49 @@ class PersonDetailViewModel(
                     Unit
                 )
                 mosaicConfigPreparationCoordinator.cancelObsoleteWork()
-                if (_state.value.hasMore) {
-                    val result = getPersonAssetsUseCase.syncAll(personId)
-                        .onFailure { return@track Result.failure(it) }
-                        .getOrNull()
-                    val assets = getPersonAssetsUseCase.getAssets(personId)
-                    _state.update {
-                        it.copy(
-                            assets = assets,
-                            hasMore = false,
-                            nextPage = null,
-                            isLoadingMore = false
-                        )
+                syncJob?.takeIf { it.isActive }?.join()
+                loadMoreJob?.takeIf { it.isActive }?.join()
+                val fullSyncResult = detailSyncGate.run {
+                    if (!_state.value.hasMore) {
+                        null
+                    } else {
+                        val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
+                        _state.update {
+                            if (hasCachedAssets) {
+                                it.copy(isSyncing = true, bannerError = null)
+                            } else {
+                                it.copy(isBuilding = true, error = null)
+                            }
+                        }
+                        val result = getPersonAssetsUseCase.syncAll(personId)
+                        result.onSuccess { syncResult ->
+                            val assets = getPersonAssetsUseCase.getAssets(personId)
+                            val lastSync = getPersonAssetsUseCase.getLastSyncedAt(personId)
+                            _state.update {
+                                it.copy(
+                                    assets = assets,
+                                    hasMore = false,
+                                    nextPage = null,
+                                    isBuilding = false,
+                                    isSyncing = false,
+                                    isLoadingMore = false,
+                                    lastSyncedAt = lastSync
+                                )
+                            }
+                            handleSyncedContentChange(syncResult.changed)
+                        }.onFailure {
+                            _state.update { state ->
+                                state.copy(isBuilding = false, isSyncing = false)
+                            }
+                        }
+                        result
                     }
-                    handleSyncedContentChange(result?.changed == true)
+                }
+                if (fullSyncResult?.isFailure == true) {
+                    return@track Result.failure(
+                        fullSyncResult.exceptionOrNull()
+                            ?: IllegalStateException("Person detail full sync failed")
+                    )
                 }
                 return@track layoutCoordinator.prepareMosaicViewConfig(normalized)
             }
@@ -238,26 +269,42 @@ class PersonDetailViewModel(
             _state.update { it.copy(snackbarMessage = PersonDetailUiMessage.SyncInProgress) }
             return
         }
-        val page = prev.nextPage ?: return
         if (prev.isLoadingMore || !prev.hasMore) return
-        if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
 
         loadMoreJob = viewModelScope.launch(Dispatchers.IO) {
-            getPersonAssetsPageUseCase(personId, page = page).fold(
-                onSuccess = { result ->
-                    _state.update {
-                        it.copy(
-                            hasMore = result.hasMore,
-                            nextPage = result.nextPage,
-                            isLoadingMore = false
-                        )
+            detailSyncGate.run {
+                val current = _state.value
+                if (current.isSyncing || current.isBuilding || current.isLoadingMore || !current.hasMore) {
+                    if (current.isSyncing || current.isBuilding) {
+                        _state.update { it.copy(snackbarMessage = PersonDetailUiMessage.SyncInProgress) }
                     }
-                    handleSyncedContentChange(result.changed)
-                },
-                onFailure = {
-                    _state.update { it.copy(isLoadingMore = false) }
+                    return@run
                 }
-            )
+                val page = current.nextPage ?: return@run
+                if (!_state.compareAndSet(current, current.copy(isLoadingMore = true))) return@run
+
+                getPersonAssetsPageUseCase(personId, page = page).fold(
+                    onSuccess = { result ->
+                        val lastSync = if (!result.hasMore) {
+                            getPersonAssetsUseCase.getLastSyncedAt(personId)
+                        } else {
+                            null
+                        }
+                        _state.update {
+                            it.copy(
+                                hasMore = result.hasMore,
+                                nextPage = result.nextPage,
+                                isLoadingMore = false,
+                                lastSyncedAt = lastSync ?: it.lastSyncedAt
+                            )
+                        }
+                        handleSyncedContentChange(result.changed)
+                    },
+                    onFailure = {
+                        _state.update { it.copy(isLoadingMore = false) }
+                    }
+                )
+            }
         }
     }
 
@@ -287,50 +334,58 @@ class PersonDetailViewModel(
         if (syncJob?.isActive == true || _state.value.isLoadingMore || loadMoreJob?.isActive == true) return
         syncJob = viewModelScope.launch(Dispatchers.IO) {
             syncActivityTracker.track(SyncActivityKey.PersonDetail(personId)) {
-                val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
+                detailSyncGate.run {
+                    val hasCachedAssets = getPersonAssetsUseCase.hasCachedAssets(personId)
 
-                if (!hasCachedAssets) {
-                    _state.update { it.copy(isBuilding = true, error = null) }
-                } else {
-                    _state.update { it.copy(isSyncing = true, bannerError = null) }
-                }
+                    if (!hasCachedAssets) {
+                        _state.update { it.copy(isBuilding = true, error = null) }
+                    } else {
+                        _state.update { it.copy(isSyncing = true, bannerError = null) }
+                    }
 
-                val lastSync = getPersonAssetsUseCase.getLastSyncedAt(personId)
-                _state.update { it.copy(lastSyncedAt = lastSync) }
+                    val lastSync = getPersonAssetsUseCase.getLastSyncedAt(personId)
+                    _state.update { it.copy(lastSyncedAt = lastSync) }
 
-                getPersonAssetsPageUseCase(personId, page = 1).fold(
-                    onSuccess = { result ->
-                        _state.update {
-                            it.copy(
-                                hasMore = result.hasMore,
-                                nextPage = result.nextPage,
-                                isBuilding = false,
-                                isSyncing = false,
-                                error = null
-                            )
-                        }
-                        handleSyncedContentChange(result.changed)
-                    },
-                    onFailure = { e ->
-                        log.e(e) { "Failed to sync person assets for $personId" }
-                        if (!hasCachedAssets) {
+                    getPersonAssetsPageUseCase(personId, page = 1).fold(
+                        onSuccess = { result ->
+                            val completedAt = if (!result.hasMore) {
+                                getPersonAssetsUseCase.getLastSyncedAt(personId)
+                            } else {
+                                null
+                            }
                             _state.update {
                                 it.copy(
+                                    hasMore = result.hasMore,
+                                    nextPage = result.nextPage,
                                     isBuilding = false,
                                     isSyncing = false,
-                                    error = ConnectionUiMessage.NoConnectionToServer
+                                    error = null,
+                                    lastSyncedAt = completedAt ?: it.lastSyncedAt
                                 )
                             }
-                        } else {
-                            _state.update {
-                                it.copy(
-                                    isSyncing = false,
-                                    bannerError = ConnectionUiMessage.CannotConnectToServer
-                                )
+                            handleSyncedContentChange(result.changed)
+                        },
+                        onFailure = { e ->
+                            log.e(e) { "Failed to sync person assets for $personId" }
+                            if (!hasCachedAssets) {
+                                _state.update {
+                                    it.copy(
+                                        isBuilding = false,
+                                        isSyncing = false,
+                                        error = ConnectionUiMessage.NoConnectionToServer
+                                    )
+                                }
+                            } else {
+                                _state.update {
+                                    it.copy(
+                                        isSyncing = false,
+                                        bannerError = ConnectionUiMessage.CannotConnectToServer
+                                    )
+                                }
                             }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }

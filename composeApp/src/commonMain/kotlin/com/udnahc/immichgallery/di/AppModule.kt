@@ -90,8 +90,8 @@ val sharedModule = module {
     single { AssetEditsEnricher(get(), get()) }
     single { TimelineRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get()) }
     single { TimelineMosaicCacheRepository(get(), get(), get()) }
-    single { AlbumRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get()) }
-    single { PeopleRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get()) }
+    single { AlbumRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get()) }
+    single { PeopleRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get()) }
     single { SearchRepository(get()) }
     single { ServerStatusRepository(get()) }
     single { AssetRepository(get(), get(), get(), get()) }

@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.detail
 
+import com.udnahc.immichgallery.runSuspendCatching
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheLookup
@@ -110,7 +111,7 @@ internal class RuntimePhotoGridMosaicRenderer {
     ) {
         val entry = groupCacheEntry(group, groupItems, assetFingerprint, lookup) ?: return
         scope.launch(Dispatchers.IO) {
-            runCatching { upsert(entry) }.onFailure(onFailure)
+            runSuspendCatching { upsert(entry) }.onFailure(onFailure)
         }
     }
 }

@@ -13,6 +13,9 @@ interface SyncMetadataDao {
     @Query("SELECT lastSyncedAt FROM sync_metadata WHERE scope = :scope")
     suspend fun getLastSyncedAt(scope: String): Long?
 
+    @Query("DELETE FROM sync_metadata WHERE scope IN (:scopes)")
+    suspend fun clearScopes(scopes: List<String>)
+
     @Query("DELETE FROM sync_metadata")
     suspend fun clearAll()
 }

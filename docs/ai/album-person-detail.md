@@ -87,7 +87,7 @@ Zoom behavior is shared:
 
 ## ViewModel Responsibilities
 
-Album and Person ViewModels are owner-specific adapters around the shared coordinator. Opened-owner syncs are wrapped in `SyncActivityTracker` so Android can mirror active sync work with the shared foreground sync notification. The Android service does not execute Album or Person sync logic.
+Album and Person ViewModels are owner-specific adapters around the shared coordinator. Opened-owner syncs are wrapped in `SyncActivityTracker` so Android can mirror active sync work with the shared foreground sync notification. The Android service does not execute Album or Person sync logic. Each ViewModel uses one owner-local `DetailSyncGate` to serialize page-1 refresh, near-end paging, and Mosaic-triggered full sync; work must re-read `hasMore` and `nextPage` only after acquiring that gate.
 
 Album Detail owns:
 
@@ -180,11 +180,12 @@ Sync success and ordered content change are separate signals. Album-name updates
 
 Album and Person load-more rules:
 
-- ignore when sync/build is active and emit `SyncInProgress`;
+- ignore when sync/build is active; Person Detail emits `SyncInProgress` for that user action;
 - ignore when already loading more;
 - ignore when `hasMore == false`;
-- claim `isLoadingMore` atomically before launching the page request;
+- acquire the owner sync gate, then atomically claim `isLoadingMore` and read the current server-provided `nextPage`;
 - update `hasMore` and `nextPage` only from the successful page response; `nextPage` is the strictly parsed server-returned token, never `page + 1`;
+- after a successful terminal page or full sync, read and publish the new detail `lastSyncedAt` from Room;
 - call `handleSyncedContentChange(result.changed)` after page writes.
 
 Opened-owner sync is separate from Mosaic settings. Sync can change the ordered
@@ -348,8 +349,10 @@ flowchart LR
 
 Album and Person cache preparation cannot use partial paged data. If the user
 enables cached Mosaic results while `hasMore == true`, the owner ViewModel first
-performs its full sync, updates assets, sets `hasMore = false`, handles any
-content change, and only then prepares detail Mosaic artifacts.
+waits for any active owner sync or page request, rechecks `hasMore`, performs its full sync,
+updates assets, sets `hasMore = false`, handles any content change, and only
+then prepares detail Mosaic artifacts. The full sync must clear its temporary
+building/sync state on failure and return that failure to the settings action.
 
 Cache results affect runtime reads and writes, not opened-owner sync. Normal
 album/person sync may update ordered assets; it does not build Mosaic artifacts
@@ -616,6 +619,7 @@ When changing this area, prefer focused tests for:
 - changed sync invalidates only changed groups when group order is stable;
 - group order changes clear group caches and runtime states;
 - Person `loadMore()` ignores duplicate and sync-overlapping requests;
+- Album and Person page refresh, full Mosaic preparation, and initial sync cannot overlap or use a stale page token;
 - Person cache preparation syncs the full owner before writing persistent artifacts;
 - cache-disabled detail Mosaic skips persistent artifacts and computes runtime groups;
 - visible Mosaic groups outrank offscreen work;

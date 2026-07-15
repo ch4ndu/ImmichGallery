@@ -30,6 +30,7 @@ import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutCoordinator
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutSnapshot
+import com.udnahc.immichgallery.ui.util.DetailSyncGate
 import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.SyncActivityKey
@@ -94,6 +95,7 @@ class AlbumDetailViewModel(
     private var syncJob: Job? = null
     private var loadMoreJob: Job? = null
     private var albumOrder: String = "desc"
+    private val detailSyncGate = DetailSyncGate()
     private val _state = MutableStateFlow(
         AlbumDetailState(
             targetRowHeight = savedTargetRowHeight,
@@ -203,24 +205,51 @@ class AlbumDetailViewModel(
                     return@track Result.success(Unit)
                 }
                 mosaicConfigPreparationCoordinator.cancelObsoleteWork()
-                if (_state.value.hasMore) {
-                    val result = getAlbumDetailUseCase.syncAll(albumId)
-                        .onFailure { return@track Result.failure(it) }
-                        .getOrNull()
-                    val assets = getAlbumDetailUseCase.getAlbumAssets(albumId)
-                    if (result != null) {
-                        albumOrder = result.order
+                syncJob?.takeIf { it.isActive }?.join()
+                loadMoreJob?.takeIf { it.isActive }?.join()
+                val fullSyncResult = detailSyncGate.run {
+                    if (!_state.value.hasMore) {
+                        null
+                    } else {
+                        val hasCachedAssets = getAlbumDetailUseCase.hasCachedAssets(albumId)
+                        _state.update {
+                            if (hasCachedAssets) {
+                                it.copy(isSyncing = true, bannerError = null)
+                            } else {
+                                it.copy(isBuilding = true, error = null)
+                            }
+                        }
+                        val result = getAlbumDetailUseCase.syncAll(albumId)
+                        result.onSuccess { syncResult ->
+                            val assets = getAlbumDetailUseCase.getAlbumAssets(albumId)
+                            val lastSync = getAlbumDetailUseCase.getLastSyncedAt(albumId)
+                            albumOrder = syncResult.order
+                            _state.update {
+                                it.copy(
+                                    albumName = syncResult.albumName.ifBlank { it.albumName },
+                                    assets = assets,
+                                    hasMore = false,
+                                    nextPage = null,
+                                    isBuilding = false,
+                                    isSyncing = false,
+                                    isLoadingMore = false,
+                                    lastSyncedAt = lastSync
+                                )
+                            }
+                            handleSyncedContentChange(syncResult.changed)
+                        }.onFailure {
+                            _state.update { state ->
+                                state.copy(isBuilding = false, isSyncing = false)
+                            }
+                        }
+                        result
                     }
-                    _state.update {
-                        it.copy(
-                            albumName = result?.albumName ?: it.albumName,
-                            assets = assets,
-                            hasMore = false,
-                            nextPage = null,
-                            isLoadingMore = false
-                        )
-                    }
-                    handleSyncedContentChange(result?.changed == true)
+                }
+                if (fullSyncResult?.isFailure == true) {
+                    return@track Result.failure(
+                        fullSyncResult.exceptionOrNull()
+                            ?: IllegalStateException("Album detail full sync failed")
+                    )
                 }
                 return@track layoutCoordinator.prepareMosaicViewConfig(normalized)
             }
@@ -241,28 +270,41 @@ class AlbumDetailViewModel(
     fun loadMore() {
         val previous = _state.value
         if (syncJob?.isActive == true || previous.isSyncing || previous.isBuilding) return
-        val page = previous.nextPage ?: return
         if (previous.isLoadingMore || !previous.hasMore) return
-        if (!_state.compareAndSet(previous, previous.copy(isLoadingMore = true))) return
 
         loadMoreJob = viewModelScope.launch(Dispatchers.IO) {
-            getAlbumDetailUseCase.syncPage(albumId, page, albumOrder).fold(
-                onSuccess = { result ->
-                    albumOrder = result.order
-                    _state.update {
-                        it.copy(
-                            albumName = result.albumName.ifBlank { it.albumName },
-                            hasMore = result.hasMore,
-                            nextPage = result.nextPage,
-                            isLoadingMore = false
-                        )
-                    }
-                    handleSyncedContentChange(result.changed)
-                },
-                onFailure = {
-                    _state.update { it.copy(isLoadingMore = false) }
+            detailSyncGate.run {
+                val current = _state.value
+                if (current.isSyncing || current.isBuilding || current.isLoadingMore || !current.hasMore) {
+                    return@run
                 }
-            )
+                val page = current.nextPage ?: return@run
+                if (!_state.compareAndSet(current, current.copy(isLoadingMore = true))) return@run
+
+                getAlbumDetailUseCase.syncPage(albumId, page, albumOrder).fold(
+                    onSuccess = { result ->
+                        val lastSync = if (!result.hasMore) {
+                            getAlbumDetailUseCase.getLastSyncedAt(albumId)
+                        } else {
+                            null
+                        }
+                        albumOrder = result.order
+                        _state.update {
+                            it.copy(
+                                albumName = result.albumName.ifBlank { it.albumName },
+                                hasMore = result.hasMore,
+                                nextPage = result.nextPage,
+                                isLoadingMore = false,
+                                lastSyncedAt = lastSync ?: it.lastSyncedAt
+                            )
+                        }
+                        handleSyncedContentChange(result.changed)
+                    },
+                    onFailure = {
+                        _state.update { it.copy(isLoadingMore = false) }
+                    }
+                )
+            }
         }
     }
 
@@ -284,56 +326,64 @@ class AlbumDetailViewModel(
         if (syncJob?.isActive == true || _state.value.isLoadingMore || loadMoreJob?.isActive == true) return
         syncJob = viewModelScope.launch(Dispatchers.IO) {
             syncActivityTracker.track(SyncActivityKey.AlbumDetail(albumId)) {
-                val hasCachedAssets = getAlbumDetailUseCase.hasCachedAssets(albumId)
+                detailSyncGate.run {
+                    val hasCachedAssets = getAlbumDetailUseCase.hasCachedAssets(albumId)
 
-                if (!hasCachedAssets) {
-                    _state.update { it.copy(isBuilding = true, error = null) }
-                } else {
-                    _state.update { it.copy(isSyncing = true, bannerError = null) }
-                }
+                    if (!hasCachedAssets) {
+                        _state.update { it.copy(isBuilding = true, error = null) }
+                    } else {
+                        _state.update { it.copy(isSyncing = true, bannerError = null) }
+                    }
 
-                val lastSync = getAlbumDetailUseCase.getLastSyncedAt(albumId)
-                _state.update { it.copy(lastSyncedAt = lastSync) }
+                    val lastSync = getAlbumDetailUseCase.getLastSyncedAt(albumId)
+                    _state.update { it.copy(lastSyncedAt = lastSync) }
 
-                getAlbumDetailUseCase.syncPage(albumId, page = 1).fold(
-                    onSuccess = { result ->
-                        log.d { "Synced album detail for $albumId" }
-                        albumOrder = result.order
-                        // Network success and grid-visible content changes are
-                        // separate signals. Album-name-only refreshes update the
-                        // title while keeping the current packed rows/Mosaic work.
-                        handleSyncedContentChange(result.changed)
-                        _state.update {
-                            it.copy(
-                                albumName = result.albumName,
-                                hasMore = result.hasMore,
-                                nextPage = result.nextPage,
-                                isBuilding = false,
-                                isSyncing = false,
-                                error = null
-                            )
-                        }
-                    },
-                    onFailure = { e ->
-                        log.e(e) { "Failed to sync album detail for $albumId" }
-                        if (!hasCachedAssets) {
+                    getAlbumDetailUseCase.syncPage(albumId, page = 1).fold(
+                        onSuccess = { result ->
+                            val completedAt = if (!result.hasMore) {
+                                getAlbumDetailUseCase.getLastSyncedAt(albumId)
+                            } else {
+                                null
+                            }
+                            log.d { "Synced album detail for $albumId" }
+                            albumOrder = result.order
+                            // Network success and grid-visible content changes are
+                            // separate signals. Album-name-only refreshes update the
+                            // title while keeping the current packed rows/Mosaic work.
+                            handleSyncedContentChange(result.changed)
                             _state.update {
                                 it.copy(
+                                    albumName = result.albumName,
+                                    hasMore = result.hasMore,
+                                    nextPage = result.nextPage,
                                     isBuilding = false,
                                     isSyncing = false,
-                                    error = ConnectionUiMessage.NoConnectionToServer
+                                    error = null,
+                                    lastSyncedAt = completedAt ?: it.lastSyncedAt
                                 )
                             }
-                        } else {
-                            _state.update {
-                                it.copy(
-                                    isSyncing = false,
-                                    bannerError = ConnectionUiMessage.CannotConnectToServer
-                                )
+                        },
+                        onFailure = { e ->
+                            log.e(e) { "Failed to sync album detail for $albumId" }
+                            if (!hasCachedAssets) {
+                                _state.update {
+                                    it.copy(
+                                        isBuilding = false,
+                                        isSyncing = false,
+                                        error = ConnectionUiMessage.NoConnectionToServer
+                                    )
+                                }
+                            } else {
+                                _state.update {
+                                    it.copy(
+                                        isSyncing = false,
+                                        bannerError = ConnectionUiMessage.CannotConnectToServer
+                                    )
+                                }
                             }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }

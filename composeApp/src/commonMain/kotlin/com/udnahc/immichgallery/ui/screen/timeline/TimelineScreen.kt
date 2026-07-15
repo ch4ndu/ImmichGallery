@@ -497,9 +497,11 @@ private fun TimelineScrollEffects(
     }
     LaunchedEffect(listState) {
         snapshotFlow {
-            Triple(latestDisplayIndex, latestScrollAnchor, latestBucketScrollAnchor)
-        }.distinctUntilChanged().collectLatest { (currentIndex, anchor, bucketAnchor) ->
-            if (listState.isScrollInProgress) return@collectLatest
+            Triple(latestDisplayIndex, latestScrollAnchor, latestBucketScrollAnchor) to
+                listState.isScrollInProgress
+        }.distinctUntilChanged().collectLatest { (request, isScrollInProgress) ->
+            if (isScrollInProgress) return@collectLatest
+            val (currentIndex, anchor, bucketAnchor) = request
             if (anchor != null) {
                 val targetIndex = currentIndex.assetDisplayIndexById[anchor.assetId]
                     ?: return@collectLatest

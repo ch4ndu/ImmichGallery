@@ -265,7 +265,7 @@ fun TimelinePhotoOverlay(
         with(density) { PhotoDismissMotion.flickVelocity.toPx() }
     }
     val scope = rememberCoroutineScope()
-    val dragState = remember(scope) {
+    val dragState = remember(scope, dismissThresholdPx, flickVelocityPx) {
         DragToDismissState(
             scope = scope,
             dismissThresholdPx = dismissThresholdPx,
