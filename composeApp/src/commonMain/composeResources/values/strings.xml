@@ -30,6 +30,7 @@
     <string name="scrollbar_thumb">Scroll position indicator</string>
     <string name="scrollbar_track">Scrollbar track</string>
     <string name="items_count">%1$d items</string>
+    <string name="load_more">Load more</string>
 
     <!-- Loading -->
     <string name="loading_timeline">Preparing timeline, please wait…</string>

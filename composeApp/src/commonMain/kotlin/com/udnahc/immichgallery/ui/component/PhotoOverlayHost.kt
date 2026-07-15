@@ -14,6 +14,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -32,6 +33,7 @@ fun PhotoOverlayHost(
     modifier: Modifier = Modifier,
     initialIndexKey: Any? = Unit,
     onOverlayActiveChange: (Boolean) -> Unit = {},
+    onOverlayDismissed: (currentAssetId: String?) -> Unit = {},
     resolveInitialIndex: suspend (assetId: String) -> Int?,
     content: @Composable SharedTransitionScope.(
         showOverlay: Boolean,
@@ -59,6 +61,7 @@ fun PhotoOverlayHost(
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     var lastOverlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     var transitionAssetIdForGrid by remember { mutableStateOf<String?>(null) }
+    val latestOnOverlayDismissed = rememberUpdatedState(onOverlayDismissed)
     LaunchedEffect(selectedAssetId, initialIndexKey) {
         val id = selectedAssetId
         if (id != null) {
@@ -96,10 +99,18 @@ fun PhotoOverlayHost(
     }
 
     LaunchedEffect(overlayVisible) { onOverlayActiveChange(overlayVisible) }
+    val dismissOverlay: (String?) -> Unit = remember {
+        { dismissedAssetId ->
+            if (selectedAssetId != null) {
+                latestOnOverlayDismissed.value(dismissedAssetId)
+                overlayAnimActive = true
+                overlayInitialIndex = null
+                selectedAssetId = null
+            }
+        }
+    }
     PlatformBackHandler(enabled = overlayVisible) {
-        overlayAnimActive = true
-        overlayInitialIndex = null
-        selectedAssetId = null
+        dismissOverlay(currentViewedAssetId)
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -132,11 +143,7 @@ fun PhotoOverlayHost(
                         lastSelectedAssetId ?: return@AnimatedVisibility
                         overlay(
                             overlayInitialIndex ?: lastOverlayInitialIndex ?: 0,
-                            {
-                                overlayAnimActive = true
-                                overlayInitialIndex = null
-                                selectedAssetId = null
-                            },
+                            dismissOverlay,
                             { id ->
                                 if (overlayVisible) {
                                     currentViewedAssetId = id

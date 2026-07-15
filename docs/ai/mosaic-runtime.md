@@ -132,8 +132,8 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 
 - Detail scroll start cancels deferred publish flushes but keeps checkpoints/chunks.
 - Detail scroll settle schedules deferred group flush and incomplete Mosaic resume.
-- Resume snapshots runtime state before iterating, filters to current keyed groups without final cache, and runs visible targets before prefetch/offscreen targets.
-- Retryable failures resume only inside the visible prefetch window and use exponential backoff capped at `5000ms`.
+- Resume snapshots runtime state before iterating, filters to current keyed groups without final cache, and runs only the visible-plus-neighbor window with visible targets first.
+- Retryable failures resume only inside that same visible-plus-neighbor window and use exponential backoff capped at `5000ms`.
 
 ## Detail Progressive Display And Publication
 

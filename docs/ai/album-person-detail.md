@@ -53,7 +53,8 @@ flowchart TD
 - render `PhotoGridDetailContent`;
 - render `DetailTopBar` with `PhotoGridDetailActions`;
 - host `StaticPhotoOverlay`;
-- preserve `lastViewedAssetId` and scroll back to the current display item after overlay dismissal.
+- reset their non-saveable `LazyListState` to index `0` after the first nonempty display list for each composition;
+- use `PhotoOverlayHost.onOverlayDismissed` to map the current asset id through the current `displayIndex` and restore only a valid grid source after that screen's overlay closes.
 
 The screens do not group assets, pack rows, compute Mosaic bands, read cache artifacts, or decide Mosaic fallback policy.
 
@@ -63,7 +64,7 @@ The screens do not group assets, pack rows, compute Mosaic bands, read cache art
 - visible grid height after top/bottom chrome padding;
 - visible group indexes from `visibleBucketIndexesForDisplayIndexes(...)`;
 - active scroll state from `LazyListState.isScrollInProgress`;
-- near-end load-more triggers for Album and Person Detail.
+- an explicit localized **Load more** footer plus guarded near-end pagination for Album and Person Detail.
 
 `PhotoGridDetailContent` renders the same shared photo-grid display surface as
 Timeline. Its `LazyColumn` must use stable `gridKey` values and
@@ -187,6 +188,8 @@ Album and Person load-more rules:
 - update `hasMore` and `nextPage` only from the successful page response; `nextPage` is the strictly parsed server-returned token, never `page + 1`;
 - after a successful terminal page or full sync, read and publish the new detail `lastSyncedAt` from Room;
 - call `handleSyncedContentChange(result.changed)` after page writes.
+
+The footer appears only while `hasMore` is true. It displays a **Load more** button while idle and the existing progress indicator while loading. Automatic pagination is eligible only after the list can scroll backward, the user is near the end, and no request is active; this prevents a short first page or placeholder layout from starting a request. The explicit button remains available for short or unscrollable first pages.
 
 Opened-owner sync is separate from Mosaic settings. Sync can change the ordered
 asset list, which may invalidate layout, but sync does not decide whether
@@ -420,8 +423,8 @@ The runtime group pipeline:
 
 1. Build `KeyedAssetGroup` values from grouped assets, section labels, asset fingerprints, and exact layout/config keys.
 2. Remove runtime states whose keys no longer exist.
-3. During active scroll, mark offscreen groups as `InFlight` and compute only visible groups.
-4. Outside active scroll, compute groups in visible-first order.
+3. Mark groups outside the visible-plus-one-neighbor window as `InFlight` and compute only that window.
+4. Reorder runnable work with visible groups first.
 5. Run CPU work through `MosaicWorkScheduler`.
 6. Call `MosaicRenderEngine.computeSection(...)` with checkpoint, progress chunk, and cancellation callbacks.
 7. Publish valid partial chunks through `projectPartialSectionWithGeometry(...)` only when section geometry exists; otherwise keep exact placeholders or the current placeholder/old display.
@@ -445,6 +448,7 @@ Scheduler ownership:
 - `ForegroundVisible` is used for visible groups;
 - `ForegroundPrefetch` is used for non-visible groups in the active owner;
 - pending work is reprioritized whenever visible group indexes change;
+- initial construction, resumed work, and retry eligibility use the visible group plus one neighboring group window;
 - running prefetch can be cancelled when visible work exists.
 
 ```mermaid
@@ -465,11 +469,10 @@ stateDiagram-v2
 Scroll behavior:
 
 - `setScrollInProgress(true)` cancels deferred publish flushes but keeps runtime checkpoints/chunks.
-- While scrolling, only visible indexes are runnable.
-- Offscreen missing groups become resumable `InFlight` placeholders.
+- Only the visible group plus one neighboring group are runnable; all other missing groups become resumable `InFlight` placeholders.
 - `setScrollInProgress(false)` schedules deferred publish flush and incomplete Mosaic resume.
 - Resume snapshots `runtimeGroupStates` before iterating so mutation during resume cannot crash iteration.
-- Retryable failures resume only when the group is in the visible prefetch window.
+- Retryable failures resume only when the group is in the visible-plus-neighbor window.
 - Offscreen resume yields after each group so visible work can regain control.
 
 Retry behavior:
@@ -564,10 +567,10 @@ Open flow:
 
 Dismiss flow:
 
-1. Overlay returns the current asset id.
-2. ViewModel stores `lastViewedAssetId`.
-3. Screen maps that id through `displayIndex.assetDisplayIndexById`.
-4. If the item is not fully visible, the `LazyListState` scrolls to the mapped display item.
+1. Every host-level Back and `StaticPhotoOverlay` dismissal routes through `PhotoOverlayHost`'s one dismissal callback before the host hides the overlay.
+2. Album/Person maps the returned current asset id through `displayIndex.assetDisplayIndexById`.
+3. If the mapping is valid and the item is not fully visible, the `LazyListState` scrolls to the mapped display item.
+4. A null or unmapped id does not change the detail list position.
 
 Display projection must keep `assetDisplayIndexById` accurate for row-packing, placeholders, partial Mosaic, ready Mosaic, cache reads, and hidden-asset transitions. Placeholder-only groups cannot provide an asset cell target, but once a real asset display item exists, overlay dismiss must land on the current asset.
 
@@ -588,7 +591,7 @@ Mosaic runtime failure:
 
 - keep/restore placeholders for the group;
 - store retryable runtime state;
-- retry when visible or in the visible prefetch window;
+- retry when visible or in the visible-plus-neighbor window;
 - never poison `groupDisplayCache` or full `displayCache` with placeholders or partial output.
 
 Load-more failure:
@@ -623,8 +626,10 @@ When changing this area, prefer focused tests for:
 - Person cache preparation syncs the full owner before writing persistent artifacts;
 - cache-disabled detail Mosaic skips persistent artifacts and computes runtime groups;
 - visible Mosaic groups outrank offscreen work;
+- initial, resumed, and retry work stays within the visible-plus-neighbor window;
 - scroll pause leaves offscreen groups resumable;
 - retryable failures remain placeholders and later retry;
 - partial chunks project real bands plus placeholders, not fallback-thumbnail bands;
 - final ready groups can write assignments, mixed display records, section geometry, and aggregate geometry;
 - overlay dismiss maps the current asset id to a valid display item after row/Mosaic transitions.
+- initial short-page pagination requires the explicit button, while a scrolled near-end request is automatic and loading/exhausted states are rejected.

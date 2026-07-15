@@ -1,9 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.album
 
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
@@ -85,7 +82,6 @@ class AlbumDetailViewModel(
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
-    var lastViewedAssetId: String? by mutableStateOf(null)
 
     private val log = logging("AlbumDetailViewModel")
     private var hasSavedTargetRowHeight =
@@ -311,11 +307,6 @@ class AlbumDetailViewModel(
     fun dismissBannerError() {
         _state.update { it.copy(bannerError = null) }
     }
-
-    fun getDisplayItemIndexForReturn(): Int? =
-        lastViewedAssetId?.let { assetId ->
-            _state.value.displayIndex.assetDisplayIndexById[assetId]
-        }
 
     override fun onCleared() {
         layoutCoordinator.onCleared()

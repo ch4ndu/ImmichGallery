@@ -14,7 +14,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.ui.component.DetailTopBar
@@ -46,17 +49,19 @@ fun AlbumDetailScreen(
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     val dismissScope = rememberCoroutineScope()
+    var entryResetApplied by remember { mutableStateOf(false) }
 
     DisposableEffect(viewModel) {
         viewModel.activateForegroundMosaic()
         onDispose { viewModel.deactivateForegroundMosaic() }
     }
 
-    // Scroll back to last viewed asset when returning from detail
-    LaunchedEffect(viewModel.lastViewedAssetId) {
-        val itemIndex = viewModel.getDisplayItemIndexForReturn() ?: return@LaunchedEffect
-        if (itemIndex >= 0) {
-            listState.ensureReturnSourceVisible(itemIndex)
+    // This is intentionally not saveable: returning to this destination starts
+    // at the top even when Navigation restores a previous LazyListState.
+    LaunchedEffect(state.displayItems.isNotEmpty()) {
+        if (!entryResetApplied && state.displayItems.isNotEmpty()) {
+            listState.scrollToItem(0)
+            entryResetApplied = true
         }
     }
 
@@ -67,6 +72,13 @@ fun AlbumDetailScreen(
 
     PhotoOverlayHost(
         initialIndexKey = state.assets,
+        onOverlayDismissed = { assetId ->
+            assetId?.let { id ->
+                state.displayIndex.assetDisplayIndexById[id]?.let { itemIndex ->
+                    dismissScope.launch { listState.ensureReturnSourceVisible(itemIndex) }
+                }
+            }
+        },
         resolveInitialIndex = { id ->
             state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 }
         },
@@ -97,14 +109,7 @@ fun AlbumDetailScreen(
                 apiKey = viewModel.apiKey,
                 getAssetDetail = viewModel::getAssetDetail,
                 onPersonClick = onPersonClick,
-                onDismiss = { currentAssetId ->
-                    dismissScope.launch {
-                        viewModel.lastViewedAssetId = currentAssetId
-                        viewModel.getDisplayItemIndexForReturn()
-                            ?.let { listState.ensureReturnSourceVisible(it) }
-                        onDismissHost(currentAssetId)
-                    }
-                },
+                onDismiss = onDismissHost,
                 onCurrentAssetChanged = onCurrentAssetChanged,
                 onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                 sharedTransitionScope = sharedTransitionScope,

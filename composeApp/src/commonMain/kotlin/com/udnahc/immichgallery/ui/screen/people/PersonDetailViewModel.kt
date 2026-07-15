@@ -1,9 +1,6 @@
 package com.udnahc.immichgallery.ui.screen.people
 
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
@@ -88,7 +85,6 @@ class PersonDetailViewModel(
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
-    var lastViewedAssetId: String? by mutableStateOf(null)
 
     private val log = logging("PersonDetailViewModel")
     private var hasSavedTargetRowHeight =
@@ -319,11 +315,6 @@ class PersonDetailViewModel(
     fun consumeSnackbarMessage() {
         _state.update { it.copy(snackbarMessage = null) }
     }
-
-    fun getDisplayItemIndexForReturn(): Int? =
-        lastViewedAssetId?.let { assetId ->
-            _state.value.displayIndex.assetDisplayIndexById[assetId]
-        }
 
     override fun onCleared() {
         layoutCoordinator.onCleared()

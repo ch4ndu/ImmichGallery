@@ -218,37 +218,32 @@ class PhotoGridDetailLayoutCoordinatorTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun offscreenRuntimeMosaicGroupsAreDeferredWhileScrolling() = runTest {
+    fun idleStartupComputesOnlyTheVisibleGroupAndNeighbor() = runTest {
+        val mosaicComputer = RecordingMosaicSectionComputer()
         var state = coordinatorState(
             assets = multiMonthAssets(),
-            viewConfig = ViewConfig(mosaicEnabled = true)
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
         )
         val coordinator = coordinator(
             scope = this,
             scheduler = testScheduler,
             getState = { state },
-            updateState = { transform -> state = transform(state) }
+            updateState = { transform -> state = transform(state) },
+            mosaicEngine = mosaicComputer
         )
 
-        coordinator.setScrollInProgress(true)
-        coordinator.setVisibleBucketIndexes(listOf(0))
         coordinator.setAvailableViewportHeight(600f)
         coordinator.setAvailableWidth(360f)
         coordinator.handleAssetEmission(state.assets)
         advanceUntilIdle()
 
+        assertEquals(listOf(0, 1), mosaicComputer.groupIndexes)
         assertEquals(true, state.displayItems.any { it is PlaceholderItem && it.bucketIndex == 2 })
-
-        coordinator.setScrollInProgress(false)
-        advanceTimeBy(120)
-        advanceUntilIdle()
-
-        assertEquals(false, state.displayItems.any { it is PlaceholderItem && it.bucketIndex == 2 })
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun activeScrollComputesOnlyVisibleRuntimeMosaicGroups() = runTest {
+    fun scrollSettlingDoesNotWarmEveryIncompleteGroup() = runTest {
         val mosaicComputer = RecordingMosaicSectionComputer()
         var state = coordinatorState(
             assets = multiMonthAssets(),
@@ -269,9 +264,40 @@ class PhotoGridDetailLayoutCoordinatorTest {
         coordinator.handleAssetEmission(state.assets)
         advanceUntilIdle()
 
-        assertEquals(listOf(0), mosaicComputer.groupIndexes)
-
         coordinator.setScrollInProgress(false)
+        advanceTimeBy(120)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1), mosaicComputer.groupIndexes)
+        assertEquals(true, state.displayItems.any { it is PlaceholderItem && it.bucketIndex == 2 })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun movingVisibilitySchedulesTheNextMosaicWindow() = runTest {
+        val mosaicComputer = RecordingMosaicSectionComputer()
+        var state = coordinatorState(
+            assets = multiMonthAssets(),
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            mosaicEngine = mosaicComputer
+        )
+
+        coordinator.setScrollInProgress(true)
+        coordinator.setVisibleBucketIndexes(listOf(0))
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0, 1), mosaicComputer.groupIndexes)
+
+        coordinator.setVisibleBucketIndexes(listOf(1))
         advanceUntilIdle()
 
         assertEquals(listOf(0, 1, 2), mosaicComputer.groupIndexes)

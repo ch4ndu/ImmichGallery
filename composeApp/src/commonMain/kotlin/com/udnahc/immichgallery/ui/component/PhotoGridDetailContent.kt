@@ -13,7 +13,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,7 +41,10 @@ import com.udnahc.immichgallery.domain.model.visibleBucketIndexesForDisplayIndex
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
+import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.load_more
 import kotlinx.coroutines.flow.distinctUntilChanged
+import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -363,42 +368,67 @@ private fun LazyListScope.paginationFooter(
     onLoadMore: () -> Unit,
     listState: LazyListState
 ) {
-    item(key = "load_more_trigger") {
-        LoadMoreTrigger(
+    item(key = "load_more_footer") {
+        LoadMoreFooter(
             listState = listState,
+            isLoadingMore = isLoadingMore,
             onLoadMore = onLoadMore
         )
-    }
-    if (isLoadingMore) {
-        item(key = "loading_more") {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(Dimens.screenPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        }
     }
 }
 
 @Composable
-private fun LoadMoreTrigger(
+private fun LoadMoreFooter(
     listState: LazyListState,
+    isLoadingMore: Boolean,
     onLoadMore: () -> Unit
 ) {
     val latestOnLoadMore by rememberUpdatedState(onLoadMore)
-    LaunchedEffect(listState) {
+    LaunchedEffect(listState, isLoadingMore) {
         snapshotFlow {
             val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            val totalItems = info.totalItemsCount
-            totalItems > 0 && lastVisible >= totalItems - 3
+            canAutoLoadMore(
+                hasMore = true,
+                isLoadingMore = isLoadingMore,
+                canScrollBackward = listState.canScrollBackward,
+                lastVisibleIndex = info.visibleItemsInfo.lastOrNull()?.index ?: -1,
+                totalItemsCount = info.totalItemsCount
+            )
         }
             .distinctUntilChanged()
             .collect { shouldLoadMore ->
                 if (shouldLoadMore) latestOnLoadMore()
             }
     }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Dimens.screenPadding),
+        contentAlignment = Alignment.Center
+    ) {
+        if (canManuallyLoadMore(hasMore = true, isLoadingMore = isLoadingMore)) {
+            Button(onClick = onLoadMore) {
+                Text(stringResource(Res.string.load_more))
+            }
+        } else {
+            CircularProgressIndicator()
+        }
+    }
 }
+
+internal fun canAutoLoadMore(
+    hasMore: Boolean,
+    isLoadingMore: Boolean,
+    canScrollBackward: Boolean,
+    lastVisibleIndex: Int,
+    totalItemsCount: Int
+): Boolean =
+    hasMore &&
+            !isLoadingMore &&
+            canScrollBackward &&
+            totalItemsCount > 0 &&
+            lastVisibleIndex >= totalItemsCount - 3
+
+internal fun canManuallyLoadMore(hasMore: Boolean, isLoadingMore: Boolean): Boolean =
+    hasMore && !isLoadingMore
