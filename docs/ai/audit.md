@@ -1,8 +1,11 @@
 # Architecture Audit
 
-Load this for code review, architecture audit, or "check the codebase" requests. Report violations only unless explicitly asked to fix them.
+Load this for code review, architecture audit, or "check the codebase" requests. Report findings only unless explicitly asked to fix them.
 
-For any UI, Compose, or screen audit, also load `docs/ai/ui.md` and apply its Compose-sensitive rules.
+For any UI, Compose, screen, or whole-project audit, also load
+`docs/ai/compose-performance-audit.md` and `docs/ai/ui.md`. Apply the dedicated
+Compose audit's evidence classification instead of presenting unmeasured
+optimization risks as confirmed regressions.
 
 For Room, repository, cache, API, or date/time audits, also load `docs/ai/data-cache-time.md`.
 
@@ -47,7 +50,11 @@ For standard row packing or justified row audits, also load `docs/ai/row-packing
 
 ## Compose Recomposition And Performance Checks
 
-Every architecture or code audit must include a Compose recomposition and performance pass. For UI, Compose, or screen-specific audits, load `docs/ai/ui.md` alongside this file and treat its state and performance rules as audit requirements.
+Every whole-project audit must include a Compose recomposition and performance
+pass. Focused UI, Compose, or screen audits must load
+`docs/ai/compose-performance-audit.md` alongside `docs/ai/ui.md` and treat both
+as audit requirements. Focused non-UI audits do not need the Compose reference
+unless their state, threading, or data flow reaches Compose.
 
 - `[FLOW_SCOPE]` Look for state or flow collection that remains active beyond the UI state, mode, or component that needs it.
 - `[RECOMPOSITION]` Look for broad state propagation, unstable inputs, or expensive derivation work that can cause avoidable recomposition.
@@ -71,12 +78,28 @@ Every architecture or code audit must include a Compose recomposition and perfor
 
 ## Report Format
 
+Classify each finding as one of:
+
+- `Confirmed`: code or a documented contract proves the defect.
+- `Risk`: the code has a concrete performance or correctness mechanism, but
+  user-visible impact is not statically proven.
+- `Measurement needed`: runtime evidence is required before claiming an impact.
+
+Static audits do not require profiling. Never describe debug-build slowness,
+recomposition by itself, or the absence of an optional optimization as a
+confirmed defect.
+
 ```text
 **[RULE]** - file:line
-Violation description.
+Finding description.
+Evidence: Confirmed | Risk | Measurement needed.
 Fix: what to change.
 ```
 
-Use visible, searchable labels for Compose performance findings, including `[RECOMPOSITION]`, `[LAZY_VIRTUALIZATION]`, and `[FLOW_SCOPE]`.
+Use visible, searchable labels for Compose performance findings, including
+`[RECOMPOSITION]`, `[STABILITY]`, `[STATE_READ_PHASE]`,
+`[EFFECT_LIFECYCLE]`, `[LAZY_VIRTUALIZATION]`, `[FLOW_SCOPE]`,
+`[MAIN_THREAD]`, `[IMAGE_PIPELINE]`, and `[BUILD_PERF]`.
 
-End with total violations by category and a short list of compliant areas.
+End with totals by category and evidence level plus a short list of compliant
+areas.

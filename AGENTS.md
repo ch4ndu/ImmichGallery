@@ -16,6 +16,7 @@ Read this file first. Do not eagerly load every AI instruction document. Load on
 | Feature implementation, bug fixes, refactors | `docs/ai/feature-implementation.md` |
 | Code review or architecture audit         | `docs/ai/audit.md`                  |
 | UI, Compose, previews, recomposition      | `docs/ai/ui.md`                     |
+| Compose performance or correctness audit  | `docs/ai/compose-performance-audit.md` plus `docs/ai/ui.md` |
 | Room cache, repositories, Immich API, time | `docs/ai/data-cache-time.md`        |
 
 ## Always-On Rules
@@ -52,6 +53,7 @@ Feature-specific routing:
 - Timeline-specific behavior: `docs/timeline.md`
 - Data/cache/Room/API/time: `docs/ai/data-cache-time.md`
 - UI/Compose/layout/recomposition: `docs/ai/ui.md`
+- Compose performance/correctness audits: `docs/ai/compose-performance-audit.md`
 - Architecture/layering/source ownership: `docs/ai/architecture.md`
 - Audit/review rules: `docs/ai/audit.md`
 - General implementation workflow: `docs/ai/feature-implementation.md`
