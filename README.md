@@ -179,6 +179,7 @@ Immich API / Room / settings
 
 Canonical architecture references:
 
+- [System architecture](docs/ARCHI.md)
 - [Architecture and feature map](docs/ai/architecture.md)
 - [Authentication, startup, and session](docs/ai/auth-session.md)
 - [Collection lists and Search](docs/ai/collection-lists-search.md)
@@ -188,6 +189,7 @@ Canonical architecture references:
 - [Standard justified rows](docs/ai/row-packing.md)
 - [Mosaic overview](docs/ai/mosaic-rendering.md), [assignment](docs/ai/mosaic-assignment.md), and [runtime](docs/ai/mosaic-runtime.md)
 - [Data, cache, API, and time](docs/ai/data-cache-time.md)
+- [Testing guidelines](docs/4-unit-tests/TESTING.md)
 
 ## Technology
 

@@ -1,0 +1,12 @@
+{
+  "default_role": "sol-implement",
+  "effort": "high",
+  "model": "gpt-5.6-sol",
+  "module": "implementation",
+  "phases": {
+    "start": {"roles": ["sol-implement"], "source_phase": "codex-implement/prompts/implement.tpl"},
+    "continue": {"roles": ["sol-implement"], "source_phase": "codex-implement/prompts/continue.tpl"}
+  },
+  "purpose": "Bounded implementation of an approved ownership wave.",
+  "sandbox": "workspace-write"
+}

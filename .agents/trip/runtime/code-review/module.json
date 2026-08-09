@@ -1,0 +1,17 @@
+{
+  "default_role": "sol-review",
+  "effort": "xhigh",
+  "model": "gpt-5.6-sol",
+  "module": "code-review",
+  "phases": {
+    "start": {"roles": ["sol-review"], "source_phase": "codex-code-review/prompts/start.tpl"},
+    "resume": {"roles": ["sol-review"], "source_phase": "codex-code-review/prompts/resume.tpl"},
+    "synthesize": {"roles": ["sol-review"], "source_phase": "codex-code-review/prompts/synthesize.tpl"},
+    "review-response": {"roles": ["sol-review"], "source_phase": "review-response"},
+    "fix": {"roles": ["sol-review"], "source_phase": "fix"},
+    "final-gate": {"roles": ["sol-final"], "source_phase": "sol-final-adjudication"}
+  },
+  "purpose": "Consolidated code review, evidence-backed responses and fixes, then Sol final adjudication.",
+  "sandbox": "read-only",
+  "sol_final": {"effort": "high", "model": "gpt-5.6-sol"}
+}

@@ -1,0 +1,103 @@
+{
+  "adaptation_slots": [
+    {
+      "id": "trip-1-plan/SKILL.md#1",
+      "marker": "[ADAPT_TO_PROJECT: Replace the items below with concerns relevant to this\nspecific codebase \u2014 patterns from ARCHI.md, layering rules, platform impact,\nstate management, security, performance. trip-init fills this in.]",
+      "occurrence": 1,
+      "path": "trip-1-plan/SKILL.md"
+    },
+    {
+      "id": "trip-1-plan/SKILL.md#2",
+      "marker": "[ADAPT_TO_PROJECT: Guidance Sections]",
+      "occurrence": 2,
+      "path": "trip-1-plan/SKILL.md"
+    },
+    {
+      "id": "trip-2-implement/SKILL.md#1",
+      "marker": "[ADAPT_TO_PROJECT: Integration Impact]",
+      "occurrence": 1,
+      "path": "trip-2-implement/SKILL.md"
+    },
+    {
+      "id": "trip-review/checklist.md#1",
+      "marker": "[ADAPT_TO_PROJECT]",
+      "occurrence": 1,
+      "path": "trip-review/checklist.md"
+    },
+    {
+      "id": "trip-review/cr-template.md#1",
+      "marker": "[ADAPT_TO_PROJECT]",
+      "occurrence": 1,
+      "path": "trip-review/cr-template.md"
+    },
+    {
+      "id": "trip-test/SKILL.md#1",
+      "marker": "[ADAPT_TO_PROJECT]",
+      "occurrence": 1,
+      "path": "trip-test/SKILL.md"
+    },
+    {
+      "id": "trip-test/SKILL.md#2",
+      "marker": "[ADAPT_TO_PROJECT]",
+      "occurrence": 2,
+      "path": "trip-test/SKILL.md"
+    }
+  ],
+  "exploration": {
+    "files_inspected": [
+      "AGENTS.md",
+      "README.md",
+      "docs/ARCHI.md",
+      "docs/ai/architecture.md",
+      "docs/ai/auth-session.md",
+      "docs/ai/data-cache-time.md",
+      "docs/ai/collection-lists-search.md",
+      "docs/ai/media-viewer.md",
+      "docs/ai/timeline-sync.md",
+      "docs/ai/ui.md",
+      "docs/ai/feature-implementation.md",
+      "docs/ai/audit.md",
+      "docs/ai/compose-performance-audit.md",
+      "settings.gradle.kts",
+      "build.gradle.kts",
+      "gradle.properties",
+      "gradle/libs.versions.toml",
+      "composeApp/build.gradle.kts",
+      "androidApp/build.gradle.kts",
+      "androidApp/src/main/AndroidManifest.xml",
+      "composeApp/src/androidMain/AndroidManifest.xml",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/App.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/di/AppModule.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/data/local/AppDatabase.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/data/local/DatabaseMigrations.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/data/remote/ImmichApiService.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/data/remote/HttpClientFactory.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/ui/navigation/AppNavigation.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/ui/navigation/MainScreen.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/ui/navigation/Route.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/data/repository/TimelineRepository.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/data/repository/AlbumRepository.kt",
+      "composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/data/repository/PeopleRepository.kt",
+      "iosApp/Configuration/Config.xcconfig",
+      "iosApp/iosApp/Info.plist",
+      "iosApp/scripts/compile-kotlin-framework.sh"
+    ],
+    "project_type": "Cross-platform gallery client with native Android and iOS hosts and a first-class JVM Desktop target",
+    "summary": "ImmichGallery is a read-only, shared-first Kotlin Multiplatform client for self-hosted Immich servers. composeApp owns shared Compose UI, screen ViewModels, domain UseCases/Actions, the Ktor Immich API boundary, Room schema 2 cache, Koin DI, grid engines, and Android/iOS/JVM implementations; androidApp and iosApp are thin native hosts."
+  },
+  "initialized_at": "2026-08-09T17:30:58.104715+00:00",
+  "project": "ImmichGallery",
+  "values": {
+    "LINT_COMMAND": "./gradlew :androidApp:lintDebug",
+    "MAIN_BRANCH": "master",
+    "PROJECT_NAME": "ImmichGallery",
+    "TEST_COMMAND": "./gradlew :composeApp:jvmTest :composeApp:testAndroidHostTest",
+    "TEST_COMMAND_ALL": "./gradlew :composeApp:jvmTest :composeApp:testAndroidHostTest",
+    "TEST_COMMAND_COVERAGE": "echo Coverage-is-not-configured-for-ImmichGallery",
+    "TEST_COMMAND_SINGLE": "./gradlew :composeApp:jvmTest --tests fully.qualified.TestClass.testName",
+    "TYPECHECK_COMMAND": "./gradlew :composeApp:compileKotlinJvm :composeApp:compileKotlinIosArm64 :composeApp:compileKotlinIosSimulatorArm64 :composeApp:compileAndroidMain :androidApp:assembleDebug",
+    "VERSION_FILE": "androidApp/build.gradle.kts, iosApp/Configuration/Config.xcconfig, and composeApp/build.gradle.kts",
+    "WEEK_ANCHOR_DATE": "2026-08-03",
+    "WEEK_ANCHOR_EPOCH": "1785715200"
+  }
+}

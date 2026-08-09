@@ -1,0 +1,12 @@
+{
+  "default_role": "terra",
+  "effort": "xhigh",
+  "model": "gpt-5.6-terra",
+  "module": "ask",
+  "phases": {
+    "start": {"roles": ["terra"], "source_phase": "codex-ask/prompts/ask.tpl"},
+    "follow-up": {"roles": ["terra"], "source_phase": "codex-ask/prompts/followup.tpl"}
+  },
+  "purpose": "Advisory repository-grounded research and decision red-teaming.",
+  "sandbox": "read-only"
+}

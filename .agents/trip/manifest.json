@@ -1,0 +1,50 @@
+{
+  "bin": {
+    "apply_upgrade.py": "a922920714e11aed393f3240619485cc0e4429608c29b74d6d59d0ad0cc02a3d",
+    "count-tokens.sh": "8c6ef2e68a013f318f0eb8f0c2ad1ad2ba7d2789afeb77af5cb6197162053f07",
+    "initialize_trip.py": "97db6d2cb00aa7abba9bb75e4794c4b9338b17cb4647cd1218366d1da7317e81",
+    "install_trip.py": "6d16366b17cc6a1c14091ed119793e7ba31c3e7e6444e7ad28f1d22d791a1ad2",
+    "launch_runtime.py": "95a1bb2ef54e9071a8099164a36a5485c9bbc433f5bdf1cd2399bf4204a1309e",
+    "merge_upgrade.py": "cab06e2c8306673e38a1e181b9e5c2764537ce17e5009ba82b4bcd79045cb883",
+    "token_estimate.py": "d6b90b91cfb5b9056cdc9efca9b26f02fa2005f7ce4812c83071438eb565c72a",
+    "validate_installed.py": "73e315f0528bfb92c210f7165093a1ad4c23cf9ec4a262be61b370074ea1ce24",
+    "validate_package.py": "8305b5d4cf7586c0626013281ad3770c008aafd8d8e7d942d3a1390bf25cbbff"
+  },
+  "installed_at": "2026-08-09T17:18:19+00:00",
+  "runtime": {
+    "ask/module.json": "c3b77c59ab528278b1de73cd647a3e92e4962cab38cec54daa0c0b3b75bcd86b",
+    "ask/phases/follow-up.md": "7a54f7adbe3af1bfddf99cf7e9db9ec6e25bf572cc8ce13f15c4eb43e6bc3558",
+    "ask/phases/start.md": "eb62a80d85616245a8cb316a2eea94517b40eae4517fbe369a5c91eddc27dffb",
+    "code-review/module.json": "7f440d57cd480e861fcf63b74bc63596d6264e709540dd49348335708141c618",
+    "code-review/phases/final-gate.md": "8b64cb6d719cd3f461730cb4bb7e61f4c3d06fb1093bff8ad799d0fa26f91660",
+    "code-review/phases/fix.md": "d141d4bca774181f50fb09fca6f59436d1d7db370612771f091b73b75c2f2859",
+    "code-review/phases/resume.md": "1863aac62d3bff231c120373968a8cd17896f77695c4177233291f926022561a",
+    "code-review/phases/review-response.md": "5253b27b4045249a24486be869d9b8a0db0c888ed93ae58277f65885813d60fd",
+    "code-review/phases/start.md": "c9ce2d76519f424982f4d84a82543c49efed573b82a3026df34e38c664c1911a",
+    "code-review/phases/synthesize.md": "fb17a7f0821526f99af33bb2599b8be4aef32062bd10fd9343ba68929585421e",
+    "implementation/module.json": "c9af890058248e09cc1fc21ff59c4bb7fae2c71d9b9fd60a598d3f00291bac0e",
+    "implementation/phases/continue.md": "b59cdc3e7091935d75f4b8a5eda8b3121b9ff534a7062911f7f14a4214bf8d22",
+    "implementation/phases/start.md": "26ec2b0770eb334f327323a4bd4eb03ac151622830e6c903ac59a55cb4d23f1b",
+    "plan-review/module.json": "a7ee5bf9161b08bbb5f2730c67a6e86b55772921998236acb6d8550250a2c708",
+    "plan-review/phases/resume.md": "52d9b2f6e3543ba79954a8c54ff0c8aea9079b9f5848f832aaedfe29c6b71b08",
+    "plan-review/phases/start.md": "77e013fd2fc50ce39fe0ab9a8e6c7e8400118012246d34bf3cc66dbc7f67f73c"
+  },
+  "schema": 1,
+  "skills": {
+    "trip-1-plan/SKILL.md": "43684d6d9d2258324143bc5d7d7720aeb24142648d82228adc9798465fc87bbf",
+    "trip-2-implement/SKILL.md": "a50635094cf5f01a4ad22174025b58dc607ed8933fe2b534602deaef27a28e62",
+    "trip-3-release/SKILL.md": "e5cb4d079188047eaf8cd538c9cc752bbf1d861fe9965166608c41cab02d921b",
+    "trip-compact/SKILL.md": "73a26682adad7d3d88d992b912c8695e57398c4d3a27b71c43fa5e66bb394ff5",
+    "trip-compact/count-tokens.sh": "d9caeb5a8e45fb3ca1ec7ccca60e7dd9787020b1fd85ac8a8b2a14e70e7cd7d7",
+    "trip-hotfix/SKILL.md": "63837b0dda49ecaacc586cd6d6ef5825166b74c90bad85c8c1a32ef88820733f",
+    "trip-init/SKILL.md": "e0afdb411b809ce996ca22812c81715b556d2f8d19b7194652299cba0f802e92",
+    "trip-init/references/workflow.md": "c5407f15e9bf7092a12bda5268615303ca945f3a6eecb8701746a012e09c87c8",
+    "trip-research/SKILL.md": "b2d1cbc0f7462898a48476bf78a69a8d4fb2c21bb4f8f461703bff5e0ae7b406",
+    "trip-review/SKILL.md": "b94b2c6a9e53b460e4f3808c98d3b384b25b1942c3959ff36a12f1daee0ac71c",
+    "trip-review/checklist.md": "efbe1a44ee13b832e86918a39b0af82dea5722902fd6aec16548c6502e6ebb1f",
+    "trip-review/cr-template.md": "d38cb4a112e1762c8777513d6c5f16951c23eefd87e7d78e78623c2fa76f5e99",
+    "trip-test/SKILL.md": "a40e2e94422f6a88dc5d65d5999e890754f57cbabf59fb4b31f2e569c7e053b2",
+    "trip-upgrade/SKILL.md": "60038d5e703d4ac6605ee194b9e5434bf35a70f4065d7410a085ab51e118b1fc"
+  },
+  "version": "1.0.0"
+}

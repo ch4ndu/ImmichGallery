@@ -2,6 +2,11 @@
 
 Load this when working on architecture, source layout, dependency flow, or cross-layer behavior.
 
+For the system-level project map, module/platform ownership, build and version
+surfaces, verification strategy, and architecture diagrams, read
+`docs/ARCHI.md`. This document remains the focused source-layout and feature
+ownership contract.
+
 For Mosaic-specific rendering, cache artifact, scheduling, fallback, and placeholder rules, load `docs/ai/mosaic-rendering.md`.
 For Album Detail and Person Detail screen architecture, cached-first loading, opened-owner sync, pagination, overlay return, and shared detail layout coordination, load `docs/ai/album-person-detail.md`.
 For login, saved-session startup, local-network access, server monitoring, and logout, load `docs/ai/auth-session.md`.

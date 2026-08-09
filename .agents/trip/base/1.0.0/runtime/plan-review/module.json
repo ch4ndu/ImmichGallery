@@ -1,0 +1,12 @@
+{
+  "default_role": "sol-review",
+  "effort": "xhigh",
+  "model": "gpt-5.6-sol",
+  "module": "plan-review",
+  "phases": {
+    "start": {"roles": ["sol-review"], "source_phase": "codex-plan-review/prompts/start.tpl"},
+    "resume": {"roles": ["sol-review"], "source_phase": "codex-plan-review/prompts/resume.tpl"}
+  },
+  "purpose": "Repository-grounded implementation-plan critique and incremental re-review.",
+  "sandbox": "read-only"
+}

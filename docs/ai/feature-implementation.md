@@ -13,6 +13,12 @@ For photo/video viewing, asset information, slideshow, viewer gestures, or viewe
 ## Before Editing
 
 - Read `AGENTS.md`, then load only the task-relevant focused docs.
+- Project-local TRIP workflows live under `.agents/skills/trip-*` and require
+  `.agents/trip/initialized.json`. Use `trip-1-plan` for feature planning,
+  `trip-2-implement` for an approved plan, `trip-review` for manual review,
+  `trip-test` for focused test work, and `trip-3-release` only after explicit
+  release confirmation. `docs/ARCHI.md` is their system-level prerequisite;
+  the focused `docs/ai/*` contracts remain authoritative for feature details.
 - Explore existing code for reusable UseCases, Actions, repositories, composables, utilities, strings, icons, and theme dimensions.
 - Identify whether the change belongs in `commonMain` or requires platform-specific code.
 - Keep the change minimal and aligned with existing architecture.
