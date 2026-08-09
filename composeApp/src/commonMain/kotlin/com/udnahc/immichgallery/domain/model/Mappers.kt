@@ -6,6 +6,7 @@ import com.udnahc.immichgallery.data.local.entity.PersonEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.model.AlbumResponse
 import com.udnahc.immichgallery.data.model.AssetResponse
+import com.udnahc.immichgallery.data.model.MemoryResponse
 import com.udnahc.immichgallery.data.model.PersonResponse
 import com.udnahc.immichgallery.data.model.StackResponse
 import com.udnahc.immichgallery.data.model.TimeBucketResponse
@@ -84,6 +85,21 @@ fun StackResponse.toDomain(baseUrl: String): AssetStack = AssetStack.normalized(
     primaryAssetId = primaryAssetId,
     assets = assets.mapNotNull { it.toDomainOrNull(baseUrl) }
 )
+
+fun MemoryResponse.toDomainOrNull(baseUrl: String): Memory? {
+    if (type != "on_this_day") return null
+    val year = data?.year ?: return null
+    val supportedAssets = assets
+        .mapNotNull { it.toDomainOrNull(baseUrl) }
+        .distinctBy(Asset::id)
+    if (supportedAssets.isEmpty()) return null
+    return Memory(
+        id = id,
+        year = year,
+        memoryAt = memoryAt,
+        assets = supportedAssets
+    )
+}
 
 fun AssetResponse.toDetail(baseUrl: String): AssetDetail {
     val exif = exifInfo

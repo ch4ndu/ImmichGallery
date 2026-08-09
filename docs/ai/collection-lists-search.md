@@ -1,8 +1,9 @@
-# Collection Lists, Explore, Search, And Favorites Architecture
+# Collection Lists, Explore, Search, Favorites, And Memories Architecture
 
 Load this when changing the Albums list, People list, People name filtering,
-Explore, Search modes/pagination/result layout, or Favorites. Album/Person
-detail is documented separately in `docs/ai/album-person-detail.md`.
+Explore, Search modes/pagination/result layout, Favorites, or Memories.
+Album/Person detail is documented separately in
+`docs/ai/album-person-detail.md`.
 
 ## Albums List
 
@@ -45,9 +46,8 @@ detail is documented separately in `docs/ai/album-person-detail.md`.
 - The blank idle Explore state shows static Favorites and Memories entry cards.
   A typed query keeps the existing Search hint; executed Search states keep the
   existing loading/error/empty/results behavior. Clearing restores the cards.
-- Explore cards perform no collection request. `FavoritesViewModel` is created
-  only after navigating to the root `FavoritesRoute`; `MemoriesRoute` is a
-  routed placeholder until its later implementation phase.
+- Explore cards perform no collection request. The corresponding ViewModel is
+  created only after navigating to root `FavoritesRoute` or `MemoriesRoute`.
 
 - Search is live and network-backed. Results are held in `SearchState`; there is
   no Search Room table or offline result cache.
@@ -120,6 +120,28 @@ detail is documented separately in `docs/ai/album-person-detail.md`.
   setting. Favorites uses justified rows only, plus the shared return-source,
   static viewer, Info, slideshow, person navigation, and stack session.
 
+## Memories
+
+- Memories is live-only. Opening `MemoriesRoute` derives a `LocalDate` from
+  `Clock.System.now()` and `TimeZone.currentSystemDefault()`, then requests
+  `GET /api/memories?for=YYYY-MM-DD`. Retry recomputes the date; there is no
+  background midnight timer or request from Explore/Timeline.
+- `GetMemoriesForDateUseCase` keeps only `on_this_day` responses with supported
+  image/video assets, preserves first-occurrence asset order, and removes
+  duplicate memory/asset ids. Cards are sorted by descending `data.year` while
+  separate memories within one year retain server order.
+- `MemoriesViewModel` generation-guards initial and retry reads and exposes
+  permission, unavailable-server, and transient failures as typed states.
+  Memories never writes Room or marks a memory seen, saved, hidden, or changed.
+- The screen is an above-shell lazy list of large cover cards. Each card uses
+  the first supported asset and shows the year plus actual supported count.
+  Selecting it opens only that memory's ordered assets through
+  `StaticPhotoOverlay`, retaining Info, slideshow, person navigation, mixed
+  image/video playback, and viewer-scoped stacks.
+- Memory viewers opt into origin return: paging to a non-cover asset still
+  hides and exits to the selected cover. A nested stack closes to the unchanged
+  memory pager before the base viewer exits to that cover.
+
 ## Verification Targets
 
 - Album and People cached content remains visible when refresh fails;
@@ -135,3 +157,6 @@ detail is documented separately in `docs/ai/album-person-detail.md`.
 - Favorites excludes partner assets, crosses sparse pages, preserves typed
   retry progress, rejects stale/duplicate work, and returns to the settled
   asset's justified row.
+- Memories derives the correct local date around UTC midnight, keeps stable
+  descending-year cards, retries typed failures, and returns every pager page
+  to its cover after any nested stack closes.

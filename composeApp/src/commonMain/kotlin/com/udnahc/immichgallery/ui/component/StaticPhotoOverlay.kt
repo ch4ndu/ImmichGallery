@@ -50,6 +50,7 @@ fun StaticPhotoOverlay(
     apiKey: String,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     getAssetStack: suspend (String) -> Result<AssetStackLookup>,
+    sharedElementAssetId: String? = null,
     stackBrowsingEnabled: Boolean = true,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?) -> Unit,
@@ -311,6 +312,7 @@ fun StaticPhotoOverlay(
                 if (asset != null) {
                     AssetPage(
                         asset = asset,
+                        sharedElementAssetId = sharedElementAssetId ?: asset.id,
                         apiKey = apiKey,
                         isCurrentPage = isSettledPage && !isCoveredByStack,
                         isSlideshow = isSlideshow,

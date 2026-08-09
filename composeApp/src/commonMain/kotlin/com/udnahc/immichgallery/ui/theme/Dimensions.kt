@@ -15,6 +15,7 @@ object Dimens {
     val searchBarHeight = 56.dp
     val exploreCardHeight = 112.dp
     val exploreCardIconSize = 40.dp
+    val memoryCardHeight = 260.dp
     val topBarHeight = 56.dp
     val bottomBarHeight = 56.dp
     val iconSize = 24.dp

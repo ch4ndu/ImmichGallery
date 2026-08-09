@@ -30,8 +30,8 @@ The current user-facing feature set is:
 - Timeline browsing grouped by month or day;
 - Album and People collection lists;
 - cached-first paginated Album and Person detail galleries;
-- an Explore shell destination retaining smart and filename search, plus a
-  live owner-filtered Favorites collection;
+- an Explore shell destination retaining smart and filename search, plus live
+  owner-filtered Favorites and current-date OnThisDay Memories collections;
 - justified-row and optional Mosaic photo-grid layouts;
 - full-screen image/video paging, image zoom, asset information, and slideshow;
 - Android foreground notification support for explicit Timeline synchronization
@@ -40,8 +40,8 @@ The current user-facing feature set is:
 
 Only `IMAGE` and `VIDEO` assets enter the gallery domain. Hidden Timeline
 assets, audio, and other unsupported asset types are filtered at data
-boundaries. Explore Search results, Favorites, and expanded asset information
-are live server data;
+boundaries. Explore Search results, Favorites, current-date Memories, and
+expanded asset information are live server data;
 they are not independent Room-backed caches.
 
 The deliberate non-goals are server mutation operations: upload, edit,
@@ -206,7 +206,7 @@ Navigation uses `@Serializable` routes:
 - `PersonDetailRoute(personId, personName)`
 
 The Main shell owns Timeline, Albums, People, and Explore tabs. Album, Person,
-Favorites, and the reserved Memories destination sit above that shell. Screen
+Favorites, and Memories destinations sit above that shell. Screen
 ViewModels own loading, error, refresh,
 pagination, layout projection, and viewer-source state for their feature.
 
@@ -221,6 +221,7 @@ pagination, layout projection, and viewer-source state for their feature.
 | Person detail | `PersonDetailScreen` | `PersonDetailViewModel`, detail layout coordinator | people/detail repositories and Room |
 | Explore/Search | `SearchScreen` | `SearchViewModel` and search UseCases | live `SearchRepository` calls |
 | Favorites | `FavoritesScreen` | `FavoritesViewModel`, owner/Favorites UseCases | live auth and metadata-search calls |
+| Memories | `MemoriesScreen` | `MemoriesViewModel`, local-date Memories UseCase | live date-filtered Memories calls |
 | Media viewer | overlay hosts and media components | static or Timeline overlay coordinator | asset detail, Coil, platform video player |
 | Stack browsing | nested viewer-local stack session | source ViewModel or Timeline overlay coordinator | live asset-detail and stack reads |
 
@@ -238,6 +239,7 @@ pagination, layout projection, and viewer-source state for their feature.
 - `/api/search/smart` for natural-language search;
 - `/api/assets/{id}` and `/api/assets/{id}/edits`;
 - `/api/stacks/{id}` after an authoritative `/api/assets/{id}` stack lookup.
+- `/api/memories` with an exact local date-only `for=YYYY-MM-DD` query.
 
 Authenticated requests use `x-api-key`. The Ktor client ignores unknown JSON
 fields, uses a 15-second connection timeout, and uses 60-second request and
@@ -283,8 +285,8 @@ Cache ownership by feature:
 - Detail Mosaic: owner-scoped artifacts for Album and Person detail.
 - Settings: credentials, grouping, row density, and Mosaic preferences remain
   in `multiplatform-settings`, not Room.
-- Explore Search, Favorites, expanded asset information, and viewer stack
-  member lists: live-only.
+- Explore Search, Favorites, current-date Memories, expanded asset information,
+  and viewer stack member lists: live-only.
 
 See `docs/ai/data-cache-time.md` for cache and transaction invariants.
 
@@ -310,7 +312,7 @@ The authoritative algorithm and failure rules are in
 `docs/ai/timeline-sync.md`; Timeline rendering and scroll targeting are in
 `docs/timeline.md`.
 
-## 12. Album, Person, Explore, And Favorites Data Flow
+## 12. Album, Person, Explore, Favorites, And Memories Data Flow
 
 Album and People collection lists observe Room as their source of truth and
 refresh from the server while retaining cached content. Removed owners clear
@@ -332,13 +334,21 @@ loop.
 Explore replaces the Search shell route without replacing `SearchViewModel`,
 its density setting, or its pagination/viewer behavior. Its blank idle state
 adds static Favorites and Memories cards. The cards do not prefetch either
-collection; Favorites starts only after its root destination is opened.
+collection; each live collection starts only after its root destination is
+opened.
 
 Favorites resolves `/api/users/me`, then follows live favorite metadata-search
 pages. It filters every response by the authenticated owner id, consumes sparse
 partner/unsupported pages within one logical claim, and retains both consumed
 pages and the first unconsumed retry page on failure. Favorites uses its own
 justified-row density setting and the shared static viewer/stack session.
+
+Memories derives the current date from `Clock.System.now()` in the current
+system time zone when its root destination opens or explicitly retries. It
+performs one live `/api/memories` read, keeps only supported image/video
+OnThisDay memories, and orders separate cards by descending year with stable
+server order inside a year. It does not write Room, mark memories seen/saved,
+or alter Timeline cold, cached, or manual synchronization.
 
 See `docs/ai/collection-lists-search.md` and
 `docs/ai/album-person-detail.md`.
@@ -382,10 +392,12 @@ fetcher; iOS and JVM use Ktor-backed image networking. Grid thumbnails use
 bounded requests and stable cache keys, while viewer stills request the edited
 original with a thumbnail transition/loading source.
 
-The full-screen viewer preserves the grid's ordering and returns to the
-currently settled asset. Timeline has a lazy-bucket overlay coordinator; Search
-and Album/Person detail use a static materialized pager. Shared transitions
-retain the selected grid content through exit animation.
+The full-screen viewer preserves the source ordering. Its default return policy
+targets the currently settled asset. Memories explicitly uses origin mode so a
+non-cover page returns to the selected cover card. Timeline has a lazy-bucket
+overlay coordinator; Search, Favorites, Memories, and Album/Person detail use a
+static materialized pager. Shared transitions retain the selected grid content
+through exit animation.
 
 Video authentication differs by platform:
 

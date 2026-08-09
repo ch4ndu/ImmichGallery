@@ -36,12 +36,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,10 +137,13 @@ private data class AnchoredMediaLayout(
     val offset: Offset,
 )
 
+private val LocalSharedElementAssetId = compositionLocalOf<String?> { null }
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun AssetPage(
     asset: Asset,
+    sharedElementAssetId: String = asset.id,
     apiKey: String,
     isCurrentPage: Boolean,
     isSlideshow: Boolean = false,
@@ -207,37 +212,39 @@ internal fun AssetPage(
         }
     }
 
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        if (!isSlideshow && asset.type != AssetType.VIDEO) {
-            StillAssetPage(
-                asset = asset,
-                isCurrentPage = isCurrentPage,
-                onTap = onTap,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
-                dragTransform = dragTransform,
-                effectiveCoverThumbnail = effectiveCoverThumbnail,
-                fullImageAlpha = fullImageAlpha.value,
-                isTransitionActive = isTransitionActive,
-                onZoomStateChanged = onZoomStateChanged
-            )
-        } else {
-            VideoOrSlideshowAssetPage(
-                asset = asset,
-                apiKey = apiKey,
-                isCurrentPage = isCurrentPage,
-                isSlideshow = isSlideshow,
-                slideshowConfig = slideshowConfig,
-                onTap = onTap,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
-                dragTransform = dragTransform,
-                effectiveCoverThumbnail = effectiveCoverThumbnail,
-                isTransitionActive = isTransitionActive
-            )
+    CompositionLocalProvider(LocalSharedElementAssetId provides sharedElementAssetId) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!isSlideshow && asset.type != AssetType.VIDEO) {
+                StillAssetPage(
+                    asset = asset,
+                    isCurrentPage = isCurrentPage,
+                    onTap = onTap,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    dragTransform = dragTransform,
+                    effectiveCoverThumbnail = effectiveCoverThumbnail,
+                    fullImageAlpha = fullImageAlpha.value,
+                    isTransitionActive = isTransitionActive,
+                    onZoomStateChanged = onZoomStateChanged
+                )
+            } else {
+                VideoOrSlideshowAssetPage(
+                    asset = asset,
+                    apiKey = apiKey,
+                    isCurrentPage = isCurrentPage,
+                    isSlideshow = isSlideshow,
+                    slideshowConfig = slideshowConfig,
+                    onTap = onTap,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    dragTransform = dragTransform,
+                    effectiveCoverThumbnail = effectiveCoverThumbnail,
+                    isTransitionActive = isTransitionActive
+                )
+            }
         }
     }
 }
@@ -597,7 +604,9 @@ private fun SharedPhotoThumbnailLayer(
     val hoistInOverlay = LocalPhotoBoundsTween.current
     val sharedModifier = with(sharedTransitionScope) {
         modifier.sharedElement(
-            sharedTransitionScope.rememberSharedContentState(key = "thumb_${asset.id}"),
+            sharedTransitionScope.rememberSharedContentState(
+                key = "thumb_${LocalSharedElementAssetId.current ?: asset.id}"
+            ),
             animatedVisibilityScope = animatedVisibilityScope,
             boundsTransform = boundsTransform,
             renderInOverlayDuringTransition = hoistInOverlay,

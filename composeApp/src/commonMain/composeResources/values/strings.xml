@@ -39,6 +39,7 @@
     <string name="loading_people">Preparing people, please wait…</string>
     <string name="loading_photos">Preparing photos, please wait…</string>
     <string name="loading_favorites">Loading favorites…</string>
+    <string name="loading_memories">Loading memories…</string>
 
     <!-- Refresh dialog -->
     <string name="refresh_dialog_title">Refresh data</string>
@@ -141,7 +142,10 @@
     <string name="memories">Memories</string>
     <string name="explore_favorites_description">Browse your favorite photos and videos</string>
     <string name="explore_memories_description">Browse memories from this day</string>
-    <string name="memories_not_available">Memories are not available yet</string>
+    <string name="memories_empty">No memories found for this day</string>
+    <string name="memories_load_failed">Could not load memories</string>
+    <string name="memories_permission_denied">This API key cannot read memories</string>
+    <string name="memories_unavailable">Memories are unavailable on this server</string>
     <string name="favorites_empty">No favorites found</string>
     <string name="favorites_load_failed">Could not load favorites</string>
     <string name="favorites_permission_denied">This API key cannot read favorites</string>

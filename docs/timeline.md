@@ -636,6 +636,12 @@ asset/bucket return target. Dismissing the stack first restores the initiating
 Timeline asset; dismissing the base viewer afterward follows the existing exact
 asset-or-bucket fallback path.
 
+Explore's live Memories route is isolated from Timeline. Opening or retrying
+Memories is the only Memories request boundary; it does not prefetch from
+Timeline, read or write Timeline Room rows, or change cold sync, cache-only
+warm launch, manual refresh, Mosaic work, or Timeline's current asset/bucket
+return policy.
+
 ## Performance Invariants
 
 - Warm launch must not read, sync, or pack every bucket before first render.

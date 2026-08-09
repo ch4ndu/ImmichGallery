@@ -21,9 +21,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
 import com.udnahc.immichgallery.ui.util.PHOTO_TRANSITION_DURATION_MS
+import com.udnahc.immichgallery.ui.util.PhotoOverlayReturnTarget
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
+import com.udnahc.immichgallery.ui.util.resolvePhotoGridReturnAssetId
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
@@ -32,6 +34,7 @@ import kotlinx.coroutines.flow.first
 fun PhotoOverlayHost(
     modifier: Modifier = Modifier,
     initialIndexKey: Any? = Unit,
+    returnTarget: PhotoOverlayReturnTarget = PhotoOverlayReturnTarget.CURRENT_ASSET,
     onOverlayActiveChange: (Boolean) -> Unit = {},
     onOverlayDismissed: (currentAssetId: String?) -> Unit = {},
     resolveInitialIndex: suspend (assetId: String) -> Int?,
@@ -78,7 +81,12 @@ fun PhotoOverlayHost(
     // Dismiss must reveal the grid-side shared-element source in the same
     // composition that starts AnimatedVisibility exit; otherwise the overlay
     // image appears to pause while the grid cell is still hidden.
-    val hiddenAssetIdForGrid = if (overlayVisible) currentViewedAssetId else null
+    val gridReturnAssetId = resolvePhotoGridReturnAssetId(
+        returnTarget = returnTarget,
+        originAssetId = selectedAssetId,
+        currentAssetId = currentViewedAssetId
+    )
+    val hiddenAssetIdForGrid = gridReturnAssetId.takeIf { overlayVisible }
 
     var stlTransitionActive by remember { mutableStateOf(false) }
     var overlayAnimActive by remember { mutableStateOf(false) }
@@ -99,10 +107,15 @@ fun PhotoOverlayHost(
     }
 
     LaunchedEffect(overlayVisible) { onOverlayActiveChange(overlayVisible) }
-    val dismissOverlay: (String?) -> Unit = remember {
+    val dismissOverlay: (String?) -> Unit = remember(returnTarget) {
         { dismissedAssetId ->
             if (selectedAssetId != null) {
-                latestOnOverlayDismissed.value(dismissedAssetId)
+                val returnAssetId = resolvePhotoGridReturnAssetId(
+                    returnTarget = returnTarget,
+                    originAssetId = selectedAssetId,
+                    currentAssetId = dismissedAssetId
+                )
+                latestOnOverlayDismissed.value(returnAssetId)
                 overlayAnimActive = true
                 overlayInitialIndex = null
                 selectedAssetId = null
@@ -147,7 +160,9 @@ fun PhotoOverlayHost(
                             { id ->
                                 if (overlayVisible) {
                                     currentViewedAssetId = id
-                                    transitionAssetIdForGrid = id
+                                    if (returnTarget == PhotoOverlayReturnTarget.CURRENT_ASSET) {
+                                        transitionAssetIdForGrid = id
+                                    }
                                 }
                             },
                             { active -> stlTransitionActive = active },

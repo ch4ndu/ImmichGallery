@@ -17,6 +17,12 @@ sealed interface FavoritesUiMessage : UiMessage {
     data object LoadFailed : FavoritesUiMessage
 }
 
+sealed interface MemoriesUiMessage : UiMessage {
+    data object PermissionDenied : MemoriesUiMessage
+    data object Unavailable : MemoriesUiMessage
+    data object LoadFailed : MemoriesUiMessage
+}
+
 sealed interface StackUiMessage : UiMessage {
     data object NoLongerStacked : StackUiMessage
     data object PermissionDenied : StackUiMessage

@@ -36,6 +36,11 @@ video playback, or desktop viewer shortcuts.
   commits asset id and bucket together through `TimelineOverlayCoordinator`.
 - `lastSelectedAssetId`/host-retained content keeps the exit destination alive
   until the shared transition completes.
+- `PhotoOverlayHost` has an explicit return policy. Current-asset mode is the
+  default for Timeline, Album, Person, Explore Search, and Favorites. Memories
+  selects origin mode: the cover stays hidden and remains the shared-element
+  exit target while settled-page changes continue to drive Info, playback,
+  slideshow, and stack actions.
 
 ## Viewer-Scoped Stack Browsing
 
@@ -61,6 +66,9 @@ video playback, or desktop viewer shortcuts.
 - Stack children never become `PhotoOverlayHost` grid return targets. Info,
   image zoom, authenticated video, paging, slideshow, and person navigation
   continue through the existing static viewer components.
+- From a memory non-cover page, dismissing a nested stack restores that exact
+  memory pager page first; dismissing the base viewer then returns to the
+  memory cover retained by origin mode.
 
 ## Still Images
 
@@ -126,6 +134,7 @@ video playback, or desktop viewer shortcuts.
 ## Verification Targets
 
 - swiping before dismiss returns to the settled asset rather than the original;
+- a Memories viewer returns non-cover pages to its originating cover card;
 - a fully off-screen return source is made visible before exit;
 - still-image zoom prevents accidental drag dismissal;
 - only the settled video plays and platform authentication reaches Immich;

@@ -5,6 +5,9 @@ import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.error_search_failed
 import immichgallery.composeapp.generated.resources.favorites_load_failed
 import immichgallery.composeapp.generated.resources.favorites_permission_denied
+import immichgallery.composeapp.generated.resources.memories_load_failed
+import immichgallery.composeapp.generated.resources.memories_permission_denied
+import immichgallery.composeapp.generated.resources.memories_unavailable
 import immichgallery.composeapp.generated.resources.stack_no_longer_stacked
 import immichgallery.composeapp.generated.resources.stack_no_supported_members
 import immichgallery.composeapp.generated.resources.stack_permission_denied
@@ -36,6 +39,9 @@ val UiMessage.resource: StringResource
         SearchUiMessage.SearchFailed -> Res.string.error_search_failed
         FavoritesUiMessage.PermissionDenied -> Res.string.favorites_permission_denied
         FavoritesUiMessage.LoadFailed -> Res.string.favorites_load_failed
+        MemoriesUiMessage.PermissionDenied -> Res.string.memories_permission_denied
+        MemoriesUiMessage.Unavailable -> Res.string.memories_unavailable
+        MemoriesUiMessage.LoadFailed -> Res.string.memories_load_failed
         StackUiMessage.NoLongerStacked -> Res.string.stack_no_longer_stacked
         StackUiMessage.PermissionDenied -> Res.string.stack_permission_denied
         StackUiMessage.Unavailable -> Res.string.stack_unavailable

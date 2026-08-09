@@ -61,6 +61,11 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
   consumed-page set and first unconsumed retry page on failure; malformed,
   repeated, backward, or consumed next tokens terminate without replaying an
   earlier page.
+- Memories is live-only. Send an authenticated `GET /api/memories` with the
+  exact `for=YYYY-MM-DD` local-date query and `type=on_this_day`, keep only
+  OnThisDay responses and supported image/video assets, and do not persist
+  memory ids, relationships, or seen/saved state. Permission denial and
+  unavailable endpoints remain distinct from transient request failure.
 - Result-producing suspend boundaries must rethrow `CancellationException`; cancellation is control flow, not a connection or content failure.
 - Album and Person detail page refreshes should replace the fetched ref window and truncate stale later refs when page membership/order changes. Preserving later cached refs after a changed page can mix snapshots because subsequent pages may have shifted.
 - Removed Album and Person list owners must clear their owner refs, Detail Mosaic artifacts, and detail sync metadata in the same Room transaction that replaces the list.
@@ -83,3 +88,6 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Use `kotlinx-datetime` or `kotlin.time.Clock.System.now()` for time.
 - Avoid raw day-millis literals such as `86400000L`; use date/time utilities or named constants.
 - Keep timeline bucket parsing and labels in one place when adding date grouping behavior.
+- Memories derives the request date at the ViewModel boundary from
+  `Clock.System.now()` and `TimeZone.currentSystemDefault()`. The repository and
+  API receive a `LocalDate`; explicit retry recomputes it after local midnight.

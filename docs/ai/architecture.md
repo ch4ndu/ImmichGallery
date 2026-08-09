@@ -55,6 +55,7 @@ For the shared photo/video viewer, information sheet, slideshow, and return tran
 | Album/Person detail | detail screens | detail ViewModels and `PhotoGridDetailLayoutCoordinator` | detail UseCases, repositories, Room, Mosaic artifacts | `docs/ai/album-person-detail.md` |
 | Explore/Search | `SearchScreen` | `SearchViewModel`, search UseCases, RowPacking | live `SearchRepository` API calls; results are not stored in Room | `docs/ai/collection-lists-search.md` |
 | Favorites | `FavoritesScreen` | `FavoritesViewModel`, owner/Favorites UseCases, RowPacking | live auth and metadata-search calls; no Room collection | `docs/ai/collection-lists-search.md` |
+| Memories | `MemoriesScreen` | `MemoriesViewModel`, date-scoped Memories UseCase | live `/api/memories` call; no Room collection | `docs/ai/collection-lists-search.md` |
 | Photo/video viewing | overlay hosts and media components | `StaticPhotoOverlay` or `TimelineOverlayCoordinator` | asset-detail UseCase, Coil, platform video player | `docs/ai/media-viewer.md` |
 | Viewer stack browsing | `StackSessionOverlay` inside existing viewer owners | `GetAssetStackUseCase` plus viewer-local session state | live `AssetRepository` asset/stack reads | `docs/ai/media-viewer.md` |
 | Standard rows | shared grid components | `packIntoRows(...)` and screen projection owners | no persisted layout artifacts | `docs/ai/row-packing.md` |
@@ -120,9 +121,9 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 
 - Timeline assets/buckets, Album and People lists, Album/Person asset
   relationships, sync metadata, and Mosaic artifacts are cached in Room.
-  Explore Search results, Favorites, the expanded asset-information response,
-  and complete stack member lists are fetched live and are not persisted as
-  their own Room records.
+  Explore Search results, Favorites, current-date Memories, the expanded
+  asset-information response, and complete stack member lists are fetched live
+  and are not persisted as their own Room records.
 - Album Detail and Person Detail use cached-first loading: if Room already has detail assets, render them immediately, refresh the opened detail in the background, and invalidate row/Mosaic layout only when ordered persisted asset content changes.
 - Person detail asset caching starts when a person is opened. The People list sync must not preload every person's detail assets.
 - Repository flow is network fetch, Room upsert or replace, then UI reads from Room or updated domain state.
@@ -155,6 +156,9 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - `StackSessionOverlay` is an ephemeral nested viewer. It reuses
   `StaticPhotoOverlay` with recursion disabled, while the covered base viewer
   keeps its initiating asset and source-grid return identity unchanged.
+- `PhotoOverlayHost` defaults to returning to the settled asset. Memories opts
+  into origin return so its cover remains the hidden/exit source while the
+  static pager continues to report current assets for media behavior.
 - `KenBurnsImage` powers slideshow animation. `ScreenWakeLock` is expect/actual for keeping the screen on.
 
 ## Pagination And Scrollbar

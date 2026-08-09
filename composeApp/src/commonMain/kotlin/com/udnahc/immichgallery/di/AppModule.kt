@@ -10,6 +10,7 @@ import com.udnahc.immichgallery.data.repository.AssetEditsEnricher
 import com.udnahc.immichgallery.data.repository.AssetRepository
 import com.udnahc.immichgallery.data.repository.AuthRepository
 import com.udnahc.immichgallery.data.repository.DetailMosaicCacheRepository
+import com.udnahc.immichgallery.data.repository.MemoryRepository
 import com.udnahc.immichgallery.data.repository.PeopleRepository
 import com.udnahc.immichgallery.data.repository.SearchRepository
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
@@ -49,6 +50,7 @@ import com.udnahc.immichgallery.domain.usecase.auth.GetServerStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
 import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicArtifactsUseCase
 import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicCacheUseCase
+import com.udnahc.immichgallery.domain.usecase.memory.GetMemoriesForDateUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
@@ -69,6 +71,7 @@ import com.udnahc.immichgallery.ui.screen.album.AlbumDetailViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumListViewModel
 import com.udnahc.immichgallery.ui.screen.favorites.FavoritesViewModel
 import com.udnahc.immichgallery.ui.screen.login.LoginViewModel
+import com.udnahc.immichgallery.ui.screen.memories.MemoriesViewModel
 import com.udnahc.immichgallery.ui.screen.people.PeopleViewModel
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailViewModel
 import com.udnahc.immichgallery.ui.screen.search.SearchViewModel
@@ -111,6 +114,7 @@ val sharedModule = module {
     single { AlbumRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get()) }
     single { PeopleRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get()) }
     single { SearchRepository(get()) }
+    single { MemoryRepository(get()) }
     single { ServerStatusRepository(get()) }
     single { AssetRepository(get(), get(), get(), get()) }
     single { DetailMosaicCacheRepository(get()) }
@@ -141,6 +145,12 @@ val sharedModule = module {
     factory {
         GetFavoriteAssetsUseCase(
             repository = get<SearchRepository>(),
+            serverConfigRepository = get<ServerConfigRepository>()
+        )
+    }
+    factory {
+        GetMemoriesForDateUseCase(
+            repository = get<MemoryRepository>(),
             serverConfigRepository = get<ServerConfigRepository>()
         )
     }
@@ -248,4 +258,5 @@ val sharedModule = module {
     }
     viewModel { SearchViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { FavoritesViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { MemoriesViewModel(get(), get(), get(), get()) }
 }

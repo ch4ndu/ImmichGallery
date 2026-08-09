@@ -4,6 +4,7 @@ import com.udnahc.immichgallery.data.model.AlbumDetailResponse
 import com.udnahc.immichgallery.data.model.AlbumResponse
 import com.udnahc.immichgallery.data.model.AssetEditsResponse
 import com.udnahc.immichgallery.data.model.AssetResponse
+import com.udnahc.immichgallery.data.model.MemoryResponse
 import com.udnahc.immichgallery.data.model.PeopleResponse
 import com.udnahc.immichgallery.data.model.SearchResponse
 import com.udnahc.immichgallery.data.model.ServerPingResponse
@@ -25,6 +26,7 @@ import io.ktor.http.contentType
 import io.ktor.serialization.JsonConvertException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
+import kotlinx.datetime.LocalDate
 import org.lighthousegames.logging.logging
 
 class ImmichApiService(
@@ -223,6 +225,15 @@ class ImmichApiService(
         }.body()
     }
 
+    suspend fun getMemories(forDate: LocalDate): List<MemoryResponse> {
+        log.d { "GET ${baseUrl()}/api/memories for=$forDate" }
+        return httpClient.get("${baseUrl()}/api/memories") {
+            header("x-api-key", apiKey())
+            parameter("for", memoryDateQuery(forDate))
+            parameter("type", "on_this_day")
+        }.body()
+    }
+
     suspend fun getAssetEdits(id: String): AssetEditsResponse {
         log.d { "GET ${baseUrl()}/api/assets/$id/edits" }
         return httpClient.get("${baseUrl()}/api/assets/$id/edits") {
@@ -231,6 +242,8 @@ class ImmichApiService(
     }
 
 }
+
+internal fun memoryDateQuery(forDate: LocalDate): String = forDate.toString()
 
 @Serializable
 private data class SmartSearchRequest(

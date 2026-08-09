@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.data.model
 
 import com.udnahc.immichgallery.data.remote.AlbumAssetsSearchRequest
 import com.udnahc.immichgallery.data.remote.FavoritesSearchRequest
+import com.udnahc.immichgallery.data.remote.memoryDateQuery
 import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomainOrNull
 import kotlinx.serialization.encodeToString
@@ -9,6 +10,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -53,6 +55,45 @@ class ImmichApiContractTest {
         assertEquals("stack-1", response.id)
         assertEquals("image-1", response.primaryAssetId)
         assertEquals(listOf("image-1", "audio-1", "video-1"), response.assets.map(AssetResponse::id))
+    }
+
+    @Test
+    fun memoryResponseDecodesOnThisDayAndOrderedMixedAssets() {
+        val response = json.decodeFromString<MemoryResponse>(
+            """{
+                "id":"memory-1",
+                "type":"on_this_day",
+                "memoryAt":"2020-08-09T12:00:00.000Z",
+                "data":{"year":2020},
+                "assets":[
+                    {"id":"image-1","type":"IMAGE"},
+                    {"id":"audio-1","type":"AUDIO"},
+                    {"id":"video-1","type":"VIDEO"}
+                ],
+                "isSaved":false,
+                "unknownFutureField":true
+            }"""
+        )
+
+        assertEquals("memory-1", response.id)
+        assertEquals(2020, response.data?.year)
+        assertEquals(listOf("image-1", "audio-1", "video-1"), response.assets.map(AssetResponse::id))
+    }
+
+    @Test
+    fun memoryResponseKeepsMissingOptionalConsumedFieldsCompatible() {
+        val response = json.decodeFromString<MemoryResponse>(
+            """{"id":"memory-1","assets":[]}"""
+        )
+
+        assertEquals("", response.type)
+        assertEquals("", response.memoryAt)
+        assertNull(response.data)
+    }
+
+    @Test
+    fun memoryDateQueryUsesExactIsoDateOnlyValue() {
+        assertEquals("2026-08-09", memoryDateQuery(LocalDate(2026, 8, 9)))
     }
 
     @Test

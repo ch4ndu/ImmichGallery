@@ -26,8 +26,10 @@ on the server.
   user's favorite photos and videos. Sparse partner-only pages are skipped,
   later-page failures remain explicitly retryable, and results are not cached
   in Room.
-- **Memories** — Explore includes the routed entry card, but current-date
-  Memories collection behavior is not implemented yet.
+- **Memories** — open the current local date's live Immich **On this day**
+  memories as year-labelled cover cards. Each memory keeps its server asset
+  order and supported item count; multiple memories from one year stay
+  separate.
 - **Supported assets** — image and video assets are shown. Audio and other
   unsupported asset types are filtered out.
 
@@ -37,9 +39,9 @@ on the server.
 - Optional Mosaic layouts are available on Timeline, Album Detail, and Person
   Detail. The settings include layout density, 4- through 8-tile template
   families, persistent result caching, and a zoom-disable option.
-- Explore Search and Favorites always use justified rows. Album and People
-  collection lists stay fixed collection grids and do not expose Mosaic
-  controls.
+- Explore Search and Favorites always use justified rows. Memories uses cover
+  cards. Album and People collection lists stay fixed collection grids, and
+  none of these collection surfaces expose Mosaic controls.
 - Pinch zoom changes justified-row density on touch platforms; Ctrl/Cmd-wheel
   does the same on Desktop. Row density is remembered separately for Timeline,
   Album Detail, Person Detail, Explore Search, and Favorites.
@@ -65,6 +67,9 @@ on the server.
 - For an asset in an Immich stack, open **View stack** from the viewer menu to
   browse its supported photos and videos. Closing the nested stack returns to
   the same asset in the original viewer before returning to the source grid.
+- When a memory is paged beyond its cover, closing the viewer still returns to
+  that memory's cover card. A nested stack closes back to the memory pager
+  first, preserving the cover-card return target.
 - Desktop viewer shortcuts: Left/Right to page, Escape to close, Space to toggle
   slideshow, and `I` to open information.
 
@@ -76,9 +81,10 @@ on the server.
 - Timeline, Album, People, opened Album/Person relationships, sync metadata, and
   optional Mosaic artifacts use a local Room cache. Cached screens remain
   visible when a background refresh fails.
-- Explore Search results, Favorites, expanded asset information, and viewer
-  stack members are live server requests and are not stored as standalone Room
-  records.
+- Explore Search results, Favorites, current-date Memories, expanded asset
+  information, and viewer stack members are live server requests and are not
+  stored as standalone Room records. Explore's entry cards do not prefetch
+  either collection.
 - A first Timeline sync is blocking. After a complete cache exists, startup is
   cached-first; the current Timeline policy waits for the explicit top-bar
   refresh before contacting the server again for Timeline changes.
@@ -182,8 +188,8 @@ Immich API / Room / settings
 - Room is a re-fetchable cache. Server URL, API key, Timeline grouping, Mosaic
   configuration, and per-screen row density use `multiplatform-settings`.
 - Navigation uses serializable type-safe routes. The Main shell owns the four
-  Timeline, Albums, People, and Explore tabs; Album, Person, Favorites, and the
-  reserved Memories destination sit above that shell.
+  Timeline, Albums, People, and Explore tabs; Album, Person, Favorites, and
+  Memories destinations sit above that shell.
 - Photo grids are projected before Compose: standard rows use `packIntoRows`,
   and Mosaic uses the shared `MosaicRenderEngine` plus screen-specific runtime
   scheduling and validated artifacts.
