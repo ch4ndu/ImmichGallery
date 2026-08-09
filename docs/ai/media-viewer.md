@@ -42,11 +42,14 @@ video playback, or desktop viewer shortcuts.
   exit target while settled-page changes continue to drive Info, playback,
   slideshow, and stack actions.
 - The Memories base viewer shows a bottom-center page-dot indicator when a
-  memory has more than one supported asset. The settled asset's dot animates to
-  a larger size. Up to seven dots are visible; longer memories shift that
-  bounded window with the settled base page. The indicator stays visible when
-  filename chrome is hidden, and nested stack/detail layers cover it without
-  changing the base position.
+  memory has more than one supported asset. When every fixed-width dot slot
+  fits the measured available width, one dot is shown per asset and the pager's
+  fractional position continuously transfers size and opacity from the
+  outgoing dot to the incoming dot. When the complete dot row does not fit, a
+  compact full-width segmented progress bar uses that same fractional position.
+  Accessibility continues to announce the settled page. The indicator stays
+  visible when filename chrome is hidden, and nested stack/detail layers cover
+  it without changing the base position.
 
 ## Viewer-Scoped Stack Browsing
 
@@ -146,8 +149,9 @@ video playback, or desktop viewer shortcuts.
 
 - swiping before dismiss returns to the settled asset rather than the original;
 - a Memories viewer returns non-cover pages to its originating cover card;
-- a Memories viewer enlarges the settled page dot and shifts a bounded dot
-  window across longer memories;
+- a Memories viewer shows every fractionally active page dot when the complete
+  row fits, including 20 assets at 320dp, and otherwise shows fractional
+  full-width segmented progress;
 - a fully off-screen return source is made visible before exit;
 - still-image zoom prevents accidental drag dismissal;
 - only the settled video plays and platform authentication reaches Immich;

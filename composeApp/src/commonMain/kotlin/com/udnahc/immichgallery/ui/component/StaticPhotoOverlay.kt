@@ -3,13 +3,17 @@ package com.udnahc.immichgallery.ui.component
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,6 +21,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -30,10 +35,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.lerp
 import coil3.SingletonImageLoader
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -55,22 +63,57 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
+import kotlin.math.abs
 
-private const val MAX_VISIBLE_PAGE_DOTS = 7
 private const val PAGE_INDICATOR_BACKGROUND_ALPHA = 0.45f
 private const val INACTIVE_PAGE_DOT_ALPHA = 0.55f
 
-internal fun visiblePageDotIndices(
+internal fun allPageDotsFit(
+    totalPages: Int,
+    availableWidthPx: Int,
+    density: Density
+): Boolean {
+    if (totalPages <= 0 || availableWidthPx <= 0) {
+        return false
+    }
+    val dotSlotPx = with(density) { Dimens.pageIndicatorActiveDotSize.roundToPx() }.toLong()
+    val gapPx = with(density) { Dimens.smallSpacing.roundToPx() }.toLong()
+    val paddingEdgePx = with(density) { Dimens.mediumSpacing.roundToPx() }.toLong()
+
+    val afterPaddingPx = availableWidthPx.toLong() - paddingEdgePx * 2L
+    if (afterPaddingPx < 0L) return false
+    val afterDotsPx = afterPaddingPx - dotSlotPx * totalPages.toLong()
+    if (afterDotsPx < 0L) return false
+    return gapPx * (totalPages - 1).toLong() <= afterDotsPx
+}
+
+internal fun pageIndicatorPosition(
     currentPage: Int,
     totalPages: Int,
-    maxVisibleDots: Int = MAX_VISIBLE_PAGE_DOTS
-): IntRange {
-    if (totalPages <= 0 || maxVisibleDots <= 0) return IntRange.EMPTY
-    val visibleCount = minOf(totalPages, maxVisibleDots)
-    val settledPage = currentPage.coerceIn(0, totalPages - 1)
-    val firstPage = (settledPage - visibleCount / 2)
-        .coerceIn(0, totalPages - visibleCount)
-    return firstPage until firstPage + visibleCount
+    currentPageOffsetFraction: Float
+): Float {
+    if (totalPages <= 0) return 0f
+    val offset = currentPageOffsetFraction.takeIf(Float::isFinite) ?: 0f
+    return (currentPage.toFloat() + offset).coerceIn(0f, (totalPages - 1).toFloat())
+}
+
+internal fun pageDotActiveness(
+    page: Int,
+    totalPages: Int,
+    pagePosition: Float
+): Float {
+    if (page !in 0 until totalPages || !pagePosition.isFinite()) return 0f
+    val clampedPosition = pagePosition.coerceIn(0f, (totalPages - 1).toFloat())
+    return (1f - abs(page - clampedPosition)).coerceIn(0f, 1f)
+}
+
+internal fun pageIndicatorProgress(
+    totalPages: Int,
+    pagePosition: Float
+): Float {
+    if (totalPages <= 0 || !pagePosition.isFinite()) return 0f
+    val clampedPosition = pagePosition.coerceIn(0f, (totalPages - 1).toFloat())
+    return ((clampedPosition + 1f) / totalPages).coerceIn(0f, 1f)
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -390,7 +433,9 @@ fun StaticPhotoOverlay(
 
         if (showPageIndicator && assets.size > 1) {
             PhotoPageIndicator(
-                currentPage = pagerState.settledPage,
+                currentPage = pagerState.currentPage,
+                currentPageOffsetFraction = pagerState.currentPageOffsetFraction,
+                settledPage = pagerState.settledPage,
                 totalPages = assets.size,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -440,53 +485,109 @@ fun StaticPhotoOverlay(
 @Composable
 private fun PhotoPageIndicator(
     currentPage: Int,
+    currentPageOffsetFraction: Float,
+    settledPage: Int,
     totalPages: Int,
     modifier: Modifier = Modifier
 ) {
-    val settledPage = currentPage.coerceIn(0, totalPages - 1)
+    val density = LocalDensity.current
+    val clampedSettledPage = settledPage.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
+    val pagePosition = pageIndicatorPosition(
+        currentPage = currentPage,
+        totalPages = totalPages,
+        currentPageOffsetFraction = currentPageOffsetFraction
+    )
     val positionDescription = stringResource(
         Res.string.asset_position,
-        settledPage + 1,
+        clampedSettledPage + 1,
         totalPages
     )
-    Row(
+    BoxWithConstraints(
         modifier = modifier
-            .semantics { contentDescription = positionDescription }
-            .background(
-                color = Color.Black.copy(alpha = PAGE_INDICATOR_BACKGROUND_ALPHA),
-                shape = RoundedCornerShape(50)
-            )
-            .padding(
-                horizontal = Dimens.mediumSpacing,
-                vertical = Dimens.smallSpacing
-            ),
-        horizontalArrangement = Arrangement.spacedBy(Dimens.smallSpacing),
-        verticalAlignment = Alignment.CenterVertically
+            .fillMaxWidth(),
+        contentAlignment = Alignment.Center
     ) {
-        visiblePageDotIndices(settledPage, totalPages).forEach { page ->
-            val isActive = page == settledPage
-            val dotSize by animateDpAsState(
-                targetValue = if (isActive) {
-                    Dimens.pageIndicatorActiveDotSize
-                } else {
-                    Dimens.pageIndicatorDotSize
-                },
-                label = "page indicator dot size"
-            )
+        if (allPageDotsFit(totalPages, constraints.maxWidth, density)) {
+            Row(
+                modifier = Modifier
+                    .semantics { contentDescription = positionDescription }
+                    .background(
+                        color = Color.Black.copy(alpha = PAGE_INDICATOR_BACKGROUND_ALPHA),
+                        shape = RoundedCornerShape(50)
+                    )
+                    .padding(
+                        horizontal = Dimens.mediumSpacing,
+                        vertical = Dimens.smallSpacing
+                    ),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.smallSpacing),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(totalPages) { page ->
+                    val activeness = pageDotActiveness(page, totalPages, pagePosition)
+                    val dotSize = lerp(
+                        Dimens.pageIndicatorDotSize,
+                        Dimens.pageIndicatorActiveDotSize,
+                        activeness
+                    )
+                    Box(
+                        modifier = Modifier.size(Dimens.pageIndicatorActiveDotSize),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(dotSize)
+                                .background(
+                                    color = Color.White.copy(
+                                        alpha = INACTIVE_PAGE_DOT_ALPHA +
+                                            (1f - INACTIVE_PAGE_DOT_ALPHA) * activeness
+                                    ),
+                                    shape = CircleShape
+                                )
+                        )
+                    }
+                }
+            }
+        } else {
+            val progress = pageIndicatorProgress(totalPages, pagePosition)
             Box(
-                modifier = Modifier.size(Dimens.pageIndicatorActiveDotSize),
-                contentAlignment = Alignment.Center
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = positionDescription }
+                    .background(
+                        color = Color.Black.copy(alpha = PAGE_INDICATOR_BACKGROUND_ALPHA),
+                        shape = RoundedCornerShape(50)
+                    )
+                    .padding(
+                        horizontal = Dimens.mediumSpacing,
+                        vertical = Dimens.smallSpacing
+                    )
             ) {
                 Box(
                     modifier = Modifier
-                        .size(dotSize)
-                        .background(
-                            color = Color.White.copy(
-                                alpha = if (isActive) 1f else INACTIVE_PAGE_DOT_ALPHA
-                            ),
-                            shape = CircleShape
-                        )
-                )
+                        .fillMaxWidth()
+                        .height(Dimens.pageIndicatorProgressHeight)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = INACTIVE_PAGE_DOT_ALPHA))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progress)
+                            .background(Color.White)
+                    )
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val dividerWidth = Dimens.pageIndicatorSegmentDividerWidth.toPx()
+                        repeat(totalPages - 1) { index ->
+                            val x = size.width * (index + 1) / totalPages
+                            drawLine(
+                                color = Color.Black,
+                                start = Offset(x, 0f),
+                                end = Offset(x, size.height),
+                                strokeWidth = dividerWidth
+                            )
+                        }
+                    }
+                }
             }
         }
     }

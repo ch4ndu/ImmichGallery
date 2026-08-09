@@ -51,6 +51,8 @@ object Dimens {
     val detailHandleHeight = 4.dp
     val pageIndicatorDotSize = 6.dp
     val pageIndicatorActiveDotSize = 10.dp
+    val pageIndicatorProgressHeight = 4.dp
+    val pageIndicatorSegmentDividerWidth = 1.dp
     val pageIndicatorBottomPadding = 28.dp
     val photoDismissThreshold = 150.dp
     val photoDismissFlickVelocity = 1200.dp
