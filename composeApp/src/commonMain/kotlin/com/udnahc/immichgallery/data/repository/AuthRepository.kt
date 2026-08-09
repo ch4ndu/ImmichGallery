@@ -4,6 +4,8 @@ import com.udnahc.immichgallery.data.model.UserResponse
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 
 class AuthRepository(private val apiService: ImmichApiService) {
+    suspend fun getCurrentUser(): UserResponse = apiService.getMyUser()
+
     suspend fun validateConnection(
         serverUrl: String,
         apiKey: String

@@ -7,6 +7,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class AssetResponse(
     val id: String,
+    val ownerId: String = "",
     val type: String = "IMAGE",
     val originalFileName: String = "",
     val fileCreatedAt: String = "",

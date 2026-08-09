@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.data.model
 
 import com.udnahc.immichgallery.data.remote.AlbumAssetsSearchRequest
+import com.udnahc.immichgallery.data.remote.FavoritesSearchRequest
 import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomainOrNull
 import kotlinx.serialization.encodeToString
@@ -61,6 +62,32 @@ class ImmichApiContractTest {
             assertNull(response.toDomainOrNull("https://example.test"))
             assertNull(response.toAssetEntityOrNull())
         }
+    }
+
+    @Test
+    fun assetResponseDecodesOwnerForFavoritesFiltering() {
+        val response = json.decodeFromString<AssetResponse>(
+            """{"id":"asset-1","ownerId":"owner-1","type":"IMAGE"}"""
+        )
+        val compatibleMissingOwner = json.decodeFromString<AssetResponse>(
+            """{"id":"asset-2","type":"IMAGE"}"""
+        )
+
+        assertEquals("owner-1", response.ownerId)
+        assertEquals("", compatibleMissingOwner.ownerId)
+    }
+
+    @Test
+    fun favoritesSearchEncodesOwnerSafeCollectionRequest() {
+        val encoded = json.parseToJsonElement(
+            json.encodeToString(FavoritesSearchRequest(page = 4, size = 50))
+        ).jsonObject
+
+        assertEquals(true, encoded.getValue("isFavorite").jsonPrimitive.content.toBoolean())
+        assertEquals("desc", encoded.getValue("order").jsonPrimitive.content)
+        assertEquals(4, encoded.getValue("page").jsonPrimitive.content.toInt())
+        assertEquals(50, encoded.getValue("size").jsonPrimitive.content.toInt())
+        assertEquals(true, encoded.getValue("withStacked").jsonPrimitive.content.toBoolean())
     }
 
     @Test

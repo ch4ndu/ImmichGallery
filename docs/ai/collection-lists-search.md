@@ -1,8 +1,8 @@
-# Collection Lists And Search Architecture
+# Collection Lists, Explore, Search, And Favorites Architecture
 
 Load this when changing the Albums list, People list, People name filtering,
-Search modes, Search pagination, or Search result layout. Album/Person detail is
-documented separately in `docs/ai/album-person-detail.md`.
+Explore, Search modes/pagination/result layout, or Favorites. Album/Person
+detail is documented separately in `docs/ai/album-person-detail.md`.
 
 ## Albums List
 
@@ -38,6 +38,16 @@ documented separately in `docs/ai/album-person-detail.md`.
   photo-row or Mosaic controls.
 
 ## Search Requests
+
+- `ExploreRoute` replaces the old nested Search route and label while retaining
+  `SearchScreen`, `SearchViewModel`, Search density, modes, pagination, saved
+  navigation state, and viewer behavior.
+- The blank idle Explore state shows static Favorites and Memories entry cards.
+  A typed query keeps the existing Search hint; executed Search states keep the
+  existing loading/error/empty/results behavior. Clearing restores the cards.
+- Explore cards perform no collection request. `FavoritesViewModel` is created
+  only after navigating to the root `FavoritesRoute`; `MemoriesRoute` is a
+  routed placeholder until its later implementation phase.
 
 - Search is live and network-backed. Results are held in `SearchState`; there is
   no Search Room table or offline result cache.
@@ -81,6 +91,35 @@ documented separately in `docs/ai/album-person-detail.md`.
   shared-element exit.
 - Shared media-viewer behavior lives in `docs/ai/media-viewer.md`.
 
+## Favorites
+
+- Favorites is live-only. Opening `FavoritesRoute` resolves `/api/users/me`,
+  then requests `/api/search/metadata` with `isFavorite=true`, descending order,
+  page size 50, and `withStacked=true`. Immich interprets
+  `withStacked=false` as excluding every asset with a stack id, including the
+  stack primary, so Favorites must not use that value. Metadata-search results
+  do not carry nested stack metadata; the viewer resolves it lazily through the
+  shared asset-detail/stack preflight.
+- Metadata search may include timeline-enabled partner assets. Every page is
+  filtered by `AssetResponse.ownerId` before supported image/video mapping;
+  `isFavorite` is not trusted for ownership because partner values may be
+  masked in the response.
+- One logical load continues across partner-only or unsupported-only pages
+  until owned supported assets or a terminal token is reached. Successfully
+  decoded pages are consumed even when they contribute no visible asset.
+- `FavoritesLoadOutcome` carries visible assets, the next valid server page,
+  and cumulative consumed pages. `FavoritesLoadException` preserves cumulative
+  consumed pages, the first unconsumed retry page, a permission/request kind,
+  and the original cause. Cancellation remains control flow.
+- Repeated, backward, malformed, and already-consumed next tokens are terminal
+  after retaining any owned supported assets on the current page. Later-page
+  failures keep existing visible results and expose the first unconsumed page
+  through the explicit **Load more** retry.
+- `FavoritesViewModel` generation-guards owner/page reads and row projection,
+  atomically claims load-more work, and owns a separate Favorites row-density
+  setting. Favorites uses justified rows only, plus the shared return-source,
+  static viewer, Info, slideshow, person navigation, and stack session.
+
 ## Verification Targets
 
 - Album and People cached content remains visible when refresh fails;
@@ -92,3 +131,7 @@ documented separately in `docs/ai/album-person-detail.md`.
   a new explicit/eligible attempt;
 - Search remains RowPacking-only and restores the currently viewed asset row on
   overlay dismissal.
+- Explore cards appear only in blank idle Search state and never prefetch;
+- Favorites excludes partner assets, crosses sparse pages, preserves typed
+  retry progress, rejects stale/duplicate work, and returns to the settled
+  asset's justified row.

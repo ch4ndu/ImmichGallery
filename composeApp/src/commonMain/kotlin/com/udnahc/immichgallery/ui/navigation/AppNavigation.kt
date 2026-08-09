@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -15,8 +16,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailScreen
+import com.udnahc.immichgallery.ui.component.DetailTopBar
+import com.udnahc.immichgallery.ui.screen.favorites.FavoritesScreen
 import com.udnahc.immichgallery.ui.screen.login.LoginScreen
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailScreen
+import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.memories
+import immichgallery.composeapp.generated.resources.memories_not_available
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.lighthousegames.logging.logging
 
@@ -82,6 +89,8 @@ private fun AppNavigationHost(
                 onPersonClick = { personId, personName ->
                     navController.navigate(PersonDetailRoute(personId, personName))
                 },
+                onFavoritesClick = { navController.navigate(FavoritesRoute) },
+                onMemoriesClick = { navController.navigate(MemoriesRoute) },
                 onLogout = {
                     navController.navigate(LoginRoute) {
                         popUpTo<MainRoute> { inclusive = true }
@@ -109,6 +118,26 @@ private fun AppNavigationHost(
                     navController.navigate(PersonDetailRoute(personId, personName))
                 },
             )
+        }
+        composable<FavoritesRoute> {
+            FavoritesScreen(
+                onBack = { navController.popBackStack() },
+                onPersonClick = { personId, personName ->
+                    navController.navigate(PersonDetailRoute(personId, personName))
+                }
+            )
+        }
+        composable<MemoriesRoute> {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(stringResource(Res.string.memories_not_available))
+                DetailTopBar(
+                    title = stringResource(Res.string.memories),
+                    onBack = { navController.popBackStack() }
+                )
+            }
         }
     }
 }

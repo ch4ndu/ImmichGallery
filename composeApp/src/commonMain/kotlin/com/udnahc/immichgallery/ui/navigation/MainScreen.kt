@@ -84,7 +84,7 @@ import immichgallery.composeapp.generated.resources.ic_albums
 import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.ic_people
 import immichgallery.composeapp.generated.resources.ic_refresh
-import immichgallery.composeapp.generated.resources.ic_search
+import immichgallery.composeapp.generated.resources.ic_explore
 import immichgallery.composeapp.generated.resources.ic_timeline
 import immichgallery.composeapp.generated.resources.logout
 import immichgallery.composeapp.generated.resources.more_options
@@ -95,7 +95,7 @@ import immichgallery.composeapp.generated.resources.server_offline
 import immichgallery.composeapp.generated.resources.server_online
 import immichgallery.composeapp.generated.resources.tab_albums
 import immichgallery.composeapp.generated.resources.tab_people
-import immichgallery.composeapp.generated.resources.tab_search
+import immichgallery.composeapp.generated.resources.tab_explore
 import immichgallery.composeapp.generated.resources.tab_timeline
 import immichgallery.composeapp.generated.resources.timeline_group_day
 import immichgallery.composeapp.generated.resources.timeline_group_month
@@ -119,6 +119,8 @@ data class BottomNavItem(
 fun MainScreen(
     onAlbumClick: (albumId: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
+    onFavoritesClick: () -> Unit,
+    onMemoriesClick: () -> Unit,
     onLogout: () -> Unit,
     viewModel: MainScreenViewModel = koinViewModel()
 ) {
@@ -152,7 +154,7 @@ fun MainScreen(
             BottomNavItem(Res.string.tab_timeline, TimelineRoute, Res.drawable.ic_timeline),
             BottomNavItem(Res.string.tab_albums, AlbumsRoute, Res.drawable.ic_albums),
             BottomNavItem(Res.string.tab_people, PeopleRoute, Res.drawable.ic_people),
-            BottomNavItem(Res.string.tab_search, SearchRoute, Res.drawable.ic_search)
+            BottomNavItem(Res.string.tab_explore, ExploreRoute, Res.drawable.ic_explore)
         )
     }
 
@@ -172,8 +174,8 @@ fun MainScreen(
     }
     // Mosaic is only offered on screens that render photo assets directly.
     // AlbumList and PeopleList are collection grids, not photo-asset grids.
-    val isSearchTab = remember(currentDestination) {
-        currentDestination?.hierarchy?.any { it.hasRoute(SearchRoute::class) } == true
+    val isExploreTab = remember(currentDestination) {
+        currentDestination?.hierarchy?.any { it.hasRoute(ExploreRoute::class) } == true
     }
 
     // Per-tab refresh callbacks and syncing state — set by each screen
@@ -209,6 +211,8 @@ fun MainScreen(
             navController = tabNavController,
             onAlbumClick = onAlbumClick,
             onPersonClick = onPersonClick,
+            onFavoritesClick = onFavoritesClick,
+            onMemoriesClick = onMemoriesClick,
             onRefreshCallback = onTabRefreshCallback,
             onSyncingState = onTabSyncingState,
             onColdSyncBlockingState = onTimelineColdSyncBlockingState,
@@ -225,7 +229,7 @@ fun MainScreen(
             visible = showShellOverlays,
             isServerOnline = isServerOnline,
             isSyncing = tabIsSyncing,
-            showRefresh = !isSearchTab,
+            showRefresh = !isExploreTab,
             onRefresh = { tabRefreshCallback?.invoke() },
             onLogout = viewModel::logout,
             logoutEnabled = !screenState.isLoggingOut,
@@ -254,6 +258,8 @@ private fun MainTabNavHost(
     navController: NavHostController,
     onAlbumClick: (String) -> Unit,
     onPersonClick: (String, String) -> Unit,
+    onFavoritesClick: () -> Unit,
+    onMemoriesClick: () -> Unit,
     onRefreshCallback: (((() -> Unit)?) -> Unit),
     onSyncingState: (Boolean) -> Unit,
     onColdSyncBlockingState: (Boolean) -> Unit,
@@ -288,9 +294,11 @@ private fun MainTabNavHost(
                 onSyncingState = onSyncingState
             )
         }
-        composable<SearchRoute> {
+        composable<ExploreRoute> {
             SearchScreen(
                 onPersonClick = onPersonClick,
+                onFavoritesClick = onFavoritesClick,
+                onMemoriesClick = onMemoriesClick,
                 onOverlayActiveChange = onOverlayActiveChange,
             )
         }

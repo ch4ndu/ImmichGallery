@@ -52,6 +52,15 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
   Permission denial, unavailable endpoints, transient failures, authoritative
   no-stack responses, and stacks with no supported members remain distinct
   outcomes. Stack reads must preserve coroutine cancellation.
+- Favorites is live-only. Resolve the authenticated owner through
+  `/api/users/me`, request favorite metadata-search pages of 50 with
+  `withStacked=true`, and filter each response by exact `ownerId` before mapping
+  supported assets. Do not set `withStacked=false`: Immich uses that value to
+  filter out every asset carrying a stack id, including the primary. Sparse partner
+  or unsupported pages may be consumed within one logical load. Preserve the
+  consumed-page set and first unconsumed retry page on failure; malformed,
+  repeated, backward, or consumed next tokens terminate without replaying an
+  earlier page.
 - Result-producing suspend boundaries must rethrow `CancellationException`; cancellation is control flow, not a connection or content failure.
 - Album and Person detail page refreshes should replace the fetched ref window and truncate stale later refs when page membership/order changes. Preserving later cached refs after a changed page can mix snapshots because subsequent pages may have shifted.
 - Removed Album and Person list owners must clear their owner refs, Detail Mosaic artifacts, and detail sync metadata in the same Room transaction that replaces the list.
@@ -63,6 +72,8 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - On Android API 37+, local Immich endpoints require `ACCESS_LOCAL_NETWORK` before validation or cached-session startup. Classify literal loopback/private/link-local/CGNAT IPv4, local IPv6, single-label hosts, and `.local` as local immediately; resolve other hostnames on IO for at most 1.5 seconds and classify them as local when any address is local. Keep classifications in memory only. A timeout or resolution failure does not prompt and follows ordinary connection handling.
 - A saved local endpoint must resolve permission before `MainScreen` is composed. If access is denied, return to Login with the saved credentials available for editing; new local logins retain entered credentials and offer retry plus app settings. Public endpoints and iOS/JVM bypass this Android-only gate.
 - Lightweight user view preferences, including per-screen row height and Mosaic `ViewConfig`, also live in `ServerConfigRepository` backed by `multiplatform-settings`.
+- Favorites uses its own `favorites_target_row_height` setting; it does not
+  read or modify Explore Search density.
 - Treat view preferences as settings, not Room cache data.
 - Clear-login flows must clear credentials and cache data that would otherwise leak data from the previous server.
 - Normalize server URLs consistently, usually by trimming the trailing slash before composing endpoint or image URLs.

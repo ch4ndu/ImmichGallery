@@ -13,6 +13,8 @@ object Dimens {
     val albumCoverHeight = 180.dp
     val personAvatarSize = 100.dp
     val searchBarHeight = 56.dp
+    val exploreCardHeight = 112.dp
+    val exploreCardIconSize = 40.dp
     val topBarHeight = 56.dp
     val bottomBarHeight = 56.dp
     val iconSize = 24.dp

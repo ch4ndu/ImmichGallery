@@ -19,9 +19,15 @@ on the server.
   a cached-first paginated photo grid in the album's server-defined order.
 - **People** — browse face-recognized people, filter names locally, and open a
   cached-first paginated grid for a person.
-- **Search** — choose Immich smart search for natural-language queries or
-  filename search. Results support server pagination and an explicit **Load
-  more** retry.
+- **Explore** — retain Immich smart and filename Search, with static entry cards
+  for Favorites and Memories. Search results keep server pagination and an
+  explicit **Load more** retry.
+- **Favorites** — open a live, owner-filtered collection of the authenticated
+  user's favorite photos and videos. Sparse partner-only pages are skipped,
+  later-page failures remain explicitly retryable, and results are not cached
+  in Room.
+- **Memories** — Explore includes the routed entry card, but current-date
+  Memories collection behavior is not implemented yet.
 - **Supported assets** — image and video assets are shown. Audio and other
   unsupported asset types are filtered out.
 
@@ -31,11 +37,12 @@ on the server.
 - Optional Mosaic layouts are available on Timeline, Album Detail, and Person
   Detail. The settings include layout density, 4- through 8-tile template
   families, persistent result caching, and a zoom-disable option.
-- Search always uses justified rows. Album and People collection lists stay
-  fixed collection grids and do not expose Mosaic controls.
+- Explore Search and Favorites always use justified rows. Album and People
+  collection lists stay fixed collection grids and do not expose Mosaic
+  controls.
 - Pinch zoom changes justified-row density on touch platforms; Ctrl/Cmd-wheel
   does the same on Desktop. Row density is remembered separately for Timeline,
-  Album Detail, Person Detail, and Search.
+  Album Detail, Person Detail, Explore Search, and Favorites.
 - Applying Mosaic settings with **Cache results** enabled prepares the complete
   applicable cache before the setting takes effect. This can temporarily block
   that screen, and a failure keeps the previous layout.
@@ -69,8 +76,9 @@ on the server.
 - Timeline, Album, People, opened Album/Person relationships, sync metadata, and
   optional Mosaic artifacts use a local Room cache. Cached screens remain
   visible when a background refresh fails.
-- Search results, expanded asset information, and viewer stack members are live
-  server requests and are not stored as standalone Room records.
+- Explore Search results, Favorites, expanded asset information, and viewer
+  stack members are live server requests and are not stored as standalone Room
+  records.
 - A first Timeline sync is blocking. After a complete cache exists, startup is
   cached-first; the current Timeline policy waits for the explicit top-bar
   refresh before contacting the server again for Timeline changes.
@@ -174,8 +182,8 @@ Immich API / Room / settings
 - Room is a re-fetchable cache. Server URL, API key, Timeline grouping, Mosaic
   configuration, and per-screen row density use `multiplatform-settings`.
 - Navigation uses serializable type-safe routes. The Main shell owns the four
-  Timeline, Albums, People, and Search tabs; Album and Person details are
-  destinations above that shell.
+  Timeline, Albums, People, and Explore tabs; Album, Person, Favorites, and the
+  reserved Memories destination sit above that shell.
 - Photo grids are projected before Compose: standard rows use `packIntoRows`,
   and Mosaic uses the shared `MosaicRenderEngine` plus screen-specific runtime
   scheduling and validated artifacts.

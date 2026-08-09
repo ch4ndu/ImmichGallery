@@ -197,6 +197,18 @@ class ImmichApiService(
         }.body()
     }
 
+    suspend fun searchFavorites(
+        page: Int = 1,
+        size: Int = 50
+    ): SearchResponse {
+        log.d { "POST ${baseUrl()}/api/search/metadata favorites page=$page" }
+        return httpClient.post("${baseUrl()}/api/search/metadata") {
+            header("x-api-key", apiKey())
+            contentType(ContentType.Application.Json)
+            setBody(FavoritesSearchRequest(page = page, size = size))
+        }.body()
+    }
+
     suspend fun getAssetInfo(id: String): AssetResponse {
         log.d { "GET ${baseUrl()}/api/assets/$id" }
         return httpClient.get("${baseUrl()}/api/assets/$id") {
@@ -232,6 +244,15 @@ private data class MetadataSearchRequest(
     val originalFileName: String,
     val page: Int = 1,
     val size: Int = 50
+)
+
+@Serializable
+internal data class FavoritesSearchRequest(
+    val isFavorite: Boolean = true,
+    val order: String = "desc",
+    val page: Int = 1,
+    val size: Int = 50,
+    val withStacked: Boolean = true
 )
 
 @Serializable

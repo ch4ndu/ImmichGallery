@@ -12,6 +12,11 @@ sealed interface SearchUiMessage : UiMessage {
     data object SearchFailed : SearchUiMessage
 }
 
+sealed interface FavoritesUiMessage : UiMessage {
+    data object PermissionDenied : FavoritesUiMessage
+    data object LoadFailed : FavoritesUiMessage
+}
+
 sealed interface StackUiMessage : UiMessage {
     data object NoLongerStacked : StackUiMessage
     data object PermissionDenied : StackUiMessage

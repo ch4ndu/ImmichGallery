@@ -28,7 +28,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -48,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -63,7 +67,13 @@ import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.explore_favorites_description
+import immichgallery.composeapp.generated.resources.explore_memories_description
+import immichgallery.composeapp.generated.resources.favorites
+import immichgallery.composeapp.generated.resources.ic_favorite
+import immichgallery.composeapp.generated.resources.ic_memories
 import immichgallery.composeapp.generated.resources.load_more
+import immichgallery.composeapp.generated.resources.memories
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
 import immichgallery.composeapp.generated.resources.search_placeholder
@@ -73,12 +83,15 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
+import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun SearchScreen(
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
+    onFavoritesClick: () -> Unit = {},
+    onMemoriesClick: () -> Unit = {},
     onOverlayActiveChange: (Boolean) -> Unit = {},
     viewModel: SearchViewModel = koinViewModel()
 ) {
@@ -112,6 +125,8 @@ fun SearchScreen(
                 onSetAvailableViewportHeight = viewModel::setAvailableViewportHeight,
                 onSetTargetRowHeight = viewModel::setTargetRowHeight,
                 onLoadMore = viewModel::loadMore,
+                onFavoritesClick = onFavoritesClick,
+                onMemoriesClick = onMemoriesClick,
                 listState = listState,
                 sharedTransitionScope = this,
             )
@@ -156,6 +171,8 @@ fun SearchContent(
     onSetAvailableViewportHeight: (Float) -> Unit = {},
     onSetTargetRowHeight: (Float) -> Unit = {},
     onLoadMore: () -> Unit,
+    onFavoritesClick: () -> Unit = {},
+    onMemoriesClick: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
     sharedTransitionScope: SharedTransitionScope? = null,
 ) {
@@ -188,6 +205,8 @@ fun SearchContent(
             onSetAvailableViewportHeight = onSetAvailableViewportHeight,
             onSetTargetRowHeight = onSetTargetRowHeight,
             onLoadMore = onLoadMore,
+            onFavoritesClick = onFavoritesClick,
+            onMemoriesClick = onMemoriesClick,
             sharedTransitionScope = sharedTransitionScope
         )
     }
@@ -253,6 +272,8 @@ private fun SearchResultContent(
     onSetAvailableViewportHeight: (Float) -> Unit,
     onSetTargetRowHeight: (Float) -> Unit,
     onLoadMore: () -> Unit,
+    onFavoritesClick: () -> Unit,
+    onMemoriesClick: () -> Unit,
     sharedTransitionScope: SharedTransitionScope?
 ) {
     when {
@@ -277,7 +298,78 @@ private fun SearchResultContent(
             onLoadMore = onLoadMore,
             sharedTransitionScope = sharedTransitionScope
         )
+        shouldShowExploreLanding(state) -> ExploreLanding(
+            onFavoritesClick = onFavoritesClick,
+            onMemoriesClick = onMemoriesClick
+        )
         else -> SearchMessageState(text = stringResource(Res.string.search_hint))
+    }
+}
+
+internal fun shouldShowExploreLanding(state: SearchState): Boolean =
+    state.query.isBlank() && !state.hasSearched
+
+@Composable
+private fun ExploreLanding(
+    onFavoritesClick: () -> Unit,
+    onMemoriesClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = Dimens.largeSpacing),
+        verticalArrangement = Arrangement.spacedBy(Dimens.largeSpacing)
+    ) {
+        ExploreCollectionCard(
+            title = stringResource(Res.string.favorites),
+            description = stringResource(Res.string.explore_favorites_description),
+            icon = Res.drawable.ic_favorite,
+            onClick = onFavoritesClick
+        )
+        ExploreCollectionCard(
+            title = stringResource(Res.string.memories),
+            description = stringResource(Res.string.explore_memories_description),
+            icon = Res.drawable.ic_memories,
+            onClick = onMemoriesClick
+        )
+    }
+}
+
+@Composable
+private fun ExploreCollectionCard(
+    title: String,
+    description: String,
+    icon: org.jetbrains.compose.resources.DrawableResource,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(Dimens.exploreCardHeight)
+            .semantics { contentDescription = title }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(Dimens.largeSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Dimens.largeSpacing)
+        ) {
+            Icon(
+                painter = painterResource(icon),
+                contentDescription = null,
+                modifier = Modifier.size(Dimens.exploreCardIconSize)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)) {
+                Text(title, style = MaterialTheme.typography.titleLarge)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 

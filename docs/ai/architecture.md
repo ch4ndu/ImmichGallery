@@ -53,7 +53,8 @@ For the shared photo/video viewer, information sheet, slideshow, and return tran
 | Timeline | `TimelineScreen` | `TimelineViewModel`, Timeline UseCases/Actions | `TimelineRepository`, `TimelineMosaicCacheRepository`, Room | `docs/timeline.md`, `docs/ai/timeline-sync.md` |
 | Albums and People lists | `AlbumListScreen`, `PeopleScreen` | list ViewModels and read UseCases | `AlbumRepository`, `PeopleRepository`, Room | `docs/ai/collection-lists-search.md` |
 | Album/Person detail | detail screens | detail ViewModels and `PhotoGridDetailLayoutCoordinator` | detail UseCases, repositories, Room, Mosaic artifacts | `docs/ai/album-person-detail.md` |
-| Search | `SearchScreen` | `SearchViewModel`, search UseCases, RowPacking | live `SearchRepository` API calls; results are not stored in Room | `docs/ai/collection-lists-search.md` |
+| Explore/Search | `SearchScreen` | `SearchViewModel`, search UseCases, RowPacking | live `SearchRepository` API calls; results are not stored in Room | `docs/ai/collection-lists-search.md` |
+| Favorites | `FavoritesScreen` | `FavoritesViewModel`, owner/Favorites UseCases, RowPacking | live auth and metadata-search calls; no Room collection | `docs/ai/collection-lists-search.md` |
 | Photo/video viewing | overlay hosts and media components | `StaticPhotoOverlay` or `TimelineOverlayCoordinator` | asset-detail UseCase, Coil, platform video player | `docs/ai/media-viewer.md` |
 | Viewer stack browsing | `StackSessionOverlay` inside existing viewer owners | `GetAssetStackUseCase` plus viewer-local session state | live `AssetRepository` asset/stack reads | `docs/ai/media-viewer.md` |
 | Standard rows | shared grid components | `packIntoRows(...)` and screen projection owners | no persisted layout artifacts | `docs/ai/row-packing.md` |
@@ -119,8 +120,9 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 
 - Timeline assets/buckets, Album and People lists, Album/Person asset
   relationships, sync metadata, and Mosaic artifacts are cached in Room.
-  Search results, the expanded asset-information response, and complete stack
-  member lists are fetched live and are not persisted as their own Room records.
+  Explore Search results, Favorites, the expanded asset-information response,
+  and complete stack member lists are fetched live and are not persisted as
+  their own Room records.
 - Album Detail and Person Detail use cached-first loading: if Room already has detail assets, render them immediately, refresh the opened detail in the background, and invalidate row/Mosaic layout only when ordered persisted asset content changes.
 - Person detail asset caching starts when a person is opened. The People list sync must not preload every person's detail assets.
 - Repository flow is network fetch, Room upsert or replace, then UI reads from Room or updated domain state.
@@ -157,7 +159,13 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 
 ## Pagination And Scrollbar
 
-- Search uses page tracking in `SearchState` and near-end detection from lazy layout state. Query/type edits invalidate active request generations and clear the executed result set; search, load-more, and row-projection results publish only when their query, type, and generation still match. Each generation/page pair is attempted automatically at most once, so a failed page remains explicitly retryable through the Load more button without entering an automatic retry loop. A server `nextPage` remains explicitly actionable even when API filtering yields zero supported assets.
+- Explore retains Search page tracking in `SearchState` and near-end detection from lazy layout state. Query/type edits invalidate active request generations and clear the executed result set; search, load-more, and row-projection results publish only when their query, type, and generation still match. Each generation/page pair is attempted automatically at most once, so a failed page remains explicitly retryable through the Load more button without entering an automatic retry loop. A server `nextPage` remains explicitly actionable even when API filtering yields zero supported assets.
+- Favorites resolves the authenticated owner when its root destination opens.
+  One logical load may consume multiple partner-only or unsupported-only server
+  pages. Success and typed failure both carry consumed pages; failure also
+  carries the first unconsumed page so an explicit retry never replays an
+  already consumed sparse page. Repeated, backward, malformed, or consumed
+  next tokens terminate pagination after retaining current owned assets.
 - People detail uses page-fetch UseCases and load-more state.
 - Guard duplicate pagination with `isLoadingMore`; stop at `hasMore == false`.
 - Main-screen server-status polling runs only while Main is composed and the app lifecycle reports foreground. Disposing Main, backgrounding Android/iOS, or unfocusing the desktop window stops the repository job; returning restarts the idempotent monitor.

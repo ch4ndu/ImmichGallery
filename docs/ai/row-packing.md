@@ -9,7 +9,7 @@ For Mosaic-specific assignment and scheduling, use `docs/ai/mosaic-rendering.md`
 - Standard row packing is implemented by `packIntoRows(...)` in `domain/model/RowPacking.kt`.
 - Row packing is deterministic domain projection logic. ViewModels and coordinators may call it; composables must only render the resulting `RowItem`s.
 - `JustifiedPhotoRow` renders `RowItem` values. It does not choose row membership, row height, or asset ordering.
-- Search always uses standard row packing. Timeline, Album Detail, and Person Detail use row packing when Mosaic is disabled. Mosaic-enabled display must not fall back to `RowItem` packing.
+- Explore Search and Favorites always use standard row packing. Timeline, Album Detail, and Person Detail use row packing when Mosaic is disabled. Mosaic-enabled display must not fall back to `RowItem` packing.
 - RowPacking has no Room cache table, no scheduler, and no persisted artifact shape. It is recomputed from ordered assets plus measured layout inputs when those inputs change.
 
 ## Data Flow
@@ -171,7 +171,9 @@ The first photo id anchors the row key. If row membership changes because width,
 
 ## Screen Usage
 
-- Search calls `packIntoRows(...)` for search result rows and does not use Mosaic.
+- Explore Search calls `packIntoRows(...)` for search result rows and does not use Mosaic.
+- Favorites calls `packIntoRows(...)` for its live owner-filtered collection and
+  owns an independent saved target-row-height setting; it does not use Mosaic.
 - Timeline calls `packIntoRows(...)` when Mosaic is disabled, and through the Mosaic engine for completed `RowItemKind.MOSAIC_FALLBACK` rows only.
 - Album Detail and Person Detail call `packIntoRows(...)` when Mosaic is disabled.
 - When Mosaic is enabled, Timeline, Album Detail, and Person Detail should render real `MosaicBandItem`s, `PlaceholderItem`s, or completed cropped `RowItem(kind = MOSAIC_FALLBACK)` rows. They must not render standard row-packing rows as a Mosaic fallback.

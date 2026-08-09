@@ -3,6 +3,8 @@ package com.udnahc.immichgallery.ui.model
 import androidx.compose.runtime.Composable
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.error_search_failed
+import immichgallery.composeapp.generated.resources.favorites_load_failed
+import immichgallery.composeapp.generated.resources.favorites_permission_denied
 import immichgallery.composeapp.generated.resources.stack_no_longer_stacked
 import immichgallery.composeapp.generated.resources.stack_no_supported_members
 import immichgallery.composeapp.generated.resources.stack_permission_denied
@@ -32,6 +34,8 @@ val UiMessage.resource: StringResource
         LoginUiMessage.ConnectionFailed -> Res.string.login_connection_failed
         LoginUiMessage.LocalNetworkPermissionDenied -> Res.string.login_local_network_permission_denied
         SearchUiMessage.SearchFailed -> Res.string.error_search_failed
+        FavoritesUiMessage.PermissionDenied -> Res.string.favorites_permission_denied
+        FavoritesUiMessage.LoadFailed -> Res.string.favorites_load_failed
         StackUiMessage.NoLongerStacked -> Res.string.stack_no_longer_stacked
         StackUiMessage.PermissionDenied -> Res.string.stack_permission_denied
         StackUiMessage.Unavailable -> Res.string.stack_unavailable

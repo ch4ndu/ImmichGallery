@@ -42,6 +42,7 @@ import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetStackUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
+import com.udnahc.immichgallery.domain.usecase.auth.GetCurrentUserUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerUrlUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerStatusUseCase
@@ -52,6 +53,7 @@ import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
+import com.udnahc.immichgallery.domain.usecase.search.GetFavoriteAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
@@ -65,6 +67,7 @@ import com.udnahc.immichgallery.ui.navigation.MainScreenViewModel
 import com.udnahc.immichgallery.ui.navigation.AppStartupViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumListViewModel
+import com.udnahc.immichgallery.ui.screen.favorites.FavoritesViewModel
 import com.udnahc.immichgallery.ui.screen.login.LoginViewModel
 import com.udnahc.immichgallery.ui.screen.people.PeopleViewModel
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailViewModel
@@ -119,6 +122,7 @@ val sharedModule = module {
     factory { GetLoginStatusUseCase(get()) }
     factory { GetServerUrlUseCase(get()) }
     factory { GetApiKeyUseCase(get()) }
+    factory { GetCurrentUserUseCase(get()) }
     factory { GetServerStatusUseCase(get()) }
     factory { GetTimelineBucketsUseCase(get()) }
     factory { GetBucketAssetsUseCase(get()) }
@@ -134,6 +138,12 @@ val sharedModule = module {
     factory { GetPersonAssetsPageUseCase(get()) }
     factory { SmartSearchUseCase(get(), get()) }
     factory { MetadataSearchUseCase(get(), get()) }
+    factory {
+        GetFavoriteAssetsUseCase(
+            repository = get<SearchRepository>(),
+            serverConfigRepository = get<ServerConfigRepository>()
+        )
+    }
     factory { GetTimelineGroupSizeUseCase(get()) }
     factory { GetTargetRowHeightUseCase(get()) }
     factory { GetViewConfigUseCase(get()) }
@@ -237,4 +247,5 @@ val sharedModule = module {
         )
     }
     viewModel { SearchViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { FavoritesViewModel(get(), get(), get(), get(), get(), get(), get()) }
 }

@@ -19,7 +19,13 @@ object AlbumsRoute
 object PeopleRoute
 
 @Serializable
-object SearchRoute
+object ExploreRoute
+
+@Serializable
+object FavoritesRoute
+
+@Serializable
+object MemoriesRoute
 
 @Immutable
 @Serializable

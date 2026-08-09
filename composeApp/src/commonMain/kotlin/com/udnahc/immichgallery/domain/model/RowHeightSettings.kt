@@ -2,7 +2,7 @@ package com.udnahc.immichgallery.domain.model
 
 const val DEFAULT_GRID_COLUMN_COUNT = 3
 
-enum class RowHeightScope { TIMELINE, ALBUM_DETAIL, PERSON_DETAIL, SEARCH }
+enum class RowHeightScope { TIMELINE, ALBUM_DETAIL, PERSON_DETAIL, SEARCH, FAVORITES }
 
 fun defaultTargetRowHeightForWidth(availableWidth: Float): Float =
     if (availableWidth > 0f) {

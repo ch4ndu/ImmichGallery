@@ -30,7 +30,8 @@ The current user-facing feature set is:
 - Timeline browsing grouped by month or day;
 - Album and People collection lists;
 - cached-first paginated Album and Person detail galleries;
-- smart and filename search with explicit pagination;
+- an Explore shell destination retaining smart and filename search, plus a
+  live owner-filtered Favorites collection;
 - justified-row and optional Mosaic photo-grid layouts;
 - full-screen image/video paging, image zoom, asset information, and slideshow;
 - Android foreground notification support for explicit Timeline synchronization
@@ -39,7 +40,8 @@ The current user-facing feature set is:
 
 Only `IMAGE` and `VIDEO` assets enter the gallery domain. Hidden Timeline
 assets, audio, and other unsupported asset types are filtered at data
-boundaries. Search results and expanded asset information are live server data;
+boundaries. Explore Search results, Favorites, and expanded asset information
+are live server data;
 they are not independent Room-backed caches.
 
 The deliberate non-goals are server mutation operations: upload, edit,
@@ -197,12 +199,15 @@ Navigation uses `@Serializable` routes:
 - `TimelineRoute`
 - `AlbumsRoute`
 - `PeopleRoute`
-- `SearchRoute`
+- `ExploreRoute`
+- `FavoritesRoute`
+- `MemoriesRoute`
 - `AlbumDetailRoute(albumId)`
 - `PersonDetailRoute(personId, personName)`
 
-The Main shell owns Timeline, Albums, People, and Search tabs. Album and Person
-details sit above that shell. Screen ViewModels own loading, error, refresh,
+The Main shell owns Timeline, Albums, People, and Explore tabs. Album, Person,
+Favorites, and the reserved Memories destination sit above that shell. Screen
+ViewModels own loading, error, refresh,
 pagination, layout projection, and viewer-source state for their feature.
 
 | Feature | UI owner | State/domain owner | Data owner |
@@ -214,7 +219,8 @@ pagination, layout projection, and viewer-source state for their feature.
 | Album detail | `AlbumDetailScreen` | `AlbumDetailViewModel`, detail layout coordinator | album/detail repositories and Room |
 | People list | `PeopleScreen` | `PeopleViewModel` | `PeopleRepository` and Room |
 | Person detail | `PersonDetailScreen` | `PersonDetailViewModel`, detail layout coordinator | people/detail repositories and Room |
-| Search | `SearchScreen` | `SearchViewModel` and search UseCases | live `SearchRepository` calls |
+| Explore/Search | `SearchScreen` | `SearchViewModel` and search UseCases | live `SearchRepository` calls |
+| Favorites | `FavoritesScreen` | `FavoritesViewModel`, owner/Favorites UseCases | live auth and metadata-search calls |
 | Media viewer | overlay hosts and media components | static or Timeline overlay coordinator | asset detail, Coil, platform video player |
 | Stack browsing | nested viewer-local stack session | source ViewModel or Timeline overlay coordinator | live asset-detail and stack reads |
 
@@ -227,7 +233,8 @@ pagination, layout projection, and viewer-source state for their feature.
 - `/api/timeline/buckets` and `/api/timeline/bucket`;
 - `/api/albums` and `/api/albums/{id}`;
 - `/api/people`;
-- `/api/search/metadata` for album assets, person assets, and filename search;
+- `/api/search/metadata` for album assets, person assets, filename search, and
+  owner-filtered Favorites;
 - `/api/search/smart` for natural-language search;
 - `/api/assets/{id}` and `/api/assets/{id}/edits`;
 - `/api/stacks/{id}` after an authoritative `/api/assets/{id}` stack lookup.
@@ -276,7 +283,8 @@ Cache ownership by feature:
 - Detail Mosaic: owner-scoped artifacts for Album and Person detail.
 - Settings: credentials, grouping, row density, and Mosaic preferences remain
   in `multiplatform-settings`, not Room.
-- Search, expanded asset information, and viewer stack member lists: live-only.
+- Explore Search, Favorites, expanded asset information, and viewer stack
+  member lists: live-only.
 
 See `docs/ai/data-cache-time.md` for cache and transaction invariants.
 
@@ -302,7 +310,7 @@ The authoritative algorithm and failure rules are in
 `docs/ai/timeline-sync.md`; Timeline rendering and scroll targeting are in
 `docs/timeline.md`.
 
-## 12. Album, Person, And Search Data Flow
+## 12. Album, Person, Explore, And Favorites Data Flow
 
 Album and People collection lists observe Room as their source of truth and
 refresh from the server while retaining cached content. Removed owners clear
@@ -320,6 +328,17 @@ Search calls the server live. Smart and filename modes have request generations
 that prevent stale results from publishing after query/type changes. Failed
 next pages remain explicitly retryable rather than entering an automatic retry
 loop.
+
+Explore replaces the Search shell route without replacing `SearchViewModel`,
+its density setting, or its pagination/viewer behavior. Its blank idle state
+adds static Favorites and Memories cards. The cards do not prefetch either
+collection; Favorites starts only after its root destination is opened.
+
+Favorites resolves `/api/users/me`, then follows live favorite metadata-search
+pages. It filters every response by the authenticated owner id, consumes sparse
+partner/unsupported pages within one logical claim, and retains both consumed
+pages and the first unconsumed retry page on failure. Favorites uses its own
+justified-row density setting and the shared static viewer/stack session.
 
 See `docs/ai/collection-lists-search.md` and
 `docs/ai/album-person-detail.md`.

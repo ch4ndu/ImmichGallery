@@ -117,6 +117,7 @@ class ServerConfigRepository(private val settings: Settings) {
             RowHeightScope.ALBUM_DETAIL -> "album_detail_target_row_height"
             RowHeightScope.PERSON_DETAIL -> "person_detail_target_row_height"
             RowHeightScope.SEARCH -> "search_target_row_height"
+            RowHeightScope.FAVORITES -> "favorites_target_row_height"
         }
 
     private companion object {

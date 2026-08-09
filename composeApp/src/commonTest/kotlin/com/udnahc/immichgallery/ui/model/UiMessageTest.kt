@@ -10,6 +10,8 @@ class UiMessageTest {
             LoginUiMessage.RequiredFields,
             LoginUiMessage.ConnectionFailed,
             SearchUiMessage.SearchFailed,
+            FavoritesUiMessage.PermissionDenied,
+            FavoritesUiMessage.LoadFailed,
             StackUiMessage.NoLongerStacked,
             StackUiMessage.PermissionDenied,
             StackUiMessage.Unavailable,

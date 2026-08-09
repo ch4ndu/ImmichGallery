@@ -38,6 +38,7 @@
     <string name="loading_album">Preparing album, please wait…</string>
     <string name="loading_people">Preparing people, please wait…</string>
     <string name="loading_photos">Preparing photos, please wait…</string>
+    <string name="loading_favorites">Loading favorites…</string>
 
     <!-- Refresh dialog -->
     <string name="refresh_dialog_title">Refresh data</string>
@@ -134,6 +135,17 @@
     <string name="search_no_results">No results found</string>
     <string name="search_hint">Search your photos using natural language or filename</string>
 
+    <!-- Explore and Favorites -->
+    <string name="explore">Explore</string>
+    <string name="favorites">Favorites</string>
+    <string name="memories">Memories</string>
+    <string name="explore_favorites_description">Browse your favorite photos and videos</string>
+    <string name="explore_memories_description">Browse memories from this day</string>
+    <string name="memories_not_available">Memories are not available yet</string>
+    <string name="favorites_empty">No favorites found</string>
+    <string name="favorites_load_failed">Could not load favorites</string>
+    <string name="favorites_permission_denied">This API key cannot read favorites</string>
+
     <!-- Detail -->
     <string name="detail_failed_image">Failed to load image</string>
     <string name="detail_video">Video</string>
@@ -162,5 +174,5 @@
     <string name="tab_timeline">Timeline</string>
     <string name="tab_albums">Albums</string>
     <string name="tab_people">People</string>
-    <string name="tab_search">Search</string>
+    <string name="tab_explore">Explore</string>
 </resources>

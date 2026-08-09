@@ -191,6 +191,13 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun exploreLandingOnlyReplacesBlankIdleSearchHint() {
+        assertEquals(true, shouldShowExploreLanding(SearchState()))
+        assertEquals(false, shouldShowExploreLanding(SearchState(query = "beach")))
+        assertEquals(false, shouldShowExploreLanding(SearchState(hasSearched = true)))
+    }
+
+    @Test
     fun queryEditPreventsPendingRowsFromPublishing() = runTest(dispatcher.scheduler) {
         val packingStarted = CompletableDeferred<Unit>()
         val releasePacking = CompletableDeferred<Unit>()
