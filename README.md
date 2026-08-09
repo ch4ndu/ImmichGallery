@@ -28,8 +28,8 @@ on the server.
   in Room.
 - **Memories** — open the current local date's live Immich **On this day**
   memories as year-labelled cover cards. Each memory keeps its server asset
-  order and supported item count; multiple memories from one year stay
-  separate.
+  order and supported item count; the viewer shows how many assets remain after
+  the current one. Multiple memories from one year stay separate.
 - **Supported assets** — image and video assets are shown. Audio and other
   unsupported asset types are filtered out.
 

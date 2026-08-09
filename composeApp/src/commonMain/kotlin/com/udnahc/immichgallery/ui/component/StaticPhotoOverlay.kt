@@ -38,9 +38,21 @@ import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.desktopDetailShortcuts
 import com.udnahc.immichgallery.ui.util.dragToDismiss
 import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
+import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.assets_remaining
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.stringResource
+
+internal fun remainingAssetCount(
+    settledPage: Int,
+    totalAssets: Int
+): Int {
+    if (totalAssets <= 0) return 0
+    val currentPage = settledPage.coerceIn(0, totalAssets - 1)
+    return totalAssets - currentPage - 1
+}
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -52,6 +64,7 @@ fun StaticPhotoOverlay(
     getAssetStack: suspend (String) -> Result<AssetStackLookup>,
     sharedElementAssetId: String? = null,
     stackBrowsingEnabled: Boolean = true,
+    showRemainingAssetCount: Boolean = false,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
@@ -331,6 +344,14 @@ fun StaticPhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = currentAsset?.fileName.orEmpty(),
+            supportingText = if (showRemainingAssetCount) {
+                stringResource(
+                    Res.string.assets_remaining,
+                    remainingAssetCount(pagerState.settledPage, assets.size)
+                )
+            } else {
+                null
+            },
             onBack = { dismissBase(currentAsset?.id) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (assets.size > 1) {

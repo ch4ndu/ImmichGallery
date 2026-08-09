@@ -41,6 +41,10 @@ video playback, or desktop viewer shortcuts.
   selects origin mode: the cover stays hidden and remains the shared-element
   exit target while settled-page changes continue to drive Info, playback,
   slideshow, and stack actions.
+- The Memories base viewer shows `<count> remaining` below the current filename
+  while its top bar is visible. The count excludes the settled asset and reaches
+  zero on the final asset. A nested stack does not replace or advance that base
+  memory count.
 
 ## Viewer-Scoped Stack Browsing
 
@@ -140,6 +144,7 @@ video playback, or desktop viewer shortcuts.
 
 - swiping before dismiss returns to the settled asset rather than the original;
 - a Memories viewer returns non-cover pages to its originating cover card;
+- a Memories viewer reports the number of assets after its settled base page;
 - a fully off-screen return source is made visible before exit;
 - still-image zoom prevents accidental drag dismissal;
 - only the settled video plays and platform authentication reaches Immich;

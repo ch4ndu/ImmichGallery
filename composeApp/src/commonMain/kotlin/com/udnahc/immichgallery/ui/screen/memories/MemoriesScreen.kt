@@ -90,6 +90,7 @@ fun MemoriesScreen(
                 getAssetDetail = viewModel::getAssetDetail,
                 getAssetStack = viewModel::getAssetStack,
                 sharedElementAssetId = memory.cover.id,
+                showRemainingAssetCount = true,
                 onPersonClick = onPersonClick,
                 onDismiss = onDismissHost,
                 onCurrentAssetChanged = onCurrentAssetChanged,
