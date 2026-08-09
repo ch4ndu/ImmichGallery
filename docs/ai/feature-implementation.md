@@ -88,6 +88,20 @@ For a new persisted cache entity or schema change:
 
 ## Verification
 
+### Delegated runtime visibility
+
+- TRIP runtime invocations write their live machine-readable stream to the
+  invocation's ignored `events.jsonl`. During implementation and code-review
+  delegation, monitor new agent messages, concise rationale summaries, todo
+  progress, and command lifecycle events at least once per minute and surface
+  meaningful checkpoints instead of reporting only that the process is active.
+- Use `.agents/skills/trip-2-implement/scripts/runtime_progress.py` with its
+  returned cursor to avoid replaying old events. Do not expose or request hidden
+  chain-of-thought; status, decisions, evidence, and blockers are sufficient.
+- After a release has consumed the promoted review and final-gate artifacts,
+  `trip-3-release` removes that target's transient invocation directories and
+  thread pointers. Keep the aggregate runtime ledger for usage accounting.
+
 - Run `./gradlew :composeApp:compileKotlinJvm` for normal shared code changes.
 - Build the installable Android application with `./gradlew :androidApp:assembleDebug`; `composeApp` is the KMP library and must not apply `com.android.application`. It uses `com.android.kotlin.multiplatform.library`, so use `:composeApp:compileAndroidMain`, `:composeApp:testAndroidHostTest`, and `:composeApp:connectedAndroidDeviceTest` rather than legacy variant task names.
 - For platform-sensitive changes, also run the relevant Android or iOS compile task.

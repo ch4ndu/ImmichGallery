@@ -174,3 +174,20 @@ If `--ff-only` fails, the main branch moved during implementation — rebase the
 ```bash
 git push && git push --tags
 ```
+
+## Step 13: Clean Transient Runtime Logs
+
+After the push decision has been completed (whether pushed now or deferred),
+remove transient TRIP runtime artifacts for this released target:
+
+```bash
+python3 .agents/skills/trip-3-release/scripts/cleanup_runtime.py \
+    --project . --target <same-plan-path-or-label>
+```
+
+This cleanup is release-final and must not run earlier: code-review promotion
+and the Sol final gate consume `final.txt` and `metadata.json`. The helper
+removes only the target's ignored invocation directories and per-module thread
+pointers, including live event logs, stderr, final reports, metadata, and any
+derived progress files. It retains `.local/trip/runtime/ledger.jsonl` so token
+usage and invocation accounting remain auditable. Report the removed paths.

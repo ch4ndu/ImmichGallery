@@ -63,6 +63,33 @@ The manager owns orchestration. Sol at high reasoning owns the bounded implement
 
 For phased delegation, run the Delegate → Self-Review cycle per phase; the testing gate and Sol code review run once, after the last phase.
 
+### Live Delegation Progress
+
+Every private runtime invocation writes a live `events.jsonl` under its
+`.local/trip/runtime/invocations/<module>/<target>/<phase>/round-*/` directory.
+Treat that file as the canonical progress stream for implementation, review,
+fix, synthesis, and final-gate phases.
+
+- In every delegated prompt, require concise status messages at scope resync,
+  first edit or first finding, verification start, any blocker, and completion.
+  Ask for decisions and rationale summaries, never hidden chain-of-thought.
+- While a delegated command is running, inspect new events at least once per
+  minute and relay meaningful progress to the user. Do not repeatedly report
+  only that the process is still running when the event stream has a more
+  specific checkpoint.
+- Use the cursor-based helper so monitoring does not replay the whole log:
+
+  ```bash
+  python3 .agents/skills/trip-2-implement/scripts/runtime_progress.py \
+      <invocation-path>/events.jsonl --after <last-cursor>
+  ```
+
+  Save the returned `cursor` for the next check. `updates` includes only agent
+  messages, concise reasoning summaries, todo progress, command starts/exits,
+  and turn lifecycle events; raw command output stays in `events.jsonl`.
+- A quiet progress result is not proof of a stall. Use a read-only process check
+  only after the event stream has not advanced for several checks.
+
 ---
 
 ## Self-Review & Fix
