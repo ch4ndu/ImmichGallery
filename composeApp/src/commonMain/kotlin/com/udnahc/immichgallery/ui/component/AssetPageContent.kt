@@ -12,7 +12,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -108,7 +107,6 @@ import org.lighthousegames.logging.logging
 import kotlin.math.roundToInt
 
 internal const val DETAIL_BAR_ALPHA = 0.4f
-private const val DETAIL_SUPPORTING_TEXT_ALPHA = 0.7f
 internal const val API_KEY_HEADER = "x-api-key"
 
 internal sealed interface StackMenuPresentation {
@@ -678,7 +676,6 @@ private fun ThumbnailImageLayer(
 internal fun DetailTopBarOverlay(
     showTopBar: Boolean,
     title: String,
-    supportingText: String? = null,
     onBack: () -> Unit,
     onInfo: () -> Unit,
     onSlideshow: (() -> Unit)? = null,
@@ -713,27 +710,14 @@ internal fun DetailTopBarOverlay(
                         tint = Color.White
                     )
                 }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = title,
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (supportingText != null) {
-                        Text(
-                            text = supportingText,
-                            color = Color.White.copy(alpha = DETAIL_SUPPORTING_TEXT_ALPHA),
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
+                Text(
+                    text = title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 Box {
                     var menuExpanded by remember { mutableStateOf(false) }
                     IconButton(
@@ -986,7 +970,6 @@ private fun DetailTopBarOverlayPreview() {
     DetailTopBarOverlay(
         showTopBar = true,
         title = "IMG_2024.jpg",
-        supportingText = "3 remaining",
         onBack = {},
         onInfo = {}
     )

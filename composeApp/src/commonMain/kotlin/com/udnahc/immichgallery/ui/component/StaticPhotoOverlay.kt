@@ -3,12 +3,20 @@ package com.udnahc.immichgallery.ui.component
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import coil3.SingletonImageLoader
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -32,6 +42,7 @@ import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetStackLookup
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import com.udnahc.immichgallery.domain.model.nextSlideshowPage
+import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
@@ -39,19 +50,27 @@ import com.udnahc.immichgallery.ui.util.desktopDetailShortcuts
 import com.udnahc.immichgallery.ui.util.dragToDismiss
 import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
 import immichgallery.composeapp.generated.resources.Res
-import immichgallery.composeapp.generated.resources.assets_remaining
+import immichgallery.composeapp.generated.resources.asset_position
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
-internal fun remainingAssetCount(
-    settledPage: Int,
-    totalAssets: Int
-): Int {
-    if (totalAssets <= 0) return 0
-    val currentPage = settledPage.coerceIn(0, totalAssets - 1)
-    return totalAssets - currentPage - 1
+private const val MAX_VISIBLE_PAGE_DOTS = 7
+private const val PAGE_INDICATOR_BACKGROUND_ALPHA = 0.45f
+private const val INACTIVE_PAGE_DOT_ALPHA = 0.55f
+
+internal fun visiblePageDotIndices(
+    currentPage: Int,
+    totalPages: Int,
+    maxVisibleDots: Int = MAX_VISIBLE_PAGE_DOTS
+): IntRange {
+    if (totalPages <= 0 || maxVisibleDots <= 0) return IntRange.EMPTY
+    val visibleCount = minOf(totalPages, maxVisibleDots)
+    val settledPage = currentPage.coerceIn(0, totalPages - 1)
+    val firstPage = (settledPage - visibleCount / 2)
+        .coerceIn(0, totalPages - visibleCount)
+    return firstPage until firstPage + visibleCount
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -64,7 +83,7 @@ fun StaticPhotoOverlay(
     getAssetStack: suspend (String) -> Result<AssetStackLookup>,
     sharedElementAssetId: String? = null,
     stackBrowsingEnabled: Boolean = true,
-    showRemainingAssetCount: Boolean = false,
+    showPageIndicator: Boolean = false,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
@@ -344,14 +363,6 @@ fun StaticPhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = currentAsset?.fileName.orEmpty(),
-            supportingText = if (showRemainingAssetCount) {
-                stringResource(
-                    Res.string.assets_remaining,
-                    remainingAssetCount(pagerState.settledPage, assets.size)
-                )
-            } else {
-                null
-            },
             onBack = { dismissBase(currentAsset?.id) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (assets.size > 1) {
@@ -376,6 +387,17 @@ fun StaticPhotoOverlay(
                 { stackController.retryPreflight(currentAsset.id) }
             } else null
         )
+
+        if (showPageIndicator && assets.size > 1) {
+            PhotoPageIndicator(
+                currentPage = pagerState.settledPage,
+                totalPages = assets.size,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = Dimens.pageIndicatorBottomPadding)
+            )
+        }
 
         Box(modifier = Modifier.align(Alignment.BottomCenter)) {
             DetailBottomHandle(
@@ -411,6 +433,61 @@ fun StaticPhotoOverlay(
                 onDismiss = stackController::dismissSession,
                 onRetry = stackController::retrySession
             )
+        }
+    }
+}
+
+@Composable
+private fun PhotoPageIndicator(
+    currentPage: Int,
+    totalPages: Int,
+    modifier: Modifier = Modifier
+) {
+    val settledPage = currentPage.coerceIn(0, totalPages - 1)
+    val positionDescription = stringResource(
+        Res.string.asset_position,
+        settledPage + 1,
+        totalPages
+    )
+    Row(
+        modifier = modifier
+            .semantics { contentDescription = positionDescription }
+            .background(
+                color = Color.Black.copy(alpha = PAGE_INDICATOR_BACKGROUND_ALPHA),
+                shape = RoundedCornerShape(50)
+            )
+            .padding(
+                horizontal = Dimens.mediumSpacing,
+                vertical = Dimens.smallSpacing
+            ),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.smallSpacing),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        visiblePageDotIndices(settledPage, totalPages).forEach { page ->
+            val isActive = page == settledPage
+            val dotSize by animateDpAsState(
+                targetValue = if (isActive) {
+                    Dimens.pageIndicatorActiveDotSize
+                } else {
+                    Dimens.pageIndicatorDotSize
+                },
+                label = "page indicator dot size"
+            )
+            Box(
+                modifier = Modifier.size(Dimens.pageIndicatorActiveDotSize),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(dotSize)
+                        .background(
+                            color = Color.White.copy(
+                                alpha = if (isActive) 1f else INACTIVE_PAGE_DOT_ALPHA
+                            ),
+                            shape = CircleShape
+                        )
+                )
+            }
         }
     }
 }

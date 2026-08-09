@@ -30,7 +30,7 @@
     <string name="scrollbar_thumb">Scroll position indicator</string>
     <string name="scrollbar_track">Scrollbar track</string>
     <string name="items_count">%1$d items</string>
-    <string name="assets_remaining">%1$d remaining</string>
+    <string name="asset_position">Asset %1$d of %2$d</string>
     <string name="load_more">Load more</string>
 
     <!-- Loading -->
