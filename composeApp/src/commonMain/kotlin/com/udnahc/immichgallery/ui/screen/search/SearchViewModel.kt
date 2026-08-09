@@ -64,7 +64,10 @@ class SearchViewModel internal constructor(
     hasSavedTargetRowHeight: Boolean,
     initialTargetRowHeight: Float,
     private val saveTargetRowHeight: (Float) -> Unit,
-    private val searchDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val searchDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val rowPacker: suspend (SearchState) -> List<RowItem> = { snapshot ->
+        packSearchRows(snapshot)
+    }
 ) : ViewModel() {
 
     constructor(
@@ -224,11 +227,14 @@ class SearchViewModel internal constructor(
                 onSuccess = { searchResult ->
                     log.d { "Search returned ${searchResult.assets.size} results, hasMore=${searchResult.hasMore}" }
                     val published = updateForRequest(request) {
+                        val loadedPages = setOf(1)
                         it.copy(
                             results = searchResult.assets,
                             isLoading = false,
-                            nextPage = searchResult.nextPage,
-                            loadedPages = setOf(1)
+                            nextPage = searchResult.nextPage?.takeUnless { page ->
+                                page in loadedPages
+                            },
+                            loadedPages = loadedPages
                         )
                     }
                     if (published) scheduleRows()
@@ -272,11 +278,14 @@ class SearchViewModel internal constructor(
                 onSuccess = { searchResult ->
                     log.d { "Load more returned ${searchResult.assets.size} results, hasMore=${searchResult.hasMore}" }
                     val published = updateForRequest(request) {
+                        val loadedPages = it.loadedPages + page
                         it.copy(
                             results = it.results + searchResult.assets,
                             isLoadingMore = false,
-                            nextPage = searchResult.nextPage,
-                            loadedPages = it.loadedPages + page
+                            nextPage = searchResult.nextPage?.takeUnless { nextPage ->
+                                nextPage in loadedPages
+                            },
+                            loadedPages = loadedPages
                         )
                     }
                     if (published) scheduleRows()
@@ -297,6 +306,7 @@ class SearchViewModel internal constructor(
     private fun invalidateRequests() {
         searchJob?.cancel()
         loadMoreJob?.cancel()
+        layoutRunner.cancel()
         requestGeneration.update { it + 1L }
     }
 
@@ -314,22 +324,32 @@ class SearchViewModel internal constructor(
     private fun scheduleRows(debounce: Boolean = false) {
         layoutRunner.launch(debounce = debounce) { generation ->
             val snapshot = _state.value
-            val rows = if (snapshot.results.isNotEmpty() && snapshot.availableWidth > 0f) {
-                packIntoRows(
-                    snapshot.results,
-                    availableWidth = snapshot.availableWidth,
-                    targetRowHeight = snapshot.targetRowHeight,
-                    spacing = GRID_SPACING_DP,
-                    maxRowHeight = snapshot.rowHeightBounds.max
-                )
-            } else emptyList()
+            val request = SearchRequest(
+                query = snapshot.query,
+                type = snapshot.searchType,
+                generation = snapshot.activeRequestGeneration
+            )
+            val rows = rowPacker(snapshot)
             if (layoutRunner.isCurrent(generation)) {
-                _state.update { current -> current.copy(rows = rows) }
+                updateForRequest(request) { current -> current.copy(rows = rows) }
             }
         }
     }
 
 }
+
+private fun packSearchRows(snapshot: SearchState): List<RowItem> =
+    if (snapshot.results.isNotEmpty() && snapshot.availableWidth > 0f) {
+        packIntoRows(
+            snapshot.results,
+            availableWidth = snapshot.availableWidth,
+            targetRowHeight = snapshot.targetRowHeight,
+            spacing = GRID_SPACING_DP,
+            maxRowHeight = snapshot.rowHeightBounds.max
+        )
+    } else {
+        emptyList()
+    }
 
 internal data class SearchRequest(
     val query: String,

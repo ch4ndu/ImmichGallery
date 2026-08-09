@@ -1,10 +1,7 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -511,7 +508,7 @@ class TimelineViewModel(
     private val getTimelineMosaicCacheStatusUseCase: GetTimelineMosaicCacheStatusUseCase,
     private val getTimelineMosaicGeometrySnapshotUseCase: GetTimelineMosaicGeometrySnapshotUseCase,
     private val clearTimelineMosaicCacheAction: ClearTimelineMosaicCacheAction,
-    private val assetAccessor: TimelineAssetAccessor,
+    private val overlayCoordinator: TimelineOverlayCoordinator,
     private val getTimelineGroupSizeUseCase: GetTimelineGroupSizeUseCase,
     private val getTargetRowHeightUseCase: GetTargetRowHeightUseCase,
     private val getViewConfigUseCase: GetViewConfigUseCase,
@@ -525,19 +522,25 @@ class TimelineViewModel(
     private val syncActivityTracker: SyncActivityTracker
 ) : ViewModel() {
 
-    val apiKey: String = assetAccessor.apiKey
+    val apiKey: String = overlayCoordinator.apiKey
 
-    var lastViewedAssetId: String? by mutableStateOf(null)
-    var lastViewedBucket: String? by mutableStateOf(null)
+    val overlayReturnTarget: TimelineOverlayReturnTarget?
+        get() = overlayCoordinator.returnTarget
+
+    fun rememberOverlayReturnTarget(
+        assetId: String?,
+        bucketTimeBucket: String?
+    ): TimelineOverlayReturnTarget? =
+        overlayCoordinator.rememberReturnTarget(assetId, bucketTimeBucket)
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
-        assetAccessor.getDetail(assetId)
+        overlayCoordinator.getDetail(assetId)
 
     suspend fun getAssetFileName(
         assetId: String,
         fallback: String
     ): Result<String> =
-        assetAccessor.getFileName(assetId, fallback)
+        overlayCoordinator.getFileName(assetId, fallback)
 
     override fun onCleared() {
         super.onCleared()

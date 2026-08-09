@@ -132,10 +132,11 @@ fun TimelineScreen(
     // Only snap fully off-screen return targets to the top. Partially visible
     // rows keep their current position so the shared-element source does not
     // jump when the row is already composed.
-    LaunchedEffect(viewModel.lastViewedAssetId, viewModel.lastViewedBucket) {
+    val overlayReturnTarget = viewModel.overlayReturnTarget
+    LaunchedEffect(overlayReturnTarget) {
         val displayIndex = viewModel.getDisplayItemIndexForReturn(
-            viewModel.lastViewedAssetId,
-            viewModel.lastViewedBucket
+            overlayReturnTarget?.assetId,
+            overlayReturnTarget?.bucketTimeBucket
         ) ?: return@LaunchedEffect
         listState.ensureReturnSourceVisible(displayIndex)
     }
@@ -199,9 +200,14 @@ fun TimelineScreen(
                 onPersonClick = onPersonClick,
                 onDismiss = { currentAssetId, currentBucket ->
                     dismissScope.launch {
-                        viewModel.lastViewedAssetId = currentAssetId
-                        viewModel.lastViewedBucket = currentBucket
-                        viewModel.getDisplayItemIndexForReturn(currentAssetId, currentBucket)
+                        val returnTarget = viewModel.rememberOverlayReturnTarget(
+                            currentAssetId,
+                            currentBucket
+                        )
+                        viewModel.getDisplayItemIndexForReturn(
+                            returnTarget?.assetId,
+                            returnTarget?.bucketTimeBucket
+                        )
                             ?.let { listState.ensureReturnSourceVisible(it) }
                         onDismissHost(currentAssetId)
                     }

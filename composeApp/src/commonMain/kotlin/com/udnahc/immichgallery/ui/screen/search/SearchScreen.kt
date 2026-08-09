@@ -37,9 +37,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -337,8 +339,24 @@ private fun SearchResultsGrid(
         }
     }
     val latestOnLoadMore by rememberUpdatedState(onLoadMore)
-    LaunchedEffect(shouldLoadMore, state.nextPage, state.isLoadingMore) {
-        if (shouldLoadMore && state.nextPage != null && !state.isLoadingMore) latestOnLoadMore()
+    var lastAutomaticLoadKey by remember(state.activeRequestGeneration) {
+        mutableStateOf<SearchAutoLoadKey?>(null)
+    }
+    val automaticLoadKey = state.nextPage?.let { page ->
+        SearchAutoLoadKey(state.activeRequestGeneration, page)
+    }
+    LaunchedEffect(shouldLoadMore, automaticLoadKey, state.isLoadingMore) {
+        if (
+            shouldAutomaticallyLoadSearchPage(
+                shouldLoadMore = shouldLoadMore,
+                isLoadingMore = state.isLoadingMore,
+                candidate = automaticLoadKey,
+                lastAttempt = lastAutomaticLoadKey
+            )
+        ) {
+            lastAutomaticLoadKey = automaticLoadKey
+            latestOnLoadMore()
+        }
     }
 
     BoxWithConstraints(
@@ -386,6 +404,21 @@ private fun SearchResultsGrid(
         }
     }
 }
+
+internal data class SearchAutoLoadKey(
+    val requestGeneration: Long,
+    val page: Int
+)
+
+internal fun shouldAutomaticallyLoadSearchPage(
+    shouldLoadMore: Boolean,
+    isLoadingMore: Boolean,
+    candidate: SearchAutoLoadKey?,
+    lastAttempt: SearchAutoLoadKey?
+): Boolean = shouldLoadMore &&
+        !isLoadingMore &&
+        candidate != null &&
+        candidate != lastAttempt
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable

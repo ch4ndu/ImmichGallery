@@ -192,7 +192,7 @@ fun TimelinePhotoOverlay(
     // when the block was last launched (when `enabled` last flipped). On a
     // drag-to-dismiss after the user has paged deep into the overlay, that
     // stale capture reports the CLICKED photo's id and bucket instead of the
-    // currently-viewed one — so `lastViewedAssetId` lands on the wrong cell
+    // currently-viewed one — so the overlay return target lands on the wrong cell
     // and the shared-element exit has no source bounds. BackHandler wraps
     // its onBack in rememberUpdatedState internally, which is why back-button
     // dismiss works fine; we apply the same pattern here for parity.

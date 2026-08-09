@@ -124,7 +124,7 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 
 ## Pagination And Scrollbar
 
-- Search uses page tracking in `SearchState` and near-end detection from lazy layout state. Query/type edits invalidate active request generations and clear the executed result set; search and load-more responses publish only when their query, type, and generation still match. A server `nextPage` remains explicitly actionable even when API filtering yields zero supported assets.
+- Search uses page tracking in `SearchState` and near-end detection from lazy layout state. Query/type edits invalidate active request generations and clear the executed result set; search, load-more, and row-projection results publish only when their query, type, and generation still match. Each generation/page pair is attempted automatically at most once, so a failed page remains explicitly retryable through the Load more button without entering an automatic retry loop. A server `nextPage` remains explicitly actionable even when API filtering yields zero supported assets.
 - People detail uses page-fetch UseCases and load-more state.
 - Guard duplicate pagination with `isLoadingMore`; stop at `hasMore == false`.
 - Main-screen server-status polling runs only while Main is composed and the app lifecycle reports foreground. Disposing Main, backgrounding Android/iOS, or unfocusing the desktop window stops the repository job; returning restarts the idempotent monitor.

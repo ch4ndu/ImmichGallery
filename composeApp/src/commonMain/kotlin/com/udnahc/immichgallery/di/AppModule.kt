@@ -69,7 +69,7 @@ import com.udnahc.immichgallery.ui.screen.people.PeopleViewModel
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailViewModel
 import com.udnahc.immichgallery.ui.screen.search.SearchViewModel
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineViewModel
-import com.udnahc.immichgallery.ui.screen.timeline.TimelineAssetAccessor
+import com.udnahc.immichgallery.ui.screen.timeline.TimelineOverlayCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
@@ -85,7 +85,13 @@ val sharedModule = module {
     single { MosaicWorkScheduler() }
     single { SyncActivityTracker(get()) }
     factory { TimelineMosaicDispatcherProvider() }
-    factory { TimelineAssetAccessor(get(), get(), get()) }
+    factory {
+        TimelineOverlayCoordinator(
+            getApiKeyUseCase = get(),
+            getAssetFileNameUseCase = get(),
+            getAssetDetailUseCase = get()
+        )
+    }
 
     // Networking
     single { createHttpClientEngine() }

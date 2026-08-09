@@ -18,6 +18,9 @@ read `docs/ai/timeline-sync.md`.
   metadata, materializes visible bucket assets, optionally queues server
   refreshes according to the Timeline sync policy, reads persisted Mosaic
   assignments, builds `TimelineState`, and keeps derived display-item caches.
+- `TimelineOverlayCoordinator` owns the overlay API key/detail/filename access
+  and the atomic asset/bucket return target. `TimelineViewModel` remains the
+  screen boundary and delegates those overlay-session operations.
 - Timeline use cases/actions keep the ViewModel out of repositories:
   `GetTimelineBucketsUseCase`, `GetBucketAssetsUseCase`,
   `LoadBucketAssetsAction`, `SyncAllTimelineAssetsAction`,
@@ -619,10 +622,11 @@ loading was disabled.
 
 When a photo opens, `getGlobalPhotoIndex()` first uses `TimelinePageIndex` and
 `bucketAssetsCache` to find the asset without a Room round trip. On dismiss,
-the overlay reports the current asset id and bucket. The screen asks the
-ViewModel for a return display index, preferring the exact rendered asset and
-falling back to the bucket placeholder/header when the asset row is not
-materialized yet.
+the overlay reports the current asset id and bucket. `TimelineOverlayCoordinator`
+records both values as one `TimelineOverlayReturnTarget`, preventing the screen
+from observing a mixed old/new pair. The screen then asks the ViewModel for a
+return display index, preferring the exact rendered asset and falling back to
+the bucket placeholder/header when the asset row is not materialized yet.
 
 ## Performance Invariants
 
