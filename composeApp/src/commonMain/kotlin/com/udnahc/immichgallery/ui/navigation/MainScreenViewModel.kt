@@ -3,6 +3,7 @@ package com.udnahc.immichgallery.ui.navigation
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.action.auth.MonitorServerStatusAction
+import com.udnahc.immichgallery.domain.action.auth.StopServerStatusMonitoringAction
 import com.udnahc.immichgallery.domain.action.auth.ClearServerConfigAction
 import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
@@ -35,7 +36,8 @@ data class MainScreenState(
 
 class MainScreenViewModel(
     getServerStatusUseCase: GetServerStatusUseCase,
-    monitorServerStatusAction: MonitorServerStatusAction,
+    private val monitorServerStatusAction: MonitorServerStatusAction,
+    private val stopServerStatusMonitoringAction: StopServerStatusMonitoringAction,
     getTimelineGroupSizeUseCase: GetTimelineGroupSizeUseCase,
     private val setTimelineGroupSizeAction: SetTimelineGroupSizeAction,
     getViewConfigUseCase: GetViewConfigUseCase,
@@ -66,9 +68,9 @@ class MainScreenViewModel(
                 getViewConfigUseCase()
             )
 
-    init {
-        monitorServerStatusAction(viewModelScope)
-    }
+    fun startServerStatusMonitoring() = monitorServerStatusAction(viewModelScope)
+
+    fun stopServerStatusMonitoring() = stopServerStatusMonitoringAction()
 
     fun setTimelineGroupSize(size: TimelineGroupSize) {
         if (size == timelineGroupSize.value) return

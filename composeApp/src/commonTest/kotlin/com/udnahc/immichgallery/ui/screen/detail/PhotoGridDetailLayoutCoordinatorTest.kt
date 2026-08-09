@@ -353,7 +353,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
                 detailArtifacts(
                     ownerAssets = assets,
                     sectionIndex = 2,
-                    sectionKey = "January 2026",
+                    sectionKey = "month:2026-01",
                     sectionAssets = assets.filter { it.id.startsWith("jan_") },
                     placeholderHeight = cachedHeight,
                     includeDisplayCache = false
@@ -393,7 +393,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
                 detailArtifacts(
                     ownerAssets = assets,
                     sectionIndex = 2,
-                    sectionKey = "January 2026",
+                    sectionKey = "month:2026-01",
                     sectionAssets = assets.filter { it.id.startsWith("jan_") },
                     placeholderHeight = cachedHeight,
                     includeAggregateGeometry = false,
@@ -536,7 +536,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
                 detailArtifacts(
                     ownerAssets = assets,
                     sectionIndex = 2,
-                    sectionKey = "January 2026",
+                    sectionKey = "month:2026-01",
                     sectionAssets = assets.filter { it.id.startsWith("jan_") },
                     placeholderHeight = staleHeight,
                     columnCount = 3

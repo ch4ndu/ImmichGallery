@@ -56,6 +56,7 @@ import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.clear_search
 import immichgallery.composeapp.generated.resources.ic_close
 import immichgallery.composeapp.generated.resources.loading_people
 import immichgallery.composeapp.generated.resources.people_search_placeholder
@@ -135,7 +136,7 @@ fun PeopleContent(
                             IconButton(onClick = { onQueryChange("") }) {
                                 Icon(
                                     painterResource(Res.drawable.ic_close),
-                                    contentDescription = null
+                                    contentDescription = stringResource(Res.string.clear_search)
                                 )
                             }
                         }

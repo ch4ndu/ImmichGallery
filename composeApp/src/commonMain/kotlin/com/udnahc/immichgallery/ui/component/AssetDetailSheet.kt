@@ -47,10 +47,15 @@ import com.udnahc.immichgallery.domain.model.AssetDetailPerson
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.detail_camera
+import immichgallery.composeapp.generated.resources.detail_date_time
+import immichgallery.composeapp.generated.resources.detail_dimensions
 import immichgallery.composeapp.generated.resources.detail_error
 import immichgallery.composeapp.generated.resources.detail_loading
 import immichgallery.composeapp.generated.resources.detail_location
+import immichgallery.composeapp.generated.resources.detail_metadata_separator
 import immichgallery.composeapp.generated.resources.detail_people
+import immichgallery.composeapp.generated.resources.detail_size_kb
+import immichgallery.composeapp.generated.resources.detail_size_mb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
@@ -161,7 +166,7 @@ private fun AssetDetailContent(
         }
 
         // Dimensions & file size
-        val sizeInfo = remember(detail) { buildSizeInfo(detail) }
+        val sizeInfo = buildSizeInfo(detail)
         if (sizeInfo.isNotEmpty()) {
             Text(
                 text = sizeInfo,
@@ -282,36 +287,45 @@ private fun PeopleRow(
     }
 }
 
+@Composable
 private fun formatDateTime(dateTime: String): String? {
-    return try {
-        val instant = Instant.parse(dateTime)
-        val local = instant.toLocalDateTime(TimeZone.currentSystemDefault())
-        val monthName = local.month.name.lowercase().replaceFirstChar { it.uppercase() }
-        "$monthName ${local.day}, ${local.year} at ${
-            local.hour.toString().padStart(2, '0')
-        }:${local.minute.toString().padStart(2, '0')}"
-    } catch (_: Exception) {
-        if (dateTime.isNotBlank()) dateTime else null
+    val local = remember(dateTime) {
+        try {
+            Instant.parse(dateTime).toLocalDateTime(TimeZone.currentSystemDefault())
+        } catch (_: Exception) {
+            null
+        }
+    }
+    return if (local != null) {
+        stringResource(
+            Res.string.detail_date_time,
+            localizedMonthName(local.month.ordinal + 1),
+            local.day,
+            local.year,
+            local.hour,
+            local.minute
+        )
+    } else {
+        dateTime.ifBlank { null }
     }
 }
 
+@Composable
 private fun buildSizeInfo(detail: AssetDetail): String {
     val parts = mutableListOf<String>()
     if (detail.width != null && detail.height != null) {
-        parts.add("${detail.width} x ${detail.height}")
+        parts.add(stringResource(Res.string.detail_dimensions, detail.width, detail.height))
     }
     if (detail.fileSizeInByte != null) {
         if (detail.fileSizeInByte < BYTES_PER_MB) {
             val kb = detail.fileSizeInByte / BYTES_PER_KB
-            val kbInt = (kb * 10).toLong()
-            parts.add("${kbInt / 10}.${kbInt % 10} KB")
+            parts.add(stringResource(Res.string.detail_size_kb, kb))
         } else {
             val mb = detail.fileSizeInByte / BYTES_PER_MB
-            val mbInt = (mb * 10).toLong()
-            parts.add("${mbInt / 10}.${mbInt % 10} MB")
+            parts.add(stringResource(Res.string.detail_size_mb, mb))
         }
     }
-    return parts.joinToString(" · ")
+    return parts.joinToString(stringResource(Res.string.detail_metadata_separator))
 }
 
 private fun buildLocationText(detail: AssetDetail): String? {

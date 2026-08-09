@@ -40,6 +40,7 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 ## Immich API
 
 - Auth uses the configured API key as the `x-api-key` header.
+- The shared Ktor client has explicit cross-platform timeouts: 15 seconds to connect and 60 seconds for request/socket activity. Endpoint-specific work may override these only when its transfer contract requires a longer bound.
 - Hidden assets should be filtered out before writing or presenting timeline bucket assets.
 - Immich v3 album detail returns metadata only. Fetch album assets through paged metadata search with `albumIds`, the album's server order, and the returned `nextPage` token.
 - People list sync fetches every `/people` page into memory and replaces Room only after the complete paginated fetch succeeds.

@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -60,6 +61,7 @@ import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.load_more
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
 import immichgallery.composeapp.generated.resources.search_placeholder
@@ -256,10 +258,10 @@ private fun SearchResultContent(
             text = state.error.asTextOrNull().orEmpty(),
             isError = true
         )
-        state.hasSearched && state.results.isEmpty() -> SearchMessageState(
+        state.hasSearched && state.results.isEmpty() && state.nextPage == null -> SearchMessageState(
             text = stringResource(Res.string.search_no_results)
         )
-        state.results.isNotEmpty() -> SearchResultsGrid(
+        state.results.isNotEmpty() || state.nextPage != null -> SearchResultsGrid(
             state = state,
             statusBarPadding = statusBarPadding,
             listState = listState,
@@ -335,8 +337,8 @@ private fun SearchResultsGrid(
         }
     }
     val latestOnLoadMore by rememberUpdatedState(onLoadMore)
-    LaunchedEffect(shouldLoadMore) {
-        if (shouldLoadMore) latestOnLoadMore()
+    LaunchedEffect(shouldLoadMore, state.nextPage, state.isLoadingMore) {
+        if (shouldLoadMore && state.nextPage != null && !state.isLoadingMore) latestOnLoadMore()
     }
 
     BoxWithConstraints(
@@ -377,6 +379,7 @@ private fun SearchResultsGrid(
                     transitionAssetId = transitionAssetId,
                     hiddenAssetId = hiddenAssetId,
                     onPhotoClick = onPhotoClick,
+                    onLoadMore = onLoadMore,
                     sharedTransitionScope = sharedTransitionScope
                 )
             }
@@ -393,6 +396,7 @@ private fun SearchResultsList(
     transitionAssetId: String?,
     hiddenAssetId: String?,
     onPhotoClick: (String) -> Unit,
+    onLoadMore: () -> Unit,
     sharedTransitionScope: SharedTransitionScope?
 ) {
     val contentPadding = remember(navBarPadding) {
@@ -428,6 +432,19 @@ private fun SearchResultsList(
                     CircularProgressIndicator(
                         modifier = Modifier.size(Dimens.iconSize)
                     )
+                }
+            }
+        } else if (state.nextPage != null) {
+            item(key = "load_more") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = Dimens.mediumSpacing),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Button(onClick = onLoadMore) {
+                        Text(stringResource(Res.string.load_more))
+                    }
                 }
             }
         }

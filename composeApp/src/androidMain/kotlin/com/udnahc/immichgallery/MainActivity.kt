@@ -12,6 +12,16 @@ import com.udnahc.immichgallery.di.initPlatformContext
 import com.udnahc.immichgallery.ui.util.registerActivity
 
 class MainActivity : ComponentActivity() {
+    override fun onStart() {
+        super.onStart()
+        AppLifecycle.setForeground(true)
+    }
+
+    override fun onStop() {
+        AppLifecycle.setForeground(false)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         initPlatformContext(this)

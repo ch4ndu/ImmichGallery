@@ -12,8 +12,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Row
@@ -40,6 +39,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -52,6 +52,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -63,6 +65,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.ui.component.MosaicViewConfigMenuItem
@@ -84,6 +87,7 @@ import immichgallery.composeapp.generated.resources.ic_refresh
 import immichgallery.composeapp.generated.resources.ic_search
 import immichgallery.composeapp.generated.resources.ic_timeline
 import immichgallery.composeapp.generated.resources.logout
+import immichgallery.composeapp.generated.resources.more_options
 import immichgallery.composeapp.generated.resources.refresh
 import immichgallery.composeapp.generated.resources.refresh_dialog_message
 import immichgallery.composeapp.generated.resources.refresh_dialog_title
@@ -118,6 +122,11 @@ fun MainScreen(
     onLogout: () -> Unit,
     viewModel: MainScreenViewModel = koinViewModel()
 ) {
+    val isAppActive = LocalAppActive.current
+    DisposableEffect(viewModel, isAppActive) {
+        if (isAppActive) viewModel.startServerStatusMonitoring()
+        onDispose { viewModel.stopServerStatusMonitoring() }
+    }
     val isServerOnline by viewModel.isServerOnline.collectAsState()
     val timelineGroupSize by viewModel.timelineGroupSize.collectAsState()
     val viewConfig by viewModel.viewConfig.collectAsState()
@@ -483,7 +492,7 @@ private fun TopBarOverlay(
                 ) {
                     Icon(
                         painterResource(Res.drawable.ic_more_vert),
-                        contentDescription = null,
+                        contentDescription = stringResource(Res.string.more_options),
                         tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
@@ -582,10 +591,13 @@ private fun BottomBarOverlay(
         modifier = modifier
             .fillMaxWidth()
             .background(barColor)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { /* consume clicks so they don't pass through to content */ }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitPointerEvent(PointerEventPass.Final).changes.forEach { change ->
+                        if (!change.isConsumed) change.consume()
+                    }
+                }
+            }
             .navigationBarsPadding()
             .onSizeChanged { barWidthPx = it.width.toFloat() }
     ) {

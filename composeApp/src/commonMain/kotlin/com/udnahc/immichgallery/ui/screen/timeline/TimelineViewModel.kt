@@ -78,12 +78,9 @@ import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.model.timelineScrollTargetForFraction
 import com.udnahc.immichgallery.domain.model.timelineDaySections
 import com.udnahc.immichgallery.domain.model.toPhotoGridDisplayItems
-import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
-import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
-import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
@@ -514,9 +511,7 @@ class TimelineViewModel(
     private val getTimelineMosaicCacheStatusUseCase: GetTimelineMosaicCacheStatusUseCase,
     private val getTimelineMosaicGeometrySnapshotUseCase: GetTimelineMosaicGeometrySnapshotUseCase,
     private val clearTimelineMosaicCacheAction: ClearTimelineMosaicCacheAction,
-    getApiKeyUseCase: GetApiKeyUseCase,
-    private val getAssetFileNameUseCase: GetAssetFileNameUseCase,
-    private val getAssetDetailUseCase: GetAssetDetailUseCase,
+    private val assetAccessor: TimelineAssetAccessor,
     private val getTimelineGroupSizeUseCase: GetTimelineGroupSizeUseCase,
     private val getTargetRowHeightUseCase: GetTargetRowHeightUseCase,
     private val getViewConfigUseCase: GetViewConfigUseCase,
@@ -530,19 +525,19 @@ class TimelineViewModel(
     private val syncActivityTracker: SyncActivityTracker
 ) : ViewModel() {
 
-    val apiKey: String = getApiKeyUseCase()
+    val apiKey: String = assetAccessor.apiKey
 
     var lastViewedAssetId: String? by mutableStateOf(null)
     var lastViewedBucket: String? by mutableStateOf(null)
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
-        getAssetDetailUseCase(assetId)
+        assetAccessor.getDetail(assetId)
 
     suspend fun getAssetFileName(
         assetId: String,
         fallback: String
     ): Result<String> =
-        getAssetFileNameUseCase(assetId, fallback)
+        assetAccessor.getFileName(assetId, fallback)
 
     override fun onCleared() {
         super.onCleared()

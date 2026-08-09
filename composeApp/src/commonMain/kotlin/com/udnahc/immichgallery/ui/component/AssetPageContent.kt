@@ -54,6 +54,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
@@ -85,7 +89,9 @@ import immichgallery.composeapp.generated.resources.ic_back
 import immichgallery.composeapp.generated.resources.ic_info
 import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.ic_play
+import immichgallery.composeapp.generated.resources.more_options
 import immichgallery.composeapp.generated.resources.retry
+import immichgallery.composeapp.generated.resources.show_photo_information
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -678,7 +684,7 @@ internal fun DetailTopBarOverlay(
                     ) {
                         Icon(
                             painterResource(Res.drawable.ic_more_vert),
-                            contentDescription = null,
+                            contentDescription = stringResource(Res.string.more_options),
                             tint = Color.White
                         )
                     }
@@ -722,6 +728,7 @@ internal fun DetailBottomHandle(
     visible: Boolean,
     onClick: () -> Unit
 ) {
+    val description = stringResource(Res.string.show_photo_information)
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically { it },
@@ -731,6 +738,10 @@ internal fun DetailBottomHandle(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
+                .semantics {
+                    contentDescription = description
+                    role = Role.Button
+                }
                 .background(Color.Black.copy(alpha = DETAIL_BAR_ALPHA))
                 .navigationBarsPadding()
                 .padding(vertical = Dimens.mediumSpacing),

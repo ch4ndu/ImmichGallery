@@ -152,7 +152,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \\\"YES\\\"\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :composeApp:embedAndSignAppleFrameworkForXcode\n";
+			shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build task invocation due to OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED environment variable set to \\\"YES\\\"\"\n  exit 0\nfi\nFRAMEWORK_BINARY=\"$SRCROOT/../composeApp/build/xcode-frameworks/$CONFIGURATION/$PLATFORM_NAME$SDK_VERSION/ComposeApp.framework/ComposeApp\"\nif [ -f \"$FRAMEWORK_BINARY\" ] && ! find \"$SRCROOT/../composeApp/src/commonMain\" \"$SRCROOT/../composeApp/src/iosMain\" \"$SRCROOT/../composeApp/build.gradle.kts\" \"$SRCROOT/../gradle/libs.versions.toml\" \"$SRCROOT/../settings.gradle.kts\" \"$SRCROOT/../gradle.properties\" -type f -newer \"$FRAMEWORK_BINARY\" -print -quit | grep -q .; then\n  echo \"Kotlin framework is current; skipping Gradle invocation\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :composeApp:embedAndSignAppleFrameworkForXcode\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

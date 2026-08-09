@@ -21,6 +21,7 @@ import com.udnahc.immichgallery.domain.action.auth.EnsureLocalNetworkAccessActio
 import com.udnahc.immichgallery.domain.action.auth.MonitorServerStatusAction
 import com.udnahc.immichgallery.domain.action.auth.OpenLocalNetworkSettingsAction
 import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
+import com.udnahc.immichgallery.domain.action.auth.StopServerStatusMonitoringAction
 import com.udnahc.immichgallery.domain.action.detail.ClearDetailMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicCacheAction
@@ -68,6 +69,7 @@ import com.udnahc.immichgallery.ui.screen.people.PeopleViewModel
 import com.udnahc.immichgallery.ui.screen.people.PersonDetailViewModel
 import com.udnahc.immichgallery.ui.screen.search.SearchViewModel
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineViewModel
+import com.udnahc.immichgallery.ui.screen.timeline.TimelineAssetAccessor
 import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
@@ -83,6 +85,7 @@ val sharedModule = module {
     single { MosaicWorkScheduler() }
     single { SyncActivityTracker(get()) }
     factory { TimelineMosaicDispatcherProvider() }
+    factory { TimelineAssetAccessor(get(), get(), get()) }
 
     // Networking
     single { createHttpClientEngine() }
@@ -134,6 +137,7 @@ val sharedModule = module {
     factory { OpenLocalNetworkSettingsAction(get()) }
     factory { ClearServerConfigAction(get(), get(), get(), get(), get(), get(), get()) }
     factory { MonitorServerStatusAction(get()) }
+    factory { StopServerStatusMonitoringAction(get()) }
     factory { LoadBucketAssetsAction(get()) }
     factory { SyncAllTimelineAssetsAction(get()) }
     factory { ClearTimelineMosaicCacheAction(get()) }
@@ -158,11 +162,9 @@ val sharedModule = module {
     // ViewModels
     viewModel { LoginViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { AppStartupViewModel(get(), get(), get()) }
-    viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel {
         TimelineViewModel(
-            get(),
-            get(),
             get(),
             get(),
             get(),

@@ -17,7 +17,8 @@ data class HeaderItem(
     override val gridKey: String,
     override val bucketIndex: Int,
     override val sectionLabel: String,
-    val label: String
+    val label: String,
+    val assetGroupDisplayLabel: AssetGroupDisplayLabel? = null
 ) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = true
 }

@@ -58,7 +58,7 @@ For Compose performance or correctness audits, also load `docs/ai/compose-perfor
 - Photo-grid lazy lists should use `photoGridDisplayItemContentType(...)` so rows and Mosaic bands are reused only across compatible child shapes.
 - Grid thumbnails should keep shared-element and per-cell `AnimatedVisibility` wiring limited to the active photo transition path; normal scrolling cells should use the plain thumbnail path.
 - Do not wrap large repeated rows inside one lazy item with `Column { items.forEach { ... } }`; emit keyed lazy `items(...)` where virtualization matters.
-- Kotlin 2.3 strong skipping memoizes lambdas created in composables. Do not add
+- The current Kotlin compiler's strong-skipping mode memoizes lambdas created in composables. Do not add
   `remember` around item or Screen-to-Content callbacks by default. Add manual
   memoization only when an identity-sensitive API, compiler report, or focused
   performance investigation demonstrates a need, and key it to every value

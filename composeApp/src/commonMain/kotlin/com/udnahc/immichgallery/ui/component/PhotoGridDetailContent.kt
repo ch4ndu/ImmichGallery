@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.ErrorItem
+import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.GroupSize
 import com.udnahc.immichgallery.domain.model.HeaderItem
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
@@ -42,7 +43,22 @@ import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.date_group_day
+import immichgallery.composeapp.generated.resources.date_group_month
+import immichgallery.composeapp.generated.resources.date_month_april
+import immichgallery.composeapp.generated.resources.date_month_august
+import immichgallery.composeapp.generated.resources.date_month_december
+import immichgallery.composeapp.generated.resources.date_month_february
+import immichgallery.composeapp.generated.resources.date_month_january
+import immichgallery.composeapp.generated.resources.date_month_july
+import immichgallery.composeapp.generated.resources.date_month_june
+import immichgallery.composeapp.generated.resources.date_month_march
+import immichgallery.composeapp.generated.resources.date_month_may
+import immichgallery.composeapp.generated.resources.date_month_november
+import immichgallery.composeapp.generated.resources.date_month_october
+import immichgallery.composeapp.generated.resources.date_month_september
 import immichgallery.composeapp.generated.resources.load_more
+import immichgallery.composeapp.generated.resources.timeline_unknown_date
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.jetbrains.compose.resources.stringResource
 
@@ -320,7 +336,9 @@ fun PhotoGridDisplayItemRenderer(
     errorContent: (@Composable (ErrorItem) -> Unit)? = null
 ) {
     when (item) {
-        is HeaderItem -> SectionHeader(label = item.label)
+        is HeaderItem -> SectionHeader(
+            label = assetGroupDisplayLabelText(item.assetGroupDisplayLabel, item.label)
+        )
         is RowItem -> JustifiedPhotoRow(
             row = item,
             spacing = Dimens.gridSpacing,
@@ -343,6 +361,46 @@ fun PhotoGridDisplayItemRenderer(
         is PhotoItem -> Unit
     }
 }
+
+@Composable
+private fun assetGroupDisplayLabelText(
+    label: AssetGroupDisplayLabel?,
+    fallback: String
+): String = when (label) {
+    is AssetGroupDisplayLabel.Month -> stringResource(
+        Res.string.date_group_month,
+        localizedMonthName(label.monthNumber),
+        label.year
+    )
+
+    is AssetGroupDisplayLabel.Day -> stringResource(
+        Res.string.date_group_day,
+        label.date.day,
+        localizedMonthName(label.date.month.ordinal + 1),
+        label.date.year
+    )
+
+    AssetGroupDisplayLabel.UnknownDate -> stringResource(Res.string.timeline_unknown_date)
+    null -> fallback
+}
+
+@Composable
+internal fun localizedMonthName(monthNumber: Int): String = stringResource(
+    when (monthNumber) {
+        1 -> Res.string.date_month_january
+        2 -> Res.string.date_month_february
+        3 -> Res.string.date_month_march
+        4 -> Res.string.date_month_april
+        5 -> Res.string.date_month_may
+        6 -> Res.string.date_month_june
+        7 -> Res.string.date_month_july
+        8 -> Res.string.date_month_august
+        9 -> Res.string.date_month_september
+        10 -> Res.string.date_month_october
+        11 -> Res.string.date_month_november
+        else -> Res.string.date_month_december
+    }
+)
 
 @Composable
 fun PhotoGridDetailActions(

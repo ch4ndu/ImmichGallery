@@ -368,7 +368,7 @@ When Mosaic is disabled, the coordinator builds standard grouped justified rows:
 
 1. Return empty display when assets are empty or width is not ready.
 2. Group assets with `groupAssets(assets, groupSize)`.
-3. Emit a `HeaderItem` for each non-empty group label.
+3. Emit a `HeaderItem` for each non-empty group label. Section identity uses a stable date key, while the UI resolves its typed month/day/Unknown-date display label from Compose resources. Missing or malformed asset timestamps remain visible in a final Unknown-date group rather than being discarded.
 4. Call `packIntoRows(...)` for each group with:
    - current measured width;
    - current target row height;

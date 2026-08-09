@@ -31,7 +31,7 @@ profiling is optional unless the user explicitly requests measurement.
 ## Stability And Inputs
 
 - Inspect the Kotlin and Compose compiler configuration before applying
-  stability advice. Kotlin 2.3 uses strong skipping by default: restartable
+  stability advice. The current Kotlin compiler uses strong skipping by default: restartable
   composables with unstable inputs can still skip, and lambdas created in
   composables are automatically memoized.
 - Treat `@Immutable` and `@Stable` as correctness contracts. Flag annotations

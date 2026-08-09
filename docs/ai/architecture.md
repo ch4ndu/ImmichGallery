@@ -124,9 +124,10 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 
 ## Pagination And Scrollbar
 
-- Search uses page tracking in `SearchState` and near-end detection from lazy layout state.
+- Search uses page tracking in `SearchState` and near-end detection from lazy layout state. Query/type edits invalidate active request generations and clear the executed result set; search and load-more responses publish only when their query, type, and generation still match. A server `nextPage` remains explicitly actionable even when API filtering yields zero supported assets.
 - People detail uses page-fetch UseCases and load-more state.
 - Guard duplicate pagination with `isLoadingMore`; stop at `hasMore == false`.
+- Main-screen server-status polling runs only while Main is composed and the app lifecycle reports foreground. Disposing Main, backgrounding Android/iOS, or unfocusing the desktop window stops the repository job; returning restarts the idempotent monitor.
 - `ScrollbarOverlay` supports lazy list, grid, and staggered grid states. Screens must pass explicit top and bottom padding that accounts for translucent bars.
 - Timeline scrollbar labels, year markers, handle position, and drag targets use `TimelinePageIndex` and photo-page fractions. Keep those mappings aligned; do not mix page fractions with raw LazyColumn item-count fractions.
 - Timeline-specific cache, sync, Mosaic, scrollbar, overlay, or rendering changes must update `docs/timeline.md`.

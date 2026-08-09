@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.data.repository
 
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -28,6 +29,8 @@ class ServerStatusRepository(
                 _isOnline.value = try {
                     apiService.ping()
                     true
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (_: Exception) {
                     false
                 }

@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.ui.screen.detail
 
 import com.udnahc.immichgallery.runSuspendCatching
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheEntry
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheLookup
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
@@ -21,7 +22,8 @@ import kotlinx.coroutines.launch
 internal data class IndexedAssetGroup(
     val index: Int,
     val label: String,
-    val assets: List<Asset>
+    val assets: List<Asset>,
+    val displayLabel: AssetGroupDisplayLabel? = null
 )
 
 internal data class DetailPersistentGroupKey(
@@ -123,7 +125,8 @@ internal fun groupHeaderItems(group: IndexedAssetGroup): List<PhotoGridDisplayIt
                 gridKey = "h_${group.index}_${group.label}",
                 bucketIndex = group.index,
                 sectionLabel = group.label,
-                label = group.label
+                label = group.label,
+                assetGroupDisplayLabel = group.displayLabel
             )
         )
     } else {

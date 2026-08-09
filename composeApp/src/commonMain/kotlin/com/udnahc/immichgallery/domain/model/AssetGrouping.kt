@@ -9,8 +9,16 @@ import kotlin.time.Instant
 @Immutable
 data class AssetGroup(
     val label: String,
-    val assets: List<Asset>
+    val assets: List<Asset>,
+    val displayLabel: AssetGroupDisplayLabel? = null
 )
+
+@Immutable
+sealed interface AssetGroupDisplayLabel {
+    data class Month(val year: Int, val monthNumber: Int) : AssetGroupDisplayLabel
+    data class Day(val date: LocalDate) : AssetGroupDisplayLabel
+    data object UnknownDate : AssetGroupDisplayLabel
+}
 
 enum class GroupSize { NONE, MONTH, DAY }
 
@@ -41,19 +49,30 @@ private fun computeMonthGroups(assets: List<Asset>): List<AssetGroup> {
             }
         }
     }
-    return grouped
+    val datedGroups = grouped
         .entries
         .mapNotNull { (key, groupAssets) -> key?.let { it to groupAssets } }
         .sortedWith(compareByDescending<Pair<Pair<Int, kotlinx.datetime.Month>, List<Asset>>> { it.first.first }
             .thenByDescending { it.first.second })
         .map { (key, groupAssets) ->
             val (year, month) = key
-            val monthName = month.name.lowercase().replaceFirstChar { it.uppercase() }
+            val monthNumber = month.ordinal + 1
             AssetGroup(
-                label = "$monthName $year",
-                assets = groupAssets.sortedByDescending { it.createdAt }
+                label = "month:$year-${monthNumber.toString().padStart(2, '0')}",
+                assets = groupAssets.sortedByDescending { it.createdAt },
+                displayLabel = AssetGroupDisplayLabel.Month(year, monthNumber)
             )
         }
+    val unknownGroup = grouped[null]
+        ?.takeIf { it.isNotEmpty() }
+        ?.let {
+            AssetGroup(
+                label = UNKNOWN_DATE_GROUP_KEY,
+                assets = it.sortedByDescending { asset -> asset.createdAt },
+                displayLabel = AssetGroupDisplayLabel.UnknownDate
+            )
+        }
+    return datedGroups + listOfNotNull(unknownGroup)
 }
 
 private fun computeDayGroups(assets: List<Asset>): List<AssetGroup> {
@@ -69,15 +88,27 @@ private fun computeDayGroups(assets: List<Asset>): List<AssetGroup> {
             }
         }
     }
-    return grouped
+    val datedGroups = grouped
         .entries
         .mapNotNull { (date, groupAssets) -> date?.let { it to groupAssets } }
         .sortedByDescending { it.first }
         .map { (d, groupAssets) ->
-            val monthName = d.month.name.lowercase().replaceFirstChar { it.uppercase() }
             AssetGroup(
-                label = "${d.day} $monthName ${d.year}",
-                assets = groupAssets.sortedByDescending { it.createdAt }
+                label = "day:$d",
+                assets = groupAssets.sortedByDescending { it.createdAt },
+                displayLabel = AssetGroupDisplayLabel.Day(d)
             )
         }
+    val unknownGroup = grouped[null]
+        ?.takeIf { it.isNotEmpty() }
+        ?.let {
+            AssetGroup(
+                label = UNKNOWN_DATE_GROUP_KEY,
+                assets = it.sortedByDescending { asset -> asset.createdAt },
+                displayLabel = AssetGroupDisplayLabel.UnknownDate
+            )
+        }
+    return datedGroups + listOfNotNull(unknownGroup)
 }
+
+private const val UNKNOWN_DATE_GROUP_KEY = "unknown-date"

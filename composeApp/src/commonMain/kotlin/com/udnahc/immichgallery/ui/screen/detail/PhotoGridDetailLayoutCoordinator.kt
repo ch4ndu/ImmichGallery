@@ -253,7 +253,12 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 .strictReadyDisplayCache(ownerFingerprint, lookup.columnCount)
             val groupItemsByIndex = mutableMapOf<Int, List<PhotoGridDisplayItem>>()
             groups.forEachIndexed { index, assetGroup ->
-                val group = IndexedAssetGroup(index, assetGroup.label, assetGroup.assets)
+                val group = IndexedAssetGroup(
+                    index = index,
+                    label = assetGroup.label,
+                    assets = assetGroup.assets,
+                    displayLabel = assetGroup.displayLabel
+                )
                 val fingerprint = group.assets.detailPersistentFingerprint()
                 val cachedItems = persistentCacheRenderer.cachedGroupItems(
                     group = group,
@@ -773,7 +778,12 @@ class PhotoGridDetailLayoutCoordinator<S>(
         layoutSpec: com.udnahc.immichgallery.domain.model.MosaicLayoutSpec
     ): List<KeyedAssetGroup> =
         groupAssets(snapshot.assets, snapshot.groupSize).mapIndexed { index, group ->
-            val indexedGroup = IndexedAssetGroup(index, group.label, group.assets)
+            val indexedGroup = IndexedAssetGroup(
+                index = index,
+                label = group.label,
+                assets = group.assets,
+                displayLabel = group.displayLabel
+            )
             val assetFingerprint = group.assets.detailPersistentFingerprint()
             KeyedAssetGroup(
                 group = indexedGroup,
@@ -1227,7 +1237,8 @@ class PhotoGridDetailLayoutCoordinator<S>(
                         gridKey = "h_${index}_${group.label}",
                         bucketIndex = index,
                         sectionLabel = group.label,
-                        label = group.label
+                        label = group.label,
+                        assetGroupDisplayLabel = group.displayLabel
                     )
                 )
             }
@@ -1380,7 +1391,8 @@ class PhotoGridDetailLayoutCoordinator<S>(
                     gridKey = "h_${group.index}_${group.label}",
                     bucketIndex = group.index,
                     sectionLabel = group.label,
-                    label = group.label
+                    label = group.label,
+                    assetGroupDisplayLabel = group.displayLabel
                 )
             )
         } else {

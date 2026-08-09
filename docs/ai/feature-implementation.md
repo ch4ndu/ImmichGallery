@@ -75,6 +75,7 @@ For a new persisted cache entity or schema change:
 - Android Koin startup must be process-level when a service needs shared actions/coordinators. Compose should reuse the existing Koin context on Android instead of owning the only startup path.
 - Android API-37 permissions that need an Activity Result launcher must bind from each `MainActivity` instance; do not route them through the process-wide weak activity reference used by unrelated utility helpers. Keep the platform controller behind a domain Action so ViewModels never access Android APIs directly.
 - Local developer login defaults come from gitignored root `local.properties` keys `immichGallery.loginServerUrl` and `immichGallery.loginApiKey`; Gradle generates blank-fallback common constants for builds where those keys are absent.
+- The iOS Kotlin-framework build phase is intentionally invoked by Xcode for correctness, but its script skips Gradle when the destination framework binary is newer than common/iOS sources and shared Gradle configuration. Keep the source/config timestamp guard aligned when adding another Apple source set or build input.
 
 ## Verification
 
