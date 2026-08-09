@@ -1,6 +1,6 @@
 # ImmichGallery Agent Instructions
 
-ImmichGallery is a Kotlin Multiplatform Compose read-only gallery client for self-hosted Immich photo servers. It uses the Immich API, authenticated Coil image loading, Room cache tables, Koin DI, and justified photo grids across Android, iOS, and JVM Desktop.
+ImmichGallery is a Kotlin Multiplatform Compose read-only gallery client for self-hosted Immich photo servers. It uses the Immich API, authenticated Coil image loading, Room cache tables, Koin DI, and justified/Mosaic photo grids across Android, iOS, and JVM Desktop.
 
 Read this file first. Do not eagerly load every AI instruction document. Load only the files below that match the task.
 
@@ -13,6 +13,9 @@ Read this file first. Do not eagerly load every AI instruction document. Load on
 | Standard row packing, justified rows          | `docs/ai/row-packing.md`           |
 | Timeline cold/warm/manual sync                | `docs/ai/timeline-sync.md`         |
 | Album/Person detail screen behavior           | `docs/ai/album-person-detail.md`   |
+| Login, startup, session, logout, server status | `docs/ai/auth-session.md`          |
+| Album/People lists or Search behavior          | `docs/ai/collection-lists-search.md` |
+| Photo/video viewer, info sheet, slideshow      | `docs/ai/media-viewer.md`          |
 | Feature implementation, bug fixes, refactors | `docs/ai/feature-implementation.md` |
 | Code review or architecture audit         | `docs/ai/audit.md`                  |
 | UI, Compose, previews, recomposition      | `docs/ai/ui.md`                     |
@@ -50,6 +53,9 @@ Feature-specific routing:
 - Standard row packing/justified rows: `docs/ai/row-packing.md`
 - Timeline cold/warm/manual sync: `docs/ai/timeline-sync.md`
 - Album/Person detail screen behavior: `docs/ai/album-person-detail.md`
+- Login/startup/session/logout/server status: `docs/ai/auth-session.md`
+- Album and People collection lists plus Search: `docs/ai/collection-lists-search.md`
+- Shared photo/video viewer, info sheet, and slideshow: `docs/ai/media-viewer.md`
 - Timeline-specific behavior: `docs/timeline.md`
 - Data/cache/Room/API/time: `docs/ai/data-cache-time.md`
 - UI/Compose/layout/recomposition: `docs/ai/ui.md`

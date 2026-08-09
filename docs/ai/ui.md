@@ -5,6 +5,7 @@ Load this for Compose UI, screens, bottom sheets, previews, theme work, or recom
 For Mosaic-specific rendering, placeholder, fallback, and scheduling rules, load `docs/ai/mosaic-rendering.md`.
 For standard justified row packing and `RowItem` behavior, load `docs/ai/row-packing.md`.
 For Compose performance or correctness audits, also load `docs/ai/compose-performance-audit.md`.
+For shared photo/video viewing, information sheets, slideshow, viewer gestures, and desktop viewer shortcuts, load `docs/ai/media-viewer.md`.
 
 ## Theme And Resources
 

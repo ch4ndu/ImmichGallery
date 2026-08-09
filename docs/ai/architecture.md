@@ -4,13 +4,17 @@ Load this when working on architecture, source layout, dependency flow, or cross
 
 For Mosaic-specific rendering, cache artifact, scheduling, fallback, and placeholder rules, load `docs/ai/mosaic-rendering.md`.
 For Album Detail and Person Detail screen architecture, cached-first loading, opened-owner sync, pagination, overlay return, and shared detail layout coordination, load `docs/ai/album-person-detail.md`.
+For login, saved-session startup, local-network access, server monitoring, and logout, load `docs/ai/auth-session.md`.
+For Album/People collection lists and Search, load `docs/ai/collection-lists-search.md`.
+For the shared photo/video viewer, information sheet, slideshow, and return transitions, load `docs/ai/media-viewer.md`.
 
 ## Stack
 
 - Kotlin Multiplatform Compose targeting Android, iOS, and JVM Desktop.
 - Immich API client for a read-only authenticated gallery. API auth uses the `x-api-key` header.
 - Ktor 3 HTTP client with per-platform engines: OkHttp, Darwin, and Java.
-- Coil 3 authenticated image loading via `KtorNetworkFetcherFactory`.
+- Coil 3 authenticated image loading via an OkHttp fetcher on Android and
+  `KtorNetworkFetcherFactory` on iOS/JVM.
 - Room database with `BundledSQLiteDriver` and KSP code generation for local cache tables.
 - Koin DI with `sharedModule` in common code and per-platform `platformModule` database builders.
 - JetBrains Navigation Compose KMP with `@Serializable` type-safe routes.
@@ -34,6 +38,20 @@ For Album Detail and Person Detail screen architecture, cached-first loading, op
 - Writes and side-effecting operations use one Action class per operation. Actions expose `suspend operator fun invoke(...)`.
 - New features should create or reuse UseCases/Actions first, then wire them into the relevant ViewModel.
 - Keep repositories behind UseCases/Actions. Screens should not inject repositories or UseCases directly unless the existing navigation/auth bootstrap pattern requires it.
+
+## Feature Architecture Map
+
+| Feature area | UI owner | State/domain boundary | Data boundary | Detailed contract |
+| --- | --- | --- | --- | --- |
+| Startup and login | `AppNavigation`, `LoginScreen` | `AppStartupViewModel`, `LoginViewModel`, auth UseCases/Actions | `ServerConfigRepository`, `AuthRepository`, platform local-network controller | `docs/ai/auth-session.md` |
+| Main shell and session | `MainScreen` | `MainScreenViewModel` | server-status Actions/UseCase and cache-first logout Action | `docs/ai/auth-session.md` |
+| Timeline | `TimelineScreen` | `TimelineViewModel`, Timeline UseCases/Actions | `TimelineRepository`, `TimelineMosaicCacheRepository`, Room | `docs/timeline.md`, `docs/ai/timeline-sync.md` |
+| Albums and People lists | `AlbumListScreen`, `PeopleScreen` | list ViewModels and read UseCases | `AlbumRepository`, `PeopleRepository`, Room | `docs/ai/collection-lists-search.md` |
+| Album/Person detail | detail screens | detail ViewModels and `PhotoGridDetailLayoutCoordinator` | detail UseCases, repositories, Room, Mosaic artifacts | `docs/ai/album-person-detail.md` |
+| Search | `SearchScreen` | `SearchViewModel`, search UseCases, RowPacking | live `SearchRepository` API calls; results are not stored in Room | `docs/ai/collection-lists-search.md` |
+| Photo/video viewing | overlay hosts and media components | `StaticPhotoOverlay` or `TimelineOverlayCoordinator` | asset-detail UseCase, Coil, platform video player | `docs/ai/media-viewer.md` |
+| Standard rows | shared grid components | `packIntoRows(...)` and screen projection owners | no persisted layout artifacts | `docs/ai/row-packing.md` |
+| Mosaic grids | shared grid components | `MosaicRenderEngine` and screen schedulers/coordinators | Timeline/detail Mosaic artifact repositories | `docs/ai/mosaic-rendering.md` |
 
 ## Source Layout
 
@@ -83,6 +101,9 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 | Timeline rendering guide | `docs/timeline.md` |
 | Timeline sync architecture | `docs/ai/timeline-sync.md` |
 | Album/Person detail architecture | `docs/ai/album-person-detail.md` |
+| Auth/session architecture | `docs/ai/auth-session.md` |
+| Collection lists and Search architecture | `docs/ai/collection-lists-search.md` |
+| Media viewer architecture | `docs/ai/media-viewer.md` |
 | Persisted view settings | `domain/model/ViewConfig.kt`, `data/repository/ServerConfigRepository.kt` |
 | Scrollbar component | `ui/component/ScrollbarOverlay.kt` |
 | Photo overlay/detail components | `ui/component/StaticPhotoOverlay.kt`, `ui/component/AssetPageContent.kt` |
@@ -90,7 +111,10 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 
 ## Room Write-Through Cache
 
-- Timeline, album, people, and asset detail data are cached in Room where the repository supports it.
+- Timeline assets/buckets, Album and People lists, Album/Person asset
+  relationships, sync metadata, and Mosaic artifacts are cached in Room.
+  Search results and the expanded asset-information response are fetched live
+  and are not persisted as their own Room records.
 - Album Detail and Person Detail use cached-first loading: if Room already has detail assets, render them immediately, refresh the opened detail in the background, and invalidate row/Mosaic layout only when ordered persisted asset content changes.
 - Person detail asset caching starts when a person is opened. The People list sync must not preload every person's detail assets.
 - Repository flow is network fetch, Room upsert or replace, then UI reads from Room or updated domain state.
@@ -139,7 +163,7 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - Room 2.8.4, SQLite Bundled 2.7.0.
 - KSP 2.3.10.
 - Ktor 3.5.1.
-- Coil 3.5.0 with Ktor3 networking.
+- Coil 3.5.0 with OkHttp networking on Android and Ktor3 networking on iOS/JVM.
 - Koin 4.2.2.
 - Android: minSdk 24, targetSdk 37, JVM target 11.
 - Package: `com.udnahc.immichgallery`.
