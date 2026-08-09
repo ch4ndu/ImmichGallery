@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetStack
@@ -208,6 +211,11 @@ internal fun Throwable.toStackUiMessage(): StackUiMessage = when (this) {
     else -> StackUiMessage.RequestFailed
 }
 
+internal val stackSessionStatusPointerEventPass = PointerEventPass.Final
+
+internal fun shouldConsumeStackSessionStatusPointerChange(isConsumed: Boolean): Boolean =
+    !isConsumed
+
 internal class StackSessionController(
     private val scope: CoroutineScope,
     private var loadAssetStack: suspend (String) -> Result<AssetStackLookup>
@@ -328,7 +336,18 @@ private fun StackSessionStatus(
 ) {
     PlatformBackHandler(enabled = true, onBack = onBack)
     Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitPointerEvent(stackSessionStatusPointerEventPass).changes.forEach { change ->
+                        if (shouldConsumeStackSessionStatusPointerChange(change.isConsumed)) {
+                            change.consume()
+                        }
+                    }
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         Column(

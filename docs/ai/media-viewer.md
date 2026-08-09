@@ -44,7 +44,10 @@ video playback, or desktop viewer shortcuts.
 
 ## Viewer-Scoped Stack Browsing
 
-- A settled asset with a positive `stackCount` shows **View stack** immediately.
+- A settled asset with a positive `stackCount` shows **View stack** immediately
+  only while its viewer-local availability is `Unknown`. The list count is a
+  provisional hint: once an authoritative `Checking`, `Available`, `NoStack`,
+  or `Failed` state exists, that state wins even if the source count is stale.
   A zero count is unknown because sparse metadata-search responses can omit
   nested stack data; opening the overflow menu starts one lazy authoritative
   `GetAssetStackUseCase` preflight for that asset.
@@ -61,8 +64,10 @@ video playback, or desktop viewer shortcuts.
   asset types are filtered without changing the remaining server order.
 - The nested session disables recursive stack entry and covers the base viewer.
   Base paging, gestures, shortcuts, slideshow, and video activity are disabled
-  while covered. Back, Escape, or nested drag dismissal closes the stack first
-  and restores the unchanged base page.
+  while covered. Loading and error surfaces consume pointer input before it can
+  reach base-viewer chrome while leaving their own Back and Retry controls
+  usable. Back, Escape, or nested drag dismissal closes the stack first and
+  restores the unchanged base page.
 - Stack children never become `PhotoOverlayHost` grid return targets. Info,
   image zoom, authenticated video, paging, slideshow, and person navigation
   continue through the existing static viewer components.

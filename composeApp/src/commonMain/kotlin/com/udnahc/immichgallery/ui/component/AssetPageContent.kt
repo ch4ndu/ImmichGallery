@@ -78,6 +78,7 @@ import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.SlideshowAnimations
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
+import com.udnahc.immichgallery.ui.model.StackUiMessage
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
@@ -107,6 +108,28 @@ import kotlin.math.roundToInt
 
 internal const val DETAIL_BAR_ALPHA = 0.4f
 internal const val API_KEY_HEADER = "x-api-key"
+
+internal sealed interface StackMenuPresentation {
+    data object ViewStack : StackMenuPresentation
+    data object Checking : StackMenuPresentation
+    data class Failed(val message: StackUiMessage) : StackMenuPresentation
+    data object Hidden : StackMenuPresentation
+}
+
+internal fun stackMenuPresentation(
+    stackCount: Int,
+    availability: StackAvailability
+): StackMenuPresentation = when (availability) {
+    StackAvailability.Unknown -> if (stackCount > 0) {
+        StackMenuPresentation.ViewStack
+    } else {
+        StackMenuPresentation.Hidden
+    }
+    is StackAvailability.Available -> StackMenuPresentation.ViewStack
+    is StackAvailability.Checking -> StackMenuPresentation.Checking
+    is StackAvailability.Failed -> StackMenuPresentation.Failed(availability.message)
+    StackAvailability.NoStack -> StackMenuPresentation.Hidden
+}
 
 private const val ERROR_TEXT_ALPHA = 0.8f
 private const val ERROR_ICON_ALPHA = 0.6f
@@ -714,22 +737,27 @@ internal fun DetailTopBarOverlay(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
-                        val stackIsAvailable =
-                            stackCount > 0 || stackAvailability is StackAvailability.Available
-                        if (onViewStack != null && stackIsAvailable) {
-                            DropdownMenuItem(
-                                modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
-                                text = { Text(stringResource(Res.string.view_stack)) },
-                                onClick = { menuExpanded = false; onViewStack() },
-                                leadingIcon = {
-                                    Icon(
-                                        painterResource(Res.drawable.ic_stack),
-                                        contentDescription = null
-                                    )
-                                }
+                        when (
+                            val stackPresentation = stackMenuPresentation(
+                                stackCount,
+                                stackAvailability
                             )
-                        } else if (stackAvailability is StackAvailability.Checking) {
-                            DropdownMenuItem(
+                        ) {
+                            StackMenuPresentation.ViewStack -> if (onViewStack != null) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
+                                    text = { Text(stringResource(Res.string.view_stack)) },
+                                    onClick = { menuExpanded = false; onViewStack() },
+                                    leadingIcon = {
+                                        Icon(
+                                            painterResource(Res.drawable.ic_stack),
+                                            contentDescription = null
+                                        )
+                                    }
+                                )
+                            }
+
+                            StackMenuPresentation.Checking -> DropdownMenuItem(
                                 modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
                                 text = { Text(stringResource(Res.string.checking_stack)) },
                                 onClick = {},
@@ -741,33 +769,34 @@ internal fun DetailTopBarOverlay(
                                     )
                                 }
                             )
-                        } else if (
-                            stackAvailability is StackAvailability.Failed &&
-                            onRetryStackCheck != null
-                        ) {
-                            DropdownMenuItem(
-                                modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
-                                text = { Text(stackAvailability.message.asText()) },
-                                onClick = {},
-                                enabled = false,
-                                leadingIcon = {
-                                    Icon(
-                                        painterResource(Res.drawable.ic_stack),
-                                        contentDescription = null
-                                    )
-                                }
-                            )
-                            DropdownMenuItem(
-                                modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
-                                text = { Text(stringResource(Res.string.retry_stack_check)) },
-                                onClick = { menuExpanded = false; onRetryStackCheck() },
-                                leadingIcon = {
-                                    Icon(
-                                        painterResource(Res.drawable.ic_stack),
-                                        contentDescription = null
-                                    )
-                                }
-                            )
+
+                            is StackMenuPresentation.Failed -> if (onRetryStackCheck != null) {
+                                DropdownMenuItem(
+                                    modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
+                                    text = { Text(stackPresentation.message.asText()) },
+                                    onClick = {},
+                                    enabled = false,
+                                    leadingIcon = {
+                                        Icon(
+                                            painterResource(Res.drawable.ic_stack),
+                                            contentDescription = null
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
+                                    text = { Text(stringResource(Res.string.retry_stack_check)) },
+                                    onClick = { menuExpanded = false; onRetryStackCheck() },
+                                    leadingIcon = {
+                                        Icon(
+                                            painterResource(Res.drawable.ic_stack),
+                                            contentDescription = null
+                                        )
+                                    }
+                                )
+                            }
+
+                            StackMenuPresentation.Hidden -> Unit
                         }
                         if (onSlideshow != null) {
                             DropdownMenuItem(

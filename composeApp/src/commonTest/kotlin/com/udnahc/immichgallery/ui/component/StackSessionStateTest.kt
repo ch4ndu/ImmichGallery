@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.component
 
+import androidx.compose.ui.input.pointer.PointerEventPass
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetStack
 import com.udnahc.immichgallery.domain.model.AssetStackAccessException
@@ -8,8 +9,10 @@ import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.model.StackUiMessage
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class StackSessionStateTest {
     @Test
@@ -107,6 +110,7 @@ class StackSessionStateTest {
 
     @Test
     fun staleKnownStackBecomesRetryableNoLongerStackedSessionError() {
+        val sourceAsset = asset("origin", stackCount = 2)
         val loading = StackBrowserState().beginSession("origin")
         val failed = loading.complete(
             requireNotNull(loading.activeRequest),
@@ -117,6 +121,63 @@ class StackSessionStateTest {
         assertEquals("origin", session.originAssetId)
         assertEquals(StackUiMessage.NoLongerStacked, session.message)
         assertIs<StackSession.Loading>(failed.retrySession().session)
+
+        val dismissed = failed.dismissStackSession()
+        assertEquals(
+            StackMenuPresentation.Failed(StackUiMessage.NoLongerStacked),
+            stackMenuPresentation(sourceAsset.stackCount, dismissed.availability(sourceAsset.id))
+        )
+    }
+
+    @Test
+    fun authoritativeAvailabilityOverridesStalePositiveStackCount() {
+        val available = StackAvailability.Available(stack("origin"))
+
+        assertEquals(
+            StackMenuPresentation.ViewStack,
+            stackMenuPresentation(stackCount = 2, StackAvailability.Unknown)
+        )
+        assertEquals(
+            StackMenuPresentation.Hidden,
+            stackMenuPresentation(stackCount = 0, StackAvailability.Unknown)
+        )
+        assertEquals(
+            StackMenuPresentation.ViewStack,
+            stackMenuPresentation(stackCount = 0, available)
+        )
+        assertEquals(
+            StackMenuPresentation.ViewStack,
+            stackMenuPresentation(stackCount = 2, available)
+        )
+        assertEquals(
+            StackMenuPresentation.Checking,
+            stackMenuPresentation(stackCount = 2, StackAvailability.Checking(requestId = 1L))
+        )
+        assertEquals(
+            StackMenuPresentation.Failed(StackUiMessage.PermissionDenied),
+            stackMenuPresentation(
+                stackCount = 2,
+                StackAvailability.Failed(StackUiMessage.PermissionDenied)
+            )
+        )
+        assertEquals(
+            StackMenuPresentation.Failed(StackUiMessage.RequestFailed),
+            stackMenuPresentation(
+                stackCount = 0,
+                StackAvailability.Failed(StackUiMessage.RequestFailed)
+            )
+        )
+        assertEquals(
+            StackMenuPresentation.Hidden,
+            stackMenuPresentation(stackCount = 2, StackAvailability.NoStack)
+        )
+    }
+
+    @Test
+    fun statusPointerBarrierBlocksCoveredViewerWithoutStealingControlInput() {
+        assertEquals(PointerEventPass.Final, stackSessionStatusPointerEventPass)
+        assertTrue(shouldConsumeStackSessionStatusPointerChange(isConsumed = false))
+        assertFalse(shouldConsumeStackSessionStatusPointerChange(isConsumed = true))
     }
 
     @Test
