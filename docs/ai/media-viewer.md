@@ -18,6 +18,8 @@ video playback, or desktop viewer shortcuts.
 - `AssetDetailSheet` fetches and renders expanded asset information.
 - `SlideshowOptionsDialog` edits `SlideshowConfig` before playback starts.
 - `PlatformVideoPlayer` is expect/actual platform UI.
+- `StackSessionOverlay` owns the loading/error/retry surface for one ephemeral
+  nested stack viewer and reuses `StaticPhotoOverlay` for ready members.
 
 ## Paging And Return Targeting
 
@@ -34,6 +36,31 @@ video playback, or desktop viewer shortcuts.
   commits asset id and bucket together through `TimelineOverlayCoordinator`.
 - `lastSelectedAssetId`/host-retained content keeps the exit destination alive
   until the shared transition completes.
+
+## Viewer-Scoped Stack Browsing
+
+- A settled asset with a positive `stackCount` shows **View stack** immediately.
+  A zero count is unknown because sparse metadata-search responses can omit
+  nested stack data; opening the overflow menu starts one lazy authoritative
+  `GetAssetStackUseCase` preflight for that asset.
+- Preflight state is explicit and viewer-local: `Unknown`, `Checking`,
+  `Available`, `NoStack`, or retryable `Failed`. Only a successful current
+  asset response without a stack publishes `NoStack`; permission, unavailable,
+  transient, and unsupported-member failures remain actionable failures.
+- An available preflight is reused when **View stack** is selected. A known
+  positive count defers the two-read resolution until selection. Only one
+  request is active, and paging or closing the base viewer cancels or rejects a
+  stale result.
+- Stack members are deduplicated, the supported primary is placed first, and
+  the originating member is the initial page when still present. Unsupported
+  asset types are filtered without changing the remaining server order.
+- The nested session disables recursive stack entry and covers the base viewer.
+  Base paging, gestures, shortcuts, slideshow, and video activity are disabled
+  while covered. Back, Escape, or nested drag dismissal closes the stack first
+  and restores the unchanged base page.
+- Stack children never become `PhotoOverlayHost` grid return targets. Info,
+  image zoom, authenticated video, paging, slideshow, and person navigation
+  continue through the existing static viewer components.
 
 ## Still Images
 

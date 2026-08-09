@@ -33,6 +33,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.AssetStackLookup
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import com.udnahc.immichgallery.domain.model.nextSlideshowPage
 import com.udnahc.immichgallery.ui.component.AssetDetailSheet
@@ -41,6 +42,9 @@ import com.udnahc.immichgallery.ui.component.DetailBottomHandle
 import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
 import com.udnahc.immichgallery.ui.component.PhotoDragTransform
 import com.udnahc.immichgallery.ui.component.SlideshowOptionsDialog
+import com.udnahc.immichgallery.ui.component.StackAvailability
+import com.udnahc.immichgallery.ui.component.StackSessionOverlay
+import com.udnahc.immichgallery.ui.component.rememberStackSessionController
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
@@ -61,6 +65,7 @@ fun TimelinePhotoOverlay(
     apiKey: String,
     getAssetFileName: suspend (assetId: String, fallback: String) -> Result<String>,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
+    getAssetStack: suspend (String) -> Result<AssetStackLookup>,
     assetCache: SnapshotStateMap<String, List<Asset>>,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
@@ -88,6 +93,14 @@ fun TimelinePhotoOverlay(
     var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
     var showSlideshowDialog by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
+    val stackController = rememberStackSessionController(getAssetStack)
+    val stackSession = stackController.state.session
+    val isCoveredByStack = stackSession != null
+    val latestOnDismiss by rememberUpdatedState(onDismiss)
+    val dismissBase: (String?, String?) -> Unit = { assetId, bucket ->
+        stackController.close()
+        latestOnDismiss(assetId, bucket)
+    }
     val fileNameCache = remember { mutableStateMapOf<String, String>() }
 
     val isSlideshow = slideshowConfig != null
@@ -187,6 +200,10 @@ fun TimelinePhotoOverlay(
         pagerState.settledPage, state, assetCache
     )
 
+    LaunchedEffect(pagerState.settledPage, currentAsset?.id) {
+        stackController.onSettledAssetChanged(currentAsset?.id)
+    }
+
     // `Modifier.pointerInput(enabled)` caches its block — any lambda captured
     // there freezes `currentAsset`/`currentBucketKey` at the recomposition
     // when the block was last launched (when `enabled` last flipped). On a
@@ -201,7 +218,8 @@ fun TimelinePhotoOverlay(
 
     // Auto-advance slideshow. Keyed on settledPage so the timer resets whenever
     // the page changes — including manual left/right arrow advances.
-    LaunchedEffect(slideshowConfig, pagerState.settledPage, totalPages) {
+    LaunchedEffect(slideshowConfig, pagerState.settledPage, totalPages, isCoveredByStack) {
+        if (isCoveredByStack) return@LaunchedEffect
         val config = slideshowConfig ?: return@LaunchedEffect
         if (totalPages <= 1) return@LaunchedEffect
         delay(config.durationSeconds * 1000L)
@@ -214,8 +232,8 @@ fun TimelinePhotoOverlay(
         pagerState.animateScrollToPage(next)
     }
 
-    PlatformBackHandler(enabled = true, onBack = {
-        onDismiss(currentAsset?.id, currentBucketKey)
+    PlatformBackHandler(enabled = !isCoveredByStack, onBack = {
+        dismissBase(currentAsset?.id, currentBucketKey)
     })
 
     if (showSlideshowDialog) {
@@ -277,7 +295,7 @@ fun TimelinePhotoOverlay(
     var isCurrentPageZoomed by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.settledPage) { isCurrentPageZoomed = false }
 
-    val gestureEnabled = !showDetailSheet && !isSlideshow
+    val gestureEnabled = !showDetailSheet && !isSlideshow && !isCoveredByStack
     LaunchedEffect(gestureEnabled) {
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
     }
@@ -294,7 +312,7 @@ fun TimelinePhotoOverlay(
                 flickVelocityPx = flickVelocityPx,
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(latestCurrentAssetId, latestCurrentBucketKey)
+                    dismissBase(latestCurrentAssetId, latestCurrentBucketKey)
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
@@ -302,7 +320,7 @@ fun TimelinePhotoOverlay(
             // reach the grid composed beneath the overlay.
             .pointerInput(Unit) { detectTapGestures { } }
             .desktopDetailShortcuts(
-                enabled = !showDetailSheet && !showSlideshowDialog,
+                enabled = !showDetailSheet && !showSlideshowDialog && !isCoveredByStack,
                 onPrev = {
                     if (!pagerState.isScrollInProgress) {
                         val config = slideshowConfig
@@ -337,7 +355,7 @@ fun TimelinePhotoOverlay(
                 },
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(latestCurrentAssetId, latestCurrentBucketKey)
+                    dismissBase(latestCurrentAssetId, latestCurrentBucketKey)
                 },
                 onToggleSlideshow = {
                     if (isSlideshow) slideshowConfig = null
@@ -349,6 +367,7 @@ fun TimelinePhotoOverlay(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = !isCoveredByStack,
             key = { page -> page }
         ) { page ->
             val asset = resolvePageAsset(page, state, assetCache)
@@ -384,7 +403,7 @@ fun TimelinePhotoOverlay(
                     AssetPage(
                         asset = asset,
                         apiKey = apiKey,
-                        isCurrentPage = isSettledPage,
+                        isCurrentPage = isSettledPage && !isCoveredByStack,
                         isSlideshow = isSlideshow,
                         slideshowConfig = slideshowConfig,
                         onTap = onTap,
@@ -403,11 +422,29 @@ fun TimelinePhotoOverlay(
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = displayFileName,
-            onBack = { onDismiss(currentAsset?.id, currentBucketKey) },
+            onBack = { dismissBase(currentAsset?.id, currentBucketKey) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (totalPages > 1) {
                 { showSlideshowDialog = true }
-            } else null
+            } else null,
+            stackCount = currentAsset?.stackCount ?: 0,
+            stackAvailability = currentAsset?.id
+                ?.let(stackController.state::availability)
+                ?: StackAvailability.Unknown,
+            onStackMenuOpened = currentAsset?.let { asset ->
+                { stackController.preflight(asset) }
+            },
+            onViewStack = currentAsset?.let { asset ->
+                {
+                    slideshowConfig = null
+                    showSlideshowDialog = false
+                    showDetailSheet = false
+                    stackController.openSession(asset.id)
+                }
+            },
+            onRetryStackCheck = currentAsset?.let { asset ->
+                { stackController.retryPreflight(asset.id) }
+            }
         )
 
         Box(modifier = Modifier.align(Alignment.BottomCenter)) {
@@ -423,10 +460,26 @@ fun TimelinePhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss(null, null)
+                    dismissBase(null, null)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }
+            )
+        }
+
+        if (stackSession != null) {
+            StackSessionOverlay(
+                session = stackSession,
+                apiKey = apiKey,
+                getAssetDetail = getAssetDetail,
+                getAssetStack = getAssetStack,
+                onPersonClick = { personId, personName ->
+                    stackController.dismissSession()
+                    dismissBase(null, null)
+                    onPersonClick(personId, personName)
+                },
+                onDismiss = stackController::dismissSession,
+                onRetry = stackController::retrySession
             )
         }
     }

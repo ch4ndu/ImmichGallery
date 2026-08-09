@@ -29,6 +29,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.AssetStackLookup
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import com.udnahc.immichgallery.domain.model.nextSlideshowPage
 import com.udnahc.immichgallery.ui.util.DragToDismissState
@@ -48,6 +49,8 @@ fun StaticPhotoOverlay(
     initialIndex: Int,
     apiKey: String,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
+    getAssetStack: suspend (String) -> Result<AssetStackLookup>,
+    stackBrowsingEnabled: Boolean = true,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
@@ -71,6 +74,14 @@ fun StaticPhotoOverlay(
     var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
     var showSlideshowDialog by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
+    val stackController = rememberStackSessionController(getAssetStack)
+    val stackSession = stackController.state.session
+    val isCoveredByStack = stackSession != null
+    val latestOnDismiss by rememberUpdatedState(onDismiss)
+    val dismissBase: (String?) -> Unit = { assetId ->
+        stackController.close()
+        latestOnDismiss(assetId)
+    }
 
     val isSlideshow = slideshowConfig != null
 
@@ -102,6 +113,11 @@ fun StaticPhotoOverlay(
         initialPage = clampedInitial
     ) { assets.size }
     val latestAssets by rememberUpdatedState(assets)
+    val currentAsset = assets.getOrNull(pagerState.settledPage)
+
+    LaunchedEffect(currentAsset?.id) {
+        stackController.onSettledAssetChanged(currentAsset?.id)
+    }
 
     // Force pager to snap to initialPage on first composition. In LookaheadScope
     // from SharedTransitionLayout, the pager's scroll offset can transiently be 0
@@ -152,7 +168,8 @@ fun StaticPhotoOverlay(
     // Auto-advance slideshow. Keyed on settledPage + assets.size so the timer
     // resets whenever the page changes or the asset list grows/shrinks mid-
     // slideshow (e.g., from sync).
-    LaunchedEffect(slideshowConfig, pagerState.settledPage, assets.size) {
+    LaunchedEffect(slideshowConfig, pagerState.settledPage, assets.size, isCoveredByStack) {
+        if (isCoveredByStack) return@LaunchedEffect
         val config = slideshowConfig ?: return@LaunchedEffect
         if (assets.size <= 1) return@LaunchedEffect
         kotlinx.coroutines.delay(config.durationSeconds * 1000L)
@@ -165,8 +182,8 @@ fun StaticPhotoOverlay(
         pagerState.animateScrollToPage(next)
     }
 
-    PlatformBackHandler(enabled = true, onBack = {
-        onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+    PlatformBackHandler(enabled = !isCoveredByStack, onBack = {
+        dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
     })
 
     // Slideshow options dialog
@@ -201,7 +218,7 @@ fun StaticPhotoOverlay(
     var isCurrentPageZoomed by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.settledPage) { isCurrentPageZoomed = false }
 
-    val gestureEnabled = !showDetailSheet && !isSlideshow
+    val gestureEnabled = !showDetailSheet && !isSlideshow && !isCoveredByStack
     LaunchedEffect(gestureEnabled) {
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
     }
@@ -218,7 +235,7 @@ fun StaticPhotoOverlay(
                 flickVelocityPx = flickVelocityPx,
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+                    dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
@@ -226,7 +243,7 @@ fun StaticPhotoOverlay(
             // reach the grid composed beneath the overlay.
             .pointerInput(Unit) { detectTapGestures { } }
             .desktopDetailShortcuts(
-                enabled = !showDetailSheet && !showSlideshowDialog,
+                enabled = !showDetailSheet && !showSlideshowDialog && !isCoveredByStack,
                 onPrev = {
                     if (!pagerState.isScrollInProgress) {
                         val config = slideshowConfig
@@ -261,7 +278,7 @@ fun StaticPhotoOverlay(
                 },
                 onDismiss = {
                     slideshowConfig = null
-                    onDismiss(assets.getOrNull(pagerState.settledPage)?.id)
+                    dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
                 },
                 onToggleSlideshow = {
                     if (isSlideshow) slideshowConfig = null
@@ -273,6 +290,7 @@ fun StaticPhotoOverlay(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = !isCoveredByStack,
             key = { page -> assets.getOrNull(page)?.id ?: "missing_$page" }
         ) { page ->
             val asset = assets.getOrNull(page)
@@ -294,7 +312,7 @@ fun StaticPhotoOverlay(
                     AssetPage(
                         asset = asset,
                         apiKey = apiKey,
-                        isCurrentPage = isSettledPage,
+                        isCurrentPage = isSettledPage && !isCoveredByStack,
                         isSlideshow = isSlideshow,
                         slideshowConfig = slideshowConfig,
                         onTap = onTap,
@@ -308,14 +326,31 @@ fun StaticPhotoOverlay(
             }
         }
 
-        val currentAsset = assets.getOrNull(pagerState.settledPage)
         DetailTopBarOverlay(
             showTopBar = showTopBar,
             title = currentAsset?.fileName.orEmpty(),
-            onBack = { onDismiss(currentAsset?.id) },
+            onBack = { dismissBase(currentAsset?.id) },
             onInfo = { showDetailSheet = true },
             onSlideshow = if (assets.size > 1) {
                 { showSlideshowDialog = true }
+            } else null,
+            stackCount = currentAsset?.stackCount ?: 0,
+            stackAvailability = currentAsset?.id
+                ?.let(stackController.state::availability)
+                ?: StackAvailability.Unknown,
+            onStackMenuOpened = if (stackBrowsingEnabled && currentAsset != null) {
+                { stackController.preflight(currentAsset) }
+            } else null,
+            onViewStack = if (stackBrowsingEnabled && currentAsset != null) {
+                {
+                    slideshowConfig = null
+                    showSlideshowDialog = false
+                    showDetailSheet = false
+                    stackController.openSession(currentAsset.id)
+                }
+            } else null,
+            onRetryStackCheck = if (stackBrowsingEnabled && currentAsset != null) {
+                { stackController.retryPreflight(currentAsset.id) }
             } else null
         )
 
@@ -332,10 +367,26 @@ fun StaticPhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    onDismiss(null)
+                    dismissBase(null)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }
+            )
+        }
+
+        if (stackSession != null) {
+            StackSessionOverlay(
+                session = stackSession,
+                apiKey = apiKey,
+                getAssetDetail = getAssetDetail,
+                getAssetStack = getAssetStack,
+                onPersonClick = { personId, personName ->
+                    stackController.dismissSession()
+                    dismissBase(null)
+                    onPersonClick(personId, personName)
+                },
+                onDismiss = stackController::dismissSession,
+                onRetry = stackController::retrySession
             )
         }
     }

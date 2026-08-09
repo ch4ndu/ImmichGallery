@@ -35,6 +35,26 @@ class ImmichApiContractTest {
     }
 
     @Test
+    fun completeStackResponseDecodesOrderedMixedMembers() {
+        val response = json.decodeFromString<StackResponse>(
+            """{
+                "id":"stack-1",
+                "primaryAssetId":"image-1",
+                "assets":[
+                    {"id":"image-1","type":"IMAGE"},
+                    {"id":"audio-1","type":"AUDIO"},
+                    {"id":"video-1","type":"VIDEO"}
+                ],
+                "unknownFutureField":true
+            }"""
+        )
+
+        assertEquals("stack-1", response.id)
+        assertEquals("image-1", response.primaryAssetId)
+        assertEquals(listOf("image-1", "audio-1", "video-1"), response.assets.map(AssetResponse::id))
+    }
+
+    @Test
     fun unsupportedAssetTypesAreFiltered() {
         listOf("AUDIO", "OTHER").forEach { type ->
             val response = AssetResponse(id = type.lowercase(), type = type)

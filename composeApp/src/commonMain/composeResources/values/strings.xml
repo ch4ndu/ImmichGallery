@@ -143,6 +143,15 @@
     <string name="detail_share">Share</string>
     <string name="detail_info">Info</string>
     <string name="detail_slideshow">Slideshow</string>
+    <string name="view_stack">View stack</string>
+    <string name="checking_stack">Checking stack…</string>
+    <string name="retry_stack_check">Retry stack check</string>
+    <string name="loading_stack">Loading stack…</string>
+    <string name="stack_no_longer_stacked">This item is no longer in a stack</string>
+    <string name="stack_permission_denied">This API key cannot read stacks</string>
+    <string name="stack_unavailable">Stack browsing is unavailable on this server</string>
+    <string name="stack_request_failed">Could not load this stack</string>
+    <string name="stack_no_supported_members">This stack has no supported photos or videos</string>
     <string name="detail_people">People</string>
     <string name="detail_location">Location</string>
     <string name="detail_camera">Camera</string>

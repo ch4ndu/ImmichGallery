@@ -12,6 +12,14 @@ sealed interface SearchUiMessage : UiMessage {
     data object SearchFailed : SearchUiMessage
 }
 
+sealed interface StackUiMessage : UiMessage {
+    data object NoLongerStacked : StackUiMessage
+    data object PermissionDenied : StackUiMessage
+    data object Unavailable : StackUiMessage
+    data object RequestFailed : StackUiMessage
+    data object NoSupportedMembers : StackUiMessage
+}
+
 sealed interface PersonDetailUiMessage : UiMessage {
     data object SyncInProgress : PersonDetailUiMessage
 }

@@ -128,6 +128,7 @@ fun PersonDetailScreen(
                 initialIndex = initialIndex,
                 apiKey = viewModel.apiKey,
                 getAssetDetail = viewModel::getAssetDetail,
+                getAssetStack = viewModel::getAssetStack,
                 onPersonClick = onPersonClick,
                 onDismiss = onDismissHost,
                 onCurrentAssetChanged = onCurrentAssetChanged,

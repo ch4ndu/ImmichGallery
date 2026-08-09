@@ -5,7 +5,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.AssetStackLookup
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetStackUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 
@@ -18,18 +20,23 @@ data class TimelineOverlayReturnTarget(
 class TimelineOverlayCoordinator internal constructor(
     val apiKey: String,
     private val loadAssetDetail: suspend (String) -> Result<AssetDetail>,
-    private val loadAssetFileName: suspend (String, String) -> Result<String>
+    private val loadAssetFileName: suspend (String, String) -> Result<String>,
+    private val loadAssetStack: suspend (String) -> Result<AssetStackLookup> = {
+        Result.success(AssetStackLookup.NoStack)
+    }
 ) {
     constructor(
         getApiKeyUseCase: GetApiKeyUseCase,
         getAssetFileNameUseCase: GetAssetFileNameUseCase,
-        getAssetDetailUseCase: GetAssetDetailUseCase
+        getAssetDetailUseCase: GetAssetDetailUseCase,
+        getAssetStackUseCase: GetAssetStackUseCase
     ) : this(
         apiKey = getApiKeyUseCase(),
         loadAssetDetail = { assetId -> getAssetDetailUseCase(assetId) },
         loadAssetFileName = { assetId, fallback ->
             getAssetFileNameUseCase(assetId, fallback)
-        }
+        },
+        loadAssetStack = { assetId -> getAssetStackUseCase(assetId) }
     )
 
     var returnTarget by mutableStateOf<TimelineOverlayReturnTarget?>(null)
@@ -53,4 +60,7 @@ class TimelineOverlayCoordinator internal constructor(
 
     suspend fun getFileName(assetId: String, fallback: String): Result<String> =
         loadAssetFileName(assetId, fallback)
+
+    suspend fun getStack(assetId: String): Result<AssetStackLookup> =
+        loadAssetStack(assetId)
 }

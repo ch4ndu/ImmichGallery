@@ -55,6 +55,9 @@ on the server.
   a recognized person opens that person's gallery.
 - Start a sequential or random slideshow, choose its duration, and enable or
   disable animated still-image motion.
+- For an asset in an Immich stack, open **View stack** from the viewer menu to
+  browse its supported photos and videos. Closing the nested stack returns to
+  the same asset in the original viewer before returning to the source grid.
 - Desktop viewer shortcuts: Left/Right to page, Escape to close, Space to toggle
   slideshow, and `I` to open information.
 
@@ -66,8 +69,8 @@ on the server.
 - Timeline, Album, People, opened Album/Person relationships, sync metadata, and
   optional Mosaic artifacts use a local Room cache. Cached screens remain
   visible when a background refresh fails.
-- Search results and expanded asset information are live server requests and
-  are not stored as standalone Room records.
+- Search results, expanded asset information, and viewer stack members are live
+  server requests and are not stored as standalone Room records.
 - A first Timeline sync is blocking. After a complete cache exists, startup is
   cached-first; the current Timeline policy waits for the explicit top-bar
   refresh before contacting the server again for Timeline changes.

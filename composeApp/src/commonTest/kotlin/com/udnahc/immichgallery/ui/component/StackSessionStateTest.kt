@@ -1,0 +1,149 @@
+package com.udnahc.immichgallery.ui.component
+
+import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetStack
+import com.udnahc.immichgallery.domain.model.AssetStackAccessException
+import com.udnahc.immichgallery.domain.model.AssetStackLookup
+import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.ui.model.StackUiMessage
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+
+class StackSessionStateTest {
+    @Test
+    fun unknownPreflightTransitionsThroughCheckingToAvailable() {
+        val checking = StackBrowserState().beginPreflight("origin")
+        val request = requireNotNull(checking.activeRequest)
+
+        assertIs<StackAvailability.Checking>(checking.availability("origin"))
+        val available = checking.complete(
+            request,
+            Result.success(AssetStackLookup.Available(stack("origin")))
+        )
+
+        assertIs<StackAvailability.Available>(available.availability("origin"))
+        assertNull(available.activeRequest)
+    }
+
+    @Test
+    fun successfulAuthoritativeNoStackIsTheOnlyNoStackTransition() {
+        val checking = StackBrowserState().beginPreflight("origin")
+        val noStack = checking.complete(
+            requireNotNull(checking.activeRequest),
+            Result.success(AssetStackLookup.NoStack)
+        )
+
+        assertIs<StackAvailability.NoStack>(noStack.availability("origin"))
+    }
+
+    @Test
+    fun permissionAndTransientFailuresRemainRetryableAndNeverBecomeNoStack() {
+        listOf(
+            AssetStackAccessException.PermissionDenied(IllegalStateException("denied")) to
+                StackUiMessage.PermissionDenied,
+            AssetStackAccessException.Unavailable(IllegalStateException("missing endpoint")) to
+                StackUiMessage.Unavailable,
+            AssetStackAccessException.Transient(IllegalStateException("offline")) to
+                StackUiMessage.RequestFailed
+        ).forEach { (failure, expectedMessage) ->
+            val checking = StackBrowserState().beginPreflight("origin")
+            val failed = checking.complete(
+                requireNotNull(checking.activeRequest),
+                Result.failure(failure)
+            )
+
+            val availability = assertIs<StackAvailability.Failed>(failed.availability("origin"))
+            assertEquals(expectedMessage, availability.message)
+            assertIs<StackAvailability.Checking>(failed.retryPreflight("origin").availability("origin"))
+        }
+    }
+
+    @Test
+    fun unsupportedOnlyStackIsFailedRatherThanNoStack() {
+        val checking = StackBrowserState().beginPreflight("origin")
+        val failed = checking.complete(
+            requireNotNull(checking.activeRequest),
+            Result.success(AssetStackLookup.NoSupportedMembers)
+        )
+
+        val availability = assertIs<StackAvailability.Failed>(failed.availability("origin"))
+        assertEquals(StackUiMessage.NoSupportedMembers, availability.message)
+    }
+
+    @Test
+    fun stalePreflightCannotPublishAfterBasePagerChangesAsset() {
+        val checking = StackBrowserState().beginPreflight("origin")
+        val request = requireNotNull(checking.activeRequest)
+        val moved = checking.settledAssetChanged("other")
+
+        assertNull(moved.activeRequest)
+        assertIs<StackAvailability.Unknown>(moved.availability("origin"))
+        assertEquals(
+            moved,
+            moved.complete(request, Result.success(AssetStackLookup.Available(stack("origin"))))
+        )
+    }
+
+    @Test
+    fun availablePreflightIsReusedAndNestedDismissPreservesOrigin() {
+        val checking = StackBrowserState().beginPreflight("origin")
+        val available = checking.complete(
+            requireNotNull(checking.activeRequest),
+            Result.success(AssetStackLookup.Available(stack("origin")))
+        )
+        val opened = available.beginSession("origin")
+
+        val ready = assertIs<StackSession.Ready>(opened.session)
+        assertEquals("origin", ready.originAssetId)
+        assertNull(opened.activeRequest)
+
+        val dismissed = opened.dismissStackSession()
+        assertNull(dismissed.session)
+        assertIs<StackAvailability.Available>(dismissed.availability("origin"))
+        assertEquals(dismissed, dismissed.dismissStackSession())
+    }
+
+    @Test
+    fun staleKnownStackBecomesRetryableNoLongerStackedSessionError() {
+        val loading = StackBrowserState().beginSession("origin")
+        val failed = loading.complete(
+            requireNotNull(loading.activeRequest),
+            Result.success(AssetStackLookup.NoStack)
+        )
+
+        val session = assertIs<StackSession.Failed>(failed.session)
+        assertEquals("origin", session.originAssetId)
+        assertEquals(StackUiMessage.NoLongerStacked, session.message)
+        assertIs<StackSession.Loading>(failed.retrySession().session)
+    }
+
+    @Test
+    fun sparseSourceCanDiscoverStackFromAuthoritativeDetailRead() {
+        val sourceAsset = asset("origin", stackCount = 0)
+        val checking = StackBrowserState().beginPreflight(sourceAsset.id)
+        val available = checking.complete(
+            requireNotNull(checking.activeRequest),
+            Result.success(AssetStackLookup.Available(stack(sourceAsset.id)))
+        )
+
+        assertIs<StackAvailability.Available>(available.availability(sourceAsset.id))
+    }
+
+    private fun stack(originId: String): AssetStack = AssetStack.normalized(
+        id = "stack-1",
+        primaryAssetId = "primary",
+        assets = listOf(asset("primary"), asset(originId), asset("child"), asset("child"))
+    )
+
+    private fun asset(id: String, stackCount: Int = 0): Asset = Asset(
+        id = id,
+        type = AssetType.IMAGE,
+        fileName = "$id.jpg",
+        createdAt = "2026-08-09T00:00:00Z",
+        thumbnailUrl = "https://example.test/$id/thumb",
+        originalUrl = "https://example.test/$id/original",
+        stackCount = stackCount
+    )
+}

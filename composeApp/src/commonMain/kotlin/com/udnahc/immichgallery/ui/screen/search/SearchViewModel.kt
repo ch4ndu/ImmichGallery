@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.AssetStackLookup
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
@@ -19,6 +20,7 @@ import com.udnahc.immichgallery.domain.model.defaultTargetRowHeightForWidth
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetStackUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
@@ -61,6 +63,9 @@ class SearchViewModel internal constructor(
     private val metadataSearch: suspend (String, Int) -> Result<SearchResult>,
     val apiKey: String,
     private val loadAssetDetail: suspend (String) -> Result<AssetDetail>,
+    private val loadAssetStack: suspend (String) -> Result<AssetStackLookup> = {
+        Result.success(AssetStackLookup.NoStack)
+    },
     hasSavedTargetRowHeight: Boolean,
     initialTargetRowHeight: Float,
     private val saveTargetRowHeight: (Float) -> Unit,
@@ -75,6 +80,7 @@ class SearchViewModel internal constructor(
         metadataSearchUseCase: MetadataSearchUseCase,
         getApiKeyUseCase: GetApiKeyUseCase,
         getAssetDetailUseCase: GetAssetDetailUseCase,
+        getAssetStackUseCase: GetAssetStackUseCase,
         getTargetRowHeightUseCase: GetTargetRowHeightUseCase,
         setTargetRowHeightAction: SetTargetRowHeightAction
     ) : this(
@@ -82,6 +88,7 @@ class SearchViewModel internal constructor(
         metadataSearch = { query, page -> metadataSearchUseCase(query, page) },
         apiKey = getApiKeyUseCase(),
         loadAssetDetail = { assetId -> getAssetDetailUseCase(assetId) },
+        loadAssetStack = { assetId -> getAssetStackUseCase(assetId) },
         hasSavedTargetRowHeight = getTargetRowHeightUseCase.hasSavedValue(RowHeightScope.SEARCH),
         initialTargetRowHeight = getTargetRowHeightUseCase(RowHeightScope.SEARCH),
         saveTargetRowHeight = { height ->
@@ -102,6 +109,9 @@ class SearchViewModel internal constructor(
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
         loadAssetDetail(assetId)
+
+    suspend fun getAssetStack(assetId: String): Result<AssetStackLookup> =
+        loadAssetStack(assetId)
 
     private var searchJob: Job? = null
     private var loadMoreJob: Job? = null

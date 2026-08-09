@@ -10,6 +10,11 @@ class UiMessageTest {
             LoginUiMessage.RequiredFields,
             LoginUiMessage.ConnectionFailed,
             SearchUiMessage.SearchFailed,
+            StackUiMessage.NoLongerStacked,
+            StackUiMessage.PermissionDenied,
+            StackUiMessage.Unavailable,
+            StackUiMessage.RequestFailed,
+            StackUiMessage.NoSupportedMembers,
             ConnectionUiMessage.NoConnectionToServer,
             ConnectionUiMessage.CannotConnectToServer,
             ConnectionUiMessage.ConnectedToServer

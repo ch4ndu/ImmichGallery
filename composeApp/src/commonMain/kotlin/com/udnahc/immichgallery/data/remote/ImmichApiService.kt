@@ -8,6 +8,7 @@ import com.udnahc.immichgallery.data.model.PeopleResponse
 import com.udnahc.immichgallery.data.model.SearchResponse
 import com.udnahc.immichgallery.data.model.ServerPingResponse
 import com.udnahc.immichgallery.data.model.ServerVersionResponse
+import com.udnahc.immichgallery.data.model.StackResponse
 import com.udnahc.immichgallery.data.model.TimeBucketResponse
 import com.udnahc.immichgallery.data.model.TimelineBucketColumnarResponse
 import com.udnahc.immichgallery.data.model.UserResponse
@@ -199,6 +200,13 @@ class ImmichApiService(
     suspend fun getAssetInfo(id: String): AssetResponse {
         log.d { "GET ${baseUrl()}/api/assets/$id" }
         return httpClient.get("${baseUrl()}/api/assets/$id") {
+            header("x-api-key", apiKey())
+        }.body()
+    }
+
+    suspend fun getStack(id: String): StackResponse {
+        log.d { "GET ${baseUrl()}/api/stacks/$id" }
+        return httpClient.get("${baseUrl()}/api/stacks/$id") {
             header("x-api-key", apiKey())
         }.body()
     }

@@ -40,6 +40,7 @@ import com.udnahc.immichgallery.domain.model.TimelineMosaicArtifactBuilder
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetStackUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerUrlUseCase
@@ -89,7 +90,8 @@ val sharedModule = module {
         TimelineOverlayCoordinator(
             getApiKeyUseCase = get(),
             getAssetFileNameUseCase = get(),
-            getAssetDetailUseCase = get()
+            getAssetDetailUseCase = get(),
+            getAssetStackUseCase = get()
         )
     }
 
@@ -124,6 +126,7 @@ val sharedModule = module {
     factory { GetTimelineMosaicGeometrySnapshotUseCase(get()) }
     factory { GetTimelineMosaicCacheStatusUseCase(get()) }
     factory { GetAssetDetailUseCase(get()) }
+    factory { GetAssetStackUseCase(get()) }
     factory { GetAlbumsUseCase(get()) }
     factory { GetAlbumDetailUseCase(get()) }
     factory { GetPeopleUseCase(get()) }
@@ -209,6 +212,7 @@ val sharedModule = module {
             get(),
             get(),
             get(),
+            get(),
             params.get()
         )
     }
@@ -228,8 +232,9 @@ val sharedModule = module {
             get(),
             get(),
             get(),
+            get(),
             params.get()
         )
     }
-    viewModel { SearchViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel { SearchViewModel(get(), get(), get(), get(), get(), get(), get()) }
 }

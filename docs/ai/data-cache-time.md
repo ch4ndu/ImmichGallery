@@ -46,6 +46,12 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - People list sync fetches every `/people` page into memory and replaces Room only after the complete paginated fetch succeeds.
 - Album assets, Person assets, and search endpoints may paginate. Parse and follow the endpoint's returned `nextPage` value; never synthesize the next page by incrementing local state. A malformed non-null token is an API compatibility failure. Guard duplicate loads with `isLoadingMore`.
 - `AssetResponseDto.stack` is nested and supplies the persisted/displayed stack count. Only `IMAGE` and `VIDEO` enter the gallery cache or domain model; filter `AUDIO` and `OTHER` responses at API-to-cache/domain boundaries.
+- Complete stacks are live viewer data. Resolve the current stack id from
+  `/api/assets/{id}` before reading `/api/stacks/{stackId}`, normalize supported
+  members in memory, and do not add stack ids or member relationships to Room.
+  Permission denial, unavailable endpoints, transient failures, authoritative
+  no-stack responses, and stacks with no supported members remain distinct
+  outcomes. Stack reads must preserve coroutine cancellation.
 - Result-producing suspend boundaries must rethrow `CancellationException`; cancellation is control flow, not a connection or content failure.
 - Album and Person detail page refreshes should replace the fetched ref window and truncate stale later refs when page membership/order changes. Preserving later cached refs after a changed page can mix snapshots because subsequent pages may have shifted.
 - Removed Album and Person list owners must clear their owner refs, Detail Mosaic artifacts, and detail sync metadata in the same Room transaction that replaces the list.

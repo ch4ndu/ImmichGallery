@@ -3,6 +3,11 @@ package com.udnahc.immichgallery.ui.model
 import androidx.compose.runtime.Composable
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.error_search_failed
+import immichgallery.composeapp.generated.resources.stack_no_longer_stacked
+import immichgallery.composeapp.generated.resources.stack_no_supported_members
+import immichgallery.composeapp.generated.resources.stack_permission_denied
+import immichgallery.composeapp.generated.resources.stack_request_failed
+import immichgallery.composeapp.generated.resources.stack_unavailable
 import immichgallery.composeapp.generated.resources.login_connection_failed
 import immichgallery.composeapp.generated.resources.login_local_network_permission_denied
 import immichgallery.composeapp.generated.resources.login_required_fields
@@ -27,6 +32,11 @@ val UiMessage.resource: StringResource
         LoginUiMessage.ConnectionFailed -> Res.string.login_connection_failed
         LoginUiMessage.LocalNetworkPermissionDenied -> Res.string.login_local_network_permission_denied
         SearchUiMessage.SearchFailed -> Res.string.error_search_failed
+        StackUiMessage.NoLongerStacked -> Res.string.stack_no_longer_stacked
+        StackUiMessage.PermissionDenied -> Res.string.stack_permission_denied
+        StackUiMessage.Unavailable -> Res.string.stack_unavailable
+        StackUiMessage.RequestFailed -> Res.string.stack_request_failed
+        StackUiMessage.NoSupportedMembers -> Res.string.stack_no_supported_members
         PersonDetailUiMessage.SyncInProgress -> Res.string.person_sync_in_progress
         MainUiMessage.LogoutFailed -> Res.string.logout_failed
         ConnectionUiMessage.NoConnectionToServer -> Res.string.timeline_no_connection

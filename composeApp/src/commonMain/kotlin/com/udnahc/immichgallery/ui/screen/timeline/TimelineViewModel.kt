@@ -536,6 +536,9 @@ class TimelineViewModel(
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
         overlayCoordinator.getDetail(assetId)
 
+    suspend fun getAssetStack(assetId: String) =
+        overlayCoordinator.getStack(assetId)
+
     suspend fun getAssetFileName(
         assetId: String,
         fallback: String

@@ -7,6 +7,7 @@ import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.model.AlbumResponse
 import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.model.PersonResponse
+import com.udnahc.immichgallery.data.model.StackResponse
 import com.udnahc.immichgallery.data.model.TimeBucketResponse
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -77,6 +78,12 @@ fun AssetResponse.toDomainOrNull(baseUrl: String): Asset? {
 
 fun AssetResponse.toDomain(baseUrl: String): Asset =
     requireNotNull(toDomainOrNull(baseUrl)) { "Unsupported Immich asset type: $type" }
+
+fun StackResponse.toDomain(baseUrl: String): AssetStack = AssetStack.normalized(
+    id = id,
+    primaryAssetId = primaryAssetId,
+    assets = assets.mapNotNull { it.toDomainOrNull(baseUrl) }
+)
 
 fun AssetResponse.toDetail(baseUrl: String): AssetDetail {
     val exif = exifInfo

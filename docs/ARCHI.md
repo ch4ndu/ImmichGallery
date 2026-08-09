@@ -216,6 +216,7 @@ pagination, layout projection, and viewer-source state for their feature.
 | Person detail | `PersonDetailScreen` | `PersonDetailViewModel`, detail layout coordinator | people/detail repositories and Room |
 | Search | `SearchScreen` | `SearchViewModel` and search UseCases | live `SearchRepository` calls |
 | Media viewer | overlay hosts and media components | static or Timeline overlay coordinator | asset detail, Coil, platform video player |
+| Stack browsing | nested viewer-local stack session | source ViewModel or Timeline overlay coordinator | live asset-detail and stack reads |
 
 ## 9. Immich API Boundary
 
@@ -228,7 +229,8 @@ pagination, layout projection, and viewer-source state for their feature.
 - `/api/people`;
 - `/api/search/metadata` for album assets, person assets, and filename search;
 - `/api/search/smart` for natural-language search;
-- `/api/assets/{id}` and `/api/assets/{id}/edits`.
+- `/api/assets/{id}` and `/api/assets/{id}/edits`;
+- `/api/stacks/{id}` after an authoritative `/api/assets/{id}` stack lookup.
 
 Authenticated requests use `x-api-key`. The Ktor client ignores unknown JSON
 fields, uses a 15-second connection timeout, and uses 60-second request and
@@ -274,7 +276,7 @@ Cache ownership by feature:
 - Detail Mosaic: owner-scoped artifacts for Album and Person detail.
 - Settings: credentials, grouping, row density, and Mosaic preferences remain
   in `multiplatform-settings`, not Room.
-- Search and expanded asset information: live-only.
+- Search, expanded asset information, and viewer stack member lists: live-only.
 
 See `docs/ai/data-cache-time.md` for cache and transaction invariants.
 
@@ -377,6 +379,15 @@ Video authentication differs by platform:
 Expanded asset information is fetched on demand and not persisted. Slideshow
 state is shared; platform wake-lock implementations keep the screen awake only
 while a slideshow is active.
+
+The overflow menu can resolve the settled asset's current stack on demand. A
+positive cached count exposes **View stack** immediately; otherwise opening the
+menu performs one viewer-scoped authoritative preflight. A nested stack session
+reuses the static viewer for normalized supported members, disables recursive
+stack entry, pauses the covered base viewer, and closes before the base viewer.
+Stack members never enter source grids, Room relationships, Timeline ordering,
+or Mosaic artifacts, and dismissing the nested session preserves the base
+viewer's existing grid return target.
 
 See `docs/ai/media-viewer.md`.
 

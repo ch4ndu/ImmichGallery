@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.AssetStackLookup
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,6 +26,7 @@ class TimelineOverlayCoordinatorTest {
     fun overlayReadsUseExactAssetArguments() = runTest {
         var detailAssetId: String? = null
         var fileNameArguments: Pair<String, String>? = null
+        var stackAssetId: String? = null
         val detail = assetDetail("asset-7")
         val coordinator = coordinator(
             loadAssetDetail = { assetId ->
@@ -34,6 +36,10 @@ class TimelineOverlayCoordinatorTest {
             loadAssetFileName = { assetId, fallback ->
                 fileNameArguments = assetId to fallback
                 Result.success("resolved.jpg")
+            },
+            loadAssetStack = { assetId ->
+                stackAssetId = assetId
+                Result.success(AssetStackLookup.NoStack)
             }
         )
 
@@ -41,7 +47,22 @@ class TimelineOverlayCoordinatorTest {
         assertEquals("asset-7", detailAssetId)
         assertEquals("resolved.jpg", coordinator.getFileName("asset-7", "fallback.jpg").getOrThrow())
         assertEquals("asset-7" to "fallback.jpg", fileNameArguments)
+        assertEquals(AssetStackLookup.NoStack, coordinator.getStack("asset-7").getOrThrow())
+        assertEquals("asset-7", stackAssetId)
         assertEquals("api-key", coordinator.apiKey)
+    }
+
+    @Test
+    fun stackReadCannotReplaceTimelineGridReturnTarget() = runTest {
+        val coordinator = coordinator(
+            loadAssetStack = { Result.success(AssetStackLookup.NoStack) }
+        )
+        val target = coordinator.rememberReturnTarget("asset-2", "2026-05")
+
+        coordinator.getStack("asset-9")
+
+        assertSame(target, coordinator.returnTarget)
+        assertEquals(TimelineOverlayReturnTarget("asset-2", "2026-05"), coordinator.returnTarget)
     }
 
     private fun coordinator(
@@ -50,11 +71,15 @@ class TimelineOverlayCoordinatorTest {
         },
         loadAssetFileName: suspend (String, String) -> Result<String> = { _, _ ->
             Result.failure(IllegalStateException("not used"))
+        },
+        loadAssetStack: suspend (String) -> Result<AssetStackLookup> = {
+            Result.failure(IllegalStateException("not used"))
         }
     ): TimelineOverlayCoordinator = TimelineOverlayCoordinator(
         apiKey = "api-key",
         loadAssetDetail = loadAssetDetail,
-        loadAssetFileName = loadAssetFileName
+        loadAssetFileName = loadAssetFileName,
+        loadAssetStack = loadAssetStack
     )
 
     private fun assetDetail(id: String): AssetDetail = AssetDetail(

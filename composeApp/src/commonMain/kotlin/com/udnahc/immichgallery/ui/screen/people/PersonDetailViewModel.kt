@@ -8,6 +8,7 @@ import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.AssetStackLookup
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.GroupSize
@@ -19,6 +20,7 @@ import com.udnahc.immichgallery.domain.model.ViewConfig
 import com.udnahc.immichgallery.domain.model.buildPhotoGridDisplayIndex
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
+import com.udnahc.immichgallery.domain.usecase.asset.GetAssetStackUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicArtifactsUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
@@ -72,6 +74,7 @@ class PersonDetailViewModel(
     private val getPersonAssetsPageUseCase: GetPersonAssetsPageUseCase,
     getApiKeyUseCase: GetApiKeyUseCase,
     private val getAssetDetailUseCase: GetAssetDetailUseCase,
+    private val getAssetStackUseCase: GetAssetStackUseCase,
     private val getTargetRowHeightUseCase: GetTargetRowHeightUseCase,
     private val getViewConfigUseCase: GetViewConfigUseCase,
     private val setTargetRowHeightAction: SetTargetRowHeightAction,
@@ -140,6 +143,9 @@ class PersonDetailViewModel(
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
         getAssetDetailUseCase(assetId)
+
+    suspend fun getAssetStack(assetId: String): Result<AssetStackLookup> =
+        getAssetStackUseCase(assetId)
 
     fun activateForegroundMosaic() {
         layoutCoordinator.activateForegroundMosaic()

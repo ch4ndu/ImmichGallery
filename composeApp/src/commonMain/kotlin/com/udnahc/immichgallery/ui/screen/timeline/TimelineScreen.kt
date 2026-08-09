@@ -195,6 +195,7 @@ fun TimelineScreen(
                 apiKey = viewModel.apiKey,
                 getAssetFileName = viewModel::getAssetFileName,
                 getAssetDetail = viewModel::getAssetDetail,
+                getAssetStack = viewModel::getAssetStack,
                 assetCache = viewModel.bucketAssetsCache,
                 onBucketNeeded = viewModel::loadBucketAssets,
                 onPersonClick = onPersonClick,
