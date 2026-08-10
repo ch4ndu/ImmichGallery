@@ -305,7 +305,7 @@ private val SearchSuggestionType.apiValue: String
         SearchSuggestionType.CITY -> "city"
         SearchSuggestionType.CAMERA_MAKE -> "camera-make"
         SearchSuggestionType.CAMERA_MODEL -> "camera-model"
-        SearchSuggestionType.LENS_MODEL -> "lens-model"
+        SearchSuggestionType.LENS_MODEL -> "camera-lens-model"
     }
 
 @Serializable

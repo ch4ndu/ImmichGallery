@@ -57,6 +57,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.lighthousegames.logging.KmLog
 import org.lighthousegames.logging.logging
 
 @Immutable
@@ -123,7 +124,8 @@ class SearchViewModel internal constructor(
     initialServerCapabilities: SearchLoadState<SearchCapabilities> =
         SearchLoadState.Content(DEFAULT_SEARCH_CAPABILITIES),
     initialPreferenceCapabilities: SearchLoadState<SearchPreferenceCapabilities> =
-        SearchLoadState.Content(DEFAULT_SEARCH_PREFERENCES)
+        SearchLoadState.Content(DEFAULT_SEARCH_PREFERENCES),
+    private val log: KmLog = logging("SearchViewModel")
 ) : ViewModel() {
 
     constructor(
@@ -164,7 +166,6 @@ class SearchViewModel internal constructor(
 
     var lastViewedAssetId: String? by mutableStateOf(null)
 
-    private val log = logging("SearchViewModel")
     private var hasSavedTargetRowHeight = hasSavedTargetRowHeight
     private var savedTargetRowHeight = initialTargetRowHeight
     private var availableViewportHeight = 0f
@@ -617,7 +618,10 @@ class SearchViewModel internal constructor(
                     }
                 },
                 onFailure = { error ->
-                    log.e(error) { "Failed to load Search suggestions type=${normalized.type}" }
+                    log.e {
+                        "Failed to load Search suggestions type=${normalized.type} " +
+                            "failure=${error::class.simpleName ?: "UnknownFailure"}"
+                    }
                     if (isCurrentSuggestionRequest(normalized)) {
                         publishSuggestionState(normalized, SearchLoadState.Error(previous))
                     }

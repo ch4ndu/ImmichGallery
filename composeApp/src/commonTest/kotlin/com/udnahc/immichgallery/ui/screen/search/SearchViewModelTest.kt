@@ -34,6 +34,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import org.lighthousegames.logging.KmLog
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -585,6 +586,46 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun suggestionFailureLogOmitsThrowableAndRequestDetails() = runTest(dispatcher.scheduler) {
+        data class LogEntry(val message: String, val throwable: Throwable?)
+
+        val entries = mutableListOf<LogEntry>()
+        val logger = object : KmLog("SearchViewModel") {
+            override fun error(tag: String, msg: String, t: Throwable?) {
+                entries += LogEntry(msg, t)
+            }
+        }
+        val request = SearchSuggestionRequest(
+            type = SearchSuggestionType.STATE,
+            country = "Private Country"
+        )
+        val failure = IllegalStateException(
+            "GET https://private.example/api/search/suggestions?country=Private%20Country response=secret"
+        )
+        val viewModel = viewModel(
+            searchAssets = { _, _, _ -> Result.success(SearchResult(emptyList(), null)) },
+            loadSuggestions = { Result.failure(failure) },
+            log = logger
+        )
+
+        viewModel.loadSuggestionOptions(request)
+        advanceUntilIdle()
+
+        assertEquals(1, entries.size)
+        assertEquals(
+            "Failed to load Search suggestions type=STATE failure=IllegalStateException",
+            entries.single().message
+        )
+        assertEquals(null, entries.single().throwable)
+        assertFalse(entries.single().message.contains("Private Country"))
+        assertFalse(entries.single().message.contains("private.example"))
+        assertFalse(entries.single().message.contains("secret"))
+        assertIs<SearchLoadState.Error<List<SearchSuggestion>>>(
+            viewModel.state.value.suggestionOptions.getValue(SearchSuggestionType.STATE).state
+        )
+    }
+
+    @Test
     fun changedSuggestionDependenciesCancelAndRejectStalePublication() =
         runTest(dispatcher.scheduler) {
             val first = CompletableDeferred<Result<List<SearchSuggestion>>>()
@@ -661,7 +702,8 @@ class SearchViewModelTest {
         initialPreferenceCapabilities: SearchLoadState<SearchPreferenceCapabilities> =
             SearchLoadState.Content(
                 SearchPreferenceCapabilities(tagsEnabled = false, ratingsEnabled = false)
-            )
+            ),
+        log: KmLog = KmLog("SearchViewModelTest")
     ): SearchViewModel = SearchViewModel(
         searchAssets = searchAssets,
         apiKey = "",
@@ -680,7 +722,8 @@ class SearchViewModelTest {
         loadTags = loadTags,
         loadSuggestions = loadSuggestions,
         initialServerCapabilities = initialServerCapabilities,
-        initialPreferenceCapabilities = initialPreferenceCapabilities
+        initialPreferenceCapabilities = initialPreferenceCapabilities,
+        log = log
     )
 
     private fun enabledSearchCapabilities(): SearchCapabilities = SearchCapabilities(

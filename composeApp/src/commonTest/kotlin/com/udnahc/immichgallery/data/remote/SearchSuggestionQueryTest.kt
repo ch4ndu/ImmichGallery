@@ -35,7 +35,7 @@ class SearchSuggestionQueryTest {
             SearchSuggestionType.CITY to "city",
             SearchSuggestionType.CAMERA_MAKE to "camera-make",
             SearchSuggestionType.CAMERA_MODEL to "camera-model",
-            SearchSuggestionType.LENS_MODEL to "lens-model"
+            SearchSuggestionType.LENS_MODEL to "camera-lens-model"
         )
 
         expectedTypes.forEach { (type, wireValue) ->
@@ -46,7 +46,7 @@ class SearchSuggestionQueryTest {
         }
         assertEquals(
             listOf(
-                "type" to "lens-model",
+                "type" to "camera-lens-model",
                 "includeNull" to "true",
                 "make" to "Fujifilm",
                 "model" to "X-T5"
