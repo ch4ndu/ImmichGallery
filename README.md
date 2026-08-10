@@ -21,9 +21,11 @@ on the server.
   a cached-first paginated photo grid in the album's server-defined order.
 - **People** — browse face-recognized people, filter names locally, and open a
   cached-first paginated grid for a person.
-- **Explore** — retain Immich smart and filename Search, with static entry cards
-  for Favorites and Memories. Search results keep server pagination and an
-  explicit **Load more** retry.
+- **Explore** — combine Context, Filename, Description, or OCR text with exact
+  People, Albums, Tags, camera, location, date, media, Motion Photo, Favorites,
+  album-membership, visibility, and rating filters. Filter-only Search is
+  supported, while the blank state retains static Favorites and Memories entry
+  cards. Results keep server pagination and an explicit **Load more** retry.
 - **Favorites** — open a live, owner-filtered collection of the authenticated
   user's favorite photos and videos. Sparse partner-only pages are skipped,
   later-page failures remain explicitly retryable, and results are not cached
@@ -84,10 +86,12 @@ on the server.
 - Timeline, Album, People, opened Album/Person relationships, sync metadata, and
   optional Mosaic artifacts use a local Room cache. Cached screens remain
   visible when a background refresh fails.
-- Explore Search results, Favorites, current-date Memories, expanded asset
-  information, and viewer stack members are live server requests and are not
-  stored as standalone Room records. Explore's entry cards do not prefetch
-  either collection.
+- Explore Search results, capabilities, preferences, Tags, and camera/location
+  suggestions are destination-lifetime live data and are not stored as
+  standalone Room records. Search People and Album selectors reuse their
+  existing Room caches. Favorites, current-date Memories, expanded asset
+  information, and viewer stack members are also live server requests;
+  Explore's entry cards do not prefetch either collection.
 - A first Timeline sync is blocking. After a complete cache exists, startup is
   cached-first; the current Timeline policy waits for the explicit top-bar
   refresh before contacting the server again for Timeline changes.

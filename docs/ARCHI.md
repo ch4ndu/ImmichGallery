@@ -30,8 +30,8 @@ The current user-facing feature set is:
 - Timeline browsing grouped by month or day;
 - Album and People collection lists;
 - cached-first paginated Album and Person detail galleries;
-- an Explore shell destination retaining smart and filename search, plus live
-  owner-filtered Favorites and current-date OnThisDay Memories collections;
+- an Explore shell destination with composable text and metadata Search, plus
+  live owner-filtered Favorites and current-date OnThisDay Memories collections;
 - justified-row and optional Mosaic photo-grid layouts;
 - full-screen image/video paging, image zoom, asset information, and slideshow;
 - Android foreground notification support for explicit Timeline synchronization
@@ -352,6 +352,14 @@ sync once on first picker open. Tags load lazily when enabled, and typed
 camera/location suggestions cache successful values by normalized dependency
 tuple while canceling stale requests for the same option type. None of this
 option data adds a Search Room table.
+
+Search keeps persistent query, mode, Tune, category-summary, and applied-value
+controls above the existing justified result surface. Editing happens in one
+atomic draft hosted as a Material bottom sheet below 600dp and a bounded dialog
+at wider sizes; dismissal cancels the draft, while Apply or removal of an
+already-applied chip submits the current visible query/mode with the complete
+normalized filter snapshot. Entity picker filtering is local, selected-first,
+and uses the existing authenticated Person/Album image URLs.
 
 Explore replaces the Search shell route without replacing `SearchViewModel`,
 its density setting, or its pagination/viewer behavior. Its blank idle state

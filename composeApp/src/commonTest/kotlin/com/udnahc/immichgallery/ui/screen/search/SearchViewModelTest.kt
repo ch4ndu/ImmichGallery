@@ -40,6 +40,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -326,6 +327,35 @@ class SearchViewModelTest {
         )
         assertEquals(false, shouldShowExploreLanding(SearchState(hasSearched = true)))
     }
+
+    @Test
+    fun peopleDraftApplyAndDirectRemovalDriveFilterOnlySessionsThenRestoreExplore() =
+        runTest(dispatcher.scheduler) {
+            val submitted = mutableListOf<SearchCriteria>()
+            val viewModel = viewModel(
+                searchAssets = { endpoint, criteria, page ->
+                    assertEquals(SearchEndpoint.METADATA, endpoint)
+                    assertEquals(1, page)
+                    submitted += criteria
+                    Result.success(SearchResult(emptyList(), null))
+                }
+            )
+
+            viewModel.applyCriteria(SearchCriteria(personIds = listOf("p1", "p2")))
+            advanceUntilIdle()
+            assertEquals(listOf("p1", "p2"), submitted.last().personIds)
+            assertFalse(shouldShowExploreLanding(viewModel.state.value))
+
+            viewModel.applyCriteria(viewModel.state.value.appliedCriteria.copy(personIds = listOf("p2")))
+            advanceUntilIdle()
+            assertEquals(listOf("p2"), submitted.last().personIds)
+
+            viewModel.applyCriteria(viewModel.state.value.appliedCriteria.copy(personIds = emptyList()))
+            advanceUntilIdle()
+            assertEquals(2, submitted.size)
+            assertTrue(shouldShowExploreLanding(viewModel.state.value))
+            assertEquals(null, viewModel.state.value.submittedSession)
+        }
 
     @Test
     fun capabilityAndPreferenceFailuresPublishIndependently() = runTest(dispatcher.scheduler) {

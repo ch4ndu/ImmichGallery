@@ -1,6 +1,5 @@
 package com.udnahc.immichgallery.ui.screen.search
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,15 +22,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,10 +46,18 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.domain.model.Person
+import com.udnahc.immichgallery.domain.model.SearchCapabilities
+import com.udnahc.immichgallery.domain.model.SearchCriteria
+import com.udnahc.immichgallery.domain.model.SearchLoadState
+import com.udnahc.immichgallery.domain.model.SearchSuggestionRequest
+import com.udnahc.immichgallery.domain.model.SearchSuggestionType
 import com.udnahc.immichgallery.domain.model.SearchTextMode
+import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -65,8 +67,6 @@ import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.ensureReturnSourceVisible
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
-import com.udnahc.immichgallery.ui.util.systemBarFadeIn
-import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.explore_favorites_description
 import immichgallery.composeapp.generated.resources.explore_memories_description
@@ -77,9 +77,6 @@ import immichgallery.composeapp.generated.resources.load_more
 import immichgallery.composeapp.generated.resources.memories
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
-import immichgallery.composeapp.generated.resources.search_placeholder
-import immichgallery.composeapp.generated.resources.search_type_filename
-import immichgallery.composeapp.generated.resources.search_type_smart
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -121,6 +118,17 @@ fun SearchScreen(
                 onQueryChange = viewModel::updateQuery,
                 onTextModeChange = viewModel::updateTextMode,
                 onSearch = viewModel::search,
+                onApplyCriteria = viewModel::applyCriteria,
+                onRetryCapabilities = viewModel::refreshServerCapabilities,
+                onOpenPeople = viewModel::openPeopleOptions,
+                onRetryPeople = viewModel::retryPeopleOptions,
+                onOpenAlbums = viewModel::openAlbumOptions,
+                onRetryAlbums = viewModel::retryAlbumOptions,
+                onOpenTags = viewModel::openTagOptions,
+                onRetryTags = viewModel::retryTagOptions,
+                onLoadSuggestions = viewModel::loadSuggestionOptions,
+                onRetrySuggestions = viewModel::retrySuggestionOptions,
+                onRetryPreferences = viewModel::refreshPreferenceCapabilities,
                 onPhotoClick = onPhotoClick,
                 onSetAvailableWidth = viewModel::setAvailableWidth,
                 onSetAvailableViewportHeight = viewModel::setAvailableViewportHeight,
@@ -167,6 +175,17 @@ fun SearchContent(
     onQueryChange: (String) -> Unit,
     onTextModeChange: (SearchTextMode) -> Unit,
     onSearch: () -> Unit,
+    onApplyCriteria: (SearchCriteria) -> Unit = {},
+    onRetryCapabilities: () -> Unit = {},
+    onOpenPeople: () -> Unit = {},
+    onRetryPeople: () -> Unit = {},
+    onOpenAlbums: () -> Unit = {},
+    onRetryAlbums: () -> Unit = {},
+    onOpenTags: () -> Unit = {},
+    onRetryTags: () -> Unit = {},
+    onLoadSuggestions: (SearchSuggestionRequest) -> Unit = {},
+    onRetrySuggestions: (SearchSuggestionType) -> Unit = {},
+    onRetryPreferences: () -> Unit = {},
     onPhotoClick: (String) -> Unit,
     onSetAvailableWidth: (Float) -> Unit,
     onSetAvailableViewportHeight: (Float) -> Unit = {},
@@ -179,6 +198,7 @@ fun SearchContent(
 ) {
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val focusManager = LocalFocusManager.current
+    var filterTarget by remember { mutableStateOf<SearchFilterTarget?>(null) }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -188,75 +208,49 @@ fun SearchContent(
     ) {
         SearchControls(
             visible = !showOverlay,
-            query = state.query,
-            searchType = state.textMode,
+            state = state,
             onQueryChange = onQueryChange,
             onTextModeChange = onTextModeChange,
-            onSearch = onSearch
+            onSearch = onSearch,
+            onOpenFilters = { filterTarget = it },
+            onApplyCriteria = onApplyCriteria,
+            onRetryCapabilities = onRetryCapabilities
         )
 
-        SearchResultContent(
-            state = state,
-            statusBarPadding = statusBarPadding,
-            listState = listState,
-            transitionAssetId = transitionAssetId,
-            hiddenAssetId = hiddenAssetId,
-            onPhotoClick = onPhotoClick,
-            onSetAvailableWidth = onSetAvailableWidth,
-            onSetAvailableViewportHeight = onSetAvailableViewportHeight,
-            onSetTargetRowHeight = onSetTargetRowHeight,
-            onLoadMore = onLoadMore,
-            onFavoritesClick = onFavoritesClick,
-            onMemoriesClick = onMemoriesClick,
-            sharedTransitionScope = sharedTransitionScope
-        )
-    }
-}
-
-@Composable
-private fun SearchControls(
-    visible: Boolean,
-    query: String,
-    searchType: SearchTextMode,
-    onQueryChange: (String) -> Unit,
-    onTextModeChange: (SearchTextMode) -> Unit,
-    onSearch: () -> Unit
-) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = systemBarFadeIn,
-        exit = systemBarFadeOut,
-    ) {
-        Column {
-            Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
-
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                placeholder = { Text(stringResource(Res.string.search_placeholder)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                modifier = Modifier.fillMaxWidth()
+        Box(modifier = Modifier.weight(1f)) {
+            SearchResultContent(
+                state = state,
+                statusBarPadding = statusBarPadding,
+                listState = listState,
+                transitionAssetId = transitionAssetId,
+                hiddenAssetId = hiddenAssetId,
+                onPhotoClick = onPhotoClick,
+                onSetAvailableWidth = onSetAvailableWidth,
+                onSetAvailableViewportHeight = onSetAvailableViewportHeight,
+                onSetTargetRowHeight = onSetTargetRowHeight,
+                onLoadMore = onLoadMore,
+                onFavoritesClick = onFavoritesClick,
+                onMemoriesClick = onMemoriesClick,
+                sharedTransitionScope = sharedTransitionScope
             )
-
-            Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
-                FilterChip(
-                    selected = searchType == SearchTextMode.CONTEXT,
-                    onClick = { onTextModeChange(SearchTextMode.CONTEXT) },
-                    label = { Text(stringResource(Res.string.search_type_smart)) }
-                )
-                FilterChip(
-                    selected = searchType == SearchTextMode.FILENAME,
-                    onClick = { onTextModeChange(SearchTextMode.FILENAME) },
-                    label = { Text(stringResource(Res.string.search_type_filename)) }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
         }
+    }
+    filterTarget?.let { target ->
+        SearchFilterHost(
+            target = target,
+            state = state,
+            onDismiss = { filterTarget = null },
+            onApply = onApplyCriteria,
+            onOpenPeople = onOpenPeople,
+            onRetryPeople = onRetryPeople,
+            onOpenAlbums = onOpenAlbums,
+            onRetryAlbums = onRetryAlbums,
+            onOpenTags = onOpenTags,
+            onRetryTags = onRetryTags,
+            onLoadSuggestions = onLoadSuggestions,
+            onRetrySuggestions = onRetrySuggestions,
+            onRetryPreferences = onRetryPreferences
+        )
     }
 }
 
@@ -578,11 +572,95 @@ private fun SearchResultsList(
     }
 }
 
-@Preview
+@Preview(name = "Explore")
 @Composable
 private fun SearchContentPreview() {
     SearchContent(
         state = SearchState(),
+        onQueryChange = {},
+        onTextModeChange = {},
+        onSearch = {},
+        onPhotoClick = {},
+        onSetAvailableWidth = {},
+        onLoadMore = {}
+    )
+}
+
+@Preview(name = "Applied people filter")
+@Composable
+private fun SearchAppliedFilterPreview() {
+    SearchContent(
+        state = SearchState(
+            appliedCriteria = SearchCriteria(personIds = listOf("person-1")),
+            peopleOptions = SearchLoadState.Content(
+                listOf(Person("person-1", "Alex", ""))
+            )
+        ),
+        onQueryChange = {},
+        onTextModeChange = {},
+        onSearch = {},
+        onPhotoClick = {},
+        onSetAvailableWidth = {},
+        onLoadMore = {}
+    )
+}
+
+@Preview(name = "Loading")
+@Composable
+private fun SearchLoadingPreview() {
+    SearchContent(
+        state = SearchState(isLoading = true, hasSearched = true),
+        onQueryChange = {},
+        onTextModeChange = {},
+        onSearch = {},
+        onPhotoClick = {},
+        onSetAvailableWidth = {},
+        onLoadMore = {}
+    )
+}
+
+@Preview(name = "Results")
+@Composable
+private fun SearchResultsPreview() {
+    val asset = Asset(
+        id = "asset-1",
+        type = AssetType.IMAGE,
+        fileName = "sample.jpg",
+        createdAt = "2026-08-09T12:00:00Z",
+        thumbnailUrl = "",
+        originalUrl = ""
+    )
+    SearchContent(
+        state = SearchState(
+            query = "beach",
+            hasSearched = true,
+            results = listOf(asset),
+            rows = packIntoRows(
+                assets = listOf(asset),
+                availableWidth = 360f,
+                targetRowHeight = 150f,
+                spacing = 2f
+            )
+        ),
+        onQueryChange = {},
+        onTextModeChange = {},
+        onSearch = {},
+        onPhotoClick = {},
+        onSetAvailableWidth = {},
+        onLoadMore = {}
+    )
+}
+
+@Preview(name = "Context unavailable")
+@Composable
+private fun SearchCapabilityUnavailablePreview() {
+    SearchContent(
+        state = SearchState(
+            query = "beach",
+            serverCapabilities = SearchLoadState.Content(
+                SearchCapabilities(searchEnabled = true, contextEnabled = false, ocrEnabled = false)
+            )
+        ),
         onQueryChange = {},
         onTextModeChange = {},
         onSearch = {},

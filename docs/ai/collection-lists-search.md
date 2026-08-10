@@ -95,6 +95,43 @@ Album/Person detail is documented separately in
 - Initial request failure shows the Search error state. Load-more failure keeps
   existing results and makes the server token manually retryable.
 
+## Advanced Search Controls And Editors
+
+- Query, compact mode selector, Tune, category chips, and applied summaries
+  remain visible above Explore/results and are hidden only while the media
+  overlay is active. Context and OCR are disabled until positively supported;
+  capability failure remains retryable without changing the selected text.
+- The category row prioritizes People, Albums, Date, Media, and Camera, then
+  exposes Location, conditional Tags/Rating, and Display. Applied People are
+  individually removable; larger selections use the first resolved value plus
+  a count. Missing option rows retain an unavailable label and remain removable.
+- Tune and category actions open the same draft editor. Widths below 600dp use
+  a `ModalBottomSheet`; wider layouts use a bounded scrollable dialog. Apply
+  submits one normalized snapshot. Cancel, Back, Escape, outside click, and
+  sheet swipe discard the draft without changing results.
+- People, Albums, and Tags support local case-insensitive search, stable
+  selected-first ordering while the query is blank, stable-id multi-selection,
+  Clear, and selected-state visibility. People use circular authenticated face
+  thumbnails with Unknown fallback; Albums use authenticated covers and counts;
+  Tags use full hierarchy values, optional colors, and mutually exclusive
+  Untagged. Multiple selected entity values retain Immich intersection semantics.
+- Camera and Location expose Any plus dependent suggestions. Unknown appears
+  only when the server includes it or the current selection is already Unknown,
+  including while a failed refresh retains that selection.
+  Country clears State/City, State clears City, Make clears Model/Lens, and
+  Model clears Lens in the draft before new dependency-keyed reads publish.
+  Suggestion failure does not clear the selected draft value.
+- Date uses separate calendar pickers for start and inclusive end. Reversed
+  drafts remain visible and disable Apply; start-only, end-only, same-day, and
+  leap-day selections remain valid. Media exposes All/Image/Video and
+  Motion-only; Motion implies Image and Video clears Motion. Display owns
+  Favorite, Not in album, and All Accessible/Timeline/Archive visibility.
+  Rating exposes Any, Unrated, and one through five only when enabled.
+- Removing an applied chip immediately submits current visible text/mode plus
+  the remaining criteria. Removing the final criterion with blank text cancels
+  the session and restores the Explore cards. Results, paging, RowPacking,
+  viewer/stack behavior, and return targeting are otherwise unchanged.
+
 ## Search Pagination And Layout
 
 - Search uses standard `packIntoRows(...)`; it never uses Mosaic.
@@ -187,6 +224,9 @@ Album/Person detail is documented separately in
   Context/OCR gates, Room-observed People/Albums with cached failure, Tag
   enablement/lazy retry, normalized suggestion caches, and stale dependent
   suggestion rejection.
+- Presentation tests cover selected-first entity projection, local filtering,
+  Unknown/duplicate identities, compact summaries, conditional sections,
+  draft Cancel/Apply, dependency conflicts, and final-filter Explore return.
 - Explore cards appear only in blank idle Search state and never prefetch;
 - Favorites excludes partner assets, crosses sparse pages, preserves typed
   retry progress, rejects stale/duplicate work, and returns to the settled
