@@ -4,7 +4,7 @@ ImmichGallery is a read-only gallery client for self-hosted
 [Immich](https://immich.app/) servers. It is built with Kotlin Multiplatform and
 Compose Multiplatform for Android, iOS, and JVM Desktop.
 
-Current release: **1.1.0**.
+Current release: **1.2.0**.
 
 The app browses and plays existing Immich media. It does not upload, edit,
 favorite, delete, share, or download assets, and it does not change the library
