@@ -4,6 +4,8 @@ ImmichGallery is a read-only gallery client for self-hosted
 [Immich](https://immich.app/) servers. It is built with Kotlin Multiplatform and
 Compose Multiplatform for Android, iOS, and JVM Desktop.
 
+Current release: **1.1.0**.
+
 The app browses and plays existing Immich media. It does not upload, edit,
 favorite, delete, share, or download assets, and it does not change the library
 on the server.
@@ -28,8 +30,9 @@ on the server.
   in Room.
 - **Memories** — open the current local date's live Immich **On this day**
   memories as year-labelled cover cards. Each memory keeps its server asset
-  order and supported item count; the viewer uses an animated page-dot indicator
-  that follows the current asset. Multiple memories from one year stay separate.
+  order and supported item count; the viewer uses width-aware animated page dots
+  that follow every swipe and segmented progress when the full dot row cannot
+  fit. Multiple memories from one year stay separate.
 - **Supported assets** — image and video assets are shown. Audio and other
   unsupported asset types are filtered out.
 

@@ -2,10 +2,24 @@
 
 | Version | Week | Commit Message |
 | --- | --- | --- |
+| `1.1.0` | 2 | release: ImmichGallery 1.1.0 |
 | `1.0.1` | 1 | chore: initialize TRIP workflow |
 
 # Changelog Summary
 
+- **v1.1.0 (Explore collections and viewer improvements - Week 2, 09-08-2026)**:
+  - **Explore**: Replaced the Search tab with an Explore destination that
+    retains smart and filename search and adds entry cards for Favorites and
+    Memories.
+  - **Favorites**: Added a live, authenticated-owner-filtered Favorites
+    collection with guarded server pagination and retryable later-page errors.
+  - **Memories**: Added current-local-date On This Day memory cards, preserved
+    cover-card return behavior, and added width-aware continuously animated
+    page progress with a segmented fallback for larger memories.
+  - **Stacks**: Added read-only viewer-scoped stack discovery and nested stack
+    browsing without modifying source grids, Timeline ordering, or Room.
+  - **Reliability**: Preserved base-viewer state under modal stack layers and
+    added observable delegated-runtime progress for the local TRIP workflow.
 - **v1.0.1 (trip-initialization - Week 1, 09-08-2026)**:
   - **Setup**: Installed and adapted the project-local TRIP 1.0.0 workflow from
     the verified OpenTasks base.

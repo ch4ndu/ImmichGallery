@@ -482,11 +482,11 @@ URLs containing credentials.
 
 Current version surfaces are:
 
-- Android: `versionCode = 1`, `versionName = "1.0"` in
+- Android: `versionCode = 2`, `versionName = "1.1.0"` in
   `androidApp/build.gradle.kts`;
-- iOS: `CURRENT_PROJECT_VERSION=1`, `MARKETING_VERSION=1.0` in
+- iOS: `CURRENT_PROJECT_VERSION=2`, `MARKETING_VERSION=1.1.0` in
   `iosApp/Configuration/Config.xcconfig`;
-- Desktop: `packageVersion = "1.0.0"` in `composeApp/build.gradle.kts`.
+- Desktop: `packageVersion = "1.1.0"` in `composeApp/build.gradle.kts`.
 
 Release work must update and verify every platform version in scope. The
 repository's default branch is `master`.
