@@ -15,20 +15,24 @@ import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
 import com.udnahc.immichgallery.domain.model.RowHeightScope
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.SearchCriteria
+import com.udnahc.immichgallery.domain.model.SearchEndpoint
 import com.udnahc.immichgallery.domain.model.SearchResult
+import com.udnahc.immichgallery.domain.model.SearchSession
+import com.udnahc.immichgallery.domain.model.SearchTextMode
 import com.udnahc.immichgallery.domain.model.defaultTargetRowHeightForWidth
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
+import com.udnahc.immichgallery.domain.model.selectSearchEndpoint
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetDetailUseCase
 import com.udnahc.immichgallery.domain.usecase.asset.GetAssetStackUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
-import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
-import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
+import com.udnahc.immichgallery.domain.usecase.search.SearchAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.ui.model.SearchUiMessage
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,29 +42,29 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.lighthousegames.logging.logging
 
-enum class SearchType { SMART, METADATA }
-
 @Immutable
 data class SearchState(
     val query: String = "",
-    val searchType: SearchType = SearchType.SMART,
+    val textMode: SearchTextMode = SearchTextMode.CONTEXT,
+    val appliedCriteria: SearchCriteria = SearchCriteria(),
+    val submittedSession: SearchSession? = null,
     val results: List<Asset> = emptyList(),
     val rows: List<RowItem> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: SearchUiMessage? = null,
     val hasSearched: Boolean = false,
-    val nextPage: Int? = null,
     val availableWidth: Float = 0f,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
-    val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f),
-    internal val activeRequestGeneration: Long = 0L,
-    internal val loadedPages: Set<Int> = emptySet()
-)
+    val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f)
+) {
+    val nextPage: Int? get() = submittedSession?.nextPage
+
+    internal val activeRequestGeneration: Long get() = submittedSession?.generation ?: 0L
+}
 
 class SearchViewModel internal constructor(
-    private val smartSearch: suspend (String, Int) -> Result<SearchResult>,
-    private val metadataSearch: suspend (String, Int) -> Result<SearchResult>,
+    private val searchAssets: suspend (SearchEndpoint, SearchCriteria, Int) -> Result<SearchResult>,
     val apiKey: String,
     private val loadAssetDetail: suspend (String) -> Result<AssetDetail>,
     private val loadAssetStack: suspend (String) -> Result<AssetStackLookup> = {
@@ -76,16 +80,16 @@ class SearchViewModel internal constructor(
 ) : ViewModel() {
 
     constructor(
-        smartSearchUseCase: SmartSearchUseCase,
-        metadataSearchUseCase: MetadataSearchUseCase,
+        searchAssetsUseCase: SearchAssetsUseCase,
         getApiKeyUseCase: GetApiKeyUseCase,
         getAssetDetailUseCase: GetAssetDetailUseCase,
         getAssetStackUseCase: GetAssetStackUseCase,
         getTargetRowHeightUseCase: GetTargetRowHeightUseCase,
         setTargetRowHeightAction: SetTargetRowHeightAction
     ) : this(
-        smartSearch = { query, page -> smartSearchUseCase(query, page) },
-        metadataSearch = { query, page -> metadataSearchUseCase(query, page) },
+        searchAssets = { endpoint, criteria, page ->
+            searchAssetsUseCase(endpoint, criteria, page)
+        },
         apiKey = getApiKeyUseCase(),
         loadAssetDetail = { assetId -> getAssetDetailUseCase(assetId) },
         loadAssetStack = { assetId -> getAssetStackUseCase(assetId) },
@@ -120,39 +124,24 @@ class SearchViewModel internal constructor(
     fun updateQuery(query: String) {
         if (query == _state.value.query) return
         invalidateRequests()
-        _state.update {
-            it.copy(
-                query = query,
-                results = emptyList(),
-                rows = emptyList(),
-                isLoading = false,
-                isLoadingMore = false,
-                error = null,
-                hasSearched = false,
-                nextPage = null,
-                activeRequestGeneration = requestGeneration.value,
-                loadedPages = emptySet()
-            )
-        }
+        _state.update { current -> current.clearedExecution().copy(query = query) }
     }
 
-    fun updateSearchType(type: SearchType) {
-        if (type == _state.value.searchType) return
+    fun updateTextMode(mode: SearchTextMode) {
+        if (mode == _state.value.textMode) return
         invalidateRequests()
-        _state.update {
-            it.copy(
-                searchType = type,
-                results = emptyList(),
-                rows = emptyList(),
-                isLoading = false,
-                isLoadingMore = false,
-                error = null,
-                hasSearched = false,
-                nextPage = null,
-                activeRequestGeneration = requestGeneration.value,
-                loadedPages = emptySet()
-            )
-        }
+        _state.update { current -> current.clearedExecution().copy(textMode = mode) }
+    }
+
+    fun applyCriteria(criteria: SearchCriteria) {
+        val metadataCriteria = criteria.metadataOnly().normalized()
+        _state.update { it.copy(appliedCriteria = metadataCriteria) }
+        submitVisibleCriteria()
+    }
+
+    fun clearFilters() {
+        _state.update { it.copy(appliedCriteria = SearchCriteria()) }
+        submitVisibleCriteria()
     }
 
     fun getDisplayItemIndexForReturn(): Int? =
@@ -211,9 +200,22 @@ class SearchViewModel internal constructor(
     }
 
     fun search() {
-        val currentState = _state.value
-        if (currentState.query.isBlank()) return
-        val request = beginRequest(currentState.query, currentState.searchType)
+        submitVisibleCriteria()
+    }
+
+    private fun submitVisibleCriteria() {
+        val current = _state.value
+        val criteria = current.appliedCriteria.copy(
+            query = current.query,
+            textMode = current.textMode
+        ).normalized()
+        if (criteria.isEmpty) {
+            invalidateRequests()
+            _state.update(SearchState::clearedExecution)
+            return
+        }
+
+        val session = beginSession(criteria)
         _state.update {
             it.copy(
                 isLoading = true,
@@ -222,40 +224,19 @@ class SearchViewModel internal constructor(
                 hasSearched = true,
                 results = emptyList(),
                 rows = emptyList(),
-                nextPage = null,
-                activeRequestGeneration = request.generation,
-                loadedPages = emptySet()
+                submittedSession = session
             )
         }
         searchJob = viewModelScope.launch(searchDispatcher) {
-            log.d { "Searching '${request.query}' (${request.type})" }
-            val result = when (request.type) {
-                SearchType.SMART -> smartSearch(request.query, 1)
-                SearchType.METADATA -> metadataSearch(request.query, 1)
+            log.d {
+                "Search endpoint=${session.endpoint} mode=${session.criteria.textMode} page=1"
             }
-            result.fold(
-                onSuccess = { searchResult ->
-                    log.d { "Search returned ${searchResult.assets.size} results, hasMore=${searchResult.hasMore}" }
-                    val published = updateForRequest(request) {
-                        val loadedPages = setOf(1)
-                        it.copy(
-                            results = searchResult.assets,
-                            isLoading = false,
-                            nextPage = searchResult.nextPage?.takeUnless { page ->
-                                page in loadedPages
-                            },
-                            loadedPages = loadedPages
-                        )
-                    }
-                    if (published) scheduleRows()
-                },
-                onFailure = { e ->
-                    log.e(e) { "Search failed" }
-                    updateForRequest(request) {
-                        it.copy(
-                            isLoading = false,
-                            error = SearchUiMessage.SearchFailed
-                        )
+            searchAssets(session.endpoint, session.criteria, 1).fold(
+                onSuccess = { result -> publishFirstPage(session, result) },
+                onFailure = { error ->
+                    log.e(error) { "Search failed endpoint=${session.endpoint} page=1" }
+                    updateForSession(session) {
+                        it.copy(isLoading = false, error = SearchUiMessage.SearchFailed)
                     }
                 }
             )
@@ -263,54 +244,75 @@ class SearchViewModel internal constructor(
     }
 
     fun loadMore() {
-        // Atomic claim: only the caller that flips isLoadingMore from false to
-        // true proceeds. Without compareAndSet, two near-simultaneous near-end
-        // triggers could both observe isLoadingMore=false before either wrote
-        // it, and both would launch duplicate requests.
-        val prev = _state.value
-        val page = prev.nextPage ?: return
-        if (prev.isLoadingMore || prev.query.isBlank()) return
-        if (page in prev.loadedPages) {
-            _state.compareAndSet(prev, prev.copy(nextPage = null))
+        val previous = _state.value
+        val session = previous.submittedSession ?: return
+        val page = session.nextPage ?: return
+        if (previous.isLoadingMore) return
+        if (page <= session.currentPage || page in session.consumedPages) {
+            _state.compareAndSet(
+                previous,
+                previous.copy(submittedSession = session.copy(nextPage = null))
+            )
             return
         }
-        val request = SearchRequest(prev.query, prev.searchType, prev.activeRequestGeneration)
-        if (!_state.compareAndSet(prev, prev.copy(isLoadingMore = true))) return
+        if (!_state.compareAndSet(previous, previous.copy(isLoadingMore = true))) return
 
         loadMoreJob = viewModelScope.launch(searchDispatcher) {
-            log.d { "Loading more page=$page for '${request.query}'" }
-
-            val result = when (request.type) {
-                SearchType.SMART -> smartSearch(request.query, page)
-                SearchType.METADATA -> metadataSearch(request.query, page)
-            }
-            result.fold(
-                onSuccess = { searchResult ->
-                    log.d { "Load more returned ${searchResult.assets.size} results, hasMore=${searchResult.hasMore}" }
-                    val published = updateForRequest(request) {
-                        val loadedPages = it.loadedPages + page
-                        it.copy(
-                            results = it.results + searchResult.assets,
-                            isLoadingMore = false,
-                            nextPage = searchResult.nextPage?.takeUnless { nextPage ->
-                                nextPage in loadedPages
-                            },
-                            loadedPages = loadedPages
-                        )
-                    }
-                    if (published) scheduleRows()
-                },
-                onFailure = { e ->
-                    log.e(e) { "Load more failed" }
-                    updateForRequest(request) { it.copy(isLoadingMore = false) }
+            log.d { "Search load more endpoint=${session.endpoint} page=$page" }
+            searchAssets(session.endpoint, session.criteria, page).fold(
+                onSuccess = { result -> publishNextPage(session, page, result) },
+                onFailure = { error ->
+                    log.e(error) { "Search load more failed endpoint=${session.endpoint} page=$page" }
+                    updateForSession(session) { it.copy(isLoadingMore = false) }
                 }
             )
         }
     }
 
-    private fun beginRequest(query: String, type: SearchType): SearchRequest {
+    private fun publishFirstPage(session: SearchSession, result: SearchResult) {
+        val consumedPages = setOf(1)
+        val published = updateForSession(session) {
+            it.copy(
+                results = result.assets.distinctBy(Asset::id),
+                isLoading = false,
+                submittedSession = session.copy(
+                    currentPage = 1,
+                    nextPage = validNextPage(result.nextPage, 1, consumedPages),
+                    consumedPages = consumedPages
+                )
+            )
+        }
+        if (published) scheduleRows()
+    }
+
+    private fun publishNextPage(
+        session: SearchSession,
+        page: Int,
+        result: SearchResult
+    ) {
+        val published = updateForSession(session) { current ->
+            val currentSession = current.submittedSession ?: return@updateForSession current
+            val consumedPages = currentSession.consumedPages + page
+            current.copy(
+                results = (current.results + result.assets).distinctBy(Asset::id),
+                isLoadingMore = false,
+                submittedSession = currentSession.copy(
+                    currentPage = page,
+                    nextPage = validNextPage(result.nextPage, page, consumedPages),
+                    consumedPages = consumedPages
+                )
+            )
+        }
+        if (published) scheduleRows()
+    }
+
+    private fun beginSession(criteria: SearchCriteria): SearchSession {
         invalidateRequests()
-        return SearchRequest(query, type, requestGeneration.value)
+        return SearchSession(
+            criteria = criteria,
+            endpoint = selectSearchEndpoint(criteria),
+            generation = requestGeneration.value
+        )
     }
 
     private fun invalidateRequests() {
@@ -320,13 +322,14 @@ class SearchViewModel internal constructor(
         requestGeneration.update { it + 1L }
     }
 
-    private fun updateForRequest(
-        request: SearchRequest,
+    private fun updateForSession(
+        session: SearchSession,
         transform: (SearchState) -> SearchState
     ): Boolean {
+        val identity = session.identity()
         while (true) {
             val current = _state.value
-            if (!request.matches(current)) return false
+            if (!identity.matches(current)) return false
             if (_state.compareAndSet(current, transform(current))) return true
         }
     }
@@ -334,19 +337,34 @@ class SearchViewModel internal constructor(
     private fun scheduleRows(debounce: Boolean = false) {
         layoutRunner.launch(debounce = debounce) { generation ->
             val snapshot = _state.value
-            val request = SearchRequest(
-                query = snapshot.query,
-                type = snapshot.searchType,
-                generation = snapshot.activeRequestGeneration
-            )
+            val identity = snapshot.submittedSession?.identity() ?: return@launch
             val rows = rowPacker(snapshot)
             if (layoutRunner.isCurrent(generation)) {
-                updateForRequest(request) { current -> current.copy(rows = rows) }
+                while (true) {
+                    val current = _state.value
+                    if (!identity.matches(current)) break
+                    if (_state.compareAndSet(current, current.copy(rows = rows))) break
+                }
             }
         }
     }
-
 }
+
+private fun SearchState.clearedExecution(): SearchState = copy(
+    submittedSession = null,
+    results = emptyList(),
+    rows = emptyList(),
+    isLoading = false,
+    isLoadingMore = false,
+    error = null,
+    hasSearched = false
+)
+
+private fun validNextPage(
+    candidate: Int?,
+    currentPage: Int,
+    consumedPages: Set<Int>
+): Int? = candidate?.takeIf { it > currentPage && it !in consumedPages }
 
 private fun packSearchRows(snapshot: SearchState): List<RowItem> =
     if (snapshot.results.isNotEmpty() && snapshot.availableWidth > 0f) {
@@ -361,13 +379,22 @@ private fun packSearchRows(snapshot: SearchState): List<RowItem> =
         emptyList()
     }
 
-internal data class SearchRequest(
-    val query: String,
-    val type: SearchType,
+@Immutable
+internal data class SubmittedSearchIdentity(
+    val criteria: SearchCriteria,
+    val endpoint: SearchEndpoint,
     val generation: Long
 ) {
-    fun matches(state: SearchState): Boolean =
-        generation == state.activeRequestGeneration &&
-                query == state.query &&
-                type == state.searchType
+    fun matches(state: SearchState): Boolean {
+        val session = state.submittedSession ?: return false
+        return criteria == session.criteria &&
+                endpoint == session.endpoint &&
+                generation == session.generation
+    }
 }
+
+private fun SearchSession.identity(): SubmittedSearchIdentity = SubmittedSearchIdentity(
+    criteria = criteria,
+    endpoint = endpoint,
+    generation = generation
+)

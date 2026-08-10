@@ -54,9 +54,8 @@ import com.udnahc.immichgallery.domain.usecase.memory.GetMemoriesForDateUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
-import com.udnahc.immichgallery.domain.usecase.search.MetadataSearchUseCase
 import com.udnahc.immichgallery.domain.usecase.search.GetFavoriteAssetsUseCase
-import com.udnahc.immichgallery.domain.usecase.search.SmartSearchUseCase
+import com.udnahc.immichgallery.domain.usecase.search.SearchAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
@@ -140,8 +139,7 @@ val sharedModule = module {
     factory { GetPeopleUseCase(get()) }
     factory { GetPersonAssetsUseCase(get()) }
     factory { GetPersonAssetsPageUseCase(get()) }
-    factory { SmartSearchUseCase(get(), get()) }
-    factory { MetadataSearchUseCase(get(), get()) }
+    factory { SearchAssetsUseCase(get(), get()) }
     factory {
         GetFavoriteAssetsUseCase(
             repository = get<SearchRepository>(),
@@ -256,7 +254,7 @@ val sharedModule = module {
             params.get()
         )
     }
-    viewModel { SearchViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { SearchViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { FavoritesViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { MemoriesViewModel(get(), get(), get(), get()) }
 }

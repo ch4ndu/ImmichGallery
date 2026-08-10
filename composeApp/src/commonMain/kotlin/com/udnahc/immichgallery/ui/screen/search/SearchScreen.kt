@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import com.udnahc.immichgallery.domain.model.SearchTextMode
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -118,7 +119,7 @@ fun SearchScreen(
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 onQueryChange = viewModel::updateQuery,
-                onSearchTypeChange = viewModel::updateSearchType,
+                onTextModeChange = viewModel::updateTextMode,
                 onSearch = viewModel::search,
                 onPhotoClick = onPhotoClick,
                 onSetAvailableWidth = viewModel::setAvailableWidth,
@@ -164,7 +165,7 @@ fun SearchContent(
     transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
     onQueryChange: (String) -> Unit,
-    onSearchTypeChange: (SearchType) -> Unit,
+    onTextModeChange: (SearchTextMode) -> Unit,
     onSearch: () -> Unit,
     onPhotoClick: (String) -> Unit,
     onSetAvailableWidth: (Float) -> Unit,
@@ -188,9 +189,9 @@ fun SearchContent(
         SearchControls(
             visible = !showOverlay,
             query = state.query,
-            searchType = state.searchType,
+            searchType = state.textMode,
             onQueryChange = onQueryChange,
-            onSearchTypeChange = onSearchTypeChange,
+            onTextModeChange = onTextModeChange,
             onSearch = onSearch
         )
 
@@ -216,9 +217,9 @@ fun SearchContent(
 private fun SearchControls(
     visible: Boolean,
     query: String,
-    searchType: SearchType,
+    searchType: SearchTextMode,
     onQueryChange: (String) -> Unit,
-    onSearchTypeChange: (SearchType) -> Unit,
+    onTextModeChange: (SearchTextMode) -> Unit,
     onSearch: () -> Unit
 ) {
     AnimatedVisibility(
@@ -243,13 +244,13 @@ private fun SearchControls(
 
             Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
                 FilterChip(
-                    selected = searchType == SearchType.SMART,
-                    onClick = { onSearchTypeChange(SearchType.SMART) },
+                    selected = searchType == SearchTextMode.CONTEXT,
+                    onClick = { onTextModeChange(SearchTextMode.CONTEXT) },
                     label = { Text(stringResource(Res.string.search_type_smart)) }
                 )
                 FilterChip(
-                    selected = searchType == SearchType.METADATA,
-                    onClick = { onSearchTypeChange(SearchType.METADATA) },
+                    selected = searchType == SearchTextMode.FILENAME,
+                    onClick = { onTextModeChange(SearchTextMode.FILENAME) },
                     label = { Text(stringResource(Res.string.search_type_filename)) }
                 )
             }
@@ -307,7 +308,7 @@ private fun SearchResultContent(
 }
 
 internal fun shouldShowExploreLanding(state: SearchState): Boolean =
-    state.query.isBlank() && !state.hasSearched
+    state.query.isBlank() && !state.appliedCriteria.hasMetadataFilters && !state.hasSearched
 
 @Composable
 private fun ExploreLanding(
@@ -583,7 +584,7 @@ private fun SearchContentPreview() {
     SearchContent(
         state = SearchState(),
         onQueryChange = {},
-        onSearchTypeChange = {},
+        onTextModeChange = {},
         onSearch = {},
         onPhotoClick = {},
         onSetAvailableWidth = {},

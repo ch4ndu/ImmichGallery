@@ -14,6 +14,7 @@ import com.udnahc.immichgallery.data.model.TimeBucketResponse
 import com.udnahc.immichgallery.data.model.TimelineBucketColumnarResponse
 import com.udnahc.immichgallery.data.model.UserResponse
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
+import com.udnahc.immichgallery.domain.model.SearchCriteria
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -174,28 +175,32 @@ class ImmichApiService(
     }
 
     suspend fun searchSmart(
-        query: String,
+        criteria: SearchCriteria,
         page: Int = 1,
         size: Int = 50
     ): SearchResponse {
-        log.d { "POST ${baseUrl()}/api/search/smart query=$query page=$page" }
+        log.d {
+            "POST ${baseUrl()}/api/search/smart page=$page filters=${criteria.activeFilterCategoryCount()}"
+        }
         return httpClient.post("${baseUrl()}/api/search/smart") {
             header("x-api-key", apiKey())
             contentType(ContentType.Application.Json)
-            setBody(SmartSearchRequest(query = query, page = page, size = size))
+            setBody(AdvancedSearchRequestBuilder.buildSmart(criteria, page, size))
         }.body()
     }
 
     suspend fun searchMetadata(
-        query: String,
+        criteria: SearchCriteria,
         page: Int = 1,
         size: Int = 50
     ): SearchResponse {
-        log.d { "POST ${baseUrl()}/api/search/metadata query=$query page=$page" }
+        log.d {
+            "POST ${baseUrl()}/api/search/metadata page=$page filters=${criteria.activeFilterCategoryCount()}"
+        }
         return httpClient.post("${baseUrl()}/api/search/metadata") {
             header("x-api-key", apiKey())
             contentType(ContentType.Application.Json)
-            setBody(MetadataSearchRequest(originalFileName = query, page = page, size = size))
+            setBody(AdvancedSearchRequestBuilder.buildMetadata(criteria, page, size))
         }.body()
     }
 
@@ -246,20 +251,6 @@ class ImmichApiService(
 internal fun memoryDateQuery(forDate: LocalDate): String = forDate.toString()
 
 @Serializable
-private data class SmartSearchRequest(
-    val query: String,
-    val page: Int = 1,
-    val size: Int = 50
-)
-
-@Serializable
-private data class MetadataSearchRequest(
-    val originalFileName: String,
-    val page: Int = 1,
-    val size: Int = 50
-)
-
-@Serializable
 internal data class FavoritesSearchRequest(
     val isFavorite: Boolean = true,
     val order: String = "desc",
@@ -282,3 +273,21 @@ internal data class AlbumAssetsSearchRequest(
     val page: Int = 1,
     val size: Int = 250
 )
+
+private fun SearchCriteria.activeFilterCategoryCount(): Int = listOf(
+    query.isNotBlank(),
+    personIds.isNotEmpty(),
+    albumIds.isNotEmpty(),
+    tags != com.udnahc.immichgallery.domain.model.TagConstraint.Any,
+    country != com.udnahc.immichgallery.domain.model.SearchOptionalValue.Any ||
+            state != com.udnahc.immichgallery.domain.model.SearchOptionalValue.Any ||
+            city != com.udnahc.immichgallery.domain.model.SearchOptionalValue.Any,
+    make != com.udnahc.immichgallery.domain.model.SearchOptionalValue.Any ||
+            model != com.udnahc.immichgallery.domain.model.SearchOptionalValue.Any ||
+            lensModel != com.udnahc.immichgallery.domain.model.SearchOptionalValue.Any,
+    !takenDateRange.isEmpty,
+    mediaType != com.udnahc.immichgallery.domain.model.SearchMediaType.ALL || motionOnly,
+    isFavorite || isNotInAlbum,
+    visibility != com.udnahc.immichgallery.domain.model.SearchVisibility.ALL_ACCESSIBLE,
+    rating != com.udnahc.immichgallery.domain.model.RatingConstraint.Any
+).count { it }

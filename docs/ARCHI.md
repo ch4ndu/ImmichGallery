@@ -219,7 +219,7 @@ pagination, layout projection, and viewer-source state for their feature.
 | Album detail | `AlbumDetailScreen` | `AlbumDetailViewModel`, detail layout coordinator | album/detail repositories and Room |
 | People list | `PeopleScreen` | `PeopleViewModel` | `PeopleRepository` and Room |
 | Person detail | `PersonDetailScreen` | `PersonDetailViewModel`, detail layout coordinator | people/detail repositories and Room |
-| Explore/Search | `SearchScreen` | `SearchViewModel` and search UseCases | live `SearchRepository` calls |
+| Explore/Search | `SearchScreen` | `SearchViewModel`, `SearchCriteria`, and `SearchAssetsUseCase` | live `SearchRepository` calls |
 | Favorites | `FavoritesScreen` | `FavoritesViewModel`, owner/Favorites UseCases | live auth and metadata-search calls |
 | Memories | `MemoriesScreen` | `MemoriesViewModel`, local-date Memories UseCase | live date-filtered Memories calls |
 | Media viewer | overlay hosts and media components | static or Timeline overlay coordinator | asset detail, Coil, platform video player |
@@ -234,9 +234,10 @@ pagination, layout projection, and viewer-source state for their feature.
 - `/api/timeline/buckets` and `/api/timeline/bucket`;
 - `/api/albums` and `/api/albums/{id}`;
 - `/api/people`;
-- `/api/search/metadata` for album assets, person assets, filename search, and
-  owner-filtered Favorites;
-- `/api/search/smart` for natural-language search;
+- `/api/search/metadata` for album assets, person assets, advanced metadata
+  criteria, and owner-filtered Favorites;
+- `/api/search/smart` for natural-language criteria with shared metadata
+  filters;
 - `/api/assets/{id}` and `/api/assets/{id}/edits`;
 - `/api/stacks/{id}` after an authoritative `/api/assets/{id}` stack lookup.
 - `/api/memories` with an exact local date-only `for=YYYY-MM-DD` query.
@@ -326,10 +327,13 @@ and fresh pages cannot form a mixed snapshot. Person detail data is fetched
 only after opening a person; list synchronization does not preload every face's
 assets.
 
-Search calls the server live. Smart and filename modes have request generations
-that prevent stale results from publishing after query/type changes. Failed
-next pages remain explicitly retryable rather than entering an automatic retry
-loop.
+Search calls the server live through one normalized `SearchCriteria` contract.
+A nonblank Context query selects Smart Search; filename, description, OCR, and
+filter-only criteria select Metadata Search before any network I/O. The
+submitted session freezes the normalized criteria, endpoint, generation, and
+page state so visible edits cannot alter an in-flight request. Failed next
+pages remain explicitly retryable rather than entering an automatic retry
+loop, and successfully consumed pages cannot be replayed.
 
 Explore replaces the Search shell route without replacing `SearchViewModel`,
 its density setting, or its pagination/viewer behavior. Its blank idle state

@@ -51,17 +51,27 @@ Album/Person detail is documented separately in
 
 - Search is live and network-backed. Results are held in `SearchState`; there is
   no Search Room table or offline result cache.
-- Smart mode posts natural-language queries to `/api/search/smart`.
-- Filename mode posts `originalFileName` to `/api/search/metadata`.
+- Search input and filters normalize into immutable `SearchCriteria` before a
+  request starts. Inactive request fields are omitted; explicit Unknown,
+  Untagged, and Unrated constraints are encoded as JSON `null`.
+- A nonblank Context query posts `query` to `/api/search/smart`. Filename,
+  Description, OCR, and filter-only criteria post to `/api/search/metadata`
+  with the matching endpoint-specific text field, when text is present.
+- Applied criteria remain separate from the submitted `SearchSession`. The
+  submitted session freezes normalized criteria, endpoint, generation, current
+  page, next page, and consumed pages for the complete paginated result set.
 - Both endpoints request 50 items per page and accept only the server-returned
   `nextPage` token. Only supported `IMAGE` and `VIDEO` responses enter the
   domain result list.
 - Editing the query or changing mode cancels search, load-more, and row-layout
   work; increments the request generation; and clears the executed result set.
 - Search results, load-more results, and RowPacking publication are accepted
-  only when query, mode, and generation still match current state.
+  only while normalized criteria, endpoint, and generation still match the
+  submitted session.
 - A new search replaces results. A successful load-more appends results and
-  records the loaded page so a repeated server token cannot loop.
+  de-duplicates asset ids in first-seen order. Successfully decoded pages are
+  consumed even when they contain no supported assets; repeated, backward, or
+  already-consumed server tokens terminate pagination.
 - Initial request failure shows the Search error state. Load-more failure keeps
   existing results and makes the server token manually retryable.
 

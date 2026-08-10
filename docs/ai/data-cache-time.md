@@ -45,6 +45,13 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Immich v3 album detail returns metadata only. Fetch album assets through paged metadata search with `albumIds`, the album's server order, and the returned `nextPage` token.
 - People list sync fetches every `/people` page into memory and replaces Room only after the complete paginated fetch succeeds.
 - Album assets, Person assets, and search endpoints may paginate. Parse and follow the endpoint's returned `nextPage` value; never synthesize the next page by incrementing local state. A malformed non-null token is an API compatibility failure. Guard duplicate loads with `isLoadingMore`.
+- Explore Search builds endpoint-specific JSON from normalized criteria rather
+  than serializing one defaults-heavy request DTO. Omit inactive fields, encode
+  explicit missing-value filters as JSON `null`, preserve selected Person,
+  Album, and Tag id order, and select Smart versus Metadata before performing
+  network I/O. Date filters use inclusive selected calendar boundaries labelled
+  as `T00:00:00.000Z` and `T23:59:59.999Z`, matching Immich web's wall-clock
+  date semantics.
 - `AssetResponseDto.stack` is nested and supplies the persisted/displayed stack count. Only `IMAGE` and `VIDEO` enter the gallery cache or domain model; filter `AUDIO` and `OTHER` responses at API-to-cache/domain boundaries.
 - Complete stacks are live viewer data. Resolve the current stack id from
   `/api/assets/{id}` before reading `/api/stacks/{stackId}`, normalize supported

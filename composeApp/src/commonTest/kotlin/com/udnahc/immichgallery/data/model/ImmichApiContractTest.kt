@@ -185,6 +185,41 @@ class ImmichApiContractTest {
     }
 
     @Test
+    fun optionalSearchContractsDecodeMissingAndFutureFields() {
+        val features = json.decodeFromString<SearchServerFeaturesResponse>(
+            """{"search":true,"unknownFutureField":true}"""
+        )
+        val preferences = json.decodeFromString<SearchUserPreferencesResponse>(
+            """{"tags":{"enabled":true,"sidebarWeb":false}}"""
+        )
+        val tag = json.decodeFromString<SearchTagResponse>(
+            """{
+                "id":"tag-1",
+                "name":"Beach",
+                "value":"Travel/Beach",
+                "parentId":null,
+                "unknownFutureField":true
+            }"""
+        )
+
+        assertEquals(true, features.search)
+        assertNull(features.smartSearch)
+        assertNull(features.ocr)
+        assertEquals(true, preferences.tags?.enabled)
+        assertNull(preferences.ratings)
+        assertEquals("Travel/Beach", tag.value)
+        assertNull(tag.color)
+    }
+
+    @Test
+    fun nullableSearchSuggestionsDecodeExplicitUnknown() {
+        assertEquals(
+            listOf("Austin", null, "Dallas"),
+            json.decodeFromString<List<String?>>("""["Austin",null,"Dallas"]""")
+        )
+    }
+
+    @Test
     fun timelineColumnarResponseRequiresAlignedColumns() {
         val response = TimelineBucketColumnarResponse(
             id = listOf("a", "b"),
