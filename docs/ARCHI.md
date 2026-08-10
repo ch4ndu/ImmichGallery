@@ -40,9 +40,10 @@ The current user-facing feature set is:
 
 Only `IMAGE` and `VIDEO` assets enter the gallery domain. Hidden Timeline
 assets, audio, and other unsupported asset types are filtered at data
-boundaries. Explore Search results, Favorites, current-date Memories, and
-expanded asset information are live server data;
-they are not independent Room-backed caches.
+boundaries. Explore Search results and optional capability/filter data,
+Favorites, current-date Memories, and expanded asset information are live
+server data; they are not independent Room-backed caches. Search entity
+options reuse the existing Room-backed People and Albums sources.
 
 The deliberate non-goals are server mutation operations: upload, edit,
 favorite, delete, share, and download are not implemented. ImmichGallery also
@@ -219,7 +220,7 @@ pagination, layout projection, and viewer-source state for their feature.
 | Album detail | `AlbumDetailScreen` | `AlbumDetailViewModel`, detail layout coordinator | album/detail repositories and Room |
 | People list | `PeopleScreen` | `PeopleViewModel` | `PeopleRepository` and Room |
 | Person detail | `PersonDetailScreen` | `PersonDetailViewModel`, detail layout coordinator | people/detail repositories and Room |
-| Explore/Search | `SearchScreen` | `SearchViewModel`, `SearchCriteria`, and `SearchAssetsUseCase` | live `SearchRepository` calls |
+| Explore/Search | `SearchScreen` | `SearchViewModel`, `SearchCriteria`, Search/filter UseCases | live `SearchRepository` option/result calls plus existing Room People/Albums |
 | Favorites | `FavoritesScreen` | `FavoritesViewModel`, owner/Favorites UseCases | live auth and metadata-search calls |
 | Memories | `MemoriesScreen` | `MemoriesViewModel`, local-date Memories UseCase | live date-filtered Memories calls |
 | Media viewer | overlay hosts and media components | static or Timeline overlay coordinator | asset detail, Coil, platform video player |
@@ -234,6 +235,9 @@ pagination, layout projection, and viewer-source state for their feature.
 - `/api/timeline/buckets` and `/api/timeline/bucket`;
 - `/api/albums` and `/api/albums/{id}`;
 - `/api/people`;
+- `/api/server/features` and `/api/users/me/preferences` for Search capability
+  and optional-filter availability;
+- `/api/tags` and `/api/search/suggestions` for lazy Search filter options;
 - `/api/search/metadata` for album assets, person assets, advanced metadata
   criteria, and owner-filtered Favorites;
 - `/api/search/smart` for natural-language criteria with shared metadata
@@ -286,8 +290,12 @@ Cache ownership by feature:
 - Detail Mosaic: owner-scoped artifacts for Album and Person detail.
 - Settings: credentials, grouping, row density, and Mosaic preferences remain
   in `multiplatform-settings`, not Room.
-- Explore Search, Favorites, current-date Memories, expanded asset information,
-  and viewer stack member lists: live-only.
+- Explore Search results, server capabilities, user Search preferences, Tags,
+  and camera/location suggestions: destination-lifetime live-only state.
+  Search People and Album options reuse their existing Room list caches and
+  synchronization UseCases rather than creating Search-owned tables.
+- Favorites, current-date Memories, expanded asset information, and viewer
+  stack member lists: live-only.
 
 See `docs/ai/data-cache-time.md` for cache and transaction invariants.
 
@@ -334,6 +342,16 @@ submitted session freezes the normalized criteria, endpoint, generation, and
 page state so visible edits cannot alter an in-flight request. Failed next
 pages remain explicitly retryable rather than entering an automatic retry
 loop, and successfully consumed pages cannot be replayed.
+
+`SearchViewModel` reads server features and user preferences independently for
+its destination lifetime. Confirmed `search=false` blocks execution; Context
+and OCR require positive feature knowledge, while baseline Metadata modes stay
+available when optional capability reads are loading or fail. People and Album
+options observe their existing Room flows immediately and run their existing
+sync once on first picker open. Tags load lazily when enabled, and typed
+camera/location suggestions cache successful values by normalized dependency
+tuple while canceling stale requests for the same option type. None of this
+option data adds a Search Room table.
 
 Explore replaces the Search shell route without replacing `SearchViewModel`,
 its density setting, or its pagination/viewer behavior. Its blank idle state

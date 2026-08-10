@@ -7,6 +7,9 @@ import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.model.MemoryResponse
 import com.udnahc.immichgallery.data.model.PeopleResponse
 import com.udnahc.immichgallery.data.model.SearchResponse
+import com.udnahc.immichgallery.data.model.SearchServerFeaturesResponse
+import com.udnahc.immichgallery.data.model.SearchTagResponse
+import com.udnahc.immichgallery.data.model.SearchUserPreferencesResponse
 import com.udnahc.immichgallery.data.model.ServerPingResponse
 import com.udnahc.immichgallery.data.model.ServerVersionResponse
 import com.udnahc.immichgallery.data.model.StackResponse
@@ -15,6 +18,8 @@ import com.udnahc.immichgallery.data.model.TimelineBucketColumnarResponse
 import com.udnahc.immichgallery.data.model.UserResponse
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.domain.model.SearchCriteria
+import com.udnahc.immichgallery.domain.model.SearchSuggestionRequest
+import com.udnahc.immichgallery.domain.model.SearchSuggestionType
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -204,6 +209,37 @@ class ImmichApiService(
         }.body()
     }
 
+    suspend fun getSearchServerFeatures(): SearchServerFeaturesResponse {
+        log.d { "GET ${baseUrl()}/api/server/features" }
+        return httpClient.get("${baseUrl()}/api/server/features").body()
+    }
+
+    suspend fun getSearchUserPreferences(): SearchUserPreferencesResponse {
+        log.d { "GET ${baseUrl()}/api/users/me/preferences" }
+        return httpClient.get("${baseUrl()}/api/users/me/preferences") {
+            header("x-api-key", apiKey())
+        }.body()
+    }
+
+    suspend fun getSearchTags(): List<SearchTagResponse> {
+        log.d { "GET ${baseUrl()}/api/tags" }
+        return httpClient.get("${baseUrl()}/api/tags") {
+            header("x-api-key", apiKey())
+        }.body()
+    }
+
+    suspend fun getSearchSuggestions(request: SearchSuggestionRequest): List<String?> {
+        val normalized = request.normalized()
+        val parameters = normalized.toQueryParameters()
+        log.d {
+            "GET ${baseUrl()}/api/search/suggestions type=${normalized.type} dependencies=${parameters.size - 2}"
+        }
+        return httpClient.get("${baseUrl()}/api/search/suggestions") {
+            header("x-api-key", apiKey())
+            parameters.forEach { (key, value) -> parameter(key, value) }
+        }.body()
+    }
+
     suspend fun searchFavorites(
         page: Int = 1,
         size: Int = 50
@@ -249,6 +285,28 @@ class ImmichApiService(
 }
 
 internal fun memoryDateQuery(forDate: LocalDate): String = forDate.toString()
+
+internal fun SearchSuggestionRequest.toQueryParameters(): List<Pair<String, String>> {
+    val normalized = normalized()
+    return buildList {
+        add("type" to normalized.type.apiValue)
+        add("includeNull" to "true")
+        normalized.country?.let { add("country" to it) }
+        normalized.state?.let { add("state" to it) }
+        normalized.make?.let { add("make" to it) }
+        normalized.model?.let { add("model" to it) }
+    }
+}
+
+private val SearchSuggestionType.apiValue: String
+    get() = when (this) {
+        SearchSuggestionType.COUNTRY -> "country"
+        SearchSuggestionType.STATE -> "state"
+        SearchSuggestionType.CITY -> "city"
+        SearchSuggestionType.CAMERA_MAKE -> "camera-make"
+        SearchSuggestionType.CAMERA_MODEL -> "camera-model"
+        SearchSuggestionType.LENS_MODEL -> "lens-model"
+    }
 
 @Serializable
 internal data class FavoritesSearchRequest(

@@ -55,6 +55,9 @@ import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsPageUseCase
 import com.udnahc.immichgallery.domain.usecase.people.GetPersonAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.search.GetFavoriteAssetsUseCase
+import com.udnahc.immichgallery.domain.usecase.search.GetSearchCapabilitiesUseCase
+import com.udnahc.immichgallery.domain.usecase.search.GetSearchSuggestionsUseCase
+import com.udnahc.immichgallery.domain.usecase.search.GetSearchTagsUseCase
 import com.udnahc.immichgallery.domain.usecase.search.SearchAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
@@ -140,6 +143,9 @@ val sharedModule = module {
     factory { GetPersonAssetsUseCase(get()) }
     factory { GetPersonAssetsPageUseCase(get()) }
     factory { SearchAssetsUseCase(get(), get()) }
+    factory { GetSearchCapabilitiesUseCase(get()) }
+    factory { GetSearchTagsUseCase(repository = get<SearchRepository>()) }
+    factory { GetSearchSuggestionsUseCase(repository = get<SearchRepository>()) }
     factory {
         GetFavoriteAssetsUseCase(
             repository = get<SearchRepository>(),
@@ -254,7 +260,21 @@ val sharedModule = module {
             params.get()
         )
     }
-    viewModel { SearchViewModel(get(), get(), get(), get(), get(), get()) }
+    viewModel {
+        SearchViewModel(
+            searchAssetsUseCase = get(),
+            getSearchCapabilitiesUseCase = get(),
+            getSearchTagsUseCase = get(),
+            getSearchSuggestionsUseCase = get(),
+            getPeopleUseCase = get(),
+            getAlbumsUseCase = get(),
+            getApiKeyUseCase = get(),
+            getAssetDetailUseCase = get(),
+            getAssetStackUseCase = get(),
+            getTargetRowHeightUseCase = get(),
+            setTargetRowHeightAction = get()
+        )
+    }
     viewModel { FavoritesViewModel(get(), get(), get(), get(), get(), get(), get()) }
     viewModel { MemoriesViewModel(get(), get(), get(), get()) }
 }

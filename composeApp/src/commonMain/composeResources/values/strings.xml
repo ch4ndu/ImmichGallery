@@ -68,6 +68,14 @@
     <string name="error_load_people">Failed to load people</string>
     <string name="error_load_photos">Failed to load photos</string>
     <string name="error_search_failed">Search failed</string>
+    <string name="search_unavailable">Search is unavailable on this server.</string>
+    <string name="search_context_unavailable">Context search is unavailable. Choose another search mode or retry capabilities.</string>
+    <string name="search_ocr_unavailable">OCR search is unavailable. Choose another search mode or retry capabilities.</string>
+    <string name="search_preferences_unavailable">Optional search preferences are unavailable. Retry to check Tags and Ratings.</string>
+    <string name="search_people_options_failed">Could not refresh people. Cached people remain available.</string>
+    <string name="search_album_options_failed">Could not refresh albums. Cached albums remain available.</string>
+    <string name="search_tag_options_failed">Could not load tags.</string>
+    <string name="search_suggestions_failed">Could not load suggestions.</string>
 
     <!-- Timeline -->
     <string name="timeline_failed_tap_retry">Failed to load. Tap to retry.</string>

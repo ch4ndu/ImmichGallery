@@ -3,6 +3,14 @@ package com.udnahc.immichgallery.ui.model
 import androidx.compose.runtime.Composable
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.error_search_failed
+import immichgallery.composeapp.generated.resources.search_album_options_failed
+import immichgallery.composeapp.generated.resources.search_context_unavailable
+import immichgallery.composeapp.generated.resources.search_ocr_unavailable
+import immichgallery.composeapp.generated.resources.search_people_options_failed
+import immichgallery.composeapp.generated.resources.search_preferences_unavailable
+import immichgallery.composeapp.generated.resources.search_suggestions_failed
+import immichgallery.composeapp.generated.resources.search_tag_options_failed
+import immichgallery.composeapp.generated.resources.search_unavailable
 import immichgallery.composeapp.generated.resources.favorites_load_failed
 import immichgallery.composeapp.generated.resources.favorites_permission_denied
 import immichgallery.composeapp.generated.resources.memories_load_failed
@@ -37,6 +45,14 @@ val UiMessage.resource: StringResource
         LoginUiMessage.ConnectionFailed -> Res.string.login_connection_failed
         LoginUiMessage.LocalNetworkPermissionDenied -> Res.string.login_local_network_permission_denied
         SearchUiMessage.SearchFailed -> Res.string.error_search_failed
+        SearchUiMessage.SearchUnavailable -> Res.string.search_unavailable
+        SearchUiMessage.ContextUnavailable -> Res.string.search_context_unavailable
+        SearchUiMessage.OcrUnavailable -> Res.string.search_ocr_unavailable
+        SearchUiMessage.PreferencesUnavailable -> Res.string.search_preferences_unavailable
+        SearchUiMessage.PeopleOptionsFailed -> Res.string.search_people_options_failed
+        SearchUiMessage.AlbumOptionsFailed -> Res.string.search_album_options_failed
+        SearchUiMessage.TagOptionsFailed -> Res.string.search_tag_options_failed
+        SearchUiMessage.SuggestionsFailed -> Res.string.search_suggestions_failed
         FavoritesUiMessage.PermissionDenied -> Res.string.favorites_permission_denied
         FavoritesUiMessage.LoadFailed -> Res.string.favorites_load_failed
         MemoriesUiMessage.PermissionDenied -> Res.string.memories_permission_denied

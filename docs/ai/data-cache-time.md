@@ -32,6 +32,13 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Imperative DB reads also use `Dispatchers.IO`; only pure entity-to-domain mapping may move to `Dispatchers.Default`.
 - Flow transforms that map entity lists to domain projections use `.flowOn(Dispatchers.Default)` where appropriate.
 - Reconstruct URLs from current server config and asset IDs where possible so cached rows do not retain stale server URLs.
+- Explore Search results, server feature/preference reads, Tags, and typed
+  suggestions are memory-only for the Search destination lifetime. Successful
+  suggestions may be cached in that ViewModel by normalized dependency tuple;
+  none of these values are written to Room or settings.
+- Search People and Album selectors observe and synchronize the existing Room
+  list caches through their domain UseCases. Do not create Search-owned entity
+  tables, duplicate repositories, or separate invalidation/logout rules.
 - Include `edited=true` on asset image URLs when non-destructive edit support requires edited variants.
 - Mosaic cache writes should use ordered asset fingerprints for invalidation, not timestamps or counts alone. A no-op sync must keep existing Mosaic rows, geometry, display cache, and asset revisions intact; changed or removed scoped content must clear the matching Mosaic cache rows with the relationship/content update. Timeline bucket-detail sync may skip asset/ref writes entirely when the fetched ordered visible fields match Room and all edited assets with dimensions have already resolved edit enrichment.
 - Detail repositories must decide no-op versus changed from the final rows (including resolved edit aspect), not the pre-enrichment API response. They must never run a later background edit-enrichment write after replacing refs, because that leaves owner content and Mosaic artifacts out of sync.
@@ -52,6 +59,11 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
   network I/O. Date filters use inclusive selected calendar boundaries labelled
   as `T00:00:00.000Z` and `T23:59:59.999Z`, matching Immich web's wall-clock
   date semantics.
+- Search filter support reads public `/api/server/features` independently from
+  authenticated `/api/users/me/preferences`. Tags use authenticated
+  `/api/tags`; typed camera/location values use authenticated
+  `/api/search/suggestions` with only the dependency query values supported by
+  that suggestion type. Raw option values and dependencies must not be logged.
 - `AssetResponseDto.stack` is nested and supplies the persisted/displayed stack count. Only `IMAGE` and `VIDEO` enter the gallery cache or domain model; filter `AUDIO` and `OTHER` responses at API-to-cache/domain boundaries.
 - Complete stacks are live viewer data. Resolve the current stack id from
   `/api/assets/{id}` before reading `/api/stacks/{stackId}`, normalize supported

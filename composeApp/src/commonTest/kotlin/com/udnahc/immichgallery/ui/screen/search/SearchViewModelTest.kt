@@ -1,19 +1,33 @@
 package com.udnahc.immichgallery.ui.screen.search
 
+import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.Person
+import com.udnahc.immichgallery.domain.model.SearchCapabilities
 import com.udnahc.immichgallery.domain.model.SearchCriteria
 import com.udnahc.immichgallery.domain.model.SearchEndpoint
+import com.udnahc.immichgallery.domain.model.SearchLoadState
+import com.udnahc.immichgallery.domain.model.SearchPreferenceCapabilities
 import com.udnahc.immichgallery.domain.model.SearchResult
+import com.udnahc.immichgallery.domain.model.SearchSuggestion
+import com.udnahc.immichgallery.domain.model.SearchSuggestionRequest
+import com.udnahc.immichgallery.domain.model.SearchSuggestionType
+import com.udnahc.immichgallery.domain.model.SearchTag
 import com.udnahc.immichgallery.domain.model.SearchTextMode
 import com.udnahc.immichgallery.domain.model.packIntoRows
+import com.udnahc.immichgallery.domain.model.valueOrNull
+import com.udnahc.immichgallery.ui.model.SearchUiMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -25,6 +39,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -312,6 +327,276 @@ class SearchViewModelTest {
         assertEquals(false, shouldShowExploreLanding(SearchState(hasSearched = true)))
     }
 
+    @Test
+    fun capabilityAndPreferenceFailuresPublishIndependently() = runTest(dispatcher.scheduler) {
+        val serverResult = CompletableDeferred<Result<SearchCapabilities>>()
+        val viewModel = viewModel(
+            searchAssets = { _, _, _ -> Result.success(SearchResult(emptyList(), null)) },
+            loadServerCapabilities = { serverResult.await() },
+            loadPreferenceCapabilities = {
+                Result.failure(IllegalStateException("permission denied"))
+            },
+            initialServerCapabilities = SearchLoadState.Idle,
+            initialPreferenceCapabilities = SearchLoadState.Idle
+        )
+
+        runCurrent()
+        assertIs<SearchLoadState.Loading<SearchCapabilities>>(
+            viewModel.state.value.serverCapabilities
+        )
+        assertIs<SearchLoadState.Error<SearchPreferenceCapabilities>>(
+            viewModel.state.value.preferenceCapabilities
+        )
+
+        serverResult.complete(
+            Result.success(
+                SearchCapabilities(
+                    searchEnabled = true,
+                    contextEnabled = true,
+                    ocrEnabled = false
+                )
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            true,
+            viewModel.state.value.serverCapabilities.valueOrNull()?.contextEnabled
+        )
+        assertIs<SearchLoadState.Error<SearchPreferenceCapabilities>>(
+            viewModel.state.value.preferenceCapabilities
+        )
+    }
+
+    @Test
+    fun contextRequiresPositiveCapabilityWhileMetadataWorksDuringCapabilityLoad() =
+        runTest(dispatcher.scheduler) {
+            val serverResult = CompletableDeferred<Result<SearchCapabilities>>()
+            var searchCalls = 0
+            val viewModel = viewModel(
+                searchAssets = { _, _, _ ->
+                    searchCalls++
+                    Result.success(SearchResult(emptyList(), null))
+                },
+                loadServerCapabilities = { serverResult.await() },
+                initialServerCapabilities = SearchLoadState.Idle
+            )
+
+            viewModel.updateQuery("beach")
+            viewModel.search()
+            assertEquals(SearchUiMessage.ContextUnavailable, viewModel.state.value.error)
+            assertEquals(0, searchCalls)
+
+            viewModel.updateTextMode(SearchTextMode.FILENAME)
+            viewModel.search()
+            advanceUntilIdle()
+            assertEquals(1, searchCalls)
+
+            serverResult.complete(
+                Result.success(
+                    SearchCapabilities(
+                        searchEnabled = false,
+                        contextEnabled = false,
+                        ocrEnabled = false
+                    )
+                )
+            )
+            advanceUntilIdle()
+            viewModel.search()
+
+            assertEquals(SearchUiMessage.SearchUnavailable, viewModel.state.value.error)
+            assertEquals(1, searchCalls)
+        }
+
+    @Test
+    fun peopleAndAlbumsObserveRoomImmediatelyAndSyncOnlyWhenOpened() = runTest(dispatcher.scheduler) {
+        val people = MutableStateFlow(listOf(person("person-1")))
+        val albums = MutableStateFlow(listOf(album("album-1")))
+        var peopleSyncs = 0
+        var albumSyncs = 0
+        val viewModel = viewModel(
+            searchAssets = { _, _, _ -> Result.success(SearchResult(emptyList(), null)) },
+            observePeople = { people },
+            syncPeople = {
+                peopleSyncs++
+                Result.failure(IllegalStateException("people refresh failed"))
+            },
+            observeAlbums = { albums },
+            syncAlbums = {
+                albumSyncs++
+                Result.failure(IllegalStateException("album refresh failed"))
+            }
+        )
+        runCurrent()
+
+        assertEquals(listOf("person-1"), viewModel.state.value.peopleOptions.valueOrNull()?.map(Person::id))
+        assertEquals(listOf("album-1"), viewModel.state.value.albumOptions.valueOrNull()?.map(Album::id))
+        assertEquals(0, peopleSyncs)
+        assertEquals(0, albumSyncs)
+
+        viewModel.openPeopleOptions()
+        viewModel.openPeopleOptions()
+        viewModel.openAlbumOptions()
+        viewModel.openAlbumOptions()
+        advanceUntilIdle()
+
+        assertEquals(1, peopleSyncs)
+        assertEquals(1, albumSyncs)
+        assertIs<SearchLoadState.Error<List<Person>>>(viewModel.state.value.peopleOptions)
+        assertIs<SearchLoadState.Error<List<Album>>>(viewModel.state.value.albumOptions)
+        assertEquals(listOf("person-1"), viewModel.state.value.peopleOptions.valueOrNull()?.map(Person::id))
+        assertEquals(listOf("album-1"), viewModel.state.value.albumOptions.valueOrNull()?.map(Album::id))
+    }
+
+    @Test
+    fun tagsLoadLazilyOnceAndRemainRetryable() = runTest(dispatcher.scheduler) {
+        var calls = 0
+        val tags = listOf(searchTag("tag-1"))
+        val enabledPreferences = SearchPreferenceCapabilities(
+            tagsEnabled = true,
+            ratingsEnabled = false
+        )
+        val viewModel = viewModel(
+            searchAssets = { _, _, _ -> Result.success(SearchResult(emptyList(), null)) },
+            loadPreferenceCapabilities = { Result.success(enabledPreferences) },
+            loadTags = {
+                calls++
+                if (calls == 1) Result.failure(IllegalStateException("tag failure"))
+                else Result.success(tags)
+            },
+            initialPreferenceCapabilities = SearchLoadState.Content(enabledPreferences)
+        )
+
+        assertEquals(0, calls)
+        viewModel.openTagOptions()
+        viewModel.openTagOptions()
+        advanceUntilIdle()
+        assertEquals(1, calls)
+        assertIs<SearchLoadState.Error<List<SearchTag>>>(viewModel.state.value.tagOptions)
+
+        viewModel.retryTagOptions()
+        advanceUntilIdle()
+        assertEquals(2, calls)
+        assertEquals(tags, viewModel.state.value.tagOptions.valueOrNull())
+    }
+
+    @Test
+    fun tagRequestWaitsForPositivePreferenceCapability() = runTest(dispatcher.scheduler) {
+        val preferences = CompletableDeferred<Result<SearchPreferenceCapabilities>>()
+        var calls = 0
+        val viewModel = viewModel(
+            searchAssets = { _, _, _ -> Result.success(SearchResult(emptyList(), null)) },
+            loadPreferenceCapabilities = { preferences.await() },
+            loadTags = {
+                calls++
+                Result.success(listOf(searchTag("tag-1")))
+            },
+            initialPreferenceCapabilities = SearchLoadState.Idle
+        )
+
+        viewModel.openTagOptions()
+        runCurrent()
+        assertEquals(0, calls)
+
+        preferences.complete(
+            Result.success(
+                SearchPreferenceCapabilities(tagsEnabled = true, ratingsEnabled = false)
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(1, calls)
+        assertEquals(
+            listOf("tag-1"),
+            viewModel.state.value.tagOptions.valueOrNull()?.map(SearchTag::id)
+        )
+    }
+
+    @Test
+    fun successfulSuggestionsAreCachedByNormalizedDependencyTuple() = runTest(dispatcher.scheduler) {
+        val calls = mutableListOf<SearchSuggestionRequest>()
+        val result = listOf(SearchSuggestion.Value("Austin"), SearchSuggestion.Unknown)
+        val viewModel = viewModel(
+            searchAssets = { _, _, _ -> Result.success(SearchResult(emptyList(), null)) },
+            loadSuggestions = { request ->
+                calls += request
+                Result.success(result)
+            }
+        )
+
+        viewModel.loadSuggestionOptions(
+            SearchSuggestionRequest(
+                type = SearchSuggestionType.CITY,
+                country = " US ",
+                state = " Texas "
+            )
+        )
+        advanceUntilIdle()
+        viewModel.loadSuggestionOptions(
+            SearchSuggestionRequest(
+                type = SearchSuggestionType.CITY,
+                country = "US",
+                state = "Texas"
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(SearchSuggestionRequest(SearchSuggestionType.CITY, "US", "Texas")),
+            calls
+        )
+        assertEquals(
+            result,
+            viewModel.state.value.suggestionOptions
+                .getValue(SearchSuggestionType.CITY)
+                .state
+                .valueOrNull()
+        )
+    }
+
+    @Test
+    fun changedSuggestionDependenciesCancelAndRejectStalePublication() =
+        runTest(dispatcher.scheduler) {
+            val first = CompletableDeferred<Result<List<SearchSuggestion>>>()
+            val second = CompletableDeferred<Result<List<SearchSuggestion>>>()
+            val viewModel = viewModel(
+                searchAssets = { _, _, _ -> Result.success(SearchResult(emptyList(), null)) },
+                loadSuggestions = { request ->
+                    if (request.country == "US") {
+                        try {
+                            first.await()
+                        } catch (_: CancellationException) {
+                            Result.success(listOf(SearchSuggestion.Value("stale")))
+                        }
+                    } else {
+                        second.await()
+                    }
+                }
+            )
+
+            viewModel.loadSuggestionOptions(
+                SearchSuggestionRequest(SearchSuggestionType.STATE, country = "US")
+            )
+            runCurrent()
+            viewModel.loadSuggestionOptions(
+                SearchSuggestionRequest(SearchSuggestionType.STATE, country = "CA")
+            )
+            runCurrent()
+            second.complete(Result.success(listOf(SearchSuggestion.Value("Ontario"))))
+            advanceUntilIdle()
+
+            val state = viewModel.state.value.suggestionOptions
+                .getValue(SearchSuggestionType.STATE)
+            assertEquals(
+                SearchSuggestionRequest(SearchSuggestionType.STATE, country = "CA"),
+                state.request
+            )
+            assertEquals(
+                listOf(SearchSuggestion.Value("Ontario")),
+                state.state.valueOrNull()
+            )
+        }
+
     private fun viewModel(
         searchAssets: suspend (SearchEndpoint, SearchCriteria, Int) -> Result<SearchResult>,
         rowPacker: suspend (SearchState) -> List<RowItem> = { snapshot ->
@@ -326,7 +611,27 @@ class SearchViewModelTest {
                     maxRowHeight = snapshot.rowHeightBounds.max
                 )
             }
-        }
+        },
+        loadServerCapabilities: suspend () -> Result<SearchCapabilities> = {
+            Result.success(enabledSearchCapabilities())
+        },
+        loadPreferenceCapabilities: suspend () -> Result<SearchPreferenceCapabilities> = {
+            Result.success(SearchPreferenceCapabilities(tagsEnabled = false, ratingsEnabled = false))
+        },
+        observePeople: () -> Flow<List<Person>> = { flowOf(emptyList()) },
+        syncPeople: suspend () -> Result<Unit> = { Result.success(Unit) },
+        observeAlbums: () -> Flow<List<Album>> = { flowOf(emptyList()) },
+        syncAlbums: suspend () -> Result<Unit> = { Result.success(Unit) },
+        loadTags: suspend () -> Result<List<SearchTag>> = { Result.success(emptyList()) },
+        loadSuggestions: suspend (SearchSuggestionRequest) -> Result<List<SearchSuggestion>> = {
+            Result.success(emptyList())
+        },
+        initialServerCapabilities: SearchLoadState<SearchCapabilities> =
+            SearchLoadState.Content(enabledSearchCapabilities()),
+        initialPreferenceCapabilities: SearchLoadState<SearchPreferenceCapabilities> =
+            SearchLoadState.Content(
+                SearchPreferenceCapabilities(tagsEnabled = false, ratingsEnabled = false)
+            )
     ): SearchViewModel = SearchViewModel(
         searchAssets = searchAssets,
         apiKey = "",
@@ -335,7 +640,44 @@ class SearchViewModelTest {
         initialTargetRowHeight = DEFAULT_TARGET_ROW_HEIGHT,
         saveTargetRowHeight = {},
         searchDispatcher = dispatcher,
-        rowPacker = rowPacker
+        rowPacker = rowPacker,
+        loadServerCapabilities = loadServerCapabilities,
+        loadPreferenceCapabilities = loadPreferenceCapabilities,
+        observePeople = observePeople,
+        syncPeople = syncPeople,
+        observeAlbums = observeAlbums,
+        syncAlbums = syncAlbums,
+        loadTags = loadTags,
+        loadSuggestions = loadSuggestions,
+        initialServerCapabilities = initialServerCapabilities,
+        initialPreferenceCapabilities = initialPreferenceCapabilities
+    )
+
+    private fun enabledSearchCapabilities(): SearchCapabilities = SearchCapabilities(
+        searchEnabled = true,
+        contextEnabled = true,
+        ocrEnabled = true
+    )
+
+    private fun person(id: String): Person = Person(
+        id = id,
+        name = "Person $id",
+        thumbnailUrl = "https://example.test/$id/face"
+    )
+
+    private fun album(id: String): Album = Album(
+        id = id,
+        name = "Album $id",
+        assetCount = 1,
+        thumbnailUrl = "https://example.test/$id/cover"
+    )
+
+    private fun searchTag(id: String): SearchTag = SearchTag(
+        id = id,
+        parentId = null,
+        name = "Tag $id",
+        value = "Tag $id",
+        color = null
     )
 
     private fun asset(id: String): Asset = Asset(

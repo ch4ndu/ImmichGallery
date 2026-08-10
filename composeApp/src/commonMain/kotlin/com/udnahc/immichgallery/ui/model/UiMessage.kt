@@ -10,6 +10,14 @@ sealed interface LoginUiMessage : UiMessage {
 
 sealed interface SearchUiMessage : UiMessage {
     data object SearchFailed : SearchUiMessage
+    data object SearchUnavailable : SearchUiMessage
+    data object ContextUnavailable : SearchUiMessage
+    data object OcrUnavailable : SearchUiMessage
+    data object PreferencesUnavailable : SearchUiMessage
+    data object PeopleOptionsFailed : SearchUiMessage
+    data object AlbumOptionsFailed : SearchUiMessage
+    data object TagOptionsFailed : SearchUiMessage
+    data object SuggestionsFailed : SearchUiMessage
 }
 
 sealed interface FavoritesUiMessage : UiMessage {

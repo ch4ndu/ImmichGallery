@@ -51,6 +51,26 @@ Album/Person detail is documented separately in
 
 - Search is live and network-backed. Results are held in `SearchState`; there is
   no Search Room table or offline result cache.
+- Server Search features and user preferences load independently for the
+  `SearchViewModel` lifetime and remain explicitly retryable. Confirmed
+  `search=false` blocks execution; Context and OCR require positive feature
+  knowledge. Filename, Description, and filter-only Metadata Search remain
+  usable while optional feature or preference reads load or fail.
+- People and Album options observe the existing Room-backed list UseCases as
+  soon as `SearchViewModel` starts. Each existing sync runs once when its picker
+  first opens, keeps cached values visible during refresh/failure, and supports
+  explicit retry. Search does not inject the collection screen ViewModels or
+  add entity caches.
+- Tags load only after their preference is positively enabled and their editor
+  is requested. If that request happens while preferences are loading, the
+  lazy Tag read starts after the positive result. Tag failure retains any
+  previously loaded options and remains retryable.
+- Country, State, City, Camera Make, Camera Model, and Lens Model suggestions
+  load lazily. Requests retain only supported normalized parent dependencies;
+  successful responses cache by that full tuple for the ViewModel lifetime.
+  A changed tuple cancels the older request for the same suggestion type, and
+  only the current tuple may publish. Nullable values map to explicit Unknown,
+  while duplicate non-null values keep server order.
 - Search input and filters normalize into immutable `SearchCriteria` before a
   request starts. Inactive request fields are omitted; explicit Unknown,
   Untagged, and Unrated constraints are encoded as JSON `null`.
@@ -163,6 +183,10 @@ Album/Person detail is documented separately in
   a new explicit/eligible attempt;
 - Search remains RowPacking-only and restores the currently viewed asset row on
   overlay dismissal.
+- Search option tests cover independent feature/preference failure, positive
+  Context/OCR gates, Room-observed People/Albums with cached failure, Tag
+  enablement/lazy retry, normalized suggestion caches, and stale dependent
+  suggestion rejection.
 - Explore cards appear only in blank idle Search state and never prefetch;
 - Favorites excludes partner assets, crosses sparse pages, preserves typed
   retry progress, rejects stale/duplicate work, and returns to the settled
