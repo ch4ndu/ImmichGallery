@@ -273,6 +273,38 @@ class TimelineMosaicGeometryTest {
         assertEquals(listOf(firstSectionKey), status.geometrySummaries.map { it.sectionKey })
     }
 
+    @Test
+    fun artifactFingerprintGuardRejectsCurrentBucketAssetMismatch() {
+        val currentAssets = listOf(assetEntity("a"), assetEntity("b"))
+        val staleArtifact = bucketGeometryArtifact(
+            assetFingerprint = orderedAssetsFingerprint(listOf(assetEntity("a")))
+        )
+
+        assertEquals(
+            false,
+            timelineMosaicArtifactFingerprintMatchesCurrentAssets(
+                currentAssets,
+                staleArtifact.assetFingerprint
+            )
+        )
+    }
+
+    @Test
+    fun artifactFingerprintGuardAcceptsCurrentBucketAssetMatch() {
+        val currentAssets = listOf(assetEntity("a"), assetEntity("b"))
+        val currentArtifact = bucketGeometryArtifact(
+            assetFingerprint = orderedAssetsFingerprint(currentAssets)
+        )
+
+        assertEquals(
+            true,
+            timelineMosaicArtifactFingerprintMatchesCurrentAssets(
+                currentAssets,
+                currentArtifact.assetFingerprint
+            )
+        )
+    }
+
     private fun asset(id: String): Asset =
         Asset(
             id = id,
@@ -359,4 +391,8 @@ class TimelineMosaicGeometryTest {
             spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
             updatedAt = 1L
         )
+
+    private fun bucketGeometryArtifact(
+        assetFingerprint: String
+    ): TimelineBucketGeometryEntity = bucketGeometryEntity("2026-01", assetFingerprint)
 }

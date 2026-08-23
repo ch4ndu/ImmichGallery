@@ -20,7 +20,7 @@ class TimelineProgressiveMosaicBufferTest {
         val buffer = TimelineProgressiveMosaicBuffer()
         val key = key("2026-01")
 
-        buffer.add(key, chunk(0, 40), stamp())
+        buffer.add(key, chunk(0, 40), stamp(), generationStamp())
 
         assertTrue(buffer.drainEligible(emptySet()).isEmpty())
         assertEquals(1, buffer.snapshotSize())
@@ -38,8 +38,8 @@ class TimelineProgressiveMosaicBufferTest {
         val first = chunk(0, 40, bandIndex = 0)
         val replacement = chunk(0, 40, bandIndex = 1)
 
-        buffer.add(key, first, stamp())
-        buffer.add(key, replacement, stamp())
+        buffer.add(key, first, stamp(), generationStamp())
+        buffer.add(key, replacement, stamp(), generationStamp())
 
         val drained = buffer.drainEligible(setOf("2026-01")).single().updatesByKey
 
@@ -52,7 +52,7 @@ class TimelineProgressiveMosaicBufferTest {
         val key = key("2026-01")
         val firstChunk = chunk(0, 40)
 
-        buffer.add(key, firstChunk, stamp())
+        buffer.add(key, firstChunk, stamp(), generationStamp())
 
         assertTrue(buffer.drainEligibleKeys(emptySet()).isEmpty())
         assertEquals(1, buffer.snapshotSize())
@@ -69,8 +69,8 @@ class TimelineProgressiveMosaicBufferTest {
         val january = key("2026-01")
         val february = key("2026-02")
 
-        buffer.add(january, chunk(0, 40), stamp())
-        buffer.add(february, chunk(0, 40), stamp())
+        buffer.add(january, chunk(0, 40), stamp(), generationStamp())
+        buffer.add(february, chunk(0, 40), stamp(), generationStamp())
         buffer.clearKeys(setOf(january))
 
         assertEquals(
@@ -78,27 +78,88 @@ class TimelineProgressiveMosaicBufferTest {
             buffer.drainEligible(setOf("2026-02")).single().updatesByKey
         )
 
-        buffer.add(january, chunk(0, 40), stamp())
+        buffer.add(january, chunk(0, 40), stamp(), generationStamp())
         buffer.clearBuckets(setOf("2026-01"))
 
         assertTrue(buffer.drainEligible(setOf("2026-01")).isEmpty())
     }
 
     @Test
-    fun bufferedChunksRemainPartitionedByOriginatingSessionStamp() = runTest {
+    fun drainedPublishOriginIsRejectedAfterBucketClearBeforeApply() = runTest {
+        val buffer = TimelineProgressiveMosaicBuffer()
+        val key = key("2026-01")
+
+        buffer.add(key, chunk(0, 40), stamp(), generationStamp())
+        val publish = buffer.drainEligibleKeys(setOf(key)).single()
+        val origin = publish.clearOriginsByKey.getValue(key)
+
+        buffer.clearBuckets(setOf("2026-01"))
+
+        assertEquals(false, buffer.isCurrentOrigin(key, origin))
+    }
+
+    @Test
+    fun drainedPublishOriginCannotRequeueAfterGlobalClear() = runTest {
+        val buffer = TimelineProgressiveMosaicBuffer()
+        val key = key("2026-01")
+        val chunk = chunk(0, 40)
+        val stamp = stamp()
+        val generationStamp = generationStamp()
+
+        buffer.add(key, chunk, stamp, generationStamp)
+        val publish = buffer.drainEligibleKeys(setOf(key)).single()
+        buffer.clearAll()
+
+        val requeued = buffer.requeueIfCurrent(
+            key = key,
+            chunk = chunk,
+            sessionStamp = stamp,
+            generationStamp = generationStamp,
+            clearOrigin = publish.clearOriginsByKey.getValue(key)
+        )
+
+        assertEquals(false, requeued)
+        assertEquals(0, buffer.snapshotSize())
+    }
+
+    @Test
+    fun newerSessionChunksReplaceOlderSessionChunksForSameKey() = runTest {
         val buffer = TimelineProgressiveMosaicBuffer()
         val key = key("2026-01")
         val firstStamp = SessionOperationStamp(generation = 1L, ownerEpoch = 2L)
         val secondStamp = SessionOperationStamp(generation = 3L, ownerEpoch = 2L)
 
-        buffer.add(key, chunk(0, 40), firstStamp)
-        buffer.add(key, chunk(40, 80), secondStamp)
+        buffer.add(key, chunk(0, 40), firstStamp, generationStamp())
+        buffer.add(key, chunk(40, 80), secondStamp, generationStamp())
 
         val publishes = buffer.drainEligibleKeys(setOf(key))
 
-        assertEquals(listOf(firstStamp, secondStamp), publishes.map { it.sessionStamp })
-        assertEquals(listOf(chunk(0, 40)), publishes[0].updatesByKey[key])
-        assertEquals(listOf(chunk(40, 80)), publishes[1].updatesByKey[key])
+        assertEquals(listOf(secondStamp), publishes.map { it.sessionStamp })
+        assertEquals(listOf(chunk(40, 80)), publishes.single().updatesByKey[key])
+    }
+
+    @Test
+    fun newerGenerationChunksRejectLateOlderRangesForSameKey() = runTest {
+        val buffer = TimelineProgressiveMosaicBuffer()
+        val key = key("2026-01")
+
+        buffer.add(
+            key,
+            chunk(0, 40, bandIndex = 1),
+            stamp(),
+            generationStamp(globalGeneration = 2L)
+        )
+        buffer.add(
+            key,
+            chunk(40, 80, bandIndex = 0),
+            stamp(),
+            generationStamp(globalGeneration = 1L)
+        )
+
+        val publish = buffer.drainEligibleKeys(setOf(key)).single()
+
+        assertEquals(listOf(chunk(0, 40, bandIndex = 1)), publish.updatesByKey[key])
+        assertEquals(generationStamp(globalGeneration = 2L), publish.generationStampsByKey[key])
     }
 
     @Test
@@ -204,6 +265,62 @@ class TimelineProgressiveMosaicBufferTest {
     }
 
     @Test
+    fun genericStateUpdatesDoNotOverwriteReadyWithFailure() {
+        val key = key("2026-01")
+        val ready = MosaicSectionState.Ready(assignments = emptyList())
+
+        val result = timelineMergeMosaicStateUpdatesPreservingReady(
+            states = mapOf(key to ready),
+            updates = mapOf(key to MosaicSectionState.Failed)
+        )
+
+        assertEquals(ready, result[key])
+    }
+
+    @Test
+    fun genericStateUpdatesAllowNewReadyToReplaceNonReady() {
+        val key = key("2026-01")
+        val ready = MosaicSectionState.Ready(assignments = emptyList())
+
+        val result = timelineMergeMosaicStateUpdatesPreservingReady(
+            states = mapOf(key to MosaicSectionState.Failed),
+            updates = mapOf(key to ready)
+        )
+
+        assertEquals(ready, result[key])
+    }
+
+    @Test
+    fun configPreparationResetPreservesTerminalStateWhileAppliedResetClearsIt() {
+        val readyKey = key("2026-01")
+        val failedKey = key("2026-02")
+        val partialKey = key("2026-03")
+        val ready = MosaicSectionState.Ready(assignments = emptyList())
+        val states = mapOf(
+            readyKey to ready,
+            failedKey to MosaicSectionState.Failed,
+            partialKey to MosaicSectionState.Partial(listOf(chunk(0, 40)))
+        )
+
+        assertEquals(
+            mapOf(
+                readyKey to ready,
+                failedKey to MosaicSectionState.Failed
+            ),
+            timelineMosaicStatesAfterReset(
+                states = states,
+                mode = TimelineMosaicRuntimeResetMode.PreservePublished
+            )
+        )
+        assertTrue(
+            timelineMosaicStatesAfterReset(
+                states = states,
+                mode = TimelineMosaicRuntimeResetMode.ClearPublished
+            ).isEmpty()
+        )
+    }
+
+    @Test
     fun progressiveStateUpdatesMergePartialChunksInSourceOrder() {
         val key = key("2026-01")
         val existing = chunk(40, 80)
@@ -273,6 +390,15 @@ class TimelineProgressiveMosaicBufferTest {
         )
 
     private fun stamp(): SessionOperationStamp = SessionOperationStamp(0L, 0L)
+
+    private fun generationStamp(
+        globalGeneration: Long = 0L,
+        bucketGeneration: Long = 0L
+    ): TimelineRuntimeGenerationStamp =
+        TimelineRuntimeGenerationStamp(
+            globalGeneration = globalGeneration,
+            bucketGeneration = bucketGeneration
+        )
 
     private fun geometryRanges(vararg heights: Float): List<MosaicSectionGeometryRange> {
         var cursor = 0

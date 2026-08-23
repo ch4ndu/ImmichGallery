@@ -34,6 +34,20 @@ class TimelineMosaicRepairRequestTest {
     }
 
     @Test
+    fun lateObsoleteRepairRequestDoesNotEvictCurrentRequestForSameBucket() {
+        val requests = coalesceTimelineMosaicRepairRequests(
+            listOf(
+                request("bucket", assetRevision = 3, globalGeneration = 3L),
+                request("bucket", assetRevision = 4, globalGeneration = 2L)
+            )
+        )
+
+        assertEquals(listOf("bucket"), requests.map { it.timeBucket })
+        assertEquals(3, requests.single().assetRevision)
+        assertEquals(3L, requests.single().globalGeneration)
+    }
+
+    @Test
     fun currentRepairRequestSurvivesPublishCoalescing() {
         val repair = request("bucket", assetRevision = 2)
 
@@ -59,7 +73,8 @@ class TimelineMosaicRepairRequestTest {
 
     private fun request(
         timeBucket: String,
-        assetRevision: Int
+        assetRevision: Int,
+        globalGeneration: Long = 1L
     ): TimelineMosaicRepairRequest = TimelineMosaicRepairRequest(
         sessionStamp = SessionOperationStamp(0L, 0L),
         timeBucket = timeBucket,
@@ -72,7 +87,7 @@ class TimelineMosaicRepairRequestTest {
             spacing = 2f
         ),
         assetRevision = assetRevision,
-        globalGeneration = 1L,
+        globalGeneration = globalGeneration,
         bucketGeneration = 1L,
         sectionsByKey = emptyMap()
     )

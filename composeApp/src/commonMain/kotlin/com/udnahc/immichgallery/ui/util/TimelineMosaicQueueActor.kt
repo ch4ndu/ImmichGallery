@@ -32,11 +32,17 @@ internal sealed interface TimelineMosaicQueueCommand {
         val sessionStamp: SessionOperationStamp
     ) : TimelineMosaicQueueCommand
 
+    data class BeginReset(
+        val id: Long
+    ) : TimelineMosaicQueueCommand
+
+    data class EndReset(
+        val id: Long
+    ) : TimelineMosaicQueueCommand
+
     data class InvalidateBucket(
         val timeBucket: String
     ) : TimelineMosaicQueueCommand
-
-    data object ClearAll : TimelineMosaicQueueCommand
 
     data class WorkerFinished(
         val request: TimelineMosaicQueueRequest,
@@ -53,6 +59,10 @@ internal sealed interface TimelineMosaicQueueEffect {
     data class CancelWork(
         val request: TimelineMosaicQueueRequest,
         val token: Long
+    ) : TimelineMosaicQueueEffect
+
+    data class ResetBoundary(
+        val id: Long
     ) : TimelineMosaicQueueEffect
 }
 
@@ -72,6 +82,7 @@ internal class TimelineMosaicQueueActor(
     private val deferred = mutableListOf<TimelineMosaicQueueRequest>()
     private var running: RunningTimelineMosaicRequest? = null
     private var paused = false
+    private var activeResetId: Long? = null
     private var nextToken = 1L
 
     init {
@@ -129,6 +140,21 @@ internal class TimelineMosaicQueueActor(
                 startNextIfEligible()
             }
 
+            is TimelineMosaicQueueCommand.BeginReset -> {
+                activeResetId = command.id
+                pending.clear()
+                deferred.clear()
+                cancelRunning(defer = false)
+                _effects.send(TimelineMosaicQueueEffect.ResetBoundary(command.id))
+            }
+
+            is TimelineMosaicQueueCommand.EndReset -> {
+                if (activeResetId == command.id) {
+                    activeResetId = null
+                    startNextIfEligible()
+                }
+            }
+
             is TimelineMosaicQueueCommand.InvalidateBucket -> {
                 pending.removeAll { it.timeBucket == command.timeBucket }
                 deferred.removeAll { it.timeBucket == command.timeBucket }
@@ -136,13 +162,6 @@ internal class TimelineMosaicQueueActor(
                     cancelRunning(defer = false)
                 }
                 startNextIfEligible()
-            }
-
-            TimelineMosaicQueueCommand.ClearAll -> {
-                pending.clear()
-                deferred.clear()
-                paused = false
-                cancelRunning(defer = false)
             }
 
             is TimelineMosaicQueueCommand.WorkerFinished -> {
@@ -243,7 +262,7 @@ internal class TimelineMosaicQueueActor(
     }
 
     private suspend fun startNextIfEligible() {
-        if (paused || running != null || pending.isEmpty()) return
+        if (activeResetId != null || paused || running != null || pending.isEmpty()) return
         val request = pending.removeAt(0)
         val token = nextToken++
         running = RunningTimelineMosaicRequest(request, token)

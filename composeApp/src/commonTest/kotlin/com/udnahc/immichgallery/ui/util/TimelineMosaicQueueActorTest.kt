@@ -192,6 +192,132 @@ class TimelineMosaicQueueActorTest {
         closeActor(actor)
     }
 
+    @Test
+    fun resetEmitsCancelWorkBeforeBoundary() = runTest {
+        val actor = TimelineMosaicQueueActor(this)
+        actor.send(enqueue(listOf(render("running"))))
+        runCurrent()
+        val start = actor.effects.receive() as TimelineMosaicQueueEffect.StartWork
+
+        actor.send(TimelineMosaicQueueCommand.BeginReset(1L))
+        runCurrent()
+
+        assertEquals(
+            TimelineMosaicQueueEffect.CancelWork(render("running"), start.token),
+            actor.effects.receive()
+        )
+        assertEquals(TimelineMosaicQueueEffect.ResetBoundary(1L), actor.effects.receive())
+        closeActor(actor)
+    }
+
+    @Test
+    fun enqueueDuringResetDoesNotStartBeforeEndReset() = runTest {
+        val actor = TimelineMosaicQueueActor(this)
+        actor.send(TimelineMosaicQueueCommand.BeginReset(1L))
+        runCurrent()
+        assertEquals(TimelineMosaicQueueEffect.ResetBoundary(1L), actor.effects.receive())
+
+        actor.send(enqueue(listOf(render("queued"))))
+        runCurrent()
+
+        assertEquals(null, actor.effects.tryReceive().getOrNull())
+        actor.send(TimelineMosaicQueueCommand.EndReset(1L))
+        runCurrent()
+        assertEquals(render("queued"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
+        closeActor(actor)
+    }
+
+    @Test
+    fun enqueuesDuringResetCoalesceAndStartAfterMatchingEndReset() = runTest {
+        val actor = TimelineMosaicQueueActor(this)
+        actor.send(TimelineMosaicQueueCommand.BeginReset(1L))
+        runCurrent()
+        assertEquals(TimelineMosaicQueueEffect.ResetBoundary(1L), actor.effects.receive())
+
+        actor.send(enqueue(listOf(render("queued"), render("queued"))))
+        actor.send(enqueue(listOf(render("queued"))))
+        actor.send(enqueue(listOf(sync("queued"))))
+        actor.send(TimelineMosaicQueueCommand.EndReset(1L))
+        runCurrent()
+        val start = actor.effects.receive() as TimelineMosaicQueueEffect.StartWork
+
+        assertEquals(render("queued"), start.request)
+        actor.send(TimelineMosaicQueueCommand.WorkerFinished(start.request, start.token))
+        runCurrent()
+        assertEquals(null, actor.effects.tryReceive().getOrNull())
+        closeActor(actor)
+    }
+
+    @Test
+    fun staleEndResetDoesNotReopenNewerReset() = runTest {
+        val actor = TimelineMosaicQueueActor(this)
+        actor.send(TimelineMosaicQueueCommand.BeginReset(1L))
+        runCurrent()
+        assertEquals(TimelineMosaicQueueEffect.ResetBoundary(1L), actor.effects.receive())
+
+        actor.send(TimelineMosaicQueueCommand.BeginReset(2L))
+        runCurrent()
+        assertEquals(TimelineMosaicQueueEffect.ResetBoundary(2L), actor.effects.receive())
+
+        actor.send(enqueue(listOf(render("queued"))))
+        actor.send(TimelineMosaicQueueCommand.EndReset(1L))
+        runCurrent()
+
+        assertEquals(null, actor.effects.tryReceive().getOrNull())
+        actor.send(TimelineMosaicQueueCommand.EndReset(2L))
+        runCurrent()
+        assertEquals(render("queued"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
+        closeActor(actor)
+    }
+
+    @Test
+    fun rapidResetLatestBoundaryWinsAndClearsEarlierResetEnqueues() = runTest {
+        val actor = TimelineMosaicQueueActor(this)
+        actor.send(enqueue(listOf(render("running"))))
+        runCurrent()
+        val runningStart = actor.effects.receive() as TimelineMosaicQueueEffect.StartWork
+
+        actor.send(TimelineMosaicQueueCommand.BeginReset(1L))
+        actor.send(enqueue(listOf(render("first_reset"))))
+        actor.send(TimelineMosaicQueueCommand.BeginReset(2L))
+        actor.send(enqueue(listOf(render("second_reset"))))
+        actor.send(TimelineMosaicQueueCommand.EndReset(1L))
+        actor.send(TimelineMosaicQueueCommand.EndReset(2L))
+        runCurrent()
+
+        assertEquals(
+            TimelineMosaicQueueEffect.CancelWork(render("running"), runningStart.token),
+            actor.effects.receive()
+        )
+        assertEquals(TimelineMosaicQueueEffect.ResetBoundary(1L), actor.effects.receive())
+        assertEquals(TimelineMosaicQueueEffect.ResetBoundary(2L), actor.effects.receive())
+        assertEquals(
+            render("second_reset"),
+            (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request
+        )
+        assertEquals(null, actor.effects.tryReceive().getOrNull())
+        closeActor(actor)
+    }
+
+    @Test
+    fun endResetWhilePausedDoesNotStartUntilScrollResumes() = runTest {
+        val actor = TimelineMosaicQueueActor(this)
+        actor.send(TimelineMosaicQueueCommand.PauseForScroll)
+        actor.send(TimelineMosaicQueueCommand.BeginReset(1L))
+        runCurrent()
+        assertEquals(TimelineMosaicQueueEffect.ResetBoundary(1L), actor.effects.receive())
+
+        actor.send(enqueue(listOf(sync("queued"))))
+        actor.send(TimelineMosaicQueueCommand.EndReset(1L))
+        runCurrent()
+
+        assertEquals(null, actor.effects.tryReceive().getOrNull())
+        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(emptyList(), stamp()))
+        runCurrent()
+        assertEquals(sync("queued"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
+        closeActor(actor)
+    }
+
     private fun enqueue(
         requests: List<TimelineMosaicQueueRequest>,
         visiblePriority: Boolean = false,

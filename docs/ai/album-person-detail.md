@@ -257,11 +257,11 @@ flowchart LR
 
 Layout invalidation rules:
 
-- Width, viewport height, row-height, group size, or view config changes clear layout caches and schedule a rebuild.
+- Width, viewport height, row-height, group size, or view config changes enter the coordinator's runtime-state transaction, clear old layout/runtime/deferred caches, advance the Mosaic layout generation, and schedule the replacement layout in that order. Cache reads and Mosaic assignment compute happen later, outside that short transaction.
 - Asset emissions bump `assetRevision` only when the current grouped fingerprint differs from the last rendered fingerprint.
 - Content-change signals set `pendingSyncedContentRevision` when Room has not emitted the changed assets yet.
-- If group order changes, all per-group display/runtime caches are cleared because `bucketIndex` is part of item identity.
-- If only some groups changed, only those group caches and runtime states are removed.
+- If group order changes, all per-group display/runtime caches are cleared inside the same transaction because `bucketIndex` is part of item identity.
+- If only some groups changed, only those group caches and runtime states are removed inside the same transaction before the replacement layout is scheduled.
 - The resolved display-band cache is invalidated with the matching per-group display cache. It is keyed by the same group/config/fingerprint identity and is never allowed to outlive width, grouping, config, or ordered-content changes.
 
 ## Mosaic Settings

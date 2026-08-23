@@ -209,6 +209,67 @@ class TimelineRefreshQueueOrderingTest {
     }
 
     @Test
+    fun cachedMaterializationClaimsAllowInMemoryBucketUntilRenderLoaded() {
+        val claims = timelineCachedMaterializationClaims(
+            requestedBuckets = listOf("memory_not_loaded", "memory_loaded"),
+            cachedBuckets = setOf("memory_not_loaded", "memory_loaded"),
+            loadedBuckets = setOf("memory_loaded"),
+            materializingBuckets = emptySet(),
+            inMemoryBuckets = setOf("memory_not_loaded", "memory_loaded")
+        )
+
+        assertEquals(listOf("memory_not_loaded"), claims)
+    }
+
+    @Test
+    fun staleMaterializedRollbackDoesNotUndoNewerSameGenerationPublish() {
+        val bucket = "bucket"
+        val generationStamp = TimelineRuntimeBucketGenerationStamp(bucketGeneration = 1L)
+        val (oldPublished, oldRollback) = BucketData()
+            .publishMaterializedBucketsWithStamps(mapOf(bucket to generationStamp))
+        val (newerPublished, _) = oldPublished
+            .publishMaterializedBucketsWithStamps(mapOf(bucket to generationStamp))
+
+        val afterOldRollback = newerPublished.rollbackMaterializedBucketsIfStillOwned(oldRollback)
+
+        assertEquals(setOf(bucket), afterOldRollback.cachedBuckets)
+        assertEquals(setOf(bucket), afterOldRollback.loadedBuckets)
+        assertEquals(2, afterOldRollback.materializationRevisions[bucket])
+        assertEquals(
+            TimelineMaterializedBucketPublishOwner(
+                bucketGenerationStamp = generationStamp,
+                materializationRevision = 2
+            ),
+            afterOldRollback.materializationPublishOwners[bucket]
+        )
+    }
+
+    @Test
+    fun staleMaterializedRollbackRestoresPriorNewerBucketStateOnlyWhenStillOwned() {
+        val bucket = "bucket"
+        val staleGenerationStamp = TimelineRuntimeBucketGenerationStamp(bucketGeneration = 0L)
+        val newerOwner = TimelineMaterializedBucketPublishOwner(
+            bucketGenerationStamp = TimelineRuntimeBucketGenerationStamp(bucketGeneration = 1L),
+            materializationRevision = 7
+        )
+        val newerState = BucketData(
+            cachedBuckets = setOf(bucket),
+            loadedBuckets = setOf(bucket),
+            materializationRevisions = mapOf(bucket to 7),
+            materializationPublishOwners = mapOf(bucket to newerOwner)
+        )
+        val (stalePublished, staleRollback) = newerState
+            .publishMaterializedBucketsWithStamps(mapOf(bucket to staleGenerationStamp))
+
+        val afterRollback = stalePublished.rollbackMaterializedBucketsIfStillOwned(staleRollback)
+
+        assertEquals(newerState.cachedBuckets, afterRollback.cachedBuckets)
+        assertEquals(newerState.loadedBuckets, afterRollback.loadedBuckets)
+        assertEquals(newerState.materializationRevisions, afterRollback.materializationRevisions)
+        assertEquals(newerState.materializationPublishOwners, afterRollback.materializationPublishOwners)
+    }
+
+    @Test
     fun scrollSettleMergesVisibleBucketsBeforeDeferredMosaicWork() {
         val requestOrder = mergeTimelineMosaicRequestOrder(
             priorityBuckets = listOf("visible", "target", "neighbor"),

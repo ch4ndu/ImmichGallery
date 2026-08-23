@@ -3,6 +3,7 @@ package com.udnahc.immichgallery.ui.screen.timeline
 import com.udnahc.immichgallery.data.repository.SessionStateRepository
 import com.udnahc.immichgallery.domain.action.auth.RunSessionOperationAction
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
@@ -73,5 +74,73 @@ class TimelineMosaicSessionSinkTest {
             }
         )
         assertTrue(currentOwnerPublished)
+    }
+
+    @Test
+    fun isolatedRuntimeResetCancellationDoesNotCancelLongLivedConsumer() = runTest {
+        val first = runIsolatedTimelineRuntimeReset {
+            throw CancellationException("session changed")
+        }
+        var secondRan = false
+        val second = runIsolatedTimelineRuntimeReset {
+            secondRan = true
+        }
+
+        assertTrue(first.isFailure)
+        assertTrue(second.isSuccess)
+        assertTrue(secondRan)
+    }
+
+    @Test
+    fun manualMosaicOriginAcceptsUnseenBucketOnlyAtItsInitialGeneration() {
+        val origin = TimelineManualMosaicRuntimeOrigin(
+            requestId = 7L,
+            generationSnapshot = TimelineRuntimeGenerationSnapshot(
+                globalGeneration = 3L,
+                bucketGenerations = mapOf("existing" to 2L)
+            ),
+            assetRevisions = mapOf("existing" to 4)
+        )
+
+        assertTrue(
+            origin.isCurrentFor(
+                timeBuckets = setOf("existing", "new"),
+                currentGenerationSnapshot = TimelineRuntimeGenerationSnapshot(
+                    globalGeneration = 3L,
+                    bucketGenerations = mapOf("existing" to 2L)
+                ),
+                currentAssetRevisions = mapOf("existing" to 4)
+            )
+        )
+        assertFalse(
+            origin.isCurrentFor(
+                timeBuckets = setOf("existing", "new"),
+                currentGenerationSnapshot = TimelineRuntimeGenerationSnapshot(
+                    globalGeneration = 3L,
+                    bucketGenerations = mapOf("existing" to 2L, "new" to 1L)
+                ),
+                currentAssetRevisions = mapOf("existing" to 4, "new" to 1)
+            )
+        )
+    }
+
+    @Test
+    fun manualMosaicOriginRejectsCompetingRevisionWithoutGenerationChange() {
+        val origin = TimelineManualMosaicRuntimeOrigin(
+            requestId = 8L,
+            generationSnapshot = TimelineRuntimeGenerationSnapshot(
+                globalGeneration = 5L,
+                bucketGenerations = mapOf("bucket" to 3L)
+            ),
+            assetRevisions = mapOf("bucket" to 9)
+        )
+
+        assertFalse(
+            origin.isCurrentFor(
+                timeBuckets = setOf("bucket"),
+                currentGenerationSnapshot = origin.generationSnapshot,
+                currentAssetRevisions = mapOf("bucket" to 10)
+            )
+        )
     }
 }

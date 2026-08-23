@@ -12,8 +12,12 @@ import com.udnahc.immichgallery.domain.model.ProgressChunk
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicRepairSectionInput
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.roundToInt
@@ -42,6 +46,9 @@ internal data class PendingMosaicPublish(
     val stateUpdates: Map<MosaicCacheKey, RuntimeMosaicState>,
     val geometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>,
     val stamp: TimelineMosaicPublishStamp,
+    val originConfig: ActiveMosaicConfig? = null,
+    val originGeometryRequest: TimelineMosaicGeometryRequest? = null,
+    val originAssetRevisions: Map<String, Int> = emptyMap(),
     val repairRequests: List<TimelineMosaicRepairRequest> = emptyList()
 )
 
@@ -65,7 +72,12 @@ internal fun coalesceTimelineMosaicRepairRequests(
     requests: List<TimelineMosaicRepairRequest>
 ): List<TimelineMosaicRepairRequest> =
     LinkedHashMap<String, TimelineMosaicRepairRequest>().apply {
-        requests.forEach { request -> put(request.timeBucket, request) }
+        requests.forEach { request ->
+            val existing = get(request.timeBucket)
+            if (existing == null || request.timelineRepairVersion() >= existing.timelineRepairVersion()) {
+                put(request.timeBucket, request)
+            }
+        }
     }.values.toList()
 
 internal class TimelineMosaicPublishBuffer {
@@ -81,7 +93,11 @@ internal class TimelineMosaicPublishBuffer {
         val accumulatedStates = LinkedHashMap<MosaicCacheKey, RuntimeMosaicState>()
         val accumulatedGeometry = LinkedHashMap<MosaicCacheKey, TimelineMosaicSectionGeometry>()
         val accumulatedRepairs = LinkedHashMap<String, TimelineMosaicRepairRequest>()
+        val originAssetRevisions = LinkedHashMap<String, Int>()
+        val originConfigs = pending.map { it.originConfig }.distinct()
+        val originGeometryRequests = pending.map { it.originGeometryRequest }.distinct()
         pending.forEach { item ->
+            originAssetRevisions.putAll(item.originAssetRevisions)
             if (item.stamp.globalGeneration != currentGlobalGeneration) return@forEach
             item.stateUpdates.forEach { (key, state) ->
                 if (item.stamp.bucketGenerations[key.timeBucket] == (currentBucketGenerations[key.timeBucket]
@@ -121,9 +137,274 @@ internal class TimelineMosaicPublishBuffer {
                             timeBucket in accumulatedRepairs
                 }
             ),
+            originConfig = originConfigs.singleOrNull(),
+            originGeometryRequest = originGeometryRequests.singleOrNull(),
+            originAssetRevisions = originAssetRevisions,
             repairRequests = accumulatedRepairs.values.toList()
         )
     }
+}
+
+private data class TimelineKeyedSignalBufferState<K, V>(
+    val valuesByKey: LinkedHashMap<K, V> = linkedMapOf(),
+    val wakeupPending: Boolean = false
+)
+
+private class TimelineKeyedSignalBuffer<K, V> {
+    private val wakeups = Channel<Unit>(Channel.CONFLATED)
+    private val state = MutableStateFlow(
+        TimelineKeyedSignalBufferState<K, V>()
+    )
+
+    fun offer(
+        key: K,
+        value: V,
+        shouldReplace: (key: K, current: V, candidate: V) -> Boolean = { _, _, _ -> true }
+    ) {
+        var shouldWake = false
+        while (true) {
+            val current = state.value
+            val values = LinkedHashMap(current.valuesByKey)
+            val existing = values[key]
+            if (existing != null && !shouldReplace(key, existing, value)) return
+            values[key] = value
+            val next = current.copy(
+                valuesByKey = values,
+                wakeupPending = true
+            )
+            shouldWake = !current.wakeupPending
+            if (state.compareAndSet(current, next)) break
+        }
+        if (shouldWake) {
+            wakeups.trySend(Unit)
+        }
+    }
+
+    fun offerAll(items: Iterable<Pair<K, V>>) {
+        offerAll(items) { _, _, _ -> true }
+    }
+
+    fun offerAll(
+        items: Iterable<Pair<K, V>>,
+        shouldReplace: (key: K, current: V, candidate: V) -> Boolean
+    ) {
+        var shouldWake = false
+        while (true) {
+            var offered = false
+            val current = state.value
+            val values = LinkedHashMap(current.valuesByKey)
+            items.forEach { (key, value) ->
+                val existing = values[key]
+                if (existing == null || shouldReplace(key, existing, value)) {
+                    values[key] = value
+                    offered = true
+                }
+            }
+            if (!offered) return
+            val next = current.copy(
+                valuesByKey = values,
+                wakeupPending = true
+            )
+            shouldWake = !current.wakeupPending
+            if (state.compareAndSet(current, next)) break
+        }
+        if (shouldWake) {
+            wakeups.trySend(Unit)
+        }
+    }
+
+    suspend fun receiveBatch(): List<V>? =
+        wakeups.receiveCatching().getOrNull()?.let { drainAvailable() }
+
+    fun drainAvailable(): List<V> {
+        while (true) {
+            val current = state.value
+            if (current.valuesByKey.isEmpty()) {
+                val next = current.copy(wakeupPending = false)
+                if (snapshotCompareAndSet(current, next)) return emptyList()
+                continue
+            }
+            val values = current.valuesByKey.values.toList()
+            val next = current.copy(
+                valuesByKey = linkedMapOf(),
+                wakeupPending = false
+            )
+            if (snapshotCompareAndSet(current, next)) return values
+        }
+    }
+
+    fun close() {
+        wakeups.close()
+    }
+
+    fun pendingWakeupCountForTests(): Int =
+        if (state.value.wakeupPending) 1 else 0
+
+    private fun snapshotCompareAndSet(
+        current: TimelineKeyedSignalBufferState<K, V>,
+        next: TimelineKeyedSignalBufferState<K, V>
+    ): Boolean =
+        state.compareAndSet(current, next)
+}
+
+private sealed interface TimelineMosaicPublishSignalKey {
+    data class State(val key: MosaicCacheKey) : TimelineMosaicPublishSignalKey
+    data class Geometry(val key: MosaicCacheKey) : TimelineMosaicPublishSignalKey
+    data class Repair(val timeBucket: String) : TimelineMosaicPublishSignalKey
+}
+
+private data class TimelineMosaicSignalVersion(
+    val sessionGeneration: Long,
+    val ownerEpoch: Long,
+    val globalGeneration: Long,
+    val bucketGeneration: Long,
+    val revision: Int = 0
+) : Comparable<TimelineMosaicSignalVersion> {
+    override fun compareTo(other: TimelineMosaicSignalVersion): Int =
+        compareValuesBy(
+            this,
+            other,
+            TimelineMosaicSignalVersion::sessionGeneration,
+            TimelineMosaicSignalVersion::ownerEpoch,
+            TimelineMosaicSignalVersion::globalGeneration,
+            TimelineMosaicSignalVersion::bucketGeneration,
+            TimelineMosaicSignalVersion::revision
+        )
+}
+
+private fun PendingMosaicPublish.timelineVersion(timeBucket: String): TimelineMosaicSignalVersion =
+    TimelineMosaicSignalVersion(
+        sessionGeneration = sessionStamp.generation,
+        ownerEpoch = sessionStamp.ownerEpoch,
+        globalGeneration = stamp.globalGeneration,
+        bucketGeneration = stamp.bucketGenerations[timeBucket] ?: 0L
+    )
+
+private fun TimelineMosaicRepairRequest.timelineRepairVersion(): TimelineMosaicSignalVersion =
+    TimelineMosaicSignalVersion(
+        sessionGeneration = sessionStamp.generation,
+        ownerEpoch = sessionStamp.ownerEpoch,
+        globalGeneration = globalGeneration,
+        bucketGeneration = bucketGeneration,
+        revision = assetRevision
+    )
+
+private fun newerOrEqualPublish(
+    current: PendingMosaicPublish,
+    candidate: PendingMosaicPublish,
+    timeBucket: String
+): Boolean =
+    candidate.timelineVersion(timeBucket) >= current.timelineVersion(timeBucket)
+
+private fun newerOrEqualPublish(
+    key: TimelineMosaicPublishSignalKey,
+    current: PendingMosaicPublish,
+    candidate: PendingMosaicPublish
+): Boolean =
+    when (key) {
+        is TimelineMosaicPublishSignalKey.State ->
+            newerOrEqualPublish(current, candidate, key.key.timeBucket)
+
+        is TimelineMosaicPublishSignalKey.Geometry ->
+            newerOrEqualPublish(current, candidate, key.key.timeBucket)
+
+        is TimelineMosaicPublishSignalKey.Repair -> {
+            val currentRequest = current.repairRequests.firstOrNull()
+            val candidateRequest = candidate.repairRequests.firstOrNull()
+            currentRequest == null ||
+                    candidateRequest != null &&
+                    candidateRequest.timelineRepairVersion() >= currentRequest.timelineRepairVersion()
+        }
+    }
+
+internal class TimelineMosaicPublishSignalBuffer {
+    private val buffer =
+        TimelineKeyedSignalBuffer<TimelineMosaicPublishSignalKey, PendingMosaicPublish>()
+
+    fun offer(publish: PendingMosaicPublish) {
+        buffer.offerAll(publish.fragments(), ::newerOrEqualPublish)
+    }
+
+    fun offerAll(publishes: Iterable<PendingMosaicPublish>) {
+        buffer.offerAll(publishes.flatMap { it.fragments() }, ::newerOrEqualPublish)
+    }
+
+    private fun PendingMosaicPublish.fragments(): List<Pair<TimelineMosaicPublishSignalKey, PendingMosaicPublish>> {
+        val fragments = mutableListOf<Pair<TimelineMosaicPublishSignalKey, PendingMosaicPublish>>()
+        stateUpdates.forEach { (key, state) ->
+            fragments.add(
+                TimelineMosaicPublishSignalKey.State(key) to copy(
+                    stateUpdates = mapOf(key to state),
+                    geometryUpdates = emptyMap(),
+                    repairRequests = emptyList()
+                )
+            )
+        }
+        geometryUpdates.forEach { (key, geometry) ->
+            fragments.add(
+                TimelineMosaicPublishSignalKey.Geometry(key) to copy(
+                    stateUpdates = emptyMap(),
+                    geometryUpdates = mapOf(key to geometry),
+                    repairRequests = emptyList()
+                )
+            )
+        }
+        repairRequests.forEach { request ->
+            fragments.add(
+                TimelineMosaicPublishSignalKey.Repair(request.timeBucket) to copy(
+                    stateUpdates = emptyMap(),
+                    geometryUpdates = emptyMap(),
+                    repairRequests = listOf(request)
+                )
+            )
+        }
+        return fragments
+    }
+
+    suspend fun receiveBatch(): List<PendingMosaicPublish>? =
+        buffer.receiveBatch()
+
+    fun close() {
+        buffer.close()
+    }
+
+    fun pendingWakeupCountForTests(): Int =
+        buffer.pendingWakeupCountForTests()
+}
+
+internal class TimelineMosaicRepairSignalBuffer {
+    private val buffer = TimelineKeyedSignalBuffer<String, TimelineMosaicRepairRequest>()
+
+    fun offer(request: TimelineMosaicRepairRequest) {
+        buffer.offer(request.timeBucket, request) { _, current, candidate ->
+            candidate.timelineRepairVersion() >= current.timelineRepairVersion()
+        }
+    }
+
+    fun offerAll(requests: Iterable<TimelineMosaicRepairRequest>) {
+        buffer.offerAll(requests.map { request -> request.timeBucket to request }) { _, current, candidate ->
+            candidate.timelineRepairVersion() >= current.timelineRepairVersion()
+        }
+    }
+
+    fun requeueAll(requests: Iterable<TimelineMosaicRepairRequest>) {
+        buffer.offerAll(requests.map { request -> request.timeBucket to request }) { _, current, candidate ->
+            candidate.timelineRepairVersion() > current.timelineRepairVersion()
+        }
+    }
+
+    suspend fun receiveBatch(): List<TimelineMosaicRepairRequest>? =
+        buffer.receiveBatch()
+
+    fun drainAvailable(): List<TimelineMosaicRepairRequest> =
+        buffer.drainAvailable()
+
+    fun close() {
+        buffer.close()
+    }
+
+    fun pendingWakeupCountForTests(): Int =
+        buffer.pendingWakeupCountForTests()
 }
 
 internal data class TimelineGeometryBucketSelection(
@@ -168,8 +449,26 @@ internal fun selectTimelineGeometryBuckets(
 internal data class ActiveMosaicConfig(
     val groupSize: TimelineGroupSize,
     val columnCount: Int,
-    val families: Set<MosaicTemplateFamily>
+    val families: Set<MosaicTemplateFamily>,
+    val mosaicEnabled: Boolean = true,
+    val cacheMosaicResults: Boolean = true
 )
+
+internal enum class TimelineMosaicRuntimeResetMode {
+    PreservePublished,
+    ClearPublished
+}
+
+internal fun timelineMosaicStatesAfterReset(
+    states: Map<MosaicCacheKey, RuntimeMosaicState>,
+    mode: TimelineMosaicRuntimeResetMode
+): Map<MosaicCacheKey, RuntimeMosaicState> =
+    when (mode) {
+        TimelineMosaicRuntimeResetMode.PreservePublished ->
+            states.filterValues { it !is RuntimeMosaicState.Partial }
+
+        TimelineMosaicRuntimeResetMode.ClearPublished -> emptyMap()
+    }
 
 internal data class TimelineRuntimeMosaicSection(
     val sectionKey: String,
@@ -192,11 +491,20 @@ internal typealias RuntimeMosaicProgressChunk = ProgressChunk
 
 internal data class PendingProgressiveMosaicPublish(
     val sessionStamp: SessionOperationStamp,
+    val generationStampsByKey: Map<MosaicCacheKey, TimelineRuntimeGenerationStamp>,
+    val clearOriginsByKey: Map<MosaicCacheKey, TimelineProgressiveMosaicClearOrigin>,
     val updatesByKey: Map<MosaicCacheKey, List<RuntimeMosaicProgressChunk>>
+)
+
+internal data class TimelineProgressiveMosaicClearOrigin(
+    val globalClearEpoch: Long,
+    val bucketClearEpoch: Long,
+    val keyClearEpoch: Long
 )
 
 private data class StampedRuntimeMosaicProgressChunk(
     val sessionStamp: SessionOperationStamp,
+    val generationStamp: TimelineRuntimeGenerationStamp,
     val chunk: RuntimeMosaicProgressChunk
 )
 
@@ -204,25 +512,83 @@ internal class TimelineProgressiveMosaicBuffer {
     private val mutex = Mutex()
     private val chunksByKey =
         linkedMapOf<MosaicCacheKey, MutableList<StampedRuntimeMosaicProgressChunk>>()
+    private var globalClearEpoch: Long = 0L
+    private val bucketClearEpochs = mutableMapOf<String, Long>()
+    private val keyClearEpochs = mutableMapOf<MosaicCacheKey, Long>()
 
     suspend fun add(
         key: MosaicCacheKey,
         chunk: RuntimeMosaicProgressChunk,
-        sessionStamp: SessionOperationStamp
+        sessionStamp: SessionOperationStamp,
+        generationStamp: TimelineRuntimeGenerationStamp
+    ) {
+        add(
+            key = key,
+            chunk = chunk,
+            sessionStamp = sessionStamp,
+            generationStamp = generationStamp,
+            replaceEqualRange = true
+        )
+    }
+
+    suspend fun requeueIfCurrent(
+        key: MosaicCacheKey,
+        chunk: RuntimeMosaicProgressChunk,
+        sessionStamp: SessionOperationStamp,
+        generationStamp: TimelineRuntimeGenerationStamp,
+        clearOrigin: TimelineProgressiveMosaicClearOrigin
+    ): Boolean {
+        return mutex.withLock {
+            if (clearOriginForLocked(key) != clearOrigin) return false
+            addLocked(
+                key = key,
+                chunk = chunk,
+                sessionStamp = sessionStamp,
+                generationStamp = generationStamp,
+                replaceEqualRange = false
+            )
+            true
+        }
+    }
+
+    private suspend fun add(
+        key: MosaicCacheKey,
+        chunk: RuntimeMosaicProgressChunk,
+        sessionStamp: SessionOperationStamp,
+        generationStamp: TimelineRuntimeGenerationStamp,
+        replaceEqualRange: Boolean
     ) {
         mutex.withLock {
-            val chunks = chunksByKey.getOrPut(key) { mutableListOf() }
-            val existingIndex = chunks.indexOfFirst {
-                it.chunk.sourceStartIndex == chunk.sourceStartIndex &&
-                        it.chunk.sourceEndExclusive == chunk.sourceEndExclusive
-            }
-            val stampedChunk = StampedRuntimeMosaicProgressChunk(sessionStamp, chunk)
-            if (existingIndex >= 0) {
+            addLocked(key, chunk, sessionStamp, generationStamp, replaceEqualRange)
+        }
+    }
+
+    private fun addLocked(
+        key: MosaicCacheKey,
+        chunk: RuntimeMosaicProgressChunk,
+        sessionStamp: SessionOperationStamp,
+        generationStamp: TimelineRuntimeGenerationStamp,
+        replaceEqualRange: Boolean
+    ) {
+        val chunks = chunksByKey.getOrPut(key) { mutableListOf() }
+        val stampedChunk = StampedRuntimeMosaicProgressChunk(sessionStamp, generationStamp, chunk)
+        val newestExisting = chunks.maxWithOrNull(::compareProgressChunkVersion)
+        if (newestExisting != null) {
+            val versionComparison = compareProgressChunkVersion(stampedChunk, newestExisting)
+            if (versionComparison < 0) return
+            if (versionComparison > 0) chunks.clear()
+        }
+        val existingIndex = chunks.indexOfFirst {
+            it.chunk.sourceStartIndex == chunk.sourceStartIndex &&
+                    it.chunk.sourceEndExclusive == chunk.sourceEndExclusive
+        }
+        if (existingIndex >= 0) {
+            if (replaceEqualRange) {
                 chunks[existingIndex] = stampedChunk
-            } else {
-                chunks.add(stampedChunk)
-                chunks.sortBy { it.chunk.sourceStartIndex }
             }
+        } else {
+            chunks.add(stampedChunk)
+            chunks.sortBy { it.chunk.sourceStartIndex }
         }
     }
 
@@ -253,17 +619,33 @@ internal class TimelineProgressiveMosaicBuffer {
             SessionOperationStamp,
             LinkedHashMap<MosaicCacheKey, MutableList<RuntimeMosaicProgressChunk>>
         >()
+        val generationStampsBySession = linkedMapOf<
+            SessionOperationStamp,
+            LinkedHashMap<MosaicCacheKey, TimelineRuntimeGenerationStamp>
+        >()
+        val clearOriginsBySession = linkedMapOf<
+            SessionOperationStamp,
+            LinkedHashMap<MosaicCacheKey, TimelineProgressiveMosaicClearOrigin>
+        >()
         eligibleKeys.forEach { key ->
             chunksByKey.remove(key).orEmpty().forEach { stampedChunk ->
                 updatesByStamp
                     .getOrPut(stampedChunk.sessionStamp) { linkedMapOf() }
                     .getOrPut(key) { mutableListOf() }
                     .add(stampedChunk.chunk)
+                generationStampsBySession
+                    .getOrPut(stampedChunk.sessionStamp) { linkedMapOf() }[key] =
+                    stampedChunk.generationStamp
+                clearOriginsBySession
+                    .getOrPut(stampedChunk.sessionStamp) { linkedMapOf() }[key] =
+                    clearOriginForLocked(key)
             }
         }
         return updatesByStamp.map { (sessionStamp, updatesByKey) ->
             PendingProgressiveMosaicPublish(
                 sessionStamp = sessionStamp,
+                generationStampsByKey = generationStampsBySession[sessionStamp].orEmpty(),
+                clearOriginsByKey = clearOriginsBySession[sessionStamp].orEmpty(),
                 updatesByKey = updatesByKey.mapValues { (_, chunks) -> chunks.toList() }
             )
         }
@@ -272,6 +654,9 @@ internal class TimelineProgressiveMosaicBuffer {
     suspend fun clearKeys(keys: Set<MosaicCacheKey>) {
         if (keys.isEmpty()) return
         mutex.withLock {
+            keys.forEach { key ->
+                keyClearEpochs[key] = (keyClearEpochs[key] ?: 0L) + 1L
+            }
             keys.forEach(chunksByKey::remove)
         }
     }
@@ -279,19 +664,52 @@ internal class TimelineProgressiveMosaicBuffer {
     suspend fun clearBuckets(timeBuckets: Set<String>) {
         if (timeBuckets.isEmpty()) return
         mutex.withLock {
+            timeBuckets.forEach { timeBucket ->
+                bucketClearEpochs[timeBucket] = (bucketClearEpochs[timeBucket] ?: 0L) + 1L
+            }
+            keyClearEpochs.keys.removeAll { it.timeBucket in timeBuckets }
             chunksByKey.keys.removeAll { it.timeBucket in timeBuckets }
         }
     }
 
     suspend fun clearAll() {
         mutex.withLock {
+            globalClearEpoch++
+            bucketClearEpochs.clear()
+            keyClearEpochs.clear()
             chunksByKey.clear()
         }
     }
 
+    suspend fun isCurrentOrigin(
+        key: MosaicCacheKey,
+        clearOrigin: TimelineProgressiveMosaicClearOrigin
+    ): Boolean =
+        mutex.withLock { clearOriginForLocked(key) == clearOrigin }
+
     suspend fun snapshotSize(): Int =
         mutex.withLock { chunksByKey.values.sumOf { it.size } }
+
+    private fun clearOriginForLocked(key: MosaicCacheKey): TimelineProgressiveMosaicClearOrigin =
+        TimelineProgressiveMosaicClearOrigin(
+            globalClearEpoch = globalClearEpoch,
+            bucketClearEpoch = bucketClearEpochs[key.timeBucket] ?: 0L,
+            keyClearEpoch = keyClearEpochs[key] ?: 0L
+        )
 }
+
+private fun compareProgressChunkVersion(
+    left: StampedRuntimeMosaicProgressChunk,
+    right: StampedRuntimeMosaicProgressChunk
+): Int =
+    compareValuesBy(
+        left,
+        right,
+        { it.sessionStamp.generation },
+        { it.sessionStamp.ownerEpoch },
+        { it.generationStamp.globalGeneration },
+        { it.generationStamp.bucketGeneration }
+    )
 
 internal suspend fun runTimelineMosaicSessionSink(
     sessionOperationRunner: SessionOperationRunner,
@@ -308,6 +726,21 @@ internal suspend fun runTimelineMosaicSessionSink(
     false
 } catch (_: SessionOperationRejectedException) {
     false
+}
+
+internal suspend fun runIsolatedTimelineRuntimeReset(
+    block: suspend () -> Unit
+): Result<Unit> = try {
+    supervisorScope {
+        async {
+            block()
+        }.await()
+    }
+    Result.success(Unit)
+} catch (e: CancellationException) {
+    Result.failure(e)
+} catch (e: Exception) {
+    Result.failure(e)
 }
 
 internal fun RuntimeMosaicState?.cacheToken(): String =
@@ -352,6 +785,22 @@ internal fun timelineProgressiveMosaicStateUpdates(
                     .sortedBy { it.sourceStartIndex }
             ))
         }
+    }
+    return next
+}
+
+internal fun timelineMergeMosaicStateUpdatesPreservingReady(
+    states: Map<MosaicCacheKey, RuntimeMosaicState>,
+    updates: Map<MosaicCacheKey, RuntimeMosaicState>
+): Map<MosaicCacheKey, RuntimeMosaicState> {
+    if (updates.isEmpty()) return states
+    var next = states
+    updates.forEach { (key, update) ->
+        val existing = next[key]
+        if (existing is RuntimeMosaicState.Ready && update !is RuntimeMosaicState.Ready) {
+            return@forEach
+        }
+        next = next + (key to update)
     }
     return next
 }

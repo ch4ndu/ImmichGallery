@@ -201,6 +201,13 @@ Timeline uses multiple cache layers, each with a different purpose.
   flags, and requested Mosaic config.
 - `_mosaicStates`: runtime view of persisted Mosaic assignment availability for
   sections that have been requested by the ViewModel.
+- `TimelineRuntimeStateStore`: CAS-backed owner for Timeline runtime-only
+  Mosaic state that must be coherent across workers: day-group memoization,
+  runtime Mosaic resume checkpoints, deferred materialized bucket ids, and the
+  deferred-scroll Mosaic publish batch. It guards entries with global and
+  per-bucket runtime generations so stale computations cannot reinsert
+  checkpoints, deferred publishes, materialized-bucket publishes, or day groups
+  after invalidation.
 
 Sync success and content change are intentionally separate. A server refresh can
 succeed and write rows without changing ordered persisted assets. In that case
@@ -375,13 +382,18 @@ visible item indexes in `TimelineContent`.
    `250ms` idle, so cached rows can render without per-frame rebuild churn.
 5. Persisted Mosaic rows are read for loaded requested buckets through the same
    ordered Mosaic worker queue. Visible or targeted buckets stay ahead of
-   offscreen and deferred buckets. A generation and config guard prevents stale
-   reads from publishing after the user scrolls elsewhere or changes Mosaic
-   config.
+   offscreen and deferred buckets. Config changes enter the queue through
+   `BeginReset` / `ResetBoundary` / `EndReset`, so new work starts only after
+   runtime generations and buffered state are cleared. A generation, config,
+   geometry, and asset-revision guard prevents stale reads from publishing after
+   the user scrolls elsewhere, content changes, or Mosaic config changes.
 6. `_mosaicStates` receives `Ready` assignments for available sections. The
    state combine pipeline rebuilds only bucket/section display items whose cache
    key changed. Starting scroll drops unstarted render demand but does not cancel
    the active bucket worker; settle queues only the final visible/target demand.
+   Deferred Mosaic output is keyed by state section, geometry section, and
+   repair bucket; scroll-settled drains publish the newest current value per key
+   through one atomic signal-buffer insertion.
 7. If progressive Mosaic chunks were buffered for any visible or nearby bucket,
    the ViewModel flushes them immediately; offscreen chunks remain buffered
    until their bucket becomes visible, nearby, targeted, invalidated, or
@@ -517,8 +529,16 @@ until preparation succeeds. If any bucket fails, the draft config is not
 persisted or applied. The Timeline grouping control is disabled while Mosaic is
 enabled. Width and scroll changes may request persisted rows, but they must not
 compute assignments or write cache rows on the hot scroll path.
-`activeMosaicConfig` lets the ViewModel keep using a previously complete config
-until the requested config is complete.
+
+The reset used before blocking preparation cancels and joins obsolete Mosaic
+work, advances runtime ownership, and removes transient partial chunks while
+preserving the previously completed layout. Once a prepared group, Mosaic
+policy, or layout geometry is actually applied, the ViewModel serializes that
+config write with final publication: it installs the new config and clears
+incompatible ready/partial state, section and bucket geometry, readiness flags,
+and progressive chunks in one publication-gated mutation. The queue reset then
+cancels and joins pre-change work before persisted geometry is requested and
+visible reads resume. A reset failure aborts the post-reset read path.
 
 ## Rendering Pipeline
 
@@ -689,7 +709,32 @@ return policy.
   generation/config changes. Timeline publish application is guarded by a global
   Mosaic runtime generation plus per-bucket generations, so one changed bucket
   cannot resurrect stale bands and does not invalidate unrelated visible work.
-  Active scroll must not cancel the running Timeline Mosaic bucket. Cancellation
-  from config/generation invalidation may leave a valid checkpoint resumable.
+  Applied group, Mosaic-policy, width, height, and column changes update config
+  and clear incompatible published state under that same publication gate; a
+  producer cannot validate the old config and publish after the new one becomes
+  visible. The config mutation also advances runtime generation before the
+  asynchronous queue-reset boundary, so an A-to-B-to-A config cycle cannot
+  re-admit work from the first A. Manual sync captures runtime generations and
+  asset revisions before its platform producer starts. Completion validates
+  that origin atomically with the sync's own bucket invalidations and revision
+  publication, then derives the post-invalidation origin used for geometry and
+  failure output. Superseded producer output is skipped in favor of a current
+  render-demand read. That output also retains the originating
+  Mosaic-enabled/cache-results policy instead of deriving it when the sink runs.
+  Queued Mosaic publish and repair work uses keyed newest-value buffers with one
+  conflated wakeup instead of unbounded channel entries. A single publish inserts
+  its matching state, geometry, and repair fragments atomically; a late obsolete
+  same-key value cannot replace a current value, while distinct section,
+  geometry, and repair keys still drain together. Runtime compute, persisted
+  reads, and persisted-read cache-miss descendants publish with the origin
+  runtime stamp captured before that work started, not a stamp minted after the
+  work finishes. Deferred materialized buckets and Mosaic publishes are
+  generation-filtered when they enter the runtime store; materialized buckets
+  carry bucket-only stamps through final `_bucketData` publication, while
+  Mosaic publishes carry global plus bucket stamps. A conflated settled-drain
+  signal prevents post-scroll defers from being stranded. Active scroll must
+  not cancel the running Timeline Mosaic bucket. Cancellation from config/
+  generation invalidation may leave a valid checkpoint resumable only when the
+  captured runtime generation and originating session are still current.
 - Room asset rows should not store stale server URLs; domain assets reconstruct
   URLs from current server config where possible.

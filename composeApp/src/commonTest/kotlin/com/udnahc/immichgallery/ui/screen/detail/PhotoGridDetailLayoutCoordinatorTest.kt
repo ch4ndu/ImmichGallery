@@ -49,6 +49,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.advanceTimeBy
@@ -339,7 +340,9 @@ class PhotoGridDetailLayoutCoordinatorTest {
     fun resumedLayoutCapturesSnapshotOnlyAfterSessionOperationAdmission() = runTest {
         val oldAssets = List(12) { index -> asset("old_$index") }
         val newAssets = List(12) { index -> asset("new_$index") }
-        val sessionOperationRunner = GatedSessionOperationRunner(gatedInvocation = 3)
+        // Viewport, width, and asset invalidations now enter the session gate
+        // before the initial layout, compute, and resume operations.
+        val sessionOperationRunner = GatedSessionOperationRunner(gatedInvocation = 6)
         val writes = mutableListOf<DetailMosaicArtifactsUpsert>()
         var state = coordinatorState(
             assets = oldAssets,
@@ -486,6 +489,120 @@ class PhotoGridDetailLayoutCoordinatorTest {
         advanceUntilIdle()
 
         assertEquals(readyItems, state.displayItems)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun invalidatingSettersWaitForRuntimeStateTransactionBeforeSchedulingReplacement() = runTest {
+        val runtimeStateMutex = Mutex(locked = true)
+        val mosaicComputer = RecordingMosaicSectionComputer()
+        var state = coordinatorState(
+            assets = List(6) { index -> asset("a$index") },
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            mosaicEngine = mosaicComputer,
+            mosaicRuntimeStateMutex = runtimeStateMutex
+        )
+
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.setGroupSize(GroupSize.DAY)
+        runCurrent()
+
+        assertEquals(0f, state.availableWidth)
+        assertEquals(GroupSize.MONTH, state.groupSize)
+        assertTrue(state.displayItems.isEmpty())
+        assertTrue(mosaicComputer.groupIndexes.isEmpty())
+
+        runtimeStateMutex.unlock()
+        advanceUntilIdle()
+
+        assertEquals(360f, state.availableWidth)
+        assertEquals(GroupSize.DAY, state.groupSize)
+        assertTrue(state.displayItems.any { it is MosaicBandItem || it is PlaceholderItem || it is RowItem })
+        assertEquals(listOf(0), mosaicComputer.groupIndexes)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun assetInvalidationWaitsForRuntimeStateTransactionBeforeReplacementLayout() = runTest {
+        val runtimeStateMutex = Mutex()
+        val oldAssets = List(6) { index -> asset("old_$index") }
+        val newAssets = List(6) { index -> asset("new_$index") }
+        var state = coordinatorState(
+            assets = oldAssets,
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            mosaicRuntimeStateMutex = runtimeStateMutex
+        )
+
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceUntilIdle()
+        val oldItems = state.displayItems
+        assertTrue(oldItems.any { item ->
+            item is MosaicBandItem && item.tiles.any { it.photo.asset.id.startsWith("old_") } ||
+                    item is RowItem && item.photos.any { it.asset.id.startsWith("old_") }
+        })
+
+        runtimeStateMutex.lock()
+        state = state.copy(assets = newAssets)
+        coordinator.handleSyncedContentChange(changed = true)
+        runCurrent()
+
+        assertEquals(oldItems, state.displayItems)
+
+        runtimeStateMutex.unlock()
+        advanceUntilIdle()
+
+        assertTrue(state.displayIndex.assetDisplayIndexById.keys.none { it.startsWith("old_") })
+        assertTrue(state.displayIndex.assetDisplayIndexById.keys.any { it.startsWith("new_") })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun configPreparationCancellationSerializesWithReplacementLayoutTransaction() = runTest {
+        val runtimeStateMutex = Mutex(locked = true)
+        val preparationCoordinator = MosaicConfigPreparationCoordinator()
+        var state = coordinatorState(
+            assets = List(6) { index -> asset("a$index") },
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            mosaicConfigPreparationCoordinator = preparationCoordinator,
+            mosaicRuntimeStateMutex = runtimeStateMutex
+        )
+
+        val cancellation = async {
+            preparationCoordinator.cancelObsoleteWork()
+        }
+        runCurrent()
+        assertFalse(cancellation.isCompleted)
+
+        coordinator.setAvailableWidth(360f)
+        runCurrent()
+        assertEquals(0f, state.availableWidth)
+
+        runtimeStateMutex.unlock()
+        advanceUntilIdle()
+
+        cancellation.await()
+        assertEquals(360f, state.availableWidth)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -728,7 +845,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
         },
         mosaicEngine: MosaicSectionComputer = MosaicRenderEngine(),
         mosaicConfigPreparationCoordinator: MosaicConfigPreparationCoordinator = MosaicConfigPreparationCoordinator(),
-        sessionOperationRunner: SessionOperationRunner? = null
+        sessionOperationRunner: SessionOperationRunner? = null,
+        mosaicRuntimeStateMutex: Mutex = Mutex()
     ): PhotoGridDetailLayoutCoordinator<TestDetailState> =
         PhotoGridDetailLayoutCoordinator(
             scope = scope,
@@ -763,7 +881,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
             backgroundDispatcher = StandardTestDispatcher(scheduler),
             ioDispatcher = StandardTestDispatcher(scheduler),
             sessionOperationRunner = sessionOperationRunner
-                ?: com.udnahc.immichgallery.domain.action.auth.DirectSessionOperationRunner
+                ?: com.udnahc.immichgallery.domain.action.auth.DirectSessionOperationRunner,
+            mosaicRuntimeStateMutex = mosaicRuntimeStateMutex
         )
 
     private fun TestDetailState.asCoordinatorSnapshot(): PhotoGridDetailLayoutSnapshot =

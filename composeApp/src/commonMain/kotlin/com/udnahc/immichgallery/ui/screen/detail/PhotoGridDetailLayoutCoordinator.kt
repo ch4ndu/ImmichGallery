@@ -56,6 +56,7 @@ import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -115,7 +116,8 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private val rowHeightPersistenceRunner: PhotoGridLayoutRunner = PhotoGridLayoutRunner(scope),
     private val backgroundDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val sessionOperationRunner: SessionOperationRunner = DirectSessionOperationRunner
+    private val sessionOperationRunner: SessionOperationRunner = DirectSessionOperationRunner,
+    private val mosaicRuntimeStateMutex: Mutex = Mutex()
 ) {
     private val ownerSessionEpoch = sessionOperationRunner.ownerEpochSnapshot()
     private val log = logging(logTag)
@@ -138,7 +140,6 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private var resumeMosaicJob: Job? = null
     private var resumeRequestedAgain = false
     private var requestedResumeDelayMs = 0L
-    private val mosaicRuntimeStateMutex = Mutex()
     private val persistentCacheRenderer = CachedPhotoGridMosaicRenderer()
     private val runtimeRenderer = RuntimePhotoGridMosaicRenderer()
     private val runtimeGroupStates =
@@ -171,69 +172,94 @@ class PhotoGridDetailLayoutCoordinator<S>(
     }
 
     fun setAvailableWidth(widthDp: Float) {
-        val current = snapshotOf(getState())
-        if (widthDp == current.availableWidth) return
-        clearLayoutCaches()
-        updateState { state ->
-            val snapshot = snapshotOf(state)
-            withAvailableWidth(
-                state,
-                widthDp,
-                targetRowHeightForConfig(widthDp, snapshot.rowHeightBounds)
-            )
+        enqueueLayoutInvalidation {
+            val current = snapshotOf(getState())
+            if (widthDp == current.availableWidth) {
+                false
+            } else {
+                clearLayoutCachesLocked()
+                updateState { state ->
+                    val snapshot = snapshotOf(state)
+                    withAvailableWidth(
+                        state,
+                        widthDp,
+                        targetRowHeightForConfig(widthDp, snapshot.rowHeightBounds)
+                    )
+                }
+                true
+            }
         }
-        scheduleDisplayItems()
     }
 
     fun setAvailableViewportHeight(heightDp: Float) {
-        if (heightDp == availableViewportHeight) return
-        clearLayoutCaches()
-        availableViewportHeight = heightDp
-        val bounds = rowHeightBoundsForViewport(heightDp)
-        updateState { state ->
-            val snapshot = snapshotOf(state)
-            withViewportHeight(
-                state,
-                targetRowHeightForConfig(snapshot.availableWidth, bounds),
-                bounds
-            )
+        enqueueLayoutInvalidation {
+            if (heightDp == availableViewportHeight) {
+                false
+            } else {
+                clearLayoutCachesLocked()
+                availableViewportHeight = heightDp
+                val bounds = rowHeightBoundsForViewport(heightDp)
+                updateState { state ->
+                    val snapshot = snapshotOf(state)
+                    withViewportHeight(
+                        state,
+                        targetRowHeightForConfig(snapshot.availableWidth, bounds),
+                        bounds
+                    )
+                }
+                true
+            }
         }
-        scheduleDisplayItems()
     }
 
     fun setTargetRowHeight(height: Float) {
-        val snapshot = snapshotOf(getState())
-        val clamped = snapshot.rowHeightBounds.clamp(height)
-        if (clamped == snapshot.targetRowHeight) return
-        clearLayoutCaches()
-        hasSavedTargetRowHeight = true
-        savedTargetRowHeight = clamped
-        rowHeightPersistenceRunner.launch(debounce = true) {
-            persistTargetRowHeight(targetRowHeightScope, clamped)
+        enqueueLayoutInvalidation(debounce = true) {
+            val snapshot = snapshotOf(getState())
+            val clamped = snapshot.rowHeightBounds.clamp(height)
+            if (clamped == snapshot.targetRowHeight) {
+                false
+            } else {
+                clearLayoutCachesLocked()
+                hasSavedTargetRowHeight = true
+                savedTargetRowHeight = clamped
+                rowHeightPersistenceRunner.launch(debounce = true) {
+                    persistTargetRowHeight(targetRowHeightScope, clamped)
+                }
+                updateState { state -> withTargetRowHeight(state, clamped) }
+                true
+            }
         }
-        updateState { state -> withTargetRowHeight(state, clamped) }
-        scheduleDisplayItems(debounce = true)
     }
 
     fun setGroupSize(size: GroupSize) {
-        val snapshot = snapshotOf(getState())
-        if (size == snapshot.groupSize) return
-        clearLayoutCaches()
-        updateState { state -> withGroupSize(state, size) }
-        val nextSnapshot = snapshotOf(getState())
-        if (!pendingSyncedContentRevision && nextSnapshot.assets.isNotEmpty()) {
-            renderedGroupFingerprints = nextSnapshot.assets.detailGroupFingerprints(size)
+        enqueueLayoutInvalidation {
+            val snapshot = snapshotOf(getState())
+            if (size == snapshot.groupSize) {
+                false
+            } else {
+                clearLayoutCachesLocked()
+                updateState { state -> withGroupSize(state, size) }
+                val nextSnapshot = snapshotOf(getState())
+                if (!pendingSyncedContentRevision && nextSnapshot.assets.isNotEmpty()) {
+                    renderedGroupFingerprints = nextSnapshot.assets.detailGroupFingerprints(size)
+                }
+                true
+            }
         }
-        scheduleDisplayItems()
     }
 
     fun setViewConfig(config: ViewConfig) {
-        val normalized = config.normalized
-        if (normalized == snapshotOf(getState()).viewConfig) return
-        clearLayoutCaches()
-        persistViewConfig(normalized)
-        updateState { state -> withViewConfig(state, normalized) }
-        scheduleDisplayItems()
+        enqueueLayoutInvalidation {
+            val normalized = config.normalized
+            if (normalized == snapshotOf(getState()).viewConfig) {
+                false
+            } else {
+                clearLayoutCachesLocked()
+                persistViewConfig(normalized)
+                updateState { state -> withViewConfig(state, normalized) }
+                true
+            }
+        }
     }
 
     suspend fun prepareMosaicViewConfig(config: ViewConfig): Result<Unit> =
@@ -323,11 +349,16 @@ class PhotoGridDetailLayoutCoordinator<S>(
     }
 
     fun onViewConfigObserved(config: ViewConfig) {
-        val normalized = config.normalized
-        if (normalized == snapshotOf(getState()).viewConfig) return
-        clearLayoutCaches()
-        updateState { state -> withViewConfig(state, normalized) }
-        scheduleDisplayItems()
+        enqueueLayoutInvalidation {
+            val normalized = config.normalized
+            if (normalized == snapshotOf(getState()).viewConfig) {
+                false
+            } else {
+                clearLayoutCachesLocked()
+                updateState { state -> withViewConfig(state, normalized) }
+                true
+            }
+        }
     }
 
     fun setVisibleBucketIndexes(indexes: List<Int>) {
@@ -366,31 +397,38 @@ class PhotoGridDetailLayoutCoordinator<S>(
     }
 
     fun handleAssetEmission(assets: List<Asset>) {
-        val fingerprint = assets.detailGroupFingerprints(snapshotOf(getState()).groupSize)
-        when {
-            renderedGroupFingerprints == null && assets.isNotEmpty() -> {
-                bumpAssetRevision(fingerprint)
-                scheduleDisplayItems()
-            }
+        enqueueLayoutInvalidation {
+            val fingerprint = assets.detailGroupFingerprints(snapshotOf(getState()).groupSize)
+            when {
+                renderedGroupFingerprints == null && assets.isNotEmpty() -> {
+                    bumpAssetRevisionLocked(fingerprint)
+                    true
+                }
 
-            pendingSyncedContentRevision && fingerprint != renderedGroupFingerprints -> {
-                bumpAssetRevision(fingerprint)
-                scheduleDisplayItems()
+                pendingSyncedContentRevision && fingerprint != renderedGroupFingerprints -> {
+                    bumpAssetRevisionLocked(fingerprint)
+                    true
+                }
+
+                else -> false
             }
         }
     }
 
     fun handleSyncedContentChange(changed: Boolean) {
         if (!changed) return
-        val snapshot = snapshotOf(getState())
-        val fingerprint = snapshot.assets.detailGroupFingerprints(snapshot.groupSize)
-        if (fingerprint != renderedGroupFingerprints &&
-            (fingerprint.isNotEmpty() || renderedGroupFingerprints != null)
-        ) {
-            bumpAssetRevision(fingerprint)
-            scheduleDisplayItems()
-        } else {
-            pendingSyncedContentRevision = true
+        enqueueLayoutInvalidation {
+            val snapshot = snapshotOf(getState())
+            val fingerprint = snapshot.assets.detailGroupFingerprints(snapshot.groupSize)
+            if (fingerprint != renderedGroupFingerprints &&
+                (fingerprint.isNotEmpty() || renderedGroupFingerprints != null)
+            ) {
+                bumpAssetRevisionLocked(fingerprint)
+                true
+            } else {
+                pendingSyncedContentRevision = true
+                false
+            }
         }
     }
 
@@ -1503,16 +1541,31 @@ class PhotoGridDetailLayoutCoordinator<S>(
         return currentItems.take(firstIndex) + groupItems + currentItems.drop(lastIndex + 1)
     }
 
-    private fun bumpAssetRevision(fingerprint: List<DetailGroupFingerprint>) {
+    private fun enqueueLayoutInvalidation(
+        debounce: Boolean = false,
+        block: () -> Boolean
+    ) {
+        scope.launch(backgroundDispatcher, start = CoroutineStart.UNDISPATCHED) {
+            sessionOperationRunner.runForOwner(ownerSessionEpoch) {
+                mosaicRuntimeStateMutex.withLock {
+                    if (block()) {
+                        scheduleDisplayItems(debounce = debounce)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun bumpAssetRevisionLocked(fingerprint: List<DetailGroupFingerprint>) {
         val previous = renderedGroupFingerprints
         assetRevision += 1
         renderedGroupFingerprints = fingerprint
         pendingSyncedContentRevision = false
         displayCache = null
-        invalidateChangedGroupCaches(previous, fingerprint)
+        invalidateChangedGroupCachesLocked(previous, fingerprint)
     }
 
-    private fun invalidateChangedGroupCaches(
+    private fun invalidateChangedGroupCachesLocked(
         previous: List<DetailGroupFingerprint>?,
         next: List<DetailGroupFingerprint>
     ) {
@@ -1521,37 +1574,23 @@ class PhotoGridDetailLayoutCoordinator<S>(
         // Display items include bucketIndex. If group order changes, cached
         // rows/Mosaic bands from unchanged labels may point at stale indexes.
         if (previous == null || previousOrder != nextOrder) {
-            mutateMosaicRuntimeState {
-                groupDisplayCache.clear()
-                groupDisplayBandCache.clear()
-                groupSectionGeometryCache.clear()
-                runtimeGroupStates.clear()
-            }
+            groupDisplayCache.clear()
+            groupDisplayBandCache.clear()
+            groupSectionGeometryCache.clear()
+            runtimeGroupStates.clear()
             return
         }
         val changedIndexes = (0 until maxOf(previous.size, next.size))
             .filter { index -> previous.getOrNull(index) != next.getOrNull(index) }
             .toSet()
         if (changedIndexes.isEmpty()) return
-        mutateMosaicRuntimeState {
-            val staleKeys =
-                (groupDisplayCache.keys + groupDisplayBandCache.keys + groupSectionGeometryCache.keys)
-                    .filter { it.bucketIndex in changedIndexes }
-            staleKeys.forEach(groupDisplayCache::remove)
-            staleKeys.forEach(groupDisplayBandCache::remove)
-            staleKeys.forEach(groupSectionGeometryCache::remove)
-        }
-        removeRuntimeGroupStates { it.bucketIndex in changedIndexes }
-    }
-
-    private fun removeRuntimeGroupStates(predicate: (DetailGroupDisplayCacheKey) -> Boolean) {
-        // Non-suspend callers clear generation-owned state before scheduling
-        // new work. Suspend runtime paths use removeRuntimeGroupStatesLocked.
-        mutateMosaicRuntimeState {
-            runtimeGroupStates.keys.toList()
-                .filter(predicate)
-                .forEach(runtimeGroupStates::remove)
-        }
+        val staleKeys =
+            (groupDisplayCache.keys + groupDisplayBandCache.keys + groupSectionGeometryCache.keys)
+                .filter { it.bucketIndex in changedIndexes }
+        staleKeys.forEach(groupDisplayCache::remove)
+        staleKeys.forEach(groupDisplayBandCache::remove)
+        staleKeys.forEach(groupSectionGeometryCache::remove)
+        removeRuntimeGroupStatesLocked { it.bucketIndex in changedIndexes }
     }
 
     private fun removeRuntimeGroupStatesLocked(predicate: (DetailGroupDisplayCacheKey) -> Boolean) {
@@ -1560,50 +1599,32 @@ class PhotoGridDetailLayoutCoordinator<S>(
             .forEach(runtimeGroupStates::remove)
     }
 
-    private fun clearLayoutCaches() {
+    private fun clearLayoutCachesLocked() {
         displayCache = null
         resumeMosaicJob?.cancel()
         resumeMosaicJob = null
         deferredMosaicFlushJob?.cancel()
         deferredMosaicFlushJob = null
-        mutateMosaicRuntimeState {
-            groupDisplayCache.clear()
-            groupDisplayBandCache.clear()
-            groupSectionGeometryCache.clear()
-            runtimeGroupStates.clear()
-            deferredMosaicGroupItems.clear()
-        }
+        groupDisplayCache.clear()
+        groupDisplayBandCache.clear()
+        groupSectionGeometryCache.clear()
+        runtimeGroupStates.clear()
+        deferredMosaicGroupItems.clear()
     }
 
     private suspend fun cancelObsoleteMosaicWorkForConfigPrepare() {
-        mosaicLayoutGeneration++
-        layoutRunner.cancel()
-        resumeMosaicJob?.cancel()
-        resumeMosaicJob = null
-        resumeRequestedAgain = false
-        requestedResumeDelayMs = 0L
-        deferredMosaicFlushJob?.cancel()
-        deferredMosaicFlushJob = null
-        mosaicWorkScheduler.cancelOwner(ownerKey)
         mosaicRuntimeStateMutex.withLock {
+            mosaicLayoutGeneration++
+            layoutRunner.cancel()
+            resumeMosaicJob?.cancel()
+            resumeMosaicJob = null
+            resumeRequestedAgain = false
+            requestedResumeDelayMs = 0L
+            deferredMosaicFlushJob?.cancel()
+            deferredMosaicFlushJob = null
+            mosaicWorkScheduler.cancelOwner(ownerKey)
             runtimeGroupStates.clear()
             deferredMosaicGroupItems.clear()
-        }
-    }
-
-    private inline fun mutateMosaicRuntimeState(crossinline block: () -> Unit) {
-        if (mosaicRuntimeStateMutex.tryLock()) {
-            try {
-                block()
-            } finally {
-                mosaicRuntimeStateMutex.unlock()
-            }
-        } else {
-            scope.launch(backgroundDispatcher) {
-                mosaicRuntimeStateMutex.withLock {
-                    block()
-                }
-            }
         }
     }
 

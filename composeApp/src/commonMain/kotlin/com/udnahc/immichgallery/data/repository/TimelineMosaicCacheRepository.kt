@@ -246,93 +246,123 @@ class TimelineMosaicCacheRepository(
     suspend fun replaceTimelineMosaicArtifactsForBucketConfig(
         artifacts: TimelineMosaicBucketArtifacts
     ): Result<TimelineBucketGeometrySummary> =
-        sessionStateRepository.withOperation { token -> try {
-            val bucketGeometry = artifacts.bucketGeometry ?: throw IllegalArgumentException(
-                "Timeline Mosaic artifacts are missing bucket geometry"
-            )
-            sessionStateRepository.withCommit(token) {
-                withContext(Dispatchers.IO) {
-                    timelineDao.replaceMosaicAssignmentsForBucketConfig(
-                    timeBucket = artifacts.timeBucket,
-                    groupMode = artifacts.groupMode,
-                    columnCount = artifacts.columnCount,
-                    familiesKey = artifacts.familiesKey,
-                    assignments = artifacts.assignments.map { artifact ->
-                        TimelineMosaicAssignmentEntity(
-                            timeBucket = artifact.timeBucket,
-                            groupMode = artifact.groupMode,
-                            sectionKey = artifact.sectionKey,
-                            columnCount = artifact.columnCount,
-                            familiesKey = artifact.familiesKey,
-                            assetFingerprint = artifact.assetFingerprint,
-                            assignmentsJson = json.encodeToString(artifact.assignments.map { it.toDto() }),
-                            updatedAt = artifact.updatedAt
+        sessionStateRepository.withOperation { token ->
+            try {
+                val bucketGeometry = artifacts.bucketGeometry ?: throw IllegalArgumentException(
+                    "Timeline Mosaic artifacts are missing bucket geometry"
+                )
+                sessionStateRepository.withCommit(token) {
+                    withContext(Dispatchers.IO) {
+                        val currentAssets = assetDao.getTimelineAssets(artifacts.timeBucket)
+                        if (!timelineMosaicArtifactFingerprintMatchesCurrentAssets(
+                                currentAssets,
+                                bucketGeometry.assetFingerprint
+                            )
+                        ) {
+                            throw StaleTimelineMosaicArtifactsException()
+                        }
+                        timelineDao.replaceMosaicAssignmentsForBucketConfig(
+                            timeBucket = artifacts.timeBucket,
+                            groupMode = artifacts.groupMode,
+                            columnCount = artifacts.columnCount,
+                            familiesKey = artifacts.familiesKey,
+                            assignments = artifacts.assignments.map { artifact ->
+                                TimelineMosaicAssignmentEntity(
+                                    timeBucket = artifact.timeBucket,
+                                    groupMode = artifact.groupMode,
+                                    sectionKey = artifact.sectionKey,
+                                    columnCount = artifact.columnCount,
+                                    familiesKey = artifact.familiesKey,
+                                    assetFingerprint = artifact.assetFingerprint,
+                                    assignmentsJson = json.encodeToString(
+                                        artifact.assignments.map { it.toDto() }
+                                    ),
+                                    updatedAt = artifact.updatedAt
+                                )
+                            },
+                            displayCache = artifacts.displayCache.map { artifact ->
+                                TimelineMosaicDisplayCacheEntity(
+                                    timeBucket = artifact.timeBucket,
+                                    groupMode = artifact.groupMode,
+                                    sectionKey = artifact.sectionKey,
+                                    columnCount = artifact.columnCount,
+                                    familiesKey = artifact.familiesKey,
+                                    assetFingerprint = artifact.assetFingerprint,
+                                    availableWidthKey = timelineMosaicGeometryWidthKey(
+                                        artifact.geometryRequest.availableWidth
+                                    ),
+                                    displayVersion = TIMELINE_MOSAIC_DISPLAY_CACHE_VERSION,
+                                    itemsJson = json.encodeToString(artifact.displayRecords),
+                                    displayItemCount = artifact.displayItemCount,
+                                    placeholderHeight = artifact.placeholderHeight,
+                                    maxRowHeightKey = timelineMosaicGeometryDimensionKey(
+                                        artifact.geometryRequest.maxRowHeight
+                                    ),
+                                    spacingKey = timelineMosaicGeometryDimensionKey(
+                                        artifact.geometryRequest.spacing
+                                    ),
+                                    updatedAt = artifact.updatedAt
+                                )
+                            },
+                            geometry = artifacts.sectionGeometry.map { artifact ->
+                                TimelineMosaicGeometryEntity(
+                                    timeBucket = artifact.timeBucket,
+                                    groupMode = artifact.groupMode,
+                                    sectionKey = artifact.sectionKey,
+                                    columnCount = artifact.columnCount,
+                                    familiesKey = artifact.familiesKey,
+                                    assetFingerprint = artifact.assetFingerprint,
+                                    availableWidthKey = timelineMosaicGeometryWidthKey(
+                                        artifact.geometryRequest.availableWidth
+                                    ),
+                                    geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION,
+                                    placeholderHeight = artifact.placeholderHeight,
+                                    displayItemCount = artifact.displayItemCount,
+                                    maxRowHeightKey = timelineMosaicGeometryDimensionKey(
+                                        artifact.geometryRequest.maxRowHeight
+                                    ),
+                                    spacingKey = timelineMosaicGeometryDimensionKey(
+                                        artifact.geometryRequest.spacing
+                                    ),
+                                    geometryRangesJson = json.encodeToString(artifact.ranges),
+                                    updatedAt = artifact.updatedAt
+                                )
+                            },
+                            bucketGeometry = TimelineBucketGeometryEntity(
+                                timeBucket = bucketGeometry.timeBucket,
+                                groupMode = bucketGeometry.groupMode,
+                                columnCount = bucketGeometry.columnCount,
+                                familiesKey = bucketGeometry.familiesKey,
+                                assetFingerprint = bucketGeometry.assetFingerprint,
+                                availableWidthKey = timelineMosaicGeometryWidthKey(
+                                    bucketGeometry.geometryRequest.availableWidth
+                                ),
+                                geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION,
+                                placeholderHeight = bucketGeometry.placeholderHeight,
+                                displayItemCount = bucketGeometry.displayItemCount,
+                                maxRowHeightKey = timelineMosaicGeometryDimensionKey(
+                                    bucketGeometry.geometryRequest.maxRowHeight
+                                ),
+                                spacingKey = timelineMosaicGeometryDimensionKey(
+                                    bucketGeometry.geometryRequest.spacing
+                                ),
+                                updatedAt = bucketGeometry.updatedAt
+                            )
                         )
-                    },
-                    displayCache = artifacts.displayCache.map { artifact ->
-                        TimelineMosaicDisplayCacheEntity(
-                            timeBucket = artifact.timeBucket,
-                            groupMode = artifact.groupMode,
-                            sectionKey = artifact.sectionKey,
-                            columnCount = artifact.columnCount,
-                            familiesKey = artifact.familiesKey,
-                            assetFingerprint = artifact.assetFingerprint,
-                            availableWidthKey = timelineMosaicGeometryWidthKey(artifact.geometryRequest.availableWidth),
-                            displayVersion = TIMELINE_MOSAIC_DISPLAY_CACHE_VERSION,
-                            itemsJson = json.encodeToString(artifact.displayRecords),
-                            displayItemCount = artifact.displayItemCount,
-                            placeholderHeight = artifact.placeholderHeight,
-                            maxRowHeightKey = timelineMosaicGeometryDimensionKey(artifact.geometryRequest.maxRowHeight),
-                            spacingKey = timelineMosaicGeometryDimensionKey(artifact.geometryRequest.spacing),
-                            updatedAt = artifact.updatedAt
-                        )
-                    },
-                    geometry = artifacts.sectionGeometry.map { artifact ->
-                        TimelineMosaicGeometryEntity(
-                            timeBucket = artifact.timeBucket,
-                            groupMode = artifact.groupMode,
-                            sectionKey = artifact.sectionKey,
-                            columnCount = artifact.columnCount,
-                            familiesKey = artifact.familiesKey,
-                            assetFingerprint = artifact.assetFingerprint,
-                            availableWidthKey = timelineMosaicGeometryWidthKey(artifact.geometryRequest.availableWidth),
-                            geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION,
-                            placeholderHeight = artifact.placeholderHeight,
-                            displayItemCount = artifact.displayItemCount,
-                            maxRowHeightKey = timelineMosaicGeometryDimensionKey(artifact.geometryRequest.maxRowHeight),
-                            spacingKey = timelineMosaicGeometryDimensionKey(artifact.geometryRequest.spacing),
-                            geometryRangesJson = json.encodeToString(artifact.ranges),
-                            updatedAt = artifact.updatedAt
-                        )
-                    },
-                    bucketGeometry = TimelineBucketGeometryEntity(
-                        timeBucket = bucketGeometry.timeBucket,
-                        groupMode = bucketGeometry.groupMode,
-                        columnCount = bucketGeometry.columnCount,
-                        familiesKey = bucketGeometry.familiesKey,
-                        assetFingerprint = bucketGeometry.assetFingerprint,
-                        availableWidthKey = timelineMosaicGeometryWidthKey(bucketGeometry.geometryRequest.availableWidth),
-                        geometryVersion = TIMELINE_MOSAIC_GEOMETRY_VERSION,
-                        placeholderHeight = bucketGeometry.placeholderHeight,
-                        displayItemCount = bucketGeometry.displayItemCount,
-                        maxRowHeightKey = timelineMosaicGeometryDimensionKey(bucketGeometry.geometryRequest.maxRowHeight),
-                        spacingKey = timelineMosaicGeometryDimensionKey(bucketGeometry.geometryRequest.spacing),
-                        updatedAt = bucketGeometry.updatedAt
-                    )
-                    )
+                    }
                 }
+                log.d {
+                    "Timeline Mosaic artifacts persisted bucket=<redacted> " +
+                            "assignments=<redacted> display=<redacted> " +
+                            "geometry=<redacted> bucketGeometry=true"
+                }
+                Result.success(bucketGeometry.toDomainSummary())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
             }
-            log.d {
-                "Timeline Mosaic artifacts persisted bucket=<redacted> " +
-                        "assignments=<redacted> display=<redacted> " +
-                        "geometry=<redacted> bucketGeometry=true"
-            }
-            Result.success(bucketGeometry.toDomainSummary())
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure(e)
-        } }
+        }
 
     suspend fun clearBuckets(timeBuckets: Set<String>) {
         if (timeBuckets.isEmpty()) return
@@ -366,6 +396,15 @@ class TimelineMosaicCacheRepository(
         }
     }
 }
+
+internal class StaleTimelineMosaicArtifactsException : IllegalStateException(
+    "Timeline Mosaic artifacts no longer match current bucket assets"
+)
+
+internal fun timelineMosaicArtifactFingerprintMatchesCurrentAssets(
+    currentAssets: List<AssetEntity>,
+    artifactFingerprint: String
+): Boolean = orderedAssetsFingerprint(currentAssets) == artifactFingerprint
 
 internal fun buildTimelineMosaicCacheStatus(
     timeBuckets: Set<String>,

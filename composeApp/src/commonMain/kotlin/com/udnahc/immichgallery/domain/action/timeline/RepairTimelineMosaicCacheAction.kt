@@ -10,6 +10,7 @@ import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.SectionGeometry
 import com.udnahc.immichgallery.domain.model.SectionReady
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketArtifacts
 import com.udnahc.immichgallery.domain.model.TimelineMosaicArtifactBuilder
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicRepairSectionInput
@@ -40,17 +41,40 @@ class RepairTimelineMosaicCacheAction(
         geometryRequest: TimelineMosaicGeometryRequest,
         sectionsByKey: Map<String, TimelineMosaicRepairSectionInput>
     ): Result<Unit> = sessionStateRepository.withOperation {
-        repair(timeBucket, groupSize, columnCount, families, geometryRequest, sectionsByKey)
+        prepareRepair(timeBucket, groupSize, columnCount, families, geometryRequest, sectionsByKey)
+            .fold(
+                onSuccess = { artifacts ->
+                    repository.replaceTimelineMosaicArtifactsForBucketConfig(artifacts).map { Unit }
+                },
+                onFailure = { Result.failure(it) }
+            )
     }
 
-    private suspend fun repair(
+    suspend fun prepare(
         timeBucket: String,
         groupSize: TimelineGroupSize,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest,
         sectionsByKey: Map<String, TimelineMosaicRepairSectionInput>
-    ): Result<Unit> = try {
+    ): Result<TimelineMosaicBucketArtifacts> = sessionStateRepository.withOperation {
+        prepareRepair(timeBucket, groupSize, columnCount, families, geometryRequest, sectionsByKey)
+    }
+
+    suspend fun commit(
+        artifacts: TimelineMosaicBucketArtifacts
+    ): Result<Unit> = sessionStateRepository.withOperation {
+        repository.replaceTimelineMosaicArtifactsForBucketConfig(artifacts).map { Unit }
+    }
+
+    private suspend fun prepareRepair(
+        timeBucket: String,
+        groupSize: TimelineGroupSize,
+        columnCount: Int,
+        families: Set<MosaicTemplateFamily>,
+        geometryRequest: TimelineMosaicGeometryRequest,
+        sectionsByKey: Map<String, TimelineMosaicRepairSectionInput>
+    ): Result<TimelineMosaicBucketArtifacts> = try {
         val snapshot = snapshotReader(timeBucket)
         val sections = timelineMosaicSections(timeBucket, groupSize, snapshot.assets)
         val normalizedFamilies = families.normalizedMosaicFamilies()
@@ -122,7 +146,7 @@ class RepairTimelineMosaicCacheAction(
             cacheDisplayResults = true,
             updatedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
         ) ?: return Result.failure(IllegalStateException("Timeline Mosaic repair artifact build failed"))
-        repository.replaceTimelineMosaicArtifactsForBucketConfig(artifacts).map { Unit }
+        Result.success(artifacts)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {

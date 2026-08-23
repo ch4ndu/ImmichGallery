@@ -60,7 +60,8 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 - The actor processes commands serially and emits effects through a receive-only channel:
   - `Enqueue` adds runnable bucket requests.
   - `Defer` records paused or interrupted requests.
-  - `PauseForScroll`, `ResumeAfterScroll`, `InvalidateBucket`, `ClearAll`, and `WorkerFinished` mutate actor-owned state only.
+  - `PauseForScroll`, `ResumeAfterScroll`, `InvalidateBucket`, `BeginReset`, `EndReset`, and `WorkerFinished` mutate actor-owned state only.
+  - `ResetBoundary(id)` is emitted after `BeginReset(id)` reaches the actor, giving the ViewModel a serialized point to advance runtime generations and clear runtime state before `EndReset(id)` reopens admission.
   - `StartWork(request, token)` and `CancelWork(request, token)` are consumed by the ViewModel outside the actor loop.
 - Actor merge rules:
   - request identity is `timeBucket`.
@@ -83,7 +84,8 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   - new `RenderDemand` requests are ignored while paused. Sync-precompute requests may remain deferred, but no new work starts.
 - Runtime compute does not use `shouldContinue` to cancel for interactive scroll. Non-scroll invalidation and stale-config changes cancel or reject the worker through its token and generation guards.
 - On runtime cancellation from invalidation, preemption, or stale config:
-  - the latest valid checkpoint is stored in `runtimeMosaicResumeStates` under the section `MosaicCacheKey`.
+  - the latest valid checkpoint is stored in `TimelineRuntimeStateStore` under the section `MosaicCacheKey`, together with the producing session stamp and the captured global/bucket runtime generations.
+  - stale checkpoint saves and removals are rejected if bucket/global Mosaic generation advanced while compute was running, or if the stored checkpoint belongs to a different session stamp.
   - accumulated progress chunks for that section are stored with the checkpoint.
   - the bucket is sent back to the actor as `Defer(RenderDemand)` when the queue is not paused; paused queues discard that obsolete render demand and rely on the settled target request.
 - When both scroll sources stop:
@@ -121,13 +123,43 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 
 ## Timeline Publication Rules
 
-- While scrolling, `publishMosaicUpdates(...)` does not mutate visible Mosaic state directly. It stores state and geometry updates in deferred maps.
+- While scrolling, `publishMosaicUpdates(...)` does not mutate visible Mosaic state directly. It stores state, geometry, and repair fragments in keyed deferred maps.
 - After scroll settles, only deferred state/geometry for the final target and settled visible buckets is published; obsolete intermediate drag targets are discarded.
-- Pending channel publications, deferred-scroll payloads, runtime checkpoints,
-  and persisted-geometry reads all retain the producer's full session stamp.
+- `TimelineRuntimeStateStore` owns Timeline day-group memoization, runtime Mosaic resume checkpoints, deferred materialized bucket ids, and one deferred-scroll Mosaic publish batch. These entries are mutated through CAS-backed immutable snapshots rather than ad hoc mutable ViewModel collections. Bucket invalidation advances that bucket generation and atomically removes bucket-owned day groups, checkpoints, deferred materialization, and deferred Mosaic publishes. Global invalidation advances the global generation and clears runtime checkpoints/deferred publishes so stale computations cannot reinsert state after invalidation.
+- Runtime compute and persisted Mosaic reads capture an immutable origin publish stamp before the expensive work starts. Descendant runtime compute from a persisted-read cache miss inherits that origin stamp rather than minting a new one. Final publish, repair requests, and runtime checkpoint save/remove decisions use that captured stamp so old work cannot adopt a newer runtime generation after invalidation.
+- Pending publish and repair work uses keyed newest-value buffers plus a single conflated wakeup, not unbounded channels. Publish fragments are inserted atomically for one `PendingMosaicPublish`; deferred-drain batches also flatten all publishes into one keyed-buffer CAS so a logical batch cannot split across drains. The logical keys are Mosaic state section, Mosaic geometry section, and repair bucket. Each key keeps one newest value by session stamp plus runtime global/bucket generation, so late obsolete same-key output cannot replace current output or accumulate by generation. Distinct logical keys are preserved.
+- Deferred Mosaic publishes are accepted only when their captured bucket/global generations still match inside the store transaction. Deferred materialized bucket ids carry bucket-only generation stamps because valid Room asset rows should survive Mosaic config/global invalidation but must not survive bucket content invalidation. Drained materialized ids keep those bucket stamps through the final `_bucketData` publish. If scroll stops before a producer finishes deferring, one conflated settled-drain signal re-runs the normal deferred drain path; if scroll restarts after a batch is drained, the batch is re-deferred through the same generation filter instead of publishing during active scroll or being lost.
+- Pending publications, deferred-scroll payloads, runtime checkpoints, and
+  persisted-geometry reads all retain the producer's full session stamp.
   Long-lived consumers isolate each stamped sink so stale output is discarded
   without terminating the consumer. A descendant never derives a replacement
   stamp when the sink finally runs.
+- Applied Timeline group, Mosaic-policy, and layout-geometry changes are
+  serialized with final publication. The publication gate installs the new
+  config and clears incompatible visible state, section and aggregate geometry,
+  geometry readiness, and progressive chunks while advancing runtime generation
+  as one mutation. Only afterward does `BeginReset` cancel/join pre-change actor
+  work and acknowledge the reset boundary. A reset rejected by a failed session
+  mutation is retried after admission reopens when the same owner survives; an
+  owner change abandons the old ViewModel's post-reset reads. Persisted geometry
+  is requested before visible Mosaic reads resume.
+- Manual-sync Mosaic precompute captures its UI runtime generation and asset
+  revisions before the platform producer starts. Completion validates that
+  origin in the same publication-gated mutation that applies the sync's own
+  bucket invalidations and revision changes, then derives the post-invalidation
+  publication stamp. Superseded summaries and failures are discarded and
+  replaced by a current render-demand read rather than being relabeled at sink
+  time.
+- Blocking Mosaic config preparation uses a preserve reset: it cancels and
+  joins obsolete work and removes transient partial chunks while keeping the
+  previously completed layout visible. Applying a prepared config uses a full
+  reset and clears the completed layout because its width/config identity is no
+  longer current. A failed reset completes its waiter exceptionally; callers
+  must not schedule post-reset reads after a failed clear.
+- Progressive-buffer drains retain global, bucket, and per-key clear epochs.
+  A bucket, terminal-state, or global clear invalidates an already-drained
+  batch before either publication or scroll requeue. Bucket/global epoch
+  advances also compact obsolete per-key epoch entries.
 - Failed Timeline sections render placeholders and retry through normal requested-config cache/runtime repair; failure must not display fallback rows or fallback Mosaic bands.
 - Ready Timeline sections display validated cached mixed display records when available, or completed ready projection from assignments.
 - A cache-enabled render-demand miss persists successful repair only after every current bucket section is ready. Valid cached siblings are reused, invalid sections are recomputed, aggregate geometry is recalculated, and the repository atomically replaces the bucket. Ready state is queued for publication before repair persistence. Repair requests preserve the producer's session stamp, then run through one conflated serial writer that keeps only the newest request per bucket, pauses writes during interactive scroll, and revalidates session stamp, config, revision, families, and geometry immediately before writing.
@@ -148,6 +180,11 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   execution job and work token immediately before writing.
 - Detail visibility reprioritization and delayed/deferred flushes enter the
   coordinator's owner epoch before touching runtime state.
+- Detail layout/config/asset invalidations are serialized by the coordinator's
+  runtime-state transaction: old runtime/deferred state is cleared, the Mosaic
+  layout generation is advanced, and replacement layout work is scheduled before
+  another invalidation can clear or schedule against a newer generation. Cache
+  reads and Mosaic assignment compute remain outside that short transaction.
 - Runtime states are `InFlight`, `Partial`, and `RetryableFailure`; incomplete states render placeholders or strict partial output, never row-packing fallback.
 - Cache-enabled Mosaic settings preparation broadcasts cancellation through `MosaicConfigPreparationCoordinator` before expensive preparation work starts. Live Timeline/detail owners cancel pending geometry calculations, layout runners, deferred flush/resume jobs, and scheduler work that belongs to obsolete configs while preserving ready display caches and persisted artifacts.
 

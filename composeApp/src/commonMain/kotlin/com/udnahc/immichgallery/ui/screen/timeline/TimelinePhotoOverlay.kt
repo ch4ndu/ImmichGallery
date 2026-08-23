@@ -22,7 +22,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -66,7 +65,7 @@ fun TimelinePhotoOverlay(
     getAssetFileName: suspend (assetId: String, fallback: String) -> Result<String>,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     getAssetStack: suspend (String) -> Result<AssetStackLookup>,
-    assetCache: SnapshotStateMap<String, List<Asset>>,
+    assetProvider: (String) -> List<Asset>?,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
@@ -155,12 +154,12 @@ fun TimelinePhotoOverlay(
     // mapNotNull filters out settled pages whose bucket hasn't loaded yet —
     // otherwise we'd briefly signal null and the grid would flash every cell in.
     // Keyed on Unit with snapshotFlow so the effect doesn't restart every time
-    // `state.buckets` or `assetCache` gets a new reference — restart would
+    // `state.buckets` or `assetProvider` gets a new reference — restart would
     // drop the flow collection mid-stream on every data update.
     val latestAssetChangedCallback by rememberUpdatedState(onCurrentAssetChanged)
     LaunchedEffect(Unit) {
         snapshotFlow {
-            resolvePageAsset(pagerState.settledPage, latestState, assetCache)?.id
+            resolvePageAsset(pagerState.settledPage, latestState, assetProvider)?.id
         }
             .mapNotNull { it }
             .distinctUntilChanged()
@@ -176,7 +175,7 @@ fun TimelinePhotoOverlay(
         snapshotFlow {
             val settledPage = pagerState.settledPage
             listOf(settledPage - 1, settledPage, settledPage + 1)
-                .mapNotNull { idx -> resolvePageAsset(idx, latestState, assetCache) }
+                .mapNotNull { idx -> resolvePageAsset(idx, latestState, assetProvider) }
         }
             .distinctUntilChanged()
             .collect { assetsToPrefetch ->
@@ -197,7 +196,7 @@ fun TimelinePhotoOverlay(
     val currentBucketKey = resolvePageBucket(pagerState.settledPage, state)
 
     val currentAsset = resolvePageAsset(
-        pagerState.settledPage, state, assetCache
+        pagerState.settledPage, state, assetProvider
     )
 
     LaunchedEffect(pagerState.settledPage, currentAsset?.id) {
@@ -370,7 +369,7 @@ fun TimelinePhotoOverlay(
             userScrollEnabled = !isCoveredByStack,
             key = { page -> page }
         ) { page ->
-            val asset = resolvePageAsset(page, state, assetCache)
+            val asset = resolvePageAsset(page, state, assetProvider)
             val isSettledPage = pagerState.settledPage == page
 
             // Trigger loading for this page's bucket
@@ -378,7 +377,7 @@ fun TimelinePhotoOverlay(
             LaunchedEffect(page) {
                 snapshotFlow {
                     resolvePageBucket(page, latestState)
-                        ?.takeUnless { bucket -> assetCache.containsKey(bucket) }
+                        ?.takeUnless { bucket -> assetProvider(bucket) != null }
                 }
                     .mapNotNull { it }
                     .distinctUntilChanged()
@@ -488,13 +487,13 @@ fun TimelinePhotoOverlay(
 private fun resolvePageAsset(
     pageIndex: Int,
     state: TimelineOverlayState,
-    bucketAssets: Map<String, List<Asset>>
+    assetProvider: (String) -> List<Asset>?
 ): Asset? {
     val bucketIndex = state.pageIndex.pageToBucketIndex(pageIndex) ?: return null
     val bucket = state.buckets.getOrNull(bucketIndex) ?: return null
     val bucketStart = state.pageIndex.bucketStartPages.getOrNull(bucketIndex) ?: return null
     val localIndex = pageIndex - bucketStart
-    return bucketAssets[bucket.timeBucket]?.getOrNull(localIndex)
+    return assetProvider(bucket.timeBucket)?.getOrNull(localIndex)
 }
 
 private fun resolvePageBucket(
