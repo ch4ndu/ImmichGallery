@@ -240,7 +240,7 @@ class SearchViewModel internal constructor(
                     _state.update { it.copy(serverCapabilities = SearchLoadState.Content(capabilities)) }
                 },
                 onFailure = { error ->
-                    log.e(error) { "Failed to load Search server capabilities" }
+                    log.e { "Failed to load Search server capabilities" }
                     _state.update {
                         it.copy(serverCapabilities = SearchLoadState.Error(previous))
                     }
@@ -266,7 +266,7 @@ class SearchViewModel internal constructor(
                     }
                 },
                 onFailure = { error ->
-                    log.e(error) { "Failed to load Search preference capabilities" }
+                    log.e { "Failed to load Search preference capabilities" }
                     _state.update {
                         it.copy(preferenceCapabilities = SearchLoadState.Error(previous))
                     }
@@ -407,12 +407,12 @@ class SearchViewModel internal constructor(
         }
         searchJob = viewModelScope.launch(searchDispatcher) {
             log.d {
-                "Search endpoint=${session.endpoint} mode=${session.criteria.textMode} page=1"
+                "Search endpoint=<redacted> mode=<redacted> page=1"
             }
             searchAssets(session.endpoint, session.criteria, 1).fold(
                 onSuccess = { result -> publishFirstPage(session, result) },
                 onFailure = { error ->
-                    log.e(error) { "Search failed endpoint=${session.endpoint} page=1" }
+                    log.e { "Search failed endpoint=<redacted> page=1" }
                     updateForSession(session) {
                         it.copy(isLoading = false, error = SearchUiMessage.SearchFailed)
                     }
@@ -436,11 +436,11 @@ class SearchViewModel internal constructor(
         if (!_state.compareAndSet(previous, previous.copy(isLoadingMore = true))) return
 
         loadMoreJob = viewModelScope.launch(searchDispatcher) {
-            log.d { "Search load more endpoint=${session.endpoint} page=$page" }
+            log.d { "Search load more endpoint=<redacted> page=<redacted>" }
             searchAssets(session.endpoint, session.criteria, page).fold(
                 onSuccess = { result -> publishNextPage(session, page, result) },
                 onFailure = { error ->
-                    log.e(error) { "Search load more failed endpoint=${session.endpoint} page=$page" }
+                    log.e { "Search load more failed endpoint=<redacted> page=<redacted>" }
                     updateForSession(session) { it.copy(isLoadingMore = false) }
                 }
             )
@@ -526,7 +526,7 @@ class SearchViewModel internal constructor(
                     }
                 },
                 onFailure = { error ->
-                    log.e(error) { "Failed to sync Search people options" }
+                    log.e { "Failed to sync Search people options" }
                     _state.update { current ->
                         current.copy(
                             peopleOptions = SearchLoadState.Error(
@@ -555,7 +555,7 @@ class SearchViewModel internal constructor(
                     }
                 },
                 onFailure = { error ->
-                    log.e(error) { "Failed to sync Search album options" }
+                    log.e { "Failed to sync Search album options" }
                     _state.update { current ->
                         current.copy(
                             albumOptions = SearchLoadState.Error(
@@ -579,7 +579,7 @@ class SearchViewModel internal constructor(
                     _state.update { it.copy(tagOptions = SearchLoadState.Content(tags)) }
                 },
                 onFailure = { error ->
-                    log.e(error) { "Failed to load Search tag options" }
+                    log.e { "Failed to load Search tag options" }
                     _state.update { it.copy(tagOptions = SearchLoadState.Error(previous)) }
                 }
             )
@@ -619,8 +619,8 @@ class SearchViewModel internal constructor(
                 },
                 onFailure = { error ->
                     log.e {
-                        "Failed to load Search suggestions type=${normalized.type} " +
-                            "failure=${error::class.simpleName ?: "UnknownFailure"}"
+                        "Failed to load Search suggestions type=<redacted> " +
+                            "failure=<redacted>"
                     }
                     if (isCurrentSuggestionRequest(normalized)) {
                         publishSuggestionState(normalized, SearchLoadState.Error(previous))

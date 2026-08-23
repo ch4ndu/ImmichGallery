@@ -11,30 +11,54 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class ServerConfigRepository(private val settings: Settings) {
+    private val _session = MutableStateFlow(
+        ServerSessionConfiguration(
+            serverUrl = settings.getString(SERVER_URL_KEY, ""),
+            apiKey = settings.getString(API_KEY_KEY, "")
+        )
+    )
     private val _timelineGroupSize =
-        MutableStateFlow(settings.getString("timeline_group_size", "MONTH"))
+        MutableStateFlow(settings.getString(TIMELINE_GROUP_SIZE_KEY, "MONTH"))
     private val _viewConfig = MutableStateFlow(readViewConfig())
 
-    fun getServerUrl(): String = settings.getString("server_url", "")
-    fun setServerUrl(url: String) {
-        settings.putString("server_url", url)
+    fun getServerUrl(): String = _session.value.serverUrl
+    private fun setServerUrl(url: String) {
+        settings.putString(SERVER_URL_KEY, url)
     }
 
-    fun getApiKey(): String = settings.getString("api_key", "")
-    fun setApiKey(key: String) {
-        settings.putString("api_key", key)
+    fun getApiKey(): String = _session.value.apiKey
+    private fun setApiKey(key: String) {
+        settings.putString(API_KEY_KEY, key)
+    }
+
+    internal fun currentSession(): ServerSessionConfiguration = _session.value
+
+    internal fun replaceSession(serverUrl: String, apiKey: String) {
+        val previous = _session.value
+        val replacement = ServerSessionConfiguration(serverUrl, apiKey)
+        try {
+            setServerUrl(replacement.serverUrl)
+            setApiKey(replacement.apiKey)
+        } catch (error: Throwable) {
+            runCatching {
+                setServerUrl(previous.serverUrl)
+                setApiKey(previous.apiKey)
+            }
+            throw error
+        }
+        _session.value = replacement
     }
 
     fun isLoggedIn(): Boolean = getServerUrl().isNotBlank() && getApiKey().isNotBlank()
-    fun getGridColumns(): Int = settings.getInt("grid_columns", DEFAULT_GRID_COLUMN_COUNT)
+    fun getGridColumns(): Int = settings.getInt(GRID_COLUMNS_KEY, DEFAULT_GRID_COLUMN_COUNT)
     fun setGridColumns(columns: Int) {
-        settings.putInt("grid_columns", columns)
+        settings.putInt(GRID_COLUMNS_KEY, columns)
     }
 
-    fun getTimelineGroupSize(): String = settings.getString("timeline_group_size", "MONTH")
+    fun getTimelineGroupSize(): String = settings.getString(TIMELINE_GROUP_SIZE_KEY, "MONTH")
     fun observeTimelineGroupSize(): StateFlow<String> = _timelineGroupSize.asStateFlow()
     fun setTimelineGroupSize(size: String) {
-        settings.putString("timeline_group_size", size)
+        settings.putString(TIMELINE_GROUP_SIZE_KEY, size)
         _timelineGroupSize.value = size
     }
 
@@ -80,6 +104,7 @@ class ServerConfigRepository(private val settings: Settings) {
 
     fun clear() {
         settings.clear()
+        _session.value = ServerSessionConfiguration()
         _timelineGroupSize.value = "MONTH"
         _viewConfig.value = readViewConfig()
     }
@@ -113,19 +138,62 @@ class ServerConfigRepository(private val settings: Settings) {
 
     private fun targetRowHeightKey(scope: RowHeightScope): String =
         when (scope) {
-            RowHeightScope.TIMELINE -> "timeline_target_row_height"
-            RowHeightScope.ALBUM_DETAIL -> "album_detail_target_row_height"
-            RowHeightScope.PERSON_DETAIL -> "person_detail_target_row_height"
-            RowHeightScope.SEARCH -> "search_target_row_height"
-            RowHeightScope.FAVORITES -> "favorites_target_row_height"
+            RowHeightScope.TIMELINE -> TIMELINE_TARGET_ROW_HEIGHT_KEY
+            RowHeightScope.ALBUM_DETAIL -> ALBUM_TARGET_ROW_HEIGHT_KEY
+            RowHeightScope.PERSON_DETAIL -> PERSON_TARGET_ROW_HEIGHT_KEY
+            RowHeightScope.SEARCH -> SEARCH_TARGET_ROW_HEIGHT_KEY
+            RowHeightScope.FAVORITES -> FAVORITES_TARGET_ROW_HEIGHT_KEY
         }
 
-    private companion object {
-        const val LEGACY_TIMELINE_TARGET_ROW_HEIGHT_KEY = "target_row_height"
-        const val VIEW_CONFIG_MOSAIC_ENABLED_KEY = "view_config_mosaic_enabled"
-        const val VIEW_CONFIG_MOSAIC_FAMILIES_KEY = "view_config_mosaic_families"
-        const val VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY = "view_config_cache_mosaic_results"
-        const val VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY = "view_config_disable_mosaic_zoom"
-        const val VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY = "view_config_mosaic_column_count"
-    }
 }
+
+internal data class ServerSessionConfiguration(
+    val serverUrl: String = "",
+    val apiKey: String = ""
+)
+
+internal enum class ServerSettingValueType {
+    STRING,
+    INT,
+    FLOAT,
+    BOOLEAN
+}
+
+internal data class ServerSettingDescriptor(
+    val key: String,
+    val type: ServerSettingValueType
+)
+
+internal const val SERVER_URL_KEY = "server_url"
+internal const val API_KEY_KEY = "api_key"
+internal const val GRID_COLUMNS_KEY = "grid_columns"
+internal const val TIMELINE_GROUP_SIZE_KEY = "timeline_group_size"
+internal const val LEGACY_TIMELINE_TARGET_ROW_HEIGHT_KEY = "target_row_height"
+internal const val TIMELINE_TARGET_ROW_HEIGHT_KEY = "timeline_target_row_height"
+internal const val ALBUM_TARGET_ROW_HEIGHT_KEY = "album_detail_target_row_height"
+internal const val PERSON_TARGET_ROW_HEIGHT_KEY = "person_detail_target_row_height"
+internal const val SEARCH_TARGET_ROW_HEIGHT_KEY = "search_target_row_height"
+internal const val FAVORITES_TARGET_ROW_HEIGHT_KEY = "favorites_target_row_height"
+internal const val VIEW_CONFIG_MOSAIC_ENABLED_KEY = "view_config_mosaic_enabled"
+internal const val VIEW_CONFIG_MOSAIC_FAMILIES_KEY = "view_config_mosaic_families"
+internal const val VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY = "view_config_cache_mosaic_results"
+internal const val VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY = "view_config_disable_mosaic_zoom"
+internal const val VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY = "view_config_mosaic_column_count"
+
+internal val SERVER_SETTING_DESCRIPTORS = listOf(
+    ServerSettingDescriptor(SERVER_URL_KEY, ServerSettingValueType.STRING),
+    ServerSettingDescriptor(API_KEY_KEY, ServerSettingValueType.STRING),
+    ServerSettingDescriptor(GRID_COLUMNS_KEY, ServerSettingValueType.INT),
+    ServerSettingDescriptor(TIMELINE_GROUP_SIZE_KEY, ServerSettingValueType.STRING),
+    ServerSettingDescriptor(LEGACY_TIMELINE_TARGET_ROW_HEIGHT_KEY, ServerSettingValueType.FLOAT),
+    ServerSettingDescriptor(TIMELINE_TARGET_ROW_HEIGHT_KEY, ServerSettingValueType.FLOAT),
+    ServerSettingDescriptor(ALBUM_TARGET_ROW_HEIGHT_KEY, ServerSettingValueType.FLOAT),
+    ServerSettingDescriptor(PERSON_TARGET_ROW_HEIGHT_KEY, ServerSettingValueType.FLOAT),
+    ServerSettingDescriptor(SEARCH_TARGET_ROW_HEIGHT_KEY, ServerSettingValueType.FLOAT),
+    ServerSettingDescriptor(FAVORITES_TARGET_ROW_HEIGHT_KEY, ServerSettingValueType.FLOAT),
+    ServerSettingDescriptor(VIEW_CONFIG_MOSAIC_ENABLED_KEY, ServerSettingValueType.BOOLEAN),
+    ServerSettingDescriptor(VIEW_CONFIG_MOSAIC_FAMILIES_KEY, ServerSettingValueType.STRING),
+    ServerSettingDescriptor(VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY, ServerSettingValueType.BOOLEAN),
+    ServerSettingDescriptor(VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY, ServerSettingValueType.BOOLEAN),
+    ServerSettingDescriptor(VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY, ServerSettingValueType.INT)
+)

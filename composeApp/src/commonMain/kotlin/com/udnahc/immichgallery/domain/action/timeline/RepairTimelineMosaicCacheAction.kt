@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.domain.action.timeline
 
 import com.udnahc.immichgallery.data.repository.TimelineMosaicCacheRepository
+import com.udnahc.immichgallery.data.repository.SessionStateRepository
 import com.udnahc.immichgallery.domain.model.MosaicKeyScope
 import com.udnahc.immichgallery.domain.model.MosaicOwnerKey
 import com.udnahc.immichgallery.domain.model.MosaicOwnerScope
@@ -28,9 +29,21 @@ class RepairTimelineMosaicCacheAction(
     private val repository: TimelineMosaicCacheRepository,
     private val snapshotReader: TimelineBucketSnapshotReader,
     private val artifactBuilder: TimelineMosaicArtifactBuilder,
-    private val mosaicRenderEngine: MosaicRenderEngine = MosaicRenderEngine()
+    private val mosaicRenderEngine: MosaicRenderEngine = MosaicRenderEngine(),
+    private val sessionStateRepository: SessionStateRepository = SessionStateRepository()
 ) {
     suspend operator fun invoke(
+        timeBucket: String,
+        groupSize: TimelineGroupSize,
+        columnCount: Int,
+        families: Set<MosaicTemplateFamily>,
+        geometryRequest: TimelineMosaicGeometryRequest,
+        sectionsByKey: Map<String, TimelineMosaicRepairSectionInput>
+    ): Result<Unit> = sessionStateRepository.withOperation {
+        repair(timeBucket, groupSize, columnCount, families, geometryRequest, sectionsByKey)
+    }
+
+    private suspend fun repair(
         timeBucket: String,
         groupSize: TimelineGroupSize,
         columnCount: Int,
@@ -47,7 +60,7 @@ class RepairTimelineMosaicCacheAction(
         val fingerprint = orderedTimelineAssetsFingerprint(snapshot.assets)
         val readySections = sections.map { section ->
             val input = sectionsByKey[section.sectionKey]
-                ?: return Result.failure(IllegalArgumentException("Missing repair section ${section.sectionKey}"))
+                ?: return Result.failure(IllegalArgumentException("Missing Timeline Mosaic repair section"))
             if (!validateMosaicAssignments(input.assignments, section.assets, normalizedFamilies) ||
                 !validateMosaicSectionGeometry(
                     input.geometry.ranges,
@@ -56,7 +69,7 @@ class RepairTimelineMosaicCacheAction(
                     geometryRequest.spacing
                 )
             ) {
-                return Result.failure(IllegalArgumentException("Invalid repair section ${section.sectionKey}"))
+                return Result.failure(IllegalArgumentException("Invalid Timeline Mosaic repair section"))
             }
             val displayItems = if (input.displayRecords.displayRecordsCoverOrderedAssets(section.assets)) {
                 input.displayRecords.toPhotoGridDisplayItems(section.assets, 0, section.sectionKey)
@@ -83,7 +96,7 @@ class RepairTimelineMosaicCacheAction(
                             input.geometry.placeholderHeight
                 ) > 0.5f
             ) {
-                return Result.failure(IllegalArgumentException("Repair display height mismatch ${section.sectionKey}"))
+                return Result.failure(IllegalArgumentException("Timeline Mosaic repair height mismatch"))
             }
             SectionReady(
                 keyScope = keyScope,

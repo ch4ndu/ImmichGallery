@@ -25,7 +25,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 class DetailMosaicCacheRepository(
-    private val detailMosaicCacheDao: DetailMosaicCacheDao
+    private val detailMosaicCacheDao: DetailMosaicCacheDao,
+    private val sessionStateRepository: SessionStateRepository
 ) {
     suspend fun getArtifacts(
         lookup: DetailMosaicCacheLookup,
@@ -105,32 +106,32 @@ class DetailMosaicCacheRepository(
 
     suspend fun upsertAssignments(entries: List<DetailMosaicAssignmentEntry>) {
         if (entries.isEmpty()) return
-        withContext(Dispatchers.IO) {
+        commit {
             detailMosaicCacheDao.upsertAssignments(entries.map { it.toEntity() })
         }
     }
 
     suspend fun upsertDisplayCache(entry: DetailMosaicCacheEntry) {
-        withContext(Dispatchers.IO) {
+        commit {
             detailMosaicCacheDao.upsertDisplayCache(listOf(entry.toEntity()))
         }
     }
 
     suspend fun upsertSectionGeometry(entries: List<DetailMosaicSectionGeometryEntry>) {
         if (entries.isEmpty()) return
-        withContext(Dispatchers.IO) {
+        commit {
             detailMosaicCacheDao.upsertSectionGeometry(entries.map { it.toEntity() })
         }
     }
 
     suspend fun upsertAggregateGeometry(entry: DetailMosaicAggregateGeometryEntry) {
-        withContext(Dispatchers.IO) {
+        commit {
             detailMosaicCacheDao.upsertAggregateGeometry(entry.toEntity())
         }
     }
 
     suspend fun upsertArtifacts(artifacts: DetailMosaicArtifactsUpsert) {
-        withContext(Dispatchers.IO) {
+        commit {
             detailMosaicCacheDao.upsertArtifacts(
                 assignments = artifacts.assignments.map { it.toEntity() },
                 displayCache = artifacts.displayCache.map { it.toEntity() },
@@ -144,16 +145,29 @@ class DetailMosaicCacheRepository(
         ownerType: DetailMosaicCacheOwnerType,
         ownerId: String
     ) {
-        withContext(Dispatchers.IO) {
+        commit {
             detailMosaicCacheDao.clearOwnerCache(ownerType.name, ownerId)
         }
     }
 
     suspend fun clearAll() {
+        commit {
+            detailMosaicCacheDao.clearAllArtifacts()
+        }
+    }
+
+    internal suspend fun clearAllForSessionMutation() {
         withContext(Dispatchers.IO) {
             detailMosaicCacheDao.clearAllArtifacts()
         }
     }
+
+    private suspend fun <T> commit(block: suspend () -> T): T =
+        sessionStateRepository.withOperation { token ->
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) { block() }
+            }
+        }
 }
 
 private fun DetailMosaicAssignmentEntity.toAssignmentDomainOrNull(): DetailMosaicAssignmentEntry? {

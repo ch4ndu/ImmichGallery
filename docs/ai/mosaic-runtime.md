@@ -15,7 +15,10 @@ For asset-to-band assignment and projection details, also read `docs/ai/mosaic-a
   - `onCheckpoint`, called when stable progress exists or when compute is interrupted.
   - `onProgressChunk`, called when a stable contiguous chunk can be displayed or remembered.
   - `shouldContinue`, used by schedulers to pause/cancel work cooperatively.
-- Stale output is rejected by the owning ViewModel/coordinator using generation, config, revision/fingerprint, and owner/section keys.
+- Stale output is rejected by the owning ViewModel/coordinator using the session
+  stamp (generation plus long-lived owner epoch), config, revision/fingerprint,
+  and owner/section keys. Descendant work carries its originating stamp and must
+  not read a newer global session value after suspension.
 
 ## Chunk Calculation
 
@@ -53,7 +56,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 - Timeline Mosaic work carries an explicit source:
   - `RenderDemand` is produced by visible bucket changes, targeted bucket changes, and scroll-settled resume. It may compute runtime Mosaic when cache results are off.
   - `SyncPrecompute` is produced by cold/warm/manual sync and changed-bucket publication. It must never fall through to runtime Mosaic when cache results are off.
-- `TimelineMosaicQueueActor` owns Timeline Mosaic queue state. `TimelineViewModel` must not keep direct mutable pending/running/deferred bucket collections.
+- `TimelineMosaicQueueActor` owns Timeline Mosaic queue state. `TimelineViewModel` must not keep direct mutable pending/running/deferred bucket collections. Every enqueue/resume request carries the originating session stamp; actor merges preserve that stamp rather than manufacturing a new one.
 - The actor processes commands serially and emits effects through a receive-only channel:
   - `Enqueue` adds runnable bucket requests.
   - `Defer` records paused or interrupted requests.
@@ -105,6 +108,10 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   - chunk assignments are non-empty.
   - Timeline is not actively scrolling.
 - Accepted chunks are stored in `TimelineProgressiveMosaicBuffer`, keyed by `MosaicCacheKey`.
+- Every buffered chunk retains its originating session stamp. Delayed flushes
+  partition chunks by stamp and enter an isolated `runForStamp` child before
+  publishing; stale or closed-admission cancellation discards that partition
+  without cancelling the long-lived consumer.
 - The buffer de-duplicates chunks by `sourceStartIndex/sourceEndExclusive` and keeps them sorted by source start.
 - Visible loaded buckets with matching section geometry ranges are eligible for flush. Chunks without section geometry stay buffered until geometry arrives or stale state is cleared.
 - Flushing chunks must never create rough Mosaic partial output. The flushed partial state is renderable only through geometry-backed projection; otherwise the section remains unresolved.
@@ -116,15 +123,31 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 
 - While scrolling, `publishMosaicUpdates(...)` does not mutate visible Mosaic state directly. It stores state and geometry updates in deferred maps.
 - After scroll settles, only deferred state/geometry for the final target and settled visible buckets is published; obsolete intermediate drag targets are discarded.
+- Pending channel publications, deferred-scroll payloads, runtime checkpoints,
+  and persisted-geometry reads all retain the producer's full session stamp.
+  Long-lived consumers isolate each stamped sink so stale output is discarded
+  without terminating the consumer. A descendant never derives a replacement
+  stamp when the sink finally runs.
 - Failed Timeline sections render placeholders and retry through normal requested-config cache/runtime repair; failure must not display fallback rows or fallback Mosaic bands.
 - Ready Timeline sections display validated cached mixed display records when available, or completed ready projection from assignments.
-- A cache-enabled render-demand miss persists successful repair only after every current bucket section is ready. Valid cached siblings are reused, invalid sections are recomputed, aggregate geometry is recalculated, and the repository atomically replaces the bucket. Ready state is queued for publication before repair persistence. Repair requests then run through one conflated serial writer that keeps only the newest request per bucket, pauses writes during interactive scroll, and revalidates config, generation, revision, families, and geometry immediately before writing.
+- A cache-enabled render-demand miss persists successful repair only after every current bucket section is ready. Valid cached siblings are reused, invalid sections are recomputed, aggregate geometry is recalculated, and the repository atomically replaces the bucket. Ready state is queued for publication before repair persistence. Repair requests preserve the producer's session stamp, then run through one conflated serial writer that keeps only the newest request per bucket, pauses writes during interactive scroll, and revalidates session stamp, config, revision, families, and geometry immediately before writing.
 
 ## Album And Person Detail Scheduler
 
 - Album Detail and Person Detail share `PhotoGridDetailLayoutCoordinator`; the full screen experience is documented in `docs/ai/album-person-detail.md`.
 - Detail runtime work is keyed by group, not Timeline bucket, and always runs through `MosaicWorkScheduler`.
+- Detail preparation, full layout scheduling, and incomplete-layout resume enter
+  the owning session boundary before capturing asset/runtime snapshots. This
+  prevents an old owner from reading pre-mutation state and later registering
+  the resulting artifact under a new session.
 - `MosaicWorkScheduler` uses `DEFAULT_PARALLELISM = 1`, active owner priority, visible-group priority, and pending-work reprioritization.
+- Cancelling a scheduler waiter cancels its independent execution job and waits
+  for that job's completion in non-cancellable cleanup. Session mutation cannot
+  proceed merely because the waiter stopped while a late progress callback is
+  still executing. Progress/runtime/publication mutations recheck both the
+  execution job and work token immediately before writing.
+- Detail visibility reprioritization and delayed/deferred flushes enter the
+  coordinator's owner epoch before touching runtime state.
 - Runtime states are `InFlight`, `Partial`, and `RetryableFailure`; incomplete states render placeholders or strict partial output, never row-packing fallback.
 - Cache-enabled Mosaic settings preparation broadcasts cancellation through `MosaicConfigPreparationCoordinator` before expensive preparation work starts. Live Timeline/detail owners cancel pending geometry calculations, layout runners, deferred flush/resume jobs, and scheduler work that belongs to obsolete configs while preserving ready display caches and persisted artifacts.
 

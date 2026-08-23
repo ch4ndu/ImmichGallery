@@ -43,7 +43,8 @@ import kotlin.math.abs
 class TimelineMosaicCacheRepository(
     private val timelineDao: TimelineDao,
     private val assetDao: AssetDao,
-    private val serverConfigRepository: ServerConfigRepository
+    private val serverConfigRepository: ServerConfigRepository,
+    private val sessionStateRepository: SessionStateRepository
 ) {
     private val log = logging("TimelineMosaicCacheRepository")
 
@@ -245,12 +246,13 @@ class TimelineMosaicCacheRepository(
     suspend fun replaceTimelineMosaicArtifactsForBucketConfig(
         artifacts: TimelineMosaicBucketArtifacts
     ): Result<TimelineBucketGeometrySummary> =
-        try {
+        sessionStateRepository.withOperation { token -> try {
             val bucketGeometry = artifacts.bucketGeometry ?: throw IllegalArgumentException(
-                "Timeline Mosaic artifacts missing bucket geometry bucket=${artifacts.timeBucket}"
+                "Timeline Mosaic artifacts are missing bucket geometry"
             )
-            withContext(Dispatchers.IO) {
-                timelineDao.replaceMosaicAssignmentsForBucketConfig(
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    timelineDao.replaceMosaicAssignmentsForBucketConfig(
                     timeBucket = artifacts.timeBucket,
                     groupMode = artifacts.groupMode,
                     columnCount = artifacts.columnCount,
@@ -317,32 +319,45 @@ class TimelineMosaicCacheRepository(
                         spacingKey = timelineMosaicGeometryDimensionKey(bucketGeometry.geometryRequest.spacing),
                         updatedAt = bucketGeometry.updatedAt
                     )
-                )
+                    )
+                }
             }
             log.d {
-                "Timeline Mosaic artifacts persisted bucket=${artifacts.timeBucket} " +
-                        "assignments=${artifacts.assignments.size} display=${artifacts.displayCache.size} " +
-                        "geometry=${artifacts.sectionGeometry.size} bucketGeometry=true"
+                "Timeline Mosaic artifacts persisted bucket=<redacted> " +
+                        "assignments=<redacted> display=<redacted> " +
+                        "geometry=<redacted> bucketGeometry=true"
             }
             Result.success(bucketGeometry.toDomainSummary())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Result.failure(e)
-        }
+        } }
 
     suspend fun clearBuckets(timeBuckets: Set<String>) {
         if (timeBuckets.isEmpty()) return
-        withContext(Dispatchers.IO) {
-            val ids = timeBuckets.toList()
-            timelineDao.clearMosaicAssignmentsForBuckets(ids)
-            timelineDao.clearMosaicDisplayCacheForBuckets(ids)
-            timelineDao.clearMosaicGeometryForBuckets(ids)
-            timelineDao.clearBucketGeometryForBuckets(ids)
+        sessionStateRepository.withOperation { token ->
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    val ids = timeBuckets.toList()
+                    timelineDao.clearMosaicAssignmentsForBuckets(ids)
+                    timelineDao.clearMosaicDisplayCacheForBuckets(ids)
+                    timelineDao.clearMosaicGeometryForBuckets(ids)
+                    timelineDao.clearBucketGeometryForBuckets(ids)
+                }
+            }
         }
     }
 
     suspend fun clearAll() {
+        sessionStateRepository.withOperation { token ->
+            sessionStateRepository.withCommit(token) {
+                clearAllForSessionMutation()
+            }
+        }
+    }
+
+    internal suspend fun clearAllForSessionMutation() {
         withContext(Dispatchers.IO) {
             timelineDao.clearAllTimelineMosaicAssignments()
             timelineDao.clearAllTimelineMosaicDisplayCache()

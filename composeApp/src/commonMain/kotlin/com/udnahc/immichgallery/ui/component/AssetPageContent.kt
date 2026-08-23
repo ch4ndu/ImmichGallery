@@ -874,7 +874,7 @@ private fun ImageContent(
 ) {
     var hasError by remember { mutableStateOf(false) }
 
-    log.d { "ImageContent: loading $url" }
+    log.d { "ImageContent: loading <redacted>" }
 
     // Use the cached thumbnail as a placeholder so a slow network doesn't
     // leave a blank frame between the end of the shared-element transition
@@ -920,7 +920,7 @@ private fun VideoContent(
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    log.d { "VideoContent: loading video from $playbackUrl" }
+    log.d { "VideoContent: loading video from <redacted>" }
 
     DisposableEffect(Unit) {
         onDispose {

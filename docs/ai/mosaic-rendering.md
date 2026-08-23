@@ -12,7 +12,10 @@ For the broader Album Detail and Person Detail screen experience around cached-f
 - Low-level helpers in `MosaicPacking.kt` are implementation details for the engine and focused tests. Screen packages and repositories must not call them to bypass the engine.
 - Repositories persist, read, and clear artifacts only. They may parse and validate persisted rows against the current ordered assets, but they must not compute assignments, project display records, choose fallback behavior, derive artifact payloads, or calculate geometry.
 - Detail repository writes resolve edited dimensions before the owner transaction, then replace changed owner refs and clear matching owner artifacts in that same transaction. The invalidation boundary is the current Album or Person owner only; shared assets do not trigger cross-owner or live Timeline invalidation.
-- ViewModels/coordinators own screen state, scheduling, generation guards, cache-read requests, and display publication.
+- ViewModels/coordinators own screen state, scheduling, session-stamp and
+  generation guards, cache-read requests, and display publication. Long-lived
+  Timeline/detail owners retain one owner epoch; descendants carry the
+  originating generation-plus-owner stamp.
 - Composables render `PhotoGridDisplayItem` values only. They must not group assets, assign Mosaic bands, or choose fallback policy.
 
 ## Shared Model

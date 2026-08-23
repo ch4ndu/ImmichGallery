@@ -613,7 +613,7 @@ class SearchViewModelTest {
 
         assertEquals(1, entries.size)
         assertEquals(
-            "Failed to load Search suggestions type=STATE failure=IllegalStateException",
+            "Failed to load Search suggestions type=<redacted> failure=<redacted>",
             entries.single().message
         )
         assertEquals(null, entries.single().throwable)

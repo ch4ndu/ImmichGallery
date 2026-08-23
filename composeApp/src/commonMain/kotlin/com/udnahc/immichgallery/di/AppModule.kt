@@ -1,6 +1,5 @@
 package com.udnahc.immichgallery.di
 
-import com.russhwolf.settings.Settings
 import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.remote.HttpClientFactory
 import com.udnahc.immichgallery.data.remote.ImmichApiService
@@ -15,13 +14,18 @@ import com.udnahc.immichgallery.data.repository.PeopleRepository
 import com.udnahc.immichgallery.data.repository.SearchRepository
 import com.udnahc.immichgallery.data.repository.ServerConfigRepository
 import com.udnahc.immichgallery.data.repository.ServerStatusRepository
+import com.udnahc.immichgallery.data.repository.SessionStateRepository
 import com.udnahc.immichgallery.data.repository.TimelineMosaicCacheRepository
 import com.udnahc.immichgallery.data.repository.TimelineRepository
 import com.udnahc.immichgallery.domain.action.auth.ClearServerConfigAction
 import com.udnahc.immichgallery.domain.action.auth.EnsureLocalNetworkAccessAction
 import com.udnahc.immichgallery.domain.action.auth.MonitorServerStatusAction
 import com.udnahc.immichgallery.domain.action.auth.OpenLocalNetworkSettingsAction
-import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
+import com.udnahc.immichgallery.domain.action.auth.ReplaceServerSessionAction
+import com.udnahc.immichgallery.domain.action.auth.RunSessionOperationAction
+import com.udnahc.immichgallery.domain.action.auth.ServerScopedImageCache
+import com.udnahc.immichgallery.domain.action.auth.ServerScopedStateClearer
+import com.udnahc.immichgallery.domain.action.auth.SessionOperationRunner
 import com.udnahc.immichgallery.domain.action.auth.StopServerStatusMonitoringAction
 import com.udnahc.immichgallery.domain.action.detail.ClearDetailMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
@@ -87,9 +91,12 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
 val sharedModule = module {
-    // Settings
-    single { Settings() }
+    // Settings are platform-provided so JVM can use an application-owned node.
     single { ServerConfigRepository(get()) }
+    single { SessionStateRepository() }
+    single<SessionOperationRunner> { RunSessionOperationAction(get()) }
+    single { createCoilImageCacheController() }
+    single<ServerScopedImageCache> { get<CoilImageCacheController<ManagedImageLoader>>() }
     single { MosaicConfigPreparationCoordinator() }
     single { MosaicWorkScheduler() }
     single { SyncActivityTracker(get()) }
@@ -105,21 +112,32 @@ val sharedModule = module {
 
     // Networking
     single { createHttpClientEngine() }
-    single { HttpClientFactory.create(get(), get()) }
+    single { HttpClientFactory.create(get()) }
     single { ImmichApiService(get(), get()) }
 
     // Repositories
     single { AuthRepository(get()) }
-    single { AssetEditsEnricher(get(), get()) }
-    single { TimelineRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get()) }
-    single { TimelineMosaicCacheRepository(get(), get(), get()) }
-    single { AlbumRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get()) }
-    single { PeopleRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get()) }
+    single { AssetEditsEnricher(get(), get(), get()) }
+    single { TimelineRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get()) }
+    single { TimelineMosaicCacheRepository(get(), get(), get(), get()) }
+    single { AlbumRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    single { PeopleRepository(get<AppDatabase>(), get(), get(), get(), get(), get(), get(), get(), get()) }
     single { SearchRepository(get()) }
     single { MemoryRepository(get()) }
     single { ServerStatusRepository(get()) }
-    single { AssetRepository(get(), get(), get(), get()) }
-    single { DetailMosaicCacheRepository(get()) }
+    single { AssetRepository(get(), get(), get(), get(), get()) }
+    single { DetailMosaicCacheRepository(get(), get()) }
+    single {
+        ServerScopedStateClearer(
+            timelineRepository = get(),
+            albumRepository = get(),
+            peopleRepository = get(),
+            assetRepository = get(),
+            detailMosaicCacheRepository = get(),
+            timelineMosaicCacheRepository = get(),
+            apiService = get()
+        )
+    }
     single { TimelineMosaicArtifactBuilder() }
     single { TimelineBucketSnapshotReader(get()) }
 
@@ -165,31 +183,53 @@ val sharedModule = module {
     factory { GetDetailMosaicCacheUseCase(get()) }
 
     // Actions
-    factory { SaveServerConfigAction(get()) }
+    factory { ReplaceServerSessionAction(get(), get(), get(), get()) }
     factory { EnsureLocalNetworkAccessAction(get()) }
     factory { OpenLocalNetworkSettingsAction(get()) }
-    factory { ClearServerConfigAction(get(), get(), get(), get(), get(), get(), get()) }
+    factory {
+        ClearServerConfigAction(
+            serverConfigRepository = get(),
+            sessionStateRepository = get(),
+            serverScopedImageCache = get(),
+            serverScopedStateClearer = get()
+        )
+    }
     factory { MonitorServerStatusAction(get()) }
     factory { StopServerStatusMonitoringAction(get()) }
-    factory { LoadBucketAssetsAction(get()) }
-    factory { SyncAllTimelineAssetsAction(get()) }
+    factory { LoadBucketAssetsAction(get(), get()) }
+    factory { SyncAllTimelineAssetsAction(get(), get()) }
     factory { ClearTimelineMosaicCacheAction(get()) }
-    factory { PrepareTimelineMosaicCacheAction(get(), get(), get()) }
-    factory { RepairTimelineMosaicCacheAction(get(), get(), get()) }
+    factory {
+        PrepareTimelineMosaicCacheAction(
+            repository = get(),
+            snapshotReader = get(),
+            artifactBuilder = get(),
+            sessionStateRepository = get()
+        )
+    }
+    factory {
+        RepairTimelineMosaicCacheAction(
+            repository = get(),
+            snapshotReader = get(),
+            artifactBuilder = get(),
+            sessionStateRepository = get()
+        )
+    }
     factory {
         TimelineManualSyncAction(
             getTimelineBucketsUseCase = get(),
             syncAllTimelineAssetsAction = get(),
             clearTimelineMosaicCacheAction = get(),
-            prepareTimelineMosaicCacheAction = get()
+            prepareTimelineMosaicCacheAction = get(),
+            sessionStateRepository = get()
         )
     }
-    single { TimelineManualSyncCoordinator(get(), get()) }
+    single { TimelineManualSyncCoordinator(get(), get(), get()) }
     factory { SetTimelineGroupSizeAction(get()) }
     factory { SetTargetRowHeightAction(get()) }
     factory { SetViewConfigAction(get()) }
-    factory { UpsertDetailMosaicArtifactsAction(get()) }
-    factory { UpsertDetailMosaicCacheAction(get()) }
+    factory { UpsertDetailMosaicArtifactsAction(get(), get()) }
+    factory { UpsertDetailMosaicCacheAction(get(), get()) }
     factory { ClearDetailMosaicCacheAction(get()) }
 
     // ViewModels
@@ -198,6 +238,7 @@ val sharedModule = module {
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get(), get(), get()) }
     viewModel {
         TimelineViewModel(
+            get(),
             get(),
             get(),
             get(),
@@ -237,7 +278,8 @@ val sharedModule = module {
             get(),
             get(),
             get(),
-            params.get()
+            albumId = params.get(),
+            sessionOperationRunner = get()
         )
     }
     viewModel { PeopleViewModel(get(), get()) }
@@ -257,7 +299,8 @@ val sharedModule = module {
             get(),
             get(),
             get(),
-            params.get()
+            personId = params.get(),
+            sessionOperationRunner = get()
         )
     }
     viewModel {

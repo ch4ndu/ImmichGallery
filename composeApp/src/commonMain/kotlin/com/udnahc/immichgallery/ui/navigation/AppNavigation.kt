@@ -56,7 +56,7 @@ private fun AppNavigationHost(
     showLocalNetworkPermissionMessage: Boolean = false
 ) {
     val navController = rememberNavController()
-    log.d { "AppNavigation: startDestination=$startDestination" }
+    log.d { "AppNavigation: startDestination=<redacted>" }
 
     NavHost(
         navController = navController,

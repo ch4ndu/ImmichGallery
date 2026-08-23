@@ -6,19 +6,19 @@ import com.udnahc.immichgallery.LocalLoginDefaults
 import com.udnahc.immichgallery.domain.action.auth.EnsureLocalNetworkAccessAction
 import com.udnahc.immichgallery.domain.action.auth.LocalNetworkAccessResult
 import com.udnahc.immichgallery.domain.action.auth.OpenLocalNetworkSettingsAction
-import com.udnahc.immichgallery.domain.action.auth.SaveServerConfigAction
+import com.udnahc.immichgallery.domain.action.auth.ReplaceServerSessionAction
 import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerUrlUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
 import com.udnahc.immichgallery.ui.model.LoginUiMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.lighthousegames.logging.logging
 
 @androidx.compose.runtime.Immutable
 data class LoginState(
@@ -32,14 +32,14 @@ data class LoginState(
 
 class LoginViewModel(
     private val validateServerUseCase: ValidateServerUseCase,
-    private val saveServerConfigAction: SaveServerConfigAction,
+    private val replaceServerSessionAction: ReplaceServerSessionAction,
     getServerUrlUseCase: GetServerUrlUseCase,
     getApiKeyUseCase: GetApiKeyUseCase,
     private val ensureLocalNetworkAccessAction: EnsureLocalNetworkAccessAction,
-    private val openLocalNetworkSettingsAction: OpenLocalNetworkSettingsAction
+    private val openLocalNetworkSettingsAction: OpenLocalNetworkSettingsAction,
+    private val workerDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
-    private val log = logging("LoginViewModel")
     private val _state = MutableStateFlow(
         LoginState(
             serverUrl = getServerUrlUseCase().ifBlank { LocalLoginDefaults.SERVER_URL },
@@ -70,7 +70,7 @@ class LoginViewModel(
     }
 
     fun login() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(workerDispatcher) {
             val currentState = _state.value
             if (currentState.serverUrl.isBlank() || currentState.apiKey.isBlank()) {
                 _state.update { it.copy(error = LoginUiMessage.RequiredFields) }
@@ -78,7 +78,6 @@ class LoginViewModel(
             }
 
             val normalizedServerUrl = currentState.serverUrl.trimEnd('/')
-            log.d { "Login attempt to $normalizedServerUrl" }
             _state.update { it.copy(isLoading = true, error = null) }
             when (ensureLocalNetworkAccessAction(normalizedServerUrl)) {
                 LocalNetworkAccessResult.Denied -> {
@@ -106,12 +105,21 @@ class LoginViewModel(
             val result = validateServerUseCase(normalizedServerUrl, currentState.apiKey)
             result.fold(
                 onSuccess = {
-                    log.d { "Login successful" }
-                    saveServerConfigAction(normalizedServerUrl, currentState.apiKey)
-                    _state.update { it.copy(isLoading = false, isLoggedIn = true) }
+                    replaceServerSessionAction(normalizedServerUrl, currentState.apiKey).fold(
+                        onSuccess = {
+                            _state.update { it.copy(isLoading = false, isLoggedIn = true) }
+                        },
+                        onFailure = {
+                            _state.update {
+                                it.copy(
+                                    isLoading = false,
+                                    error = LoginUiMessage.ConnectionFailed
+                                )
+                            }
+                        }
+                    )
                 },
-                onFailure = { e ->
-                    log.e(e) { "Login failed" }
+                onFailure = {
                     _state.update {
                         it.copy(
                             isLoading = false,

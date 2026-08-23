@@ -8,6 +8,7 @@ import com.udnahc.immichgallery.domain.usecase.auth.GetLoginStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerUrlUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,7 +29,8 @@ enum class AppStartupDestination {
 class AppStartupViewModel(
     private val getLoginStatusUseCase: GetLoginStatusUseCase,
     private val getServerUrlUseCase: GetServerUrlUseCase,
-    private val ensureLocalNetworkAccessAction: EnsureLocalNetworkAccessAction
+    private val ensureLocalNetworkAccessAction: EnsureLocalNetworkAccessAction,
+    private val workerDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
     private val _state = MutableStateFlow(AppStartupState())
     val state: StateFlow<AppStartupState> = _state.asStateFlow()
@@ -38,7 +40,7 @@ class AppStartupViewModel(
     }
 
     private fun resolveStartDestination() {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(workerDispatcher) {
             if (!getLoginStatusUseCase()) {
                 _state.value = AppStartupState(destination = AppStartupDestination.Login)
                 return@launch

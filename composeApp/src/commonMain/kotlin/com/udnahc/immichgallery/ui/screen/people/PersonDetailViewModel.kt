@@ -3,6 +3,8 @@ package com.udnahc.immichgallery.ui.screen.people
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.udnahc.immichgallery.domain.action.auth.DirectSessionOperationRunner
+import com.udnahc.immichgallery.domain.action.auth.SessionOperationRunner
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
@@ -84,7 +86,8 @@ class PersonDetailViewModel(
     private val getDetailMosaicArtifactsUseCase: GetDetailMosaicArtifactsUseCase,
     private val upsertDetailMosaicArtifactsAction: UpsertDetailMosaicArtifactsAction,
     private val syncActivityTracker: SyncActivityTracker,
-    private val personId: String
+    private val personId: String,
+    private val sessionOperationRunner: SessionOperationRunner = DirectSessionOperationRunner
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
@@ -138,7 +141,8 @@ class PersonDetailViewModel(
         cacheOwnerId = personId,
         isPersistentCacheComplete = { _state.value.hasMore == false },
         readPersistentArtifacts = getDetailMosaicArtifactsUseCase::invoke,
-        upsertPersistentArtifacts = upsertDetailMosaicArtifactsAction::invoke
+        upsertPersistentArtifacts = upsertDetailMosaicArtifactsAction::invoke,
+        sessionOperationRunner = sessionOperationRunner
     )
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
@@ -158,7 +162,7 @@ class PersonDetailViewModel(
     init {
         viewModelScope.launch(Dispatchers.IO) {
             getPersonAssetsUseCase.observe(personId).collect { assets ->
-                log.d { "Room emitted ${assets.size} assets for person $personId" }
+                log.d { "Room emitted <redacted> assets for person <redacted>" }
                 _state.update { it.copy(assets = assets) }
                 handleAssetEmission(assets)
             }
@@ -363,7 +367,7 @@ class PersonDetailViewModel(
                             handleSyncedContentChange(result.changed)
                         },
                         onFailure = { e ->
-                            log.e(e) { "Failed to sync person assets for $personId" }
+                            log.e { "Failed to sync person assets for <redacted>" }
                             if (!hasCachedAssets) {
                                 _state.update {
                                     it.copy(

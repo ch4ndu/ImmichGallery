@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.util
 
+import com.udnahc.immichgallery.data.repository.SessionOperationStamp
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineMosaicWorkSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -9,7 +10,8 @@ import kotlinx.coroutines.launch
 
 internal data class TimelineMosaicQueueRequest(
     val timeBucket: String,
-    val source: TimelineMosaicWorkSource
+    val source: TimelineMosaicWorkSource,
+    val sessionStamp: SessionOperationStamp
 )
 
 internal sealed interface TimelineMosaicQueueCommand {
@@ -26,7 +28,8 @@ internal sealed interface TimelineMosaicQueueCommand {
     data object PauseForScroll : TimelineMosaicQueueCommand
 
     data class ResumeAfterScroll(
-        val priorityBuckets: List<String>
+        val priorityBuckets: List<String>,
+        val sessionStamp: SessionOperationStamp
     ) : TimelineMosaicQueueCommand
 
     data class InvalidateBucket(
@@ -112,7 +115,13 @@ internal class TimelineMosaicQueueActor(
                 deferred.clear()
                 command.priorityBuckets
                     .distinct()
-                    .map { TimelineMosaicQueueRequest(it, TimelineMosaicWorkSource.RenderDemand) }
+                    .map {
+                        TimelineMosaicQueueRequest(
+                            timeBucket = it,
+                            source = TimelineMosaicWorkSource.RenderDemand,
+                            sessionStamp = command.sessionStamp
+                        )
+                    }
                     .forEachIndexed { index, request ->
                         mergePending(request, insertIndex = index)
                     }

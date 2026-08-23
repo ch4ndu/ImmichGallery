@@ -18,4 +18,4 @@ data class SearchResultAssets(
 
 fun SearchResultAssets.nextPageNumberOrNull(): Int? =
     nextPage?.toIntOrNull()?.takeIf { it > 0 }
-        ?: if (nextPage == null) null else error("Invalid Immich nextPage token: $nextPage")
+        ?: if (nextPage == null) null else error("Invalid Immich nextPage token")

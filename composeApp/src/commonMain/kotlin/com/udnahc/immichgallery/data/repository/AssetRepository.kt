@@ -20,35 +20,38 @@ class AssetRepository(
     private val apiService: ImmichApiService,
     private val assetDao: AssetDao,
     private val syncMetadataDao: SyncMetadataDao,
-    private val serverConfigRepository: ServerConfigRepository
+    private val serverConfigRepository: ServerConfigRepository,
+    private val sessionStateRepository: SessionStateRepository
 ) {
-    private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
-
-    suspend fun getAssetDetail(assetId: String): AssetDetail {
-        val response = apiService.getAssetInfo(assetId)
-        return response.toDetail(baseUrl())
-    }
-
-    suspend fun getAssetStack(assetId: String): AssetStackLookup {
-        val asset = try {
-            apiService.getAssetInfo(assetId)
-        } catch (error: Throwable) {
-            throw error.asStackAccessException()
+    suspend fun getAssetDetail(assetId: String): AssetDetail =
+        sessionStateRepository.withOperation {
+            val baseUrl = serverConfigRepository.currentSession().serverUrl.trimEnd('/')
+            val response = apiService.getAssetInfo(assetId)
+            response.toDetail(baseUrl)
         }
-        val stackId = asset.stack?.id ?: return AssetStackLookup.NoStack
-        val stack = try {
-            apiService.getStack(stackId).toDomain(baseUrl())
-        } catch (error: Throwable) {
-            throw error.asStackAccessException()
-        }
-        return if (stack.assets.isEmpty()) {
-            AssetStackLookup.NoSupportedMembers
-        } else {
-            AssetStackLookup.Available(stack)
-        }
-    }
 
-    suspend fun clearCache() {
+    suspend fun getAssetStack(assetId: String): AssetStackLookup =
+        sessionStateRepository.withOperation {
+            val baseUrl = serverConfigRepository.currentSession().serverUrl.trimEnd('/')
+            val asset = try {
+                apiService.getAssetInfo(assetId)
+            } catch (error: Throwable) {
+                throw error.asStackAccessException()
+            }
+            val stackId = asset.stack?.id ?: return@withOperation AssetStackLookup.NoStack
+            val stack = try {
+                apiService.getStack(stackId).toDomain(baseUrl)
+            } catch (error: Throwable) {
+                throw error.asStackAccessException()
+            }
+            if (stack.assets.isEmpty()) {
+                AssetStackLookup.NoSupportedMembers
+            } else {
+                AssetStackLookup.Available(stack)
+            }
+        }
+
+    internal suspend fun clearCacheForSessionMutation() {
         withContext(Dispatchers.IO) {
             assetDao.clearAll()
             syncMetadataDao.clearAll()

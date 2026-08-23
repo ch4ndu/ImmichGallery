@@ -4,13 +4,17 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 enum class MosaicWorkPriority {
     ForegroundVisible,
@@ -132,13 +136,15 @@ class MosaicWorkScheduler(
         replaced.forEach { it.cancel() }
         try {
             return work.await()
-        } finally {
-            if (!work.isCompleted) {
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) {
                 mutex.withLock {
                     pending.remove(work)
-                    if (work in running) work.cancel()
+                    work.cancel()
                 }
+                work.awaitExecutionFinished()
             }
+            throw e
         }
     }
 
@@ -156,16 +162,21 @@ class MosaicWorkScheduler(
 
     private suspend fun workerLoop() {
         while (true) {
-            val work = mutex.withLock {
+            val (work, executionJob) = mutex.withLock {
                 val next = pending.popNext(activeForegroundOwner)
                 if (next == null) {
                     workerJob = null
                     return
                 }
                 running.add(next)
-                next
+                val job = scope.launch(start = CoroutineStart.LAZY) {
+                    next.execute()
+                }
+                next.attachExecution(job)
+                next to job
             }
-            work.execute()
+            executionJob.start()
+            executionJob.join()
             mutex.withLock {
                 running.remove(work)
             }
@@ -194,15 +205,23 @@ class MosaicWorkScheduler(
         private val block: suspend (MosaicWorkToken) -> T
     ) {
         private val result = CompletableDeferred<T>()
-        private var active = true
-        val isCompleted: Boolean get() = result.isCompleted
+        private val executionFinished = CompletableDeferred<Unit>()
+        private var executionJob: Job? = null
+
+        fun attachExecution(job: Job) {
+            check(executionJob == null) { "Mosaic work execution is already attached" }
+            executionJob = job
+            job.invokeOnCompletion {
+                executionFinished.complete(Unit)
+            }
+        }
 
         suspend fun execute() {
-            if (!active) {
-                cancel()
-                return
+            if (!result.isActive) return
+            val currentJob = checkNotNull(currentCoroutineContext()[Job]) {
+                "Mosaic work execution requires a coroutine Job"
             }
-            val token = MosaicWorkToken { active }
+            val token = MosaicWorkToken { result.isActive && currentJob.isActive }
             try {
                 result.complete(block(token))
             } catch (e: CancellationException) {
@@ -214,9 +233,19 @@ class MosaicWorkScheduler(
 
         suspend fun await(): T = result.await()
 
+        suspend fun awaitExecutionFinished() {
+            executionFinished.await()
+        }
+
         fun cancel() {
-            active = false
-            result.cancel(MosaicWorkCancelledException("Mosaic work was cancelled"))
+            val cancellation = MosaicWorkCancelledException("Mosaic work was cancelled")
+            result.cancel(cancellation)
+            val job = executionJob
+            if (job == null) {
+                executionFinished.complete(Unit)
+            } else {
+                job.cancel(cancellation)
+            }
         }
     }
 

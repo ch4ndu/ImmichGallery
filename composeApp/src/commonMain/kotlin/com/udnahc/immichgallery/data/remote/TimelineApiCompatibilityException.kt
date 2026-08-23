@@ -3,8 +3,12 @@ package com.udnahc.immichgallery.data.remote
 class TimelineApiCompatibilityException(
     val serverVersion: String,
     val endpoint: String,
-    cause: Throwable
+    val category: TimelineCompatibilityCategory
 ) : IllegalStateException(
-    "Immich $serverVersion returned an incompatible Timeline response from $endpoint",
-    cause
+    "Immich $serverVersion returned an incompatible Timeline $category response from $endpoint"
 )
+
+enum class TimelineCompatibilityCategory {
+    DECODING,
+    SHAPE
+}

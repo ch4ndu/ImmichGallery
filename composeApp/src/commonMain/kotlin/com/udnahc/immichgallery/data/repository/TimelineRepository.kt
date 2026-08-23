@@ -45,7 +45,8 @@ class TimelineRepository(
     private val assetDao: AssetDao,
     private val syncMetadataDao: SyncMetadataDao,
     private val serverConfigRepository: ServerConfigRepository,
-    private val editsEnricher: AssetEditsEnricher
+    private val editsEnricher: AssetEditsEnricher,
+    private val sessionStateRepository: SessionStateRepository
 ) {
     private val log = logging("TimelineRepository")
 
@@ -91,13 +92,17 @@ class TimelineRepository(
         }
 
     suspend fun markColdTimelineSyncComplete() {
-        withContext(Dispatchers.IO) {
-            syncMetadataDao.upsert(
-                SyncMetadataEntity(
-                    SYNC_SCOPE_TIMELINE_COLD_COMPLETE,
-                    currentEpochMillis()
-                )
-            )
+        sessionStateRepository.withOperation { token ->
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    syncMetadataDao.upsert(
+                        SyncMetadataEntity(
+                            SYNC_SCOPE_TIMELINE_COLD_COMPLETE,
+                            currentEpochMillis()
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -115,10 +120,10 @@ class TimelineRepository(
     // --- Network sync (writes to Room, Flows auto-emit) ---
 
     suspend fun syncBuckets(): Result<TimelineBucketSyncResult> {
-        return try {
+        return sessionStateRepository.withOperation { token -> try {
             log.d { "Timeline bucket metadata repository sync started" }
             val responses = apiService.getTimelineBuckets()
-            log.d { "Timeline bucket metadata fetched responseCount=${responses.size}" }
+            log.d { "Timeline bucket metadata fetched responseCount=<redacted>" }
             val entities = responses.mapIndexed { index, response ->
                 response.toEntity(index)
             }
@@ -129,13 +134,14 @@ class TimelineRepository(
             val staleBucketIds = metadataChanges.staleBucketIds
             val removedBucketIds = metadataChanges.removedBucketIds
             log.d {
-                "Timeline bucket metadata changes stale=${staleBucketIds.size} " +
-                        "removed=${removedBucketIds.size} changed=${metadataChanges.metadataChanged} " +
-                        "previous=${oldEntities.size} next=${entities.size}"
+                "Timeline bucket metadata changes stale=<redacted> " +
+                        "removed=<redacted> changed=<redacted> " +
+                        "previous=<redacted> next=<redacted>"
             }
-            withContext(Dispatchers.IO) {
-                database.useWriterConnection { transactor ->
-                    transactor.immediateTransaction {
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    database.useWriterConnection { transactor ->
+                        transactor.immediateTransaction {
                         if (metadataChanges.metadataChanged) {
                             // Count-changed buckets keep their old refs so cached Timeline
                             // rows remain visible until that bucket's asset refresh
@@ -152,12 +158,13 @@ class TimelineRepository(
                                 currentEpochMillis()
                             )
                         )
+                        }
                     }
                 }
             }
             log.d {
                 "Timeline bucket metadata sync metadata write completed " +
-                        "buckets=${entities.size} changed=${metadataChanges.metadataChanged}"
+                        "buckets=<redacted> changed=<redacted>"
             }
             Result.success(
                 TimelineBucketSyncResult(
@@ -171,12 +178,12 @@ class TimelineRepository(
             throw e
         } catch (e: Exception) {
             Result.failure(e)
-        }
+        } }
     }
 
     suspend fun syncBucketAssets(timeBucket: String): Result<TimelineBucketAssetSyncResult> {
-        return try {
-            log.d { "Timeline bucket asset sync started bucket=$timeBucket" }
+        return sessionStateRepository.withOperation { token -> try {
+            log.d { "Timeline bucket asset sync started bucket=<redacted>" }
             // Compare the persisted bucket before and after the full write path,
             // including edit enrichment below. The ViewModel uses this changed
             // bit to decide whether row packing and Mosaic assignments for this
@@ -187,8 +194,8 @@ class TimelineRepository(
             val allAssets = apiService.getTimelineBucket(timeBucket)
             val filtered = allAssets.filter { it.visibility != "hidden" }
             log.d {
-                "Timeline bucket asset sync fetched bucket=$timeBucket fetched=${allAssets.size} " +
-                        "visible=${filtered.size} hidden=${allAssets.size - filtered.size}"
+                "Timeline bucket asset sync fetched bucket=<redacted> fetched=<redacted> " +
+                        "visible=<redacted> hidden=<redacted>"
             }
             val assetEntities = filtered.map { it.toAssetEntity() }
             val crossRefs = filtered.mapIndexed { index, response ->
@@ -205,20 +212,22 @@ class TimelineRepository(
                 )
             ) {
                 log.d {
-                    "Timeline bucket asset sync skipped unchanged write bucket=$timeBucket assets=${assetEntities.size}"
+                    "Timeline bucket asset sync skipped unchanged write bucket=<redacted> assets=<redacted>"
                 }
-                return Result.success(
+                return@withOperation Result.success(
                     TimelineBucketAssetSyncResult(
                         timeBucket = timeBucket,
                         changed = false
                     )
                 )
             }
-            withContext(Dispatchers.IO) {
-                database.useWriterConnection { transactor ->
-                    transactor.immediateTransaction {
-                        assetDao.upsertAssets(assetEntities)
-                        timelineDao.replaceBucketRefs(timeBucket, crossRefs)
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    database.useWriterConnection { transactor ->
+                        transactor.immediateTransaction {
+                            assetDao.upsertAssets(assetEntities)
+                            timelineDao.replaceBucketRefs(timeBucket, crossRefs)
+                        }
                     }
                 }
             }
@@ -233,8 +242,8 @@ class TimelineRepository(
             }
             val changed = timelineBucketAssetsChanged(before, after)
             log.d {
-                "Timeline bucket asset sync completed bucket=$timeBucket previous=${before.size} " +
-                        "current=${after.size} changed=$changed"
+                "Timeline bucket asset sync completed bucket=<redacted> previous=<redacted> " +
+                        "current=<redacted> changed=<redacted>"
             }
             Result.success(
                 TimelineBucketAssetSyncResult(
@@ -245,16 +254,16 @@ class TimelineRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.e(e) { "Timeline bucket asset sync failed bucket=$timeBucket" }
+            log.e { "Timeline bucket asset sync failed bucket=<redacted>" }
             Result.failure(e)
-        }
+        } }
     }
 
     suspend fun syncAllBucketAssets(
         buckets: List<TimelineBucket>
     ): Result<TimelineAssetSyncResult> {
-        return try {
-            log.d { "Starting timeline asset sync for ${buckets.size} buckets with parallelism=$FULL_SYNC_BUCKET_PARALLELISM" }
+        return sessionStateRepository.withOperation { try {
+            log.d { "Starting timeline asset sync for <redacted> buckets with parallelism=<redacted>" }
             val semaphore = Semaphore(FULL_SYNC_BUCKET_PARALLELISM)
             val progressMutex = Mutex()
             var completed = 0
@@ -274,15 +283,15 @@ class TimelineRepository(
                             completed++
                             if (success) successful++ else failed++
                             log.d {
-                                "Timeline asset sync progress $completed/${buckets.size}: " +
-                                        "${bucket.timeBucket} success=$success successful=$successful failed=$failed"
+                                "Timeline asset sync progress <redacted>/<redacted>: " +
+                                        "<redacted> success=<redacted> successful=<redacted> failed=<redacted>"
                             }
                         }
                         bucket.timeBucket to result.getOrNull()
                     }
                 }.awaitAll()
             }
-            log.d { "Finished timeline asset sync: successful=$successful failed=$failed total=${buckets.size}" }
+            log.d { "Finished timeline asset sync: successful=<redacted> failed=<redacted> total=<redacted>" }
             Result.success(
                 TimelineAssetSyncResult(
                     successfulBucketIds = results.filter { it.second != null }.map { it.first }
@@ -298,7 +307,7 @@ class TimelineRepository(
             throw e
         } catch (e: Exception) {
             Result.failure(e)
-        }
+        } }
     }
 
     suspend fun getAssetFileName(id: String): String {
@@ -306,7 +315,7 @@ class TimelineRepository(
         return response.originalFileName
     }
 
-    suspend fun clearCache() {
+    internal suspend fun clearCacheForSessionMutation() {
         withContext(Dispatchers.IO) {
             database.useWriterConnection { transactor ->
                 transactor.immediateTransaction {

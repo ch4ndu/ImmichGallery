@@ -32,6 +32,17 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Imperative DB reads also use `Dispatchers.IO`; only pure entity-to-domain mapping may move to `Dispatchers.Default`.
 - Flow transforms that map entity lists to domain projections use `.flowOn(Dispatchers.Default)` where appropriate.
 - Reconstruct URLs from current server config and asset IDs where possible so cached rows do not retain stale server URLs.
+- Every logical cache-producing operation registers with the shared session
+  boundary before its first network/cache read. Long-lived Timeline/detail
+  owners pair their immutable owner epoch with the current admitted generation;
+  deferred workers, repair requests, and platform-service commands carry that
+  complete stamp and never recapture it after suspension. Each Room or Mosaic
+  write validates the stamp at the commit boundary. Logout and changed-identity
+  login close admission, advance the generation, cancel and join registered old
+  work, and clear state before reopening admission. A successful mutation also
+  advances the owner epoch so the old mounted UI cannot submit new cache work;
+  a failed mutation keeps the owner epoch so the same UI can retry under the new
+  generation.
 - Explore Search results, server feature/preference reads, Tags, and typed
   suggestions are memory-only for the Search destination lifetime. Successful
   suggestions may be cached in that ViewModel by normalized dependency tuple;
@@ -46,7 +57,13 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 
 ## Immich API
 
-- Auth uses the configured API key as the `x-api-key` header.
+- Auth uses the configured API key as an explicitly attached `x-api-key`
+  header. Capture URL and key atomically for each normal request. Candidate
+  server ping is anonymous; candidate validation attaches only the entered key
+  to that candidate origin.
+- The shared Ktor client and authenticated image clients do not automatically
+  follow redirects. Image authentication is exact-origin only: scheme, host,
+  and effective port must match the configured server.
 - The shared Ktor client has explicit cross-platform timeouts: 15 seconds to connect and 60 seconds for request/socket activity. Endpoint-specific work may override these only when its transfer contract requires a longer bound.
 - Hidden assets should be filtered out before writing or presenting timeline bucket assets.
 - Immich v3 album detail returns metadata only. Fetch album assets through paged metadata search with `albumIds`, the album's server order, and the returned `nextPage` token.
@@ -59,8 +76,8 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
   network I/O. Date filters use inclusive selected calendar boundaries labelled
   as `T00:00:00.000Z` and `T23:59:59.999Z`, matching Immich web's wall-clock
   date semantics.
-- Search filter support reads public `/api/server/features` independently from
-  authenticated `/api/users/me/preferences`. Tags use authenticated
+- Search filter support reads authenticated `/api/server/features`
+  independently from authenticated `/api/users/me/preferences`. Tags use authenticated
   `/api/tags`; typed camera/location values use authenticated
   `/api/search/suggestions` with only the dependency query values supported by
   that suggestion type. Raw option values and dependencies must not be logged.
@@ -93,13 +110,23 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 ## Settings And Credentials
 
 - Server URL and API key live in `ServerConfigRepository` backed by `multiplatform-settings`.
+- JVM Desktop uses the app-owned Java Preferences node
+  `com/udnahc/immichgallery`. Its one-time legacy migration copies only known
+  app keys from the root, flushes the app node before deleting those legacy
+  copies, and never clears unrelated root-node values.
 - On Android API 37+, local Immich endpoints require `ACCESS_LOCAL_NETWORK` before validation or cached-session startup. Classify literal loopback/private/link-local/CGNAT IPv4, local IPv6, single-label hosts, and `.local` as local immediately; resolve other hostnames on IO for at most 1.5 seconds and classify them as local when any address is local. Keep classifications in memory only. A timeout or resolution failure does not prompt and follows ordinary connection handling.
 - A saved local endpoint must resolve permission before `MainScreen` is composed. If access is denied, return to Login with the saved credentials available for editing; new local logins retain entered credentials and offer retry plus app settings. Public endpoints and iOS/JVM bypass this Android-only gate.
 - Lightweight user view preferences, including per-screen row height and Mosaic `ViewConfig`, also live in `ServerConfigRepository` backed by `multiplatform-settings`.
 - Favorites uses its own `favorites_target_row_height` setting; it does not
   read or modify Explore Search density.
 - Treat view preferences as settings, not Room cache data.
-- Clear-login flows must clear credentials and cache data that would otherwise leak data from the previous server.
+- Clear-login and changed-session flows shut down the installed Coil loader,
+  close its disk cache, and delete its app-owned image-cache directory before
+  clearing Room, Mosaic, API/runtime, and settings state that could leak from
+  the previous server. The process-global slot stays pointed at the shut-down
+  loader during that mutation; the prepared fresh loader is installed only
+  after configuration-last completes, or after a failed block leaves the
+  current identity retryable.
 - Normalize server URLs consistently, usually by trimming the trailing slash before composing endpoint or image URLs.
 
 ## Date/Time

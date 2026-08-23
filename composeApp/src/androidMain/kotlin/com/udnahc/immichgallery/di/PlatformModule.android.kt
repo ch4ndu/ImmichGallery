@@ -2,6 +2,7 @@ package com.udnahc.immichgallery.di
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import com.russhwolf.settings.Settings
 import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.createDatabase
 import com.udnahc.immichgallery.domain.action.auth.LocalNetworkAccessController
@@ -25,6 +26,7 @@ fun bindLocalNetworkAccessController(activity: ComponentActivity) {
 }
 
 actual fun platformModule(): Module = module {
+    single<Settings> { Settings() }
     single { createDatabase(appContext) }
     single { get<AppDatabase>().timelineDao() }
     single { get<AppDatabase>().assetDao() }

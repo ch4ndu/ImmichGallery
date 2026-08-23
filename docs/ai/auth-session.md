@@ -13,6 +13,11 @@ server-status monitoring, logout, or server-scoped cleanup.
   local-network recovery, and the one-shot login-success state.
 - `MainScreenViewModel` owns server-status monitoring, shared Timeline display
   preferences, logout state, and the logout-completed navigation event.
+- `SessionStateRepository` owns the application-wide session generation,
+  long-lived owner epoch, operation admission, commit validation, and exclusive
+  mutation boundary.
+- `CoilImageCacheController` owns the installed singleton image loader and
+  rotates it when server-scoped state is cleared.
 - ViewModels call auth UseCases and Actions. They do not access repositories or
   platform permission APIs directly.
 
@@ -34,14 +39,26 @@ AppNavigation
    endpoint. iOS and JVM use the no-op controller.
 5. `ValidateServerUseCase` reaches `AuthRepository`, which validates the server
    ping and API key through `ImmichApiService.validateConnection(...)`.
-6. Validation currently calls `/api/server/ping`, then authenticated
-   `/api/albums` as the API-key check.
-7. Only a successful validation runs `SaveServerConfigAction` and navigates to
-   Main. A failed validation leaves the entered values available for retry.
+6. Validation calls anonymous `/api/server/ping`, then attaches only the entered
+   candidate key to `/api/albums` on that same candidate origin.
+7. Only a successful validation runs `ReplaceServerSessionAction` and navigates
+   to Main. An exact normalized URL-and-key match is a no-clear fast path. Any
+   change to either value is a session replacement and clears the previous
+   server-scoped state before saving the new pair. A failed validation leaves
+   the entered values available for retry.
 
-The API key is transported in the `x-api-key` header for normal Ktor requests.
+Normal API requests capture the configured URL and API key as one session
+snapshot and attach `x-api-key` explicitly. The shared Ktor client and every
+authenticated image client refuse automatic redirects, so a server response
+cannot forward the custom credential header to another authority. Image clients
+also attach the key only when the final request URL exactly matches the
+configured scheme, host, and port.
+
 The normalized server URL and key are stored by `multiplatform-settings`; they
-are configuration, not Room rows.
+are configuration, not Room rows. JVM Desktop uses the app-specific Java
+Preferences node `com/udnahc/immichgallery`. A one-time migration copies known
+legacy root-node keys, durably flushes the destination, and only then removes
+those known legacy keys; logout never clears unrelated root preferences.
 
 ## Saved-Session Startup
 
@@ -83,16 +100,55 @@ are configuration, not Room rows.
 
 ## Logout And Cleanup
 
-`ClearServerConfigAction` is intentionally cache-first and configuration-last:
+`ClearServerConfigAction` and changed-identity login use the same exclusive
+session mutation boundary. The boundary is intentionally cache-first and
+configuration-last:
 
-1. Clear Timeline, Album, People, shared asset/sync metadata, Detail Mosaic, and
-   Timeline Mosaic Room data.
-2. Clear `ServerConfigRepository`, including credentials and view preferences.
-3. Emit logout completion and navigate to Login.
+1. Close operation admission, advance the session generation, cancel and join
+   registered work from the previous generation, and reject any queued work
+   stamped by that generation and owner epoch. Joining old jobs is
+   non-cancellable: cancellation of the logout/replacement caller cannot reopen
+   admission while an old writer still runs. After the join, caller
+   cancellation is checked before any cache or configuration mutation begins.
+2. Shut down the installed Coil loader and its disk cache, delete the closed
+   app-owned image-cache directory, and prepare—but do not install—a fresh
+   loader. The process-global Coil slot remains pointed at the shut-down loader
+   while Timeline, Album, People, shared asset/sync metadata, Detail Mosaic,
+   Timeline Mosaic, and API/runtime server-scoped state are cleared.
+3. Clear `ServerConfigRepository`, including credentials and view preferences,
+   or save the validated replacement URL/key, then install the prepared fresh
+   loader. If the wrapped clear/configuration block fails, the configuration is
+   unchanged and the prepared loader is still installed so the session remains
+   usable and retryable.
+4. For successful logout, emit completion and navigate to Login.
+
+Cache-producing logical work registers at its real start and carries one
+immutable stamp, made from the current generation and its long-lived screen or
+coordinator owner epoch, across every deferred child. Each cache commit
+validates both values. A descendant must never recapture either value after a
+suspension. Timeline/detail owners retain their owner epoch for their lifetime;
+Timeline queue, repair, and Android manual-service commands carry the originating
+stamp explicitly.
+
+Every mutation advances the generation. The published generation changes only
+when admission reopens, so synchronous callbacks during cleanup keep an old
+stamp and are rejected. A successful mutation also advances the owner epoch,
+which rejects callbacks from an old still-mounted screen during the brief gap
+before navigation disposes it. A failed mutation keeps the owner epoch, allowing
+that still-mounted screen to retry with the new generation. Admission rejection
+and stale-operation rejection are cancellation control flow, not user-visible
+sync failures. Together these rules prevent an old response, delayed Mosaic
+computation, queued foreground-service command, or post-cleanup callback from
+repopulating cache.
 
 If any cache clear fails, the action does not clear the active configuration.
 Main stays visible and shows a retryable logout message, preventing cached data
 from being exposed under a different server identity.
+
+Application logging is disabled on Android, iOS, and JVM for every build. HTTP
+logging is also disabled, and retained log call sites use stable operation
+labels rather than URLs, identifiers, dates, response bodies, or raw throwable
+messages.
 
 ## Developer Login Defaults
 
@@ -114,7 +170,12 @@ defaults prefill Login only; they do not bypass validation.
 - no saved credentials routes to Login;
 - a saved public endpoint routes to Main without a permission request;
 - a saved denied local endpoint returns to Login without clearing credentials;
-- login saves configuration only after validation succeeds;
+- candidate ping is anonymous and validation sends only the candidate key to
+  the exact candidate origin;
+- login saves configuration only after validation succeeds, preserves cache
+  for an exact normalized URL/key match, and clears old state for any change;
 - server monitoring starts/stops with Main and lifecycle activity;
-- logout clears server-scoped caches before configuration and stays on Main if
-  cleanup fails.
+- session mutation cancels and joins registered work, refuses old-generation
+  commits/deferred work, and admits new-generation work after a failed clear;
+- logout rotates and clears Coil plus server-scoped Room/runtime caches before
+  configuration and stays on Main if cleanup fails.

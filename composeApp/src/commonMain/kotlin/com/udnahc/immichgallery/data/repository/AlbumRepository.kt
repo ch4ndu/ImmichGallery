@@ -38,7 +38,8 @@ class AlbumRepository(
     private val syncMetadataDao: SyncMetadataDao,
     private val serverConfigRepository: ServerConfigRepository,
     private val editsEnricher: AssetEditsEnricher,
-    private val detailMosaicCacheDao: DetailMosaicCacheDao
+    private val detailMosaicCacheDao: DetailMosaicCacheDao,
+    private val sessionStateRepository: SessionStateRepository
 ) {
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -102,12 +103,13 @@ class AlbumRepository(
     // --- Network sync ---
 
     suspend fun syncAlbums(): Result<Unit> {
-        return runSuspendCatching {
+        return sessionStateRepository.withOperation { token -> runSuspendCatching {
             val responses = apiService.getAlbums()
             val entities = responses.map { it.toAlbumEntity() }
-            withContext(Dispatchers.IO) {
-                database.useWriterConnection { transactor ->
-                    transactor.immediateTransaction {
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    database.useWriterConnection { transactor ->
+                        transactor.immediateTransaction {
                         val removedAlbumIds = albumDao.getAlbumIds().toSet() - entities.map { it.id }.toSet()
                         if (removedAlbumIds.isNotEmpty()) {
                             val removedIds = removedAlbumIds.toList()
@@ -124,10 +126,11 @@ class AlbumRepository(
                         syncMetadataDao.upsert(
                             SyncMetadataEntity(SYNC_SCOPE_ALBUMS, currentEpochMillis())
                         )
+                        }
                     }
                 }
             }
-        }
+        } }
     }
 
     suspend fun syncAlbumAssetsPage(
@@ -136,7 +139,7 @@ class AlbumRepository(
         order: String? = null,
         size: Int = ALBUM_PAGE_SIZE
     ): Result<AlbumDetailSyncResult> {
-        return runSuspendCatching {
+        return sessionStateRepository.withOperation { token -> runSuspendCatching {
             val before = withContext(Dispatchers.IO) {
                 albumDao.getAlbumAssets(albumId)
             }
@@ -174,9 +177,10 @@ class AlbumRepository(
                 )
             }
             var changed = false
-            withContext(Dispatchers.IO) {
-                database.useWriterConnection { transactor ->
-                    transactor.immediateTransaction {
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    database.useWriterConnection { transactor ->
+                        transactor.immediateTransaction {
                         if (detailAlbum != null) {
                             albumDao.upsertAlbums(listOf(detailAlbum))
                         }
@@ -220,6 +224,7 @@ class AlbumRepository(
                                 )
                             )
                         }
+                        }
                     }
                 }
             }
@@ -229,11 +234,11 @@ class AlbumRepository(
                 nextPage = nextPage,
                 order = resolvedOrder
             )
-        }
+        } }
     }
 
     suspend fun syncAllAlbumAssets(albumId: String): Result<AlbumDetailSyncResult> {
-        return runSuspendCatching {
+        return sessionStateRepository.withOperation { token -> runSuspendCatching {
             val before = withContext(Dispatchers.IO) {
                 albumDao.getAlbumAssets(albumId)
             }
@@ -265,9 +270,10 @@ class AlbumRepository(
                 updatedAt = cachedAlbum?.updatedAt ?: ""
             )
             var changed = false
-            withContext(Dispatchers.IO) {
-                database.useWriterConnection { transactor ->
-                    transactor.immediateTransaction {
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    database.useWriterConnection { transactor ->
+                        transactor.immediateTransaction {
                         albumDao.upsertAlbums(listOf(detailAlbum))
                         val skipAssetWrite = !orderedAssetsChanged(before, assetEntities)
                         if (!skipAssetWrite) {
@@ -288,6 +294,7 @@ class AlbumRepository(
                                 currentEpochMillis()
                             )
                         )
+                        }
                     }
                 }
             }
@@ -297,10 +304,10 @@ class AlbumRepository(
                 nextPage = null,
                 order = order
             )
-        }
+        } }
     }
 
-    suspend fun clearCache() {
+    internal suspend fun clearCacheForSessionMutation() {
         withContext(Dispatchers.IO) {
             database.useWriterConnection { transactor ->
                 transactor.immediateTransaction {

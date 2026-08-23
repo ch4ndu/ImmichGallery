@@ -49,7 +49,7 @@ class PeopleViewModel(
             }
                 .flowOn(Dispatchers.Default)
                 .collect { (people, filteredPeople) ->
-                    log.d { "Room emitted ${people.size} people" }
+                    log.d { "Room emitted <redacted> people" }
                     _state.update {
                         it.copy(
                             people = people,
@@ -102,7 +102,7 @@ class PeopleViewModel(
                         }
                     },
                     onFailure = { e ->
-                        log.e(e) { "Failed to sync people from server" }
+                        log.e { "Failed to sync people from server" }
                         if (!hasCachedPeople) {
                             _state.update {
                                 it.copy(

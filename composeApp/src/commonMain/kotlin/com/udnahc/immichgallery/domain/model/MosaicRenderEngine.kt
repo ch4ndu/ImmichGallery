@@ -227,8 +227,8 @@ class MosaicRenderEngine : MosaicSectionComputer {
         shouldContinue: () -> Unit
     ): MosaicSectionResult {
         log.d {
-            "Mosaic section compute started key=${request.keyScope.stableSectionKey} " +
-                    "assets=${request.assets.size} resumed=${resumeCheckpoint != null}"
+            "Mosaic section compute started key=<redacted> " +
+                    "assets=<redacted> resumed=<redacted>"
         }
         return try {
             val timed = measureTimedValue {
@@ -266,9 +266,9 @@ class MosaicRenderEngine : MosaicSectionComputer {
             )
             val geometry = computeSectionGeometry(request.keyScope, displayItems, request.spacing)
             log.d {
-                "Mosaic section compute completed key=${request.keyScope.stableSectionKey} " +
-                        "bands=${timed.value.size} items=${displayItems.size} " +
-                        "height=${geometry.placeholderHeight} duration=${timed.duration}"
+                "Mosaic section compute completed key=<redacted> " +
+                        "bands=<redacted> items=<redacted> " +
+                        "height=<redacted> duration=<redacted>"
             }
             MosaicSectionResult.Ready(
                 SectionReady(
@@ -281,7 +281,7 @@ class MosaicRenderEngine : MosaicSectionComputer {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.e(e) { "Mosaic section compute failed key=${request.keyScope.stableSectionKey}" }
+            log.e { "Mosaic section compute failed key=<redacted>" }
             MosaicSectionResult.Failed(SectionFailed(request.keyScope, e))
         }
     }

@@ -16,17 +16,37 @@ For the shared photo/video viewer, information sheet, slideshow, and return tran
 ## Stack
 
 - Kotlin Multiplatform Compose targeting Android, iOS, and JVM Desktop.
-- Immich API client for a read-only authenticated gallery. API auth uses the `x-api-key` header.
+- Immich API client for a read-only authenticated gallery. Normal API auth uses
+  an explicitly attached `x-api-key` header; automatic redirects are disabled.
 - Ktor 3 HTTP client with per-platform engines: OkHttp, Darwin, and Java.
 - Coil 3 authenticated image loading via an OkHttp fetcher on Android and
   `KtorNetworkFetcherFactory` on iOS/JVM.
+- Koin and its singleton Coil controller are process-owned on every platform.
+  Android starts them from `Application`; iOS and JVM start them before their
+  Compose host. Recreated Compose roots therefore cannot open competing disk
+  caches or retain stale controller dependencies. Android also normalizes the
+  captured platform context to the application context, so Activity recreation
+  cannot be retained.
 - Room database with `BundledSQLiteDriver` and KSP code generation for local cache tables.
 - Koin DI with `sharedModule` in common code and per-platform `platformModule` database builders.
 - JetBrains Navigation Compose KMP with `@Serializable` type-safe routes.
-- `multiplatform-settings` for server URL, API key, and lightweight settings.
+- `multiplatform-settings` for server URL, API key, and lightweight settings;
+  JVM uses an app-specific Java Preferences node with a guarded legacy-key
+  migration.
 - `kotlinx-datetime` for date/time logic.
 - Android foreground work notifications are driven by common `SyncActivityTracker` keys for active sync and explicit Mosaic preparation. Android starts a `dataSync` foreground service for that notification state. Manual Timeline refresh is the exception: on Android the foreground service owns the manual sync command and runs the shared `TimelineManualSyncCoordinator`; other platforms run that coordinator from the ViewModel.
-- Logout is cache-first and configuration-last. `MainScreenViewModel` owns the action state and navigation success event; a cache-clear failure keeps the current server configuration, stays on Main, and surfaces a retryable message.
+- Logout and changed-identity login share an application-wide session mutation
+  boundary. It advances the generation, cancels and joins registered old work,
+  rotates/clears Coil, clears server-scoped Room/Mosaic/runtime state, and only
+  then clears or replaces configuration. A successful mutation also advances a
+  long-lived owner epoch so callbacks from the old mounted Timeline/detail owner
+  cannot submit post-clear work before navigation disposes it; a failed mutation
+  keeps that owner epoch so the current UI can retry with the new generation.
+  `MainScreenViewModel` owns logout action state and navigation success; a
+  cache-clear failure keeps the current configuration, stays on Main, and
+  surfaces a retryable message.
+- Application and HTTP logging are disabled on every platform/build; retained
+  call sites use non-sensitive operation labels only.
 - iOS declares local-network access and allows local-network ATS traffic so self-hosted HTTP servers on the LAN remain usable; arbitrary remote HTTP is not enabled.
 
 ## Layering
@@ -127,6 +147,11 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - Album Detail and Person Detail use cached-first loading: if Room already has detail assets, render them immediately, refresh the opened detail in the background, and invalidate row/Mosaic layout only when ordered persisted asset content changes.
 - Person detail asset caching starts when a person is opened. The People list sync must not preload every person's detail assets.
 - Repository flow is network fetch, Room upsert or replace, then UI reads from Room or updated domain state.
+- Cache-producing logical work registers before its first read/request and
+  propagates one immutable session stamp through deferred descendants. The
+  stamp combines the admitted generation with the long-lived owner epoch where
+  applicable. Repository writes validate both at the commit boundary so
+  old-session work cannot repopulate cleared cache.
 - Timeline uses `TimelineBucketEntity`, `AssetEntity`, and `TimelineAssetCrossRef`.
 - Album and people relationships use `AlbumAssetCrossRef` and `PersonAssetCrossRef`.
 - Album and Person Mosaic display-cache rows use `DetailMosaicDisplayCacheEntity`.

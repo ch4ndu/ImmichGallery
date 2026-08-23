@@ -1,5 +1,9 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import com.udnahc.immichgallery.data.repository.SessionOperationRejectedException
+import com.udnahc.immichgallery.data.repository.SessionOperationStamp
+import com.udnahc.immichgallery.data.repository.StaleSessionOperationException
+import com.udnahc.immichgallery.domain.action.auth.SessionOperationRunner
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
 import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
@@ -8,6 +12,8 @@ import com.udnahc.immichgallery.domain.model.ProgressChunk
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicRepairSectionInput
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.roundToInt
@@ -32,6 +38,7 @@ internal data class TimelineMosaicPublishStamp(
 )
 
 internal data class PendingMosaicPublish(
+    val sessionStamp: SessionOperationStamp,
     val stateUpdates: Map<MosaicCacheKey, RuntimeMosaicState>,
     val geometryUpdates: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>,
     val stamp: TimelineMosaicPublishStamp,
@@ -39,6 +46,7 @@ internal data class PendingMosaicPublish(
 )
 
 internal data class TimelineMosaicRepairRequest(
+    val sessionStamp: SessionOperationStamp,
     val timeBucket: String,
     val groupSize: TimelineGroupSize,
     val columnCount: Int,
@@ -49,6 +57,9 @@ internal data class TimelineMosaicRepairRequest(
     val bucketGeneration: Long,
     val sectionsByKey: Map<String, TimelineMosaicRepairSectionInput>
 )
+
+internal fun TimelineMosaicRepairRequest.belongsToSession(stamp: SessionOperationStamp): Boolean =
+    sessionStamp == stamp
 
 internal fun coalesceTimelineMosaicRepairRequests(
     requests: List<TimelineMosaicRepairRequest>
@@ -63,6 +74,10 @@ internal class TimelineMosaicPublishBuffer {
         currentGlobalGeneration: Long,
         currentBucketGenerations: Map<String, Long>
     ): PendingMosaicPublish? {
+        val sessionStamp = pending.firstOrNull()?.sessionStamp ?: return null
+        require(pending.all { it.sessionStamp == sessionStamp }) {
+            "Timeline Mosaic publishes must be coalesced within one session stamp"
+        }
         val accumulatedStates = LinkedHashMap<MosaicCacheKey, RuntimeMosaicState>()
         val accumulatedGeometry = LinkedHashMap<MosaicCacheKey, TimelineMosaicSectionGeometry>()
         val accumulatedRepairs = LinkedHashMap<String, TimelineMosaicRepairRequest>()
@@ -83,7 +98,8 @@ internal class TimelineMosaicPublishBuffer {
                 }
             }
             item.repairRequests.forEach { request ->
-                if (request.globalGeneration == currentGlobalGeneration &&
+                if (request.sessionStamp == sessionStamp &&
+                    request.globalGeneration == currentGlobalGeneration &&
                     request.bucketGeneration == (currentBucketGenerations[request.timeBucket] ?: 0L)
                 ) {
                     accumulatedRepairs[request.timeBucket] = request
@@ -94,6 +110,7 @@ internal class TimelineMosaicPublishBuffer {
             return null
         }
         return PendingMosaicPublish(
+            sessionStamp = sessionStamp,
             stateUpdates = accumulatedStates,
             geometryUpdates = accumulatedGeometry,
             stamp = TimelineMosaicPublishStamp(
@@ -161,6 +178,7 @@ internal data class TimelineRuntimeMosaicSection(
 )
 
 internal data class TimelineRuntimeMosaicResumeState(
+    val sessionStamp: SessionOperationStamp,
     val checkpoint: MosaicAssignmentCheckpoint,
     val chunks: List<ProgressChunk>
 )
@@ -172,50 +190,82 @@ internal data class DayGroupsCacheKey(
 
 internal typealias RuntimeMosaicProgressChunk = ProgressChunk
 
+internal data class PendingProgressiveMosaicPublish(
+    val sessionStamp: SessionOperationStamp,
+    val updatesByKey: Map<MosaicCacheKey, List<RuntimeMosaicProgressChunk>>
+)
+
+private data class StampedRuntimeMosaicProgressChunk(
+    val sessionStamp: SessionOperationStamp,
+    val chunk: RuntimeMosaicProgressChunk
+)
+
 internal class TimelineProgressiveMosaicBuffer {
     private val mutex = Mutex()
-    private val chunksByKey = linkedMapOf<MosaicCacheKey, MutableList<RuntimeMosaicProgressChunk>>()
+    private val chunksByKey =
+        linkedMapOf<MosaicCacheKey, MutableList<StampedRuntimeMosaicProgressChunk>>()
 
     suspend fun add(
         key: MosaicCacheKey,
-        chunk: RuntimeMosaicProgressChunk
+        chunk: RuntimeMosaicProgressChunk,
+        sessionStamp: SessionOperationStamp
     ) {
         mutex.withLock {
             val chunks = chunksByKey.getOrPut(key) { mutableListOf() }
             val existingIndex = chunks.indexOfFirst {
-                it.sourceStartIndex == chunk.sourceStartIndex &&
-                        it.sourceEndExclusive == chunk.sourceEndExclusive
+                it.chunk.sourceStartIndex == chunk.sourceStartIndex &&
+                        it.chunk.sourceEndExclusive == chunk.sourceEndExclusive
             }
+            val stampedChunk = StampedRuntimeMosaicProgressChunk(sessionStamp, chunk)
             if (existingIndex >= 0) {
-                chunks[existingIndex] = chunk
+                chunks[existingIndex] = stampedChunk
             } else {
-                chunks.add(chunk)
-                chunks.sortBy { it.sourceStartIndex }
+                chunks.add(stampedChunk)
+                chunks.sortBy { it.chunk.sourceStartIndex }
             }
         }
     }
 
-    suspend fun drainEligible(timeBuckets: Set<String>): Map<MosaicCacheKey, List<RuntimeMosaicProgressChunk>> {
-        if (timeBuckets.isEmpty()) return emptyMap()
+    suspend fun drainEligible(timeBuckets: Set<String>): List<PendingProgressiveMosaicPublish> {
+        if (timeBuckets.isEmpty()) return emptyList()
         return mutex.withLock {
             val eligibleKeys = chunksByKey.keys
                 .filter { it.timeBucket in timeBuckets }
                 .toList()
-            eligibleKeys.associateWith { key ->
-                chunksByKey.remove(key).orEmpty()
-            }.filterValues { it.isNotEmpty() }
+            drainEligibleKeysLocked(eligibleKeys)
         }
     }
 
-    suspend fun drainEligibleKeys(keys: Set<MosaicCacheKey>): Map<MosaicCacheKey, List<RuntimeMosaicProgressChunk>> {
-        if (keys.isEmpty()) return emptyMap()
+    suspend fun drainEligibleKeys(keys: Set<MosaicCacheKey>): List<PendingProgressiveMosaicPublish> {
+        if (keys.isEmpty()) return emptyList()
         return mutex.withLock {
             val eligibleKeys = chunksByKey.keys
                 .filter { it in keys }
                 .toList()
-            eligibleKeys.associateWith { key ->
-                chunksByKey.remove(key).orEmpty()
-            }.filterValues { it.isNotEmpty() }
+            drainEligibleKeysLocked(eligibleKeys)
+        }
+    }
+
+    private fun drainEligibleKeysLocked(
+        eligibleKeys: List<MosaicCacheKey>
+    ): List<PendingProgressiveMosaicPublish> {
+        val updatesByStamp = linkedMapOf<
+            SessionOperationStamp,
+            LinkedHashMap<MosaicCacheKey, MutableList<RuntimeMosaicProgressChunk>>
+        >()
+        eligibleKeys.forEach { key ->
+            chunksByKey.remove(key).orEmpty().forEach { stampedChunk ->
+                updatesByStamp
+                    .getOrPut(stampedChunk.sessionStamp) { linkedMapOf() }
+                    .getOrPut(key) { mutableListOf() }
+                    .add(stampedChunk.chunk)
+            }
+        }
+        return updatesByStamp.map { (sessionStamp, updatesByKey) ->
+            PendingProgressiveMosaicPublish(
+                sessionStamp = sessionStamp,
+                updatesByKey = updatesByKey.mapValues { (_, chunks) -> chunks.toList() }
+            )
         }
     }
 
@@ -241,6 +291,23 @@ internal class TimelineProgressiveMosaicBuffer {
 
     suspend fun snapshotSize(): Int =
         mutex.withLock { chunksByKey.values.sumOf { it.size } }
+}
+
+internal suspend fun runTimelineMosaicSessionSink(
+    sessionOperationRunner: SessionOperationRunner,
+    sessionStamp: SessionOperationStamp,
+    block: suspend () -> Unit
+): Boolean = try {
+    coroutineScope {
+        async {
+            sessionOperationRunner.runForStamp(sessionStamp, block)
+        }.await()
+    }
+    true
+} catch (_: StaleSessionOperationException) {
+    false
+} catch (_: SessionOperationRejectedException) {
+    false
 }
 
 internal fun RuntimeMosaicState?.cacheToken(): String =

@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.detail
 
+import com.udnahc.immichgallery.data.repository.SessionStateRepository
+import com.udnahc.immichgallery.domain.action.auth.RunSessionOperationAction
+import com.udnahc.immichgallery.domain.action.auth.SessionOperationRunner
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
@@ -42,14 +45,20 @@ import com.udnahc.immichgallery.ui.util.MosaicWorkCancelledException
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
@@ -214,6 +223,151 @@ class PhotoGridDetailLayoutCoordinatorTest {
         advanceUntilIdle()
 
         assertEquals(0, writeCount)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun sessionMutationCancelsScheduledLayoutBeforeOldArtifactsCanCommit() = runTest {
+        val oldAssets = List(6) { index -> asset("old_$index") }
+        val newAssets = List(6) { index -> asset("new_$index") }
+        val cacheReadStarted = CompletableDeferred<Unit>()
+        val releaseCacheRead = CompletableDeferred<Unit>()
+        val writes = mutableListOf<DetailMosaicArtifactsUpsert>()
+        val sessionStateRepository = SessionStateRepository()
+        var state = coordinatorState(
+            assets = oldAssets,
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = true)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
+            readPersistentArtifacts = {
+                cacheReadStarted.complete(Unit)
+                releaseCacheRead.await()
+                DetailMosaicArtifacts()
+            },
+            upsertPersistentArtifacts = { writes += it },
+            sessionOperationRunner = RunSessionOperationAction(sessionStateRepository)
+        )
+
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        runCurrent()
+        cacheReadStarted.await()
+
+        val mutation = async {
+            sessionStateRepository.mutate {
+                state = state.copy(assets = newAssets)
+            }
+        }
+        mutation.await()
+        releaseCacheRead.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(writes.isEmpty())
+        assertTrue(state.displayIndex.assetDisplayIndexById.keys.none { it.startsWith("old_") })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun sessionMutationAwaitsSchedulerExecutionAndRejectsLateProgress() = runTest {
+        val oldAssets = List(12) { index -> asset("old_$index") }
+        val newAssets = List(12) { index -> asset("new_$index") }
+        val mosaicComputer = LateProgressMosaicSectionComputer()
+        val sessionStateRepository = SessionStateRepository()
+        var countLateUpdates = false
+        var lateUpdateCount = 0
+        var mutationObservedExecutionFinished = false
+        var state = coordinatorState(
+            assets = oldAssets,
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform ->
+                val next = transform(state)
+                if (countLateUpdates && next.displayItems != state.displayItems) {
+                    lateUpdateCount += 1
+                }
+                state = next
+            },
+            mosaicEngine = mosaicComputer,
+            sessionOperationRunner = RunSessionOperationAction(sessionStateRepository)
+        )
+
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        runCurrent()
+        mosaicComputer.executionStarted.await()
+
+        countLateUpdates = true
+        val mutation = async {
+            sessionStateRepository.mutate {
+                mutationObservedExecutionFinished = mosaicComputer.executionFinished.isCompleted
+                state = state.copy(
+                    assets = newAssets,
+                    displayItems = emptyList(),
+                    displayIndex = TimelineDisplayIndex()
+                )
+            }
+        }
+        runCurrent()
+
+        assertFalse(mutation.isCompleted)
+        assertFalse(mosaicComputer.executionFinished.isCompleted)
+
+        mosaicComputer.releaseExecution.complete(Unit)
+        advanceUntilIdle()
+        mutation.await()
+
+        assertTrue(mosaicComputer.progressCallbackAttempted.isCompleted)
+        assertTrue(mosaicComputer.executionFinished.isCompleted)
+        assertTrue(mutationObservedExecutionFinished)
+        assertEquals(0, lateUpdateCount)
+        assertTrue(state.displayItems.isEmpty())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun resumedLayoutCapturesSnapshotOnlyAfterSessionOperationAdmission() = runTest {
+        val oldAssets = List(12) { index -> asset("old_$index") }
+        val newAssets = List(12) { index -> asset("new_$index") }
+        val sessionOperationRunner = GatedSessionOperationRunner(gatedInvocation = 3)
+        val writes = mutableListOf<DetailMosaicArtifactsUpsert>()
+        var state = coordinatorState(
+            assets = oldAssets,
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = true)
+        )
+        val coordinator = coordinator(
+            scope = this,
+            scheduler = testScheduler,
+            getState = { state },
+            updateState = { transform -> state = transform(state) },
+            cacheOwnerType = DetailMosaicCacheOwnerType.ALBUM,
+            upsertPersistentArtifacts = { writes += it },
+            mosaicEngine = FailOnceMosaicSectionComputer(),
+            sessionOperationRunner = sessionOperationRunner
+        )
+
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        advanceTimeBy(5_000)
+        runCurrent()
+        sessionOperationRunner.awaitGatedInvocation()
+
+        state = state.copy(assets = newAssets)
+        sessionOperationRunner.release()
+        advanceUntilIdle()
+
+        assertTrue(writes.isEmpty())
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -573,7 +727,8 @@ class PhotoGridDetailLayoutCoordinatorTest {
             artifacts.displayCache.forEach { upsertPersistentCache(it) }
         },
         mosaicEngine: MosaicSectionComputer = MosaicRenderEngine(),
-        mosaicConfigPreparationCoordinator: MosaicConfigPreparationCoordinator = MosaicConfigPreparationCoordinator()
+        mosaicConfigPreparationCoordinator: MosaicConfigPreparationCoordinator = MosaicConfigPreparationCoordinator(),
+        sessionOperationRunner: SessionOperationRunner? = null
     ): PhotoGridDetailLayoutCoordinator<TestDetailState> =
         PhotoGridDetailLayoutCoordinator(
             scope = scope,
@@ -606,7 +761,9 @@ class PhotoGridDetailLayoutCoordinatorTest {
             layoutRunner = PhotoGridLayoutRunner(scope, StandardTestDispatcher(scheduler)),
             rowHeightPersistenceRunner = PhotoGridLayoutRunner(scope, StandardTestDispatcher(scheduler)),
             backgroundDispatcher = StandardTestDispatcher(scheduler),
-            ioDispatcher = StandardTestDispatcher(scheduler)
+            ioDispatcher = StandardTestDispatcher(scheduler),
+            sessionOperationRunner = sessionOperationRunner
+                ?: com.udnahc.immichgallery.domain.action.auth.DirectSessionOperationRunner
         )
 
     private fun TestDetailState.asCoordinatorSnapshot(): PhotoGridDetailLayoutSnapshot =
@@ -862,6 +1019,73 @@ private class RecordingMosaicSectionComputer : DelegatingTestMosaicSectionComput
     ): MosaicSectionResult {
         groupIndexes.add(request.bucketIndex)
         return super.computeSection(request, resumeCheckpoint, onProgressChunk, onCheckpoint, shouldContinue)
+    }
+}
+
+private class LateProgressMosaicSectionComputer : DelegatingTestMosaicSectionComputer() {
+    val executionStarted = CompletableDeferred<Unit>()
+    val releaseExecution = CompletableDeferred<Unit>()
+    val progressCallbackAttempted = CompletableDeferred<Unit>()
+    val executionFinished = CompletableDeferred<Unit>()
+
+    override suspend fun computeSection(
+        request: MosaicSectionRequest,
+        resumeCheckpoint: MosaicAssignmentCheckpoint?,
+        onProgressChunk: suspend (ProgressChunk) -> Unit,
+        onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+        shouldContinue: () -> Unit
+    ): MosaicSectionResult {
+        executionStarted.complete(Unit)
+        try {
+            return withContext(NonCancellable) {
+                releaseExecution.await()
+                progressCallbackAttempted.complete(Unit)
+                onProgressChunk(
+                    ProgressChunk(
+                        keyScope = request.keyScope,
+                        sectionLabel = request.sectionLabel,
+                        sourceStartIndex = 0,
+                        sourceEndExclusive = minOf(4, request.assets.size),
+                        assignments = emptyList()
+                    )
+                )
+                error("Cancelled Mosaic work accepted late progress")
+            }
+        } finally {
+            executionFinished.complete(Unit)
+        }
+    }
+}
+
+private class GatedSessionOperationRunner(
+    private val gatedInvocation: Int
+) : SessionOperationRunner {
+    private var invocationCount = 0
+    private val gated = CompletableDeferred<Unit>()
+    private val released = CompletableDeferred<Unit>()
+
+    override suspend fun <T> run(block: suspend () -> T): T {
+        invocationCount += 1
+        if (invocationCount == gatedInvocation) {
+            gated.complete(Unit)
+            released.await()
+        }
+        return block()
+    }
+
+    override suspend fun <T> runForGeneration(
+        generation: Long,
+        block: suspend () -> T
+    ): T = run(block)
+
+    override fun generationSnapshot(): Long = 0L
+
+    suspend fun awaitGatedInvocation() {
+        gated.await()
+    }
+
+    fun release() {
+        released.complete(Unit)
     }
 }
 

@@ -14,6 +14,7 @@ import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseC
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -42,7 +43,8 @@ class MainScreenViewModel(
     private val setTimelineGroupSizeAction: SetTimelineGroupSizeAction,
     getViewConfigUseCase: GetViewConfigUseCase,
     private val setViewConfigAction: SetViewConfigAction,
-    private val clearServerConfigAction: ClearServerConfigAction
+    private val clearServerConfigAction: ClearServerConfigAction,
+    private val workerDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     private val _screenState = MutableStateFlow(MainScreenState())
@@ -85,7 +87,7 @@ class MainScreenViewModel(
     fun logout() {
         if (_screenState.value.isLoggingOut) return
         _screenState.update { it.copy(isLoggingOut = true, message = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(workerDispatcher) {
             clearServerConfigAction().fold(
                 onSuccess = {
                     _screenState.update { it.copy(isLoggingOut = false) }

@@ -37,7 +37,8 @@ class PeopleRepository(
     private val syncMetadataDao: SyncMetadataDao,
     private val serverConfigRepository: ServerConfigRepository,
     private val editsEnricher: AssetEditsEnricher,
-    private val detailMosaicCacheDao: DetailMosaicCacheDao
+    private val detailMosaicCacheDao: DetailMosaicCacheDao,
+    private val sessionStateRepository: SessionStateRepository
 ) {
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -95,7 +96,7 @@ class PeopleRepository(
     // --- Network sync ---
 
     suspend fun syncPeople(): Result<Unit> {
-        return runSuspendCatching {
+        return sessionStateRepository.withOperation { token -> runSuspendCatching {
             val people = mutableListOf<com.udnahc.immichgallery.data.model.PersonResponse>()
             var page = 1
             var hasNextPage: Boolean
@@ -106,9 +107,10 @@ class PeopleRepository(
                 page++
             } while (hasNextPage)
             val entities = people.mapIndexed { index, person -> person.toPersonEntity(index) }
-            withContext(Dispatchers.IO) {
-                database.useWriterConnection { transactor ->
-                    transactor.immediateTransaction {
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    database.useWriterConnection { transactor ->
+                        transactor.immediateTransaction {
                         val removedPersonIds = personDao.getPersonIds().toSet() - entities.map { it.id }.toSet()
                         if (removedPersonIds.isNotEmpty()) {
                             val removedIds = removedPersonIds.toList()
@@ -125,10 +127,11 @@ class PeopleRepository(
                         syncMetadataDao.upsert(
                             SyncMetadataEntity(SYNC_SCOPE_PEOPLE, currentEpochMillis())
                         )
+                        }
                     }
                 }
             }
-        }
+        } }
     }
 
     /**
@@ -143,7 +146,7 @@ class PeopleRepository(
         page: Int,
         size: Int = 250
     ): Result<PersonAssetsSyncResult> {
-        return runSuspendCatching {
+        return sessionStateRepository.withOperation { token -> runSuspendCatching {
             val before = withContext(Dispatchers.IO) {
                 personDao.getPersonAssets(personId)
             }
@@ -167,9 +170,10 @@ class PeopleRepository(
                 PersonAssetCrossRef(personId, asset.id, baseOffset + index)
             }
             var changed = false
-            withContext(Dispatchers.IO) {
-                database.useWriterConnection { transactor ->
-                    transactor.immediateTransaction {
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    database.useWriterConnection { transactor ->
+                        transactor.immediateTransaction {
                         val skipAssetWrite = detailPageWriteUnchanged(
                             before = before,
                             candidates = assetEntities,
@@ -214,6 +218,7 @@ class PeopleRepository(
                                 )
                             )
                         }
+                        }
                     }
                 }
             }
@@ -221,7 +226,7 @@ class PeopleRepository(
                 changed = changed,
                 nextPage = nextPage
             )
-        }
+        } }
     }
 
     /**
@@ -234,7 +239,7 @@ class PeopleRepository(
      * At 250 items/page and a few pages per person, this is a few hundred KB.
      */
     suspend fun syncAllPersonAssets(personId: String): Result<PersonAssetsSyncResult> {
-        return runSuspendCatching {
+        return sessionStateRepository.withOperation { token -> runSuspendCatching {
             val before = withContext(Dispatchers.IO) {
                 personDao.getPersonAssets(personId)
             }
@@ -255,9 +260,10 @@ class PeopleRepository(
                 PersonAssetCrossRef(personId, asset.id, index)
             }
             var changed = false
-            withContext(Dispatchers.IO) {
-                database.useWriterConnection { transactor ->
-                    transactor.immediateTransaction {
+            sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    database.useWriterConnection { transactor ->
+                        transactor.immediateTransaction {
                         val skipAssetWrite = !orderedAssetsChanged(before, assetEntities)
                         if (!skipAssetWrite) {
                             assetDao.upsertAssets(assetEntities)
@@ -277,6 +283,7 @@ class PeopleRepository(
                                 currentEpochMillis()
                             )
                         )
+                        }
                     }
                 }
             }
@@ -284,10 +291,10 @@ class PeopleRepository(
                 changed = changed,
                 nextPage = null
             )
-        }
+        } }
     }
 
-    suspend fun clearCache() {
+    internal suspend fun clearCacheForSessionMutation() {
         withContext(Dispatchers.IO) {
             database.useWriterConnection { transactor ->
                 transactor.immediateTransaction {

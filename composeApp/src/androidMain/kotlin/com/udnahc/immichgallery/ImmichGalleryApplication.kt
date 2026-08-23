@@ -10,6 +10,7 @@ import org.koin.core.context.startKoin
 class ImmichGalleryApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        disableApplicationLogging()
         initPlatformContext(this)
         if (GlobalContext.getOrNull() == null) {
             startKoin {

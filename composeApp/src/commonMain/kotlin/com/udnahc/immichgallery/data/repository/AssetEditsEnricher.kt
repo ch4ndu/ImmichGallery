@@ -30,13 +30,19 @@ import org.lighthousegames.logging.logging
  */
 class AssetEditsEnricher(
     private val apiService: ImmichApiService,
-    private val assetDao: AssetDao
+    private val assetDao: AssetDao,
+    private val sessionStateRepository: SessionStateRepository
 ) {
     private val log = logging("AssetEditsEnricher")
 
     suspend fun enrich(assets: List<AssetResponse>) {
-        resolve(assets).forEach { (assetId, aspectRatio) ->
-            assetDao.updateAspectRatioResolved(assetId, aspectRatio)
+        sessionStateRepository.withOperation { token ->
+            val resolved = resolve(assets)
+            sessionStateRepository.withCommit(token) {
+                resolved.forEach { (assetId, aspectRatio) ->
+                    assetDao.updateAspectRatioResolved(assetId, aspectRatio)
+                }
+            }
         }
     }
 
@@ -48,7 +54,7 @@ class AssetEditsEnricher(
     suspend fun resolve(assets: List<AssetResponse>): Map<String, Float> {
         val edited = assets.filter { it.isEdited && it.width != null && it.height != null }
         if (edited.isEmpty()) return emptyMap()
-        log.d { "Enriching aspect for ${edited.size} edited assets" }
+        log.d { "Enriching aspect for <redacted> edited assets" }
         val semaphore = Semaphore(EDIT_FETCH_PARALLELISM)
         return coroutineScope {
             edited.map { asset ->
@@ -72,7 +78,7 @@ class AssetEditsEnricher(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e) { "Failed to resolve edits for ${asset.id}" }
+            log.w { "Failed to resolve edits for <redacted>" }
             return null
         }
     }

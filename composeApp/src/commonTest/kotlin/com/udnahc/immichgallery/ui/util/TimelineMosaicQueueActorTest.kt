@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.util
 
+import com.udnahc.immichgallery.data.repository.SessionOperationStamp
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineMosaicWorkSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
@@ -98,7 +99,7 @@ class TimelineMosaicQueueActorTest {
         actor.send(TimelineMosaicQueueCommand.WorkerFinished(start.request, start.token))
         runCurrent()
         assertEquals(null, actor.effects.tryReceive().getOrNull())
-        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(listOf("visible")))
+        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(listOf("visible"), stamp()))
         runCurrent()
         assertEquals(render("visible"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
         closeActor(actor)
@@ -110,7 +111,7 @@ class TimelineMosaicQueueActorTest {
         actor.send(TimelineMosaicQueueCommand.PauseForScroll)
         actor.send(enqueue(listOf(render("obsolete"))))
         actor.send(TimelineMosaicQueueCommand.Defer(listOf(render("also_obsolete"))))
-        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(listOf("visible")))
+        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(listOf("visible"), stamp()))
         runCurrent()
 
         assertEquals(render("visible"), (actor.effects.receive() as TimelineMosaicQueueEffect.StartWork).request)
@@ -123,7 +124,7 @@ class TimelineMosaicQueueActorTest {
         val actor = TimelineMosaicQueueActor(this)
         actor.send(TimelineMosaicQueueCommand.PauseForScroll)
         actor.send(TimelineMosaicQueueCommand.Defer(listOf(render("offscreen"))))
-        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(listOf("visible")))
+        actor.send(TimelineMosaicQueueCommand.ResumeAfterScroll(listOf("visible"), stamp()))
         runCurrent()
         val visibleStart = actor.effects.receive() as TimelineMosaicQueueEffect.StartWork
 
@@ -131,6 +132,24 @@ class TimelineMosaicQueueActorTest {
         actor.send(TimelineMosaicQueueCommand.WorkerFinished(visibleStart.request, visibleStart.token))
         runCurrent()
         assertEquals(null, actor.effects.tryReceive().getOrNull())
+        closeActor(actor)
+    }
+
+    @Test
+    fun resumePriorityRequestKeepsOriginatingSessionGeneration() = runTest {
+        val actor = TimelineMosaicQueueActor(this)
+        actor.send(TimelineMosaicQueueCommand.PauseForScroll)
+        actor.send(
+            TimelineMosaicQueueCommand.ResumeAfterScroll(
+                listOf("visible"),
+                SessionOperationStamp(7L, 3L)
+            )
+        )
+        runCurrent()
+
+        val start = actor.effects.receive() as TimelineMosaicQueueEffect.StartWork
+
+        assertEquals(SessionOperationStamp(7L, 3L), start.request.sessionStamp)
         closeActor(actor)
     }
 
@@ -185,10 +204,12 @@ class TimelineMosaicQueueActorTest {
         )
 
     private fun render(timeBucket: String): TimelineMosaicQueueRequest =
-        TimelineMosaicQueueRequest(timeBucket, TimelineMosaicWorkSource.RenderDemand)
+        TimelineMosaicQueueRequest(timeBucket, TimelineMosaicWorkSource.RenderDemand, stamp())
 
     private fun sync(timeBucket: String): TimelineMosaicQueueRequest =
-        TimelineMosaicQueueRequest(timeBucket, TimelineMosaicWorkSource.SyncPrecompute)
+        TimelineMosaicQueueRequest(timeBucket, TimelineMosaicWorkSource.SyncPrecompute, stamp())
+
+    private fun stamp(): SessionOperationStamp = SessionOperationStamp(0L, 0L)
 
     private fun TestScope.closeActor(actor: TimelineMosaicQueueActor) {
         actor.close()

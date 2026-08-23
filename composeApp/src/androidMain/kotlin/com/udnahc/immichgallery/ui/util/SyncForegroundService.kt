@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import com.udnahc.immichgallery.MainActivity
 import com.udnahc.immichgallery.R
+import com.udnahc.immichgallery.data.repository.SessionOperationStamp
 import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncCoordinator
 import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncRequest
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
@@ -33,9 +34,11 @@ class SyncForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_MANUAL_TIMELINE_SYNC) {
-            startForegroundNow(activeCount = 1)
+            // Satisfy the foreground-service startup deadline while the
+            // coordinator registers the manual sync with the shared tracker.
+            startForegroundNow(activeCount = maxOf(currentTrackedCount(), 1))
             val request = intent.toManualSyncRequest() ?: run {
-                stopSyncForegroundService(startId)
+                reconcileForegroundState(startId)
                 return START_NOT_STICKY
             }
             serviceScope.launch {
@@ -44,24 +47,19 @@ class SyncForegroundService : Service() {
                         .get<TimelineManualSyncCoordinator>()
                         .run(request)
                 }.onFailure { e ->
-                    log.e(e) { "Manual Timeline sync failed in foreground service" }
+                    log.e { "Manual Timeline sync failed in foreground service" }
                 }
-                stopSyncForegroundService(startId)
+                reconcileForegroundState(startId)
             }
             return START_NOT_STICKY
         }
 
-        val activeCount = intent?.getIntExtra(EXTRA_ACTIVE_COUNT, 0) ?: 0
-        if (intent?.action == ACTION_STOP || activeCount <= 0) {
-            stopSyncForegroundService(startId)
-            return START_NOT_STICKY
-        }
-
-        startForegroundNow(activeCount)
+        reconcileForegroundState(startId)
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        serviceStarted = false
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -82,7 +80,7 @@ class SyncForegroundService : Service() {
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
-        log.d { "Sync foreground service timed out type=$fgsType" }
+        log.d { "Sync foreground service timed out type=<redacted>" }
         stopSyncForegroundService(startId)
     }
 
@@ -133,12 +131,29 @@ class SyncForegroundService : Service() {
         stopSelf(startId)
     }
 
+    private fun reconcileForegroundState(startId: Int) {
+        val activeCount = currentTrackedCount()
+        if (activeCount > 0) {
+            startForegroundNow(activeCount)
+        } else {
+            stopSyncForegroundService(startId)
+        }
+    }
+
+    private fun currentTrackedCount(): Int =
+        runCatching {
+            KoinPlatform.getKoin().get<SyncActivityTracker>().activeCount.value
+        }.getOrDefault(0)
+
     companion object {
         private const val ACTION_UPDATE = "com.udnahc.immichgallery.sync.UPDATE"
         private const val ACTION_STOP = "com.udnahc.immichgallery.sync.STOP"
         private const val ACTION_MANUAL_TIMELINE_SYNC =
             "com.udnahc.immichgallery.sync.MANUAL_TIMELINE"
         private const val EXTRA_ACTIVE_COUNT = "active_count"
+        private const val EXTRA_MANUAL_SYNC_REQUEST_ID = "manual_sync_request_id"
+        private const val EXTRA_SESSION_GENERATION = "session_generation"
+        private const val EXTRA_SESSION_OWNER_EPOCH = "session_owner_epoch"
         private const val EXTRA_GROUP_SIZE = "group_size"
         private const val EXTRA_COLUMN_COUNT = "column_count"
         private const val EXTRA_FAMILIES = "families"
@@ -162,6 +177,9 @@ class SyncForegroundService : Service() {
             val appContext = context.applicationContext
             val intent = Intent(appContext, SyncForegroundService::class.java).apply {
                 action = ACTION_MANUAL_TIMELINE_SYNC
+                putExtra(EXTRA_MANUAL_SYNC_REQUEST_ID, request.requestId)
+                putExtra(EXTRA_SESSION_GENERATION, request.sessionStamp.generation)
+                putExtra(EXTRA_SESSION_OWNER_EPOCH, request.sessionStamp.ownerEpoch)
                 putExtra(EXTRA_GROUP_SIZE, request.groupSize.apiValue)
                 putExtra(EXTRA_COLUMN_COUNT, request.columnCount)
                 putExtra(
@@ -239,6 +257,11 @@ private fun Intent.toManualSyncRequest(): TimelineManualSyncRequest? {
             null
         }
     return TimelineManualSyncRequest(
+        requestId = getLongExtra("manual_sync_request_id", Long.MIN_VALUE),
+        sessionStamp = SessionOperationStamp(
+            generation = getLongExtra("session_generation", Long.MIN_VALUE),
+            ownerEpoch = getLongExtra("session_owner_epoch", Long.MIN_VALUE)
+        ),
         groupSize = groupSize,
         columnCount = getIntExtra("column_count", 0),
         families = families,

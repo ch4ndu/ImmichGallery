@@ -1,17 +1,59 @@
 package com.udnahc.immichgallery.ui.util
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MosaicWorkSchedulerTest {
+    @Test
+    fun cancelledWaiterAwaitsRunningExecutionTermination() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scheduler = MosaicWorkScheduler(dispatcher, this)
+        val executionStarted = CompletableDeferred<Unit>()
+        val releaseExecution = CompletableDeferred<Unit>()
+        val executionFinished = CompletableDeferred<Unit>()
+
+        val waiter = async {
+            scheduler.run("album", "group_0", 0, MosaicWorkPriority.ForegroundVisible) {
+                executionStarted.complete(Unit)
+                try {
+                    withContext(NonCancellable) {
+                        releaseExecution.await()
+                    }
+                } finally {
+                    executionFinished.complete(Unit)
+                }
+            }
+        }
+        runCurrent()
+        executionStarted.await()
+
+        waiter.cancel()
+        runCurrent()
+
+        assertFalse(waiter.isCompleted)
+        assertFalse(executionFinished.isCompleted)
+
+        releaseExecution.complete(Unit)
+        runCurrent()
+
+        assertTrue(executionFinished.isCompleted)
+        assertTrue(waiter.isCompleted)
+        assertTrue(waiter.isCancelled)
+    }
+
     @Test
     fun foregroundVisibleRunsBeforeQueuedBackground() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)

@@ -3,6 +3,8 @@ package com.udnahc.immichgallery.ui.screen.album
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.udnahc.immichgallery.domain.action.auth.DirectSessionOperationRunner
+import com.udnahc.immichgallery.domain.action.auth.SessionOperationRunner
 import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicArtifactsAction
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
@@ -81,7 +83,8 @@ class AlbumDetailViewModel(
     private val getDetailMosaicArtifactsUseCase: GetDetailMosaicArtifactsUseCase,
     private val upsertDetailMosaicArtifactsAction: UpsertDetailMosaicArtifactsAction,
     private val syncActivityTracker: SyncActivityTracker,
-    private val albumId: String
+    private val albumId: String,
+    private val sessionOperationRunner: SessionOperationRunner = DirectSessionOperationRunner
 ) : ViewModel() {
 
     val apiKey: String = getApiKeyUseCase()
@@ -136,7 +139,8 @@ class AlbumDetailViewModel(
         cacheOwnerId = albumId,
         isPersistentCacheComplete = { _state.value.hasMore == false },
         readPersistentArtifacts = getDetailMosaicArtifactsUseCase::invoke,
-        upsertPersistentArtifacts = upsertDetailMosaicArtifactsAction::invoke
+        upsertPersistentArtifacts = upsertDetailMosaicArtifactsAction::invoke,
+        sessionOperationRunner = sessionOperationRunner
     )
 
     suspend fun getAssetDetail(assetId: String): Result<AssetDetail> =
@@ -161,7 +165,7 @@ class AlbumDetailViewModel(
             }
 
             getAlbumDetailUseCase.observeAssets(albumId).collect { assets ->
-                log.d { "Room emitted ${assets.size} assets for album $albumId" }
+                log.d { "Room emitted <redacted> assets for album <redacted>" }
                 _state.update { it.copy(assets = assets) }
                 handleAssetEmission(assets)
             }
@@ -342,7 +346,7 @@ class AlbumDetailViewModel(
                             } else {
                                 null
                             }
-                            log.d { "Synced album detail for $albumId" }
+                            log.d { "Synced album detail for <redacted>" }
                             albumOrder = result.order
                             // Network success and grid-visible content changes are
                             // separate signals. Album-name-only refreshes update the
@@ -361,7 +365,7 @@ class AlbumDetailViewModel(
                             }
                         },
                         onFailure = { e ->
-                            log.e(e) { "Failed to sync album detail for $albumId" }
+                            log.e { "Failed to sync album detail for <redacted>" }
                             if (!hasCachedAssets) {
                                 _state.update {
                                     it.copy(

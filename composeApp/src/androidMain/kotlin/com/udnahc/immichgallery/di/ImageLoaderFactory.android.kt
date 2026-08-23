@@ -12,30 +12,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import okhttp3.OkHttpClient
 import okio.FileSystem
+import okio.Path.Companion.toOkioPath
 
 private const val DECODE_PARALLELISM = 4
+
+internal actual fun stableImageLoaderContext(context: PlatformContext): PlatformContext =
+    context.applicationContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 actual fun createImageLoader(
     context: PlatformContext,
     httpClient: HttpClient,
     serverConfigRepository: ServerConfigRepository
-): ImageLoader {
-    val imageClient = OkHttpClient.Builder()
-        .addInterceptor { chain ->
-            val apiKey = serverConfigRepository.getApiKey()
-            val request = if (apiKey.isBlank()) {
-                chain.request()
-            } else {
-                chain.request()
-                    .newBuilder()
-                    .header("x-api-key", apiKey)
-                    .build()
-            }
-            chain.proceed(request)
-        }
-        .build()
-    return ImageLoader.Builder(context)
+): ManagedImageLoader {
+    val imageClient = buildAndroidImageClient(serverConfigRepository)
+    val cacheDirectory = context.cacheDir.toOkioPath() / "immichgallery_images"
+    FileSystem.SYSTEM.createDirectories(cacheDirectory)
+    val imageLoader = ImageLoader.Builder(context)
         .components {
             add(OkHttpNetworkFetcherFactory(imageClient))
         }
@@ -49,9 +42,40 @@ actual fun createImageLoader(
         .diskCachePolicy(CachePolicy.ENABLED)
         .diskCache {
             DiskCache.Builder()
-                .directory(FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "image_cache")
+                .directory(cacheDirectory)
                 .maxSizePercent(0.20)
                 .build()
         }
         .build()
+    return ManagedImageLoader(
+        imageLoader = imageLoader,
+        closeOwnedResources = {
+            imageClient.dispatcher.cancelAll()
+            imageClient.connectionPool.evictAll()
+            imageClient.dispatcher.executorService.shutdown()
+        }
+    )
 }
+
+internal fun buildAndroidImageClient(
+    serverConfigRepository: ServerConfigRepository
+): OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .addInterceptor { chain ->
+            val session = serverConfigRepository.currentSession()
+            val request = if (session.apiKey.isBlank() || !isExactConfiguredOrigin(
+                    requestUrl = io.ktor.http.Url(chain.request().url.toString()),
+                    configuredServerUrl = session.serverUrl
+                )
+            ) {
+                chain.request()
+            } else {
+                chain.request()
+                    .newBuilder()
+                    .header("x-api-key", session.apiKey)
+                    .build()
+            }
+            chain.proceed(request)
+        }
+        .build()

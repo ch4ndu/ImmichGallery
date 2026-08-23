@@ -1,10 +1,12 @@
 package com.udnahc.immichgallery.ui.util
 
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 sealed class SyncActivityKey {
     abstract val id: String
@@ -38,10 +40,12 @@ sealed class SyncActivityKey {
     }
 }
 
-class SyncActivityTracker(
-    private val notifier: PlatformSyncActivityNotifier
+class SyncActivityTracker internal constructor(
+    private val notifier: PlatformSyncActivityNotifier,
+    private val mutex: Mutex
 ) {
-    private val mutex = Mutex()
+    constructor(notifier: PlatformSyncActivityNotifier) : this(notifier, Mutex())
+
     private val activeCounts = mutableMapOf<SyncActivityKey, Int>()
     private val _activeCount = MutableStateFlow(0)
     val activeCount: StateFlow<Int> = _activeCount.asStateFlow()
@@ -57,17 +61,19 @@ class SyncActivityTracker(
     }
 
     suspend fun end(key: SyncActivityKey) {
-        val count = mutex.withLock {
-            val current = activeCounts[key] ?: 0
-            when {
-                current <= 1 -> activeCounts.remove(key)
-                else -> activeCounts[key] = current - 1
+        withContext(NonCancellable) {
+            val count = mutex.withLock {
+                val current = activeCounts[key] ?: 0
+                when {
+                    current <= 1 -> activeCounts.remove(key)
+                    else -> activeCounts[key] = current - 1
+                }
+                val updatedCount = activeCounts.values.sum()
+                _activeCount.value = updatedCount
+                updatedCount
             }
-            val updatedCount = activeCounts.values.sum()
-            _activeCount.value = updatedCount
-            updatedCount
+            notifier.onActiveSyncCountChanged(count)
         }
-        notifier.onActiveSyncCountChanged(count)
     }
 
     suspend fun <T> track(

@@ -66,7 +66,7 @@ actual fun PlatformVideoPlayer(
     var currentUrl by remember(originalUrl, playbackUrl) { mutableStateOf(originalUrl) }
     var triedFallback by remember(originalUrl, playbackUrl) { mutableStateOf(false) }
 
-    log.d { "PlatformVideoPlayer(iOS): loading $currentUrl" }
+    log.d { "PlatformVideoPlayer(iOS): loading <redacted>" }
 
     val player = remember(currentUrl, playbackUrl, apiKey) {
         val nsUrl = NSURL.URLWithString(currentUrl)
@@ -92,7 +92,7 @@ actual fun PlatformVideoPlayer(
             val errorCount = item.errorLog()?.events?.size ?: 0
             if (errorCount > 0) {
                 log.w {
-                    "PlatformVideoPlayer(iOS): errorLog has $errorCount entries on original URL; falling back to transcode"
+                    "PlatformVideoPlayer(iOS): errorLog has <redacted> entries on original URL; falling back to transcode"
                 }
                 triedFallback = true
                 currentUrl = playbackUrl
@@ -102,10 +102,10 @@ actual fun PlatformVideoPlayer(
                 AVPlayerItemStatusFailed -> {
                     val err = item.error
                     log.w {
-                        "AVPlayerItem failed on original URL: domain=${err?.domain} " +
-                            "code=${err?.code} desc=${err?.localizedDescription}"
+                        "AVPlayerItem failed on original URL: domain=<redacted> " +
+                            "code=<redacted> desc=<redacted>"
                     }
-                    log.d { "PlatformVideoPlayer(iOS): falling back to transcode $playbackUrl" }
+                    log.d { "PlatformVideoPlayer(iOS): falling back to transcode <redacted>" }
                     triedFallback = true
                     currentUrl = playbackUrl
                     return@LaunchedEffect
@@ -119,7 +119,7 @@ actual fun PlatformVideoPlayer(
         val item = player.currentItem()
         if (item?.status != AVPlayerItemStatusReadyToPlay) {
             log.w {
-                "PlatformVideoPlayer(iOS): original URL stalled (status=${item?.status}); falling back to transcode"
+                "PlatformVideoPlayer(iOS): original URL stalled (status=<redacted>); falling back to transcode"
             }
             triedFallback = true
             currentUrl = playbackUrl

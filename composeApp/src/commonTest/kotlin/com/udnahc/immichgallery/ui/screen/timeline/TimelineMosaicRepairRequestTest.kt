@@ -1,12 +1,24 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import com.udnahc.immichgallery.data.repository.SessionOperationStamp
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class TimelineMosaicRepairRequestTest {
+    @Test
+    fun queuedRepairIsRejectedAfterSessionGenerationChanges() {
+        val request = request(timeBucket = "bucket", assetRevision = 1)
+
+        assertTrue(request.belongsToSession(SessionOperationStamp(0L, 0L)))
+        assertFalse(request.belongsToSession(SessionOperationStamp(1L, 0L)))
+        assertFalse(request.belongsToSession(SessionOperationStamp(0L, 1L)))
+    }
+
     @Test
     fun newestRepairRequestReplacesOlderRequestForSameBucket() {
         val requests = coalesceTimelineMosaicRepairRequests(
@@ -28,6 +40,7 @@ class TimelineMosaicRepairRequestTest {
         val publish = TimelineMosaicPublishBuffer().coalesceCurrent(
             pending = listOf(
                 PendingMosaicPublish(
+                    sessionStamp = repair.sessionStamp,
                     stateUpdates = emptyMap(),
                     geometryUpdates = emptyMap(),
                     stamp = TimelineMosaicPublishStamp(
@@ -48,6 +61,7 @@ class TimelineMosaicRepairRequestTest {
         timeBucket: String,
         assetRevision: Int
     ): TimelineMosaicRepairRequest = TimelineMosaicRepairRequest(
+        sessionStamp = SessionOperationStamp(0L, 0L),
         timeBucket = timeBucket,
         groupSize = TimelineGroupSize.MONTH,
         columnCount = 2,

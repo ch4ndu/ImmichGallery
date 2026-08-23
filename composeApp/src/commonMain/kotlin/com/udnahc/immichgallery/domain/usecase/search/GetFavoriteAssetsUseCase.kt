@@ -27,7 +27,7 @@ class FavoritesLoadException(
     val firstUnconsumedPage: Int,
     val kind: FavoritesFailureKind,
     override val cause: Throwable
-) : Exception(cause.message, cause)
+) : Exception("Favorite asset request failed", cause)
 
 class GetFavoriteAssetsUseCase internal constructor(
     private val loadPage: suspend (Int) -> SearchResponse,

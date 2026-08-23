@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.di
 
+import com.russhwolf.settings.Settings
 import com.udnahc.immichgallery.data.local.createDatabase
 import com.udnahc.immichgallery.domain.action.auth.LocalNetworkAccessController
 import com.udnahc.immichgallery.ui.util.NoOpLocalNetworkAccessController
@@ -11,6 +12,7 @@ import org.koin.core.module.Module
 import org.koin.dsl.module
 
 actual fun platformModule(): Module = module {
+    single<Settings> { createJvmSettings() }
     single { createDatabase() }
     single { get<com.udnahc.immichgallery.data.local.AppDatabase>().timelineDao() }
     single { get<com.udnahc.immichgallery.data.local.AppDatabase>().assetDao() }

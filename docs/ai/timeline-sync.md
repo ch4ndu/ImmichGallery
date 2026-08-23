@@ -7,7 +7,7 @@ For Timeline rendering, overlay, scrollbar, and Mosaic display behavior, also re
 ## Sync Ownership
 
 - `TimelineViewModel.syncFromServer(...)` chooses cold-sync and cached-launch modes and owns their user-facing loading state.
-- Manual Timeline refresh is coordinated by `TimelineManualSyncCoordinator`. Android starts `SyncForegroundService` from the user action and the service runs the coordinator from a service-owned coroutine scope after entering foreground. JVM/iOS run the same coordinator from the ViewModel.
+- Manual Timeline refresh is coordinated by `TimelineManualSyncCoordinator`. Android gives each command a process-unique request ID, stamps it with the current session generation/owner epoch at the user action, starts `SyncForegroundService`, and the service validates that same session stamp before running the coordinator from a service-owned coroutine scope after entering foreground. A command delayed across logout or session replacement is rejected. JVM/iOS run the same identified, stamped coordinator request from the ViewModel.
 - `TimelineViewModel` observes manual coordinator events/results and applies UI state, banners, removed-bucket invalidation, changed-bucket publication, Mosaic geometry publication, and visible-refresh resumption. The coordinator/action returns structured sync results and does not mutate screen state directly.
 - `GetTimelineBucketsUseCase.sync()` refreshes bucket metadata through `TimelineRepository.syncBuckets()`.
 - `SyncAllTimelineAssetsAction` and `LoadBucketAssetsAction` refresh bucket assets through `TimelineRepository.syncBucketAssets(...)`.
@@ -195,6 +195,25 @@ Manual refresh is the top-bar full Timeline refresh after warm cache exists. It 
 5. `TimelineManualSyncAction` refreshes bucket metadata, refreshes every metadata bucket asset with one retry for failures, preserves cached data on failures, clears removed/changed Timeline Mosaic artifacts, and runs sync-time Mosaic precompute only when Mosaic cache results are enabled and a valid geometry request was supplied.
 6. `TimelineViewModel` consumes the coordinator result, publishes removed/changed buckets, records successful buckets as server-refreshed, publishes Mosaic geometry summaries from precompute, sets success/failure banners, calls `endManualRefresh()`, and resumes visible refresh.
 7. Album/Person detail syncs may still run concurrently; the foreground notification stays active until every tracked foreground work operation finishes.
+
+The request carries both its command ID and originating session stamp through
+the Android Intent. Timeline retains the currently active command ID and only a
+matching command may apply Started/Completed/Failed/session-cancelled UI state;
+a late terminal from an older overlapping command cannot stop a newer refresh.
+The coordinator registers that exact stamp before emitting `Started` or reading
+cache/network state, so a queued command cannot re-register under a replacement
+session. `SyncActivityTracker` is the sole foreground-activity count owner; its
+final decrement runs in non-cancellable cleanup, and the Android service removes
+foreground state only when the shared count reaches zero. When session mutation
+cancels or rejects the command, the coordinator emits a session-cancelled event
+before preserving cancellation. Timeline waits for the mutation's published
+admitted outcome before applying that exact command's terminal event: a failed logout retains the owner
+epoch, clears the still-mounted Timeline's transient manual-refresh state, and
+resumes visible work under the new admitted generation without reporting a
+network failure; a successful replacement changes the owner epoch and discards
+the old terminal. Buffered Started/Completed/Failed events run through isolated
+full-stamp gates, so they cannot cancel the long-lived event collector or update
+a newer session.
 
 ### Cache-Off Mosaic Cleanup
 

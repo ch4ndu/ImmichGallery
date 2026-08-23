@@ -83,7 +83,9 @@ ImmichGallery/
 |       +-- iosMain/            # iOS actuals and UIKit bridge
 |       +-- jvmMain/            # Desktop actuals and application entry point
 |       +-- commonTest/         # Portable tests executed by platform test tasks
+|       +-- androidHostTest/    # Android host-only platform policy tests
 |       +-- androidDeviceTest/  # Instrumented Room migration verification
+|       +-- jvmTest/            # JVM-only settings and singleton-lifecycle tests
 +-- iosApp/                     # SwiftUI host and Xcode configuration
 +-- docs/ai/                    # Focused durable architecture/workflow contracts
 +-- docs/timeline.md            # Timeline rendering and interaction contract
@@ -146,23 +148,32 @@ Detailed implementation rules live in `docs/ai/feature-implementation.md`.
 ## 6. Application Composition And Dependency Injection
 
 `App.kt` is the shared composition root. It observes `AppLifecycle`, installs
-`ImmichGalleryTheme`, configures the singleton Coil image loader from Koin, and
-renders `AppNavigation`.
+`ImmichGalleryTheme`, registers Koin's managed image loader through the single
+Coil cache controller, and renders `AppNavigation`.
+
+Koin, the Coil controller, and the managed loader are process-owned on every
+platform. Android starts Koin from `Application`; iOS and JVM start it before
+constructing the Compose host. Recreated Compose roots therefore resolve the
+same controller and dependencies, so they cannot open competing disk caches or
+overwrite one another's singleton loader. Android registration captures the
+application context rather than an Activity.
 
 `di/AppModule.kt` provides:
 
-- one shared `Settings` instance;
+- the shared session-generation/mutation boundary and Coil cache controller;
 - the shared Ktor client and `ImmichApiService`;
 - Room-backed and live repositories;
 - read UseCases and write/side-effect Actions;
 - screen ViewModels;
 - shared sync, Mosaic, and overlay coordinators.
 
-`platformModule()` provides the platform Room database and native services.
-Android starts process-level Koin in `ImmichGalleryApplication` because the
-foreground service must resolve shared coordinators without Compose being the
-only owner. iOS and JVM create their Koin application around the shared
-composition through platform `AppKoin` implementations.
+`platformModule()` provides the platform-owned `Settings` backend, Room
+database, and native services.
+Every platform starts process-level Koin before rendering the app. Android uses
+`ImmichGalleryApplication` so the foreground service resolves shared
+coordinators without Compose being the only owner. iOS starts Koin before
+creating `ComposeUIViewController`, and JVM starts it before `application`;
+their platform `AppKoin` implementations are composition pass-throughs.
 
 ## 7. Startup, Authentication, And Session Ownership
 
@@ -177,7 +188,9 @@ Login follows this sequence:
 3. Resolve Android local-network permission when applicable.
 4. Call public `/api/server/ping`.
 5. Validate the API key with authenticated `/api/albums`.
-6. Persist the normalized URL and key only after validation succeeds.
+6. Run session replacement only after validation succeeds. An exact normalized
+   URL/key match preserves cache; any change clears the previous server-scoped
+   state before persisting the replacement.
 
 Android API 37 and newer requests `ACCESS_LOCAL_NETWORK` for endpoints
 classified as local. iOS declares local-network usage and permits local-network
@@ -185,9 +198,17 @@ HTTP through ATS. JVM has no platform permission gate.
 
 `MainScreenViewModel` owns server reachability monitoring and logout. Monitoring
 runs only while Main is composed and the platform lifecycle is active. Logout
-is cache-first and configuration-last: server-scoped Room data is cleared before
-credentials and view preferences. A cache-clear failure leaves the session
-active and retryable so data cannot be exposed under a different server.
+and changed-identity login share one exclusive mutation boundary. It closes
+operation admission, advances the generation, cancels and joins registered old
+work, rotates and clears the installed Coil loader, clears server-scoped Room,
+Mosaic, and runtime state, and only then clears or replaces credentials and view
+preferences. A cache-clear failure leaves the current configuration active and
+retryable. The advanced generation is published to new UI-originated work only
+after admission reopens, so callbacks during cleanup cannot mint accepted
+post-cleanup work from old state. A successful mutation also advances the
+long-lived screen/coordinator owner epoch, rejecting callbacks from the old
+mounted owner before navigation disposes it. A failed mutation retains that
+owner epoch so the same screen can retry with the newly published generation.
 
 See `docs/ai/auth-session.md` for the complete contract.
 
@@ -246,7 +267,11 @@ pagination, layout projection, and viewer-source state for their feature.
 - `/api/stacks/{id}` after an authoritative `/api/assets/{id}` stack lookup.
 - `/api/memories` with an exact local date-only `for=YYYY-MM-DD` query.
 
-Authenticated requests use `x-api-key`. The Ktor client ignores unknown JSON
+Normal authenticated requests capture one configured URL/key snapshot and
+attach `x-api-key` explicitly. Candidate ping is anonymous and candidate albums
+validation sends only the entered candidate key. Ktor and authenticated image
+clients reject automatic redirects; image credentials are attached only to an
+exact configured scheme/host/port match. The Ktor client ignores unknown JSON
 fields, uses a 15-second connection timeout, and uses 60-second request and
 socket timeouts. Timeline endpoints are treated as an internal Immich
 compatibility surface: decode/column-shape failures become typed errors that
@@ -281,6 +306,18 @@ invalidation are transactional. Cached rows reconstruct URLs from the current
 server configuration where possible so a stale origin is not embedded in
 domain objects.
 
+Cache-producing logical work registers at its real start with one immutable
+session stamp: the admitted generation plus its long-lived owner epoch where
+applicable. Deferred children and Android manual-service commands keep that
+originating stamp, and repositories validate it immediately around cache
+commits. Session mutation rejects old-generation or old-owner queued work and
+prevents late responses from repopulating cleared state. Cancellation of the
+mutation caller cannot reopen admission early: old registered jobs are joined
+in non-cancellable cleanup, then caller cancellation is checked before cache or
+configuration mutation. Timeline delayed publications, progressive chunks,
+deferred scroll payloads, checkpoints, and geometry reads keep the same stamp
+through their final isolated publication sink.
+
 Cache ownership by feature:
 
 - Timeline: bucket metadata, ordered asset relationships, assets, sync state,
@@ -290,6 +327,10 @@ Cache ownership by feature:
 - Detail Mosaic: owner-scoped artifacts for Album and Person detail.
 - Settings: credentials, grouping, row density, and Mosaic preferences remain
   in `multiplatform-settings`, not Room.
+- Coil: memory plus an app-owned platform cache directory. Logout/session
+  replacement shuts the active loader and disk cache, deletes that directory,
+  keeps the singleton unusable while non-image state and configuration mutate,
+  and installs the prepared fresh loader only after that block completes.
 - Explore Search results, server capabilities, user Search preferences, Tags,
   and camera/location suggestions: destination-lifetime live-only state.
   Search People and Album options reuse their existing Room list caches and
@@ -420,7 +461,11 @@ Canonical references:
 Coil loads authenticated thumbnails and still images. Android uses an OkHttp
 fetcher; iOS and JVM use Ktor-backed image networking. Grid thumbnails use
 bounded requests and stable cache keys, while viewer stills request the edited
-original with a thumbnail transition/loading source.
+original with a thumbnail transition/loading source. One controller owns the
+installed process-global singleton loader. Session cleanup shuts down its
+requests, disk cache, and owned network resources, keeps the old singleton
+unusable during state/configuration mutation, then installs the prepared fresh
+loader.
 
 The full-screen viewer preserves the source ordering. Its default return policy
 targets the currently settled asset. Memories explicitly uses origin mode so a
@@ -498,9 +543,12 @@ Runtime configuration surfaces are:
 - iOS product, signing, local-network, and deployment configuration in
   `iosApp`.
 
-Developer default inputs are build inputs only and do not bypass server
-validation. Real credentials must never be committed or logged. The Ktor
-logging plugin is disabled (`LogLevel.NONE`). The app allows cleartext Android
+JVM settings use the app-specific Java Preferences node
+`com/udnahc/immichgallery`; the one-time legacy migration flushes known keys to
+that node before removing only their old root-node copies. Developer default
+inputs are build inputs only and do not bypass server validation. Real
+credentials must never be committed or logged. Ktor logging and application
+logging are disabled on every target/build. The app allows cleartext Android
 traffic and local-network iOS HTTP for trusted self-hosted LAN servers; HTTPS is
 the expected transport outside a trusted network.
 
@@ -557,18 +605,23 @@ boundary.
 
 ## 18. Testing And Verification Strategy
 
-The automated test dependencies are `kotlin.test`, JUnit 4.13.2, and
-`kotlinx-coroutines-test`. Tests are currently organized as:
+The automated test dependencies are `kotlin.test`, JUnit 4.13.2,
+`kotlinx-coroutines-test`, and Ktor's client MockEngine. Tests are currently
+organized as:
 
 - `composeApp/src/commonTest`: API contracts, repositories, domain algorithms,
   Actions, ViewModels, grid projection, Mosaic scheduling, pagination, sync,
   and UI-helper contracts;
+- `composeApp/src/androidHostTest`: Android-only authenticated image-client
+  policy coverage;
 - `composeApp/src/androidDeviceTest`: the Room 1-to-2 migration test using the
-  bundled SQLite driver.
+  bundled SQLite driver;
+- `composeApp/src/jvmTest`: JVM settings namespace/migration and process-global
+  Coil singleton lifecycle coverage.
 
-There are currently no project test files under `jvmTest`, `iosTest`, or
-`androidHostTest`; shared `commonTest` tests execute through the platform test
-tasks. No code-coverage plugin or minimum percentage is configured.
+There are currently no project test files under `iosTest`; shared `commonTest`
+tests execute through the platform test tasks. No code-coverage plugin or
+minimum percentage is configured.
 
 Useful verification commands are:
 
@@ -635,9 +688,11 @@ Cold Timeline failures retain a blocking retry state, while warm/detail/list
 refresh failures preserve cached rows. Manual Timeline refresh aggregates
 bucket failures after bounded retry.
 
-The project uses local multiplatform logging and has no remote analytics or
-crash-reporting subsystem in the repository. Logs must not include API keys or
-credential-bearing playback URLs.
+The project includes local multiplatform logging APIs but configures them off at
+each platform entry point and has no remote analytics or crash-reporting
+subsystem in the repository. Retained call sites use stable operation labels
+and must not include API keys, URLs, identifiers, dates, response bodies, raw
+throwable messages, or credential-bearing playback URLs.
 
 ## 21. Data-Flow Diagrams
 
@@ -669,6 +724,7 @@ sequenceDiagram
     participant Gate as Local-network Action
     participant Auth as ValidateServerUseCase
     participant API as Immich API
+    participant Session as ReplaceServerSessionAction
     participant Config as ServerConfigRepository
 
     UI->>VM: Connect(url, apiKey)
@@ -676,7 +732,9 @@ sequenceDiagram
     VM->>Auth: validate normalized credentials
     Auth->>API: ping then authenticated albums request
     API-->>Auth: success
-    VM->>Config: save URL and API key
+    VM->>Session: replace validated session
+    Session->>Session: quiesce old work and clear scoped cache if identity changed
+    Session->>Config: save URL and API key
     VM-->>UI: navigate to Main
 ```
 

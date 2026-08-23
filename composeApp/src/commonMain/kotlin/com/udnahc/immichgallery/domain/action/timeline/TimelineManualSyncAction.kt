@@ -1,5 +1,7 @@
 package com.udnahc.immichgallery.domain.action.timeline
 
+import com.udnahc.immichgallery.data.repository.SessionOperationStamp
+import com.udnahc.immichgallery.data.repository.SessionStateRepository
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucket
@@ -12,6 +14,8 @@ import kotlinx.coroutines.CancellationException
 import org.lighthousegames.logging.logging
 
 data class TimelineManualSyncRequest(
+    val requestId: Long,
+    val sessionStamp: SessionOperationStamp,
     val groupSize: TimelineGroupSize,
     val columnCount: Int,
     val families: Set<MosaicTemplateFamily>,
@@ -39,13 +43,15 @@ class TimelineManualSyncAction internal constructor(
         Set<MosaicTemplateFamily>,
         TimelineMosaicGeometryRequest,
         Boolean
-    ) -> Result<TimelineMosaicPrecomputeResult>
+    ) -> Result<TimelineMosaicPrecomputeResult>,
+    private val sessionStateRepository: SessionStateRepository? = null
 ) {
     constructor(
         getTimelineBucketsUseCase: GetTimelineBucketsUseCase,
         syncAllTimelineAssetsAction: SyncAllTimelineAssetsAction,
         clearTimelineMosaicCacheAction: ClearTimelineMosaicCacheAction,
-        prepareTimelineMosaicCacheAction: PrepareTimelineMosaicCacheAction
+        prepareTimelineMosaicCacheAction: PrepareTimelineMosaicCacheAction,
+        sessionStateRepository: SessionStateRepository
     ) : this(
         syncBuckets = getTimelineBucketsUseCase::sync,
         syncAssets = syncAllTimelineAssetsAction::invoke,
@@ -59,12 +65,18 @@ class TimelineManualSyncAction internal constructor(
                 geometryRequest = geometryRequest,
                 cacheDisplayResults = cacheDisplayResults
             )
-        }
+        },
+        sessionStateRepository = sessionStateRepository
     )
 
     private val log = logging("TimelineManualSyncAction")
 
-    suspend operator fun invoke(request: TimelineManualSyncRequest): Result<TimelineManualSyncResult> =
+    suspend operator fun invoke(request: TimelineManualSyncRequest): Result<TimelineManualSyncResult> {
+        val session = sessionStateRepository
+        return if (session == null) run(request) else session.withOperation { run(request) }
+    }
+
+    private suspend fun run(request: TimelineManualSyncRequest): Result<TimelineManualSyncResult> =
         try {
             val bucketResult = syncBuckets().getOrElse { return Result.failure(it) }
             val assetResult = syncAssetsWithRetry(bucketResult.buckets)
@@ -89,7 +101,7 @@ class TimelineManualSyncAction internal constructor(
                         request.geometryRequest,
                         request.cacheMosaicResults
                     ).getOrElse { e ->
-                        log.e(e) { "Manual Timeline Mosaic precompute failed" }
+                        log.e { "Manual Timeline Mosaic precompute failed" }
                         TimelineMosaicPrecomputeResult(
                             successfulBucketIds = emptySet(),
                             failedBucketIds = changedSuccessfulBucketIds

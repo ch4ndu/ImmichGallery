@@ -1,6 +1,13 @@
 package com.udnahc.immichgallery.ui.util
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -34,6 +41,32 @@ class SyncActivityTrackerTest {
 
         assertEquals("done", first.await())
         assertEquals(listOf(1, 2, 1, 0), notifier.counts)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun cancellationWaitsForContendedEndCleanup() = runTest {
+        val notifier = RecordingNotifier()
+        val mutex = Mutex()
+        val tracker = SyncActivityTracker(notifier, mutex)
+        val started = CompletableDeferred<Unit>()
+        val tracked = launch {
+            tracker.track(SyncActivityKey.Timeline) {
+                started.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        started.await()
+
+        mutex.lock()
+        tracked.cancel()
+        runCurrent()
+        mutex.unlock()
+        advanceUntilIdle()
+        tracked.join()
+
+        assertEquals(listOf(1, 0), notifier.counts)
+        assertEquals(0, tracker.activeCount.value)
     }
 
     private class RecordingNotifier : PlatformSyncActivityNotifier {

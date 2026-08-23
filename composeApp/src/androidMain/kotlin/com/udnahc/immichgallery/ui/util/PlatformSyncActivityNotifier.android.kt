@@ -40,7 +40,7 @@ class AndroidSyncActivityNotifier(
                 POST_NOTIFICATIONS_REQUEST_CODE
             )
         }.onFailure { e ->
-            log.e(e) { "Failed to request notification permission" }
+            log.e { "Failed to request notification permission" }
         }
     }
 }

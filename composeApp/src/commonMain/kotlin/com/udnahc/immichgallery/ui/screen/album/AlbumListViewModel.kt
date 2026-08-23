@@ -41,7 +41,7 @@ class AlbumListViewModel(
         // Observe Room for albums (reactive SSOT)
         viewModelScope.launch(Dispatchers.IO) {
             getAlbumsUseCase.observe().collect { albums ->
-                log.d { "Room emitted ${albums.size} albums" }
+                log.d { "Room emitted <redacted> albums" }
                 _state.update { it.copy(albums = albums) }
             }
         }
@@ -84,7 +84,7 @@ class AlbumListViewModel(
                         }
                     },
                     onFailure = { e ->
-                        log.e(e) { "Failed to sync albums from server" }
+                        log.e { "Failed to sync albums from server" }
                         if (!hasCachedAlbums) {
                             _state.update {
                                 it.copy(
