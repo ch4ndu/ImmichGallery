@@ -29,6 +29,7 @@ import com.udnahc.immichgallery.domain.usecase.detail.GetDetailMosaicArtifactsUs
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
+import com.udnahc.immichgallery.ui.component.detailPaginationCursorAfterFailure
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutCoordinator
 import com.udnahc.immichgallery.ui.screen.detail.PhotoGridDetailLayoutSnapshot
 import com.udnahc.immichgallery.ui.util.DetailSyncGate
@@ -306,8 +307,19 @@ class AlbumDetailViewModel(
                         }
                         handleSyncedContentChange(result.changed)
                     },
-                    onFailure = {
-                        _state.update { it.copy(isLoadingMore = false) }
+                    onFailure = { failure ->
+                        _state.update {
+                            val cursor = detailPaginationCursorAfterFailure(
+                                hasMore = it.hasMore,
+                                nextPage = it.nextPage,
+                                failure = failure
+                            )
+                            it.copy(
+                                isLoadingMore = false,
+                                hasMore = cursor.hasMore,
+                                nextPage = cursor.nextPage
+                            )
+                        }
                     }
                 )
             }
@@ -368,17 +380,31 @@ class AlbumDetailViewModel(
                             log.e { "Failed to sync album detail for <redacted>" }
                             if (!hasCachedAssets) {
                                 _state.update {
+                                    val cursor = detailPaginationCursorAfterFailure(
+                                        hasMore = it.hasMore,
+                                        nextPage = it.nextPage,
+                                        failure = e
+                                    )
                                     it.copy(
                                         isBuilding = false,
                                         isSyncing = false,
-                                        error = ConnectionUiMessage.NoConnectionToServer
+                                        error = ConnectionUiMessage.NoConnectionToServer,
+                                        hasMore = cursor.hasMore,
+                                        nextPage = cursor.nextPage
                                     )
                                 }
                             } else {
                                 _state.update {
+                                    val cursor = detailPaginationCursorAfterFailure(
+                                        hasMore = it.hasMore,
+                                        nextPage = it.nextPage,
+                                        failure = e
+                                    )
                                     it.copy(
                                         isSyncing = false,
-                                        bannerError = ConnectionUiMessage.CannotConnectToServer
+                                        bannerError = ConnectionUiMessage.CannotConnectToServer,
+                                        hasMore = cursor.hasMore,
+                                        nextPage = cursor.nextPage
                                     )
                                 }
                             }

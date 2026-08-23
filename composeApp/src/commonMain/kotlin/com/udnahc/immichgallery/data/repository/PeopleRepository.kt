@@ -6,20 +6,22 @@ import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.DetailMosaicCacheDao
 import com.udnahc.immichgallery.data.local.dao.PersonDao
+import com.udnahc.immichgallery.data.local.dao.PersonAssetRefOrder
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.entity.PersonAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
-import com.udnahc.immichgallery.data.model.AssetResponse
+import com.udnahc.immichgallery.data.model.ImmichPaginationCompatibilityException
+import com.udnahc.immichgallery.data.model.PeopleResponse
+import com.udnahc.immichgallery.data.model.SearchResultAssets
+import com.udnahc.immichgallery.data.model.nextPageNumberAfter
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.domain.model.PersonAssetsSyncResult
-import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDomainOrNull
 import com.udnahc.immichgallery.domain.model.toPersonEntity
-import com.udnahc.immichgallery.data.model.nextPageNumberOrNull
 import com.udnahc.immichgallery.runSuspendCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -98,14 +100,28 @@ class PeopleRepository(
     suspend fun syncPeople(): Result<Unit> {
         return sessionStateRepository.withOperation { token -> runSuspendCatching {
             val people = mutableListOf<com.udnahc.immichgallery.data.model.PersonResponse>()
+            val seenIds = mutableSetOf<String>()
             var page = 1
-            var hasNextPage: Boolean
-            do {
+            while (true) {
                 val response = apiService.getPeople(page, PEOPLE_PAGE_SIZE)
+                val pageIds = response.people.map { it.id }
+                val initialEmptyTerminal = page == 1 &&
+                    response.total == 0 &&
+                    response.hasNextPage != true
+                if (pageIds.isEmpty() && !initialEmptyTerminal) {
+                    peoplePaginationFailure()
+                }
+                val duplicateInPage = pageIds.toSet().size != pageIds.size
+                val newIds = pageIds.filterNot { it in seenIds }
+                if (duplicateInPage || newIds.size != pageIds.size) {
+                    peoplePaginationFailure()
+                }
                 people += response.people
-                hasNextPage = response.hasNextPage
+                seenIds += pageIds
+                val loadNext = response.shouldLoadNextPeoplePage(rawCount = people.size)
+                if (!loadNext) break
                 page++
-            } while (hasNextPage)
+            }
             val entities = people.mapIndexed { index, person -> person.toPersonEntity(index) }
             sessionStateRepository.withCommit(token) {
                 withContext(Dispatchers.IO) {
@@ -147,62 +163,109 @@ class PeopleRepository(
         size: Int = 250
     ): Result<PersonAssetsSyncResult> {
         return sessionStateRepository.withOperation { token -> runSuspendCatching {
+            val pageWindow = peoplePaginationContract { detailRawPageWindow(page, size) }
+            val baseRawOffset = pageWindow.startSortOrder
             val before = withContext(Dispatchers.IO) {
                 personDao.getPersonAssets(personId)
             }
             val response = apiService.getPersonAssets(personId, page, size)
-            val nextPage = response.assets.nextPageNumberOrNull()
-            val items = response.assets.items.filter { it.toAssetEntityOrNull() != null }
+            val nextPage = response.assets.personNextPageNumberAfter(page)
+            nextPage?.let { peoplePaginationContract { detailRawPageWindow(it, size) } }
+            val rawItems = response.assets.items
+            val supportedAssets = peoplePaginationContract {
+                supportedDetailRawAssetResponses(rawItems, baseRawOffset)
+            }
             val hasMore = nextPage != null
+            val rawWindowEnd = if (hasMore) {
+                pageWindow.endSortOrder
+            } else {
+                peoplePaginationContract { detailRawBoundaryAfter(baseRawOffset, rawItems.size) }
+            }
+            val skippedRange = peoplePaginationContract {
+                detailSkippedForwardRawRange(page, nextPage, size)
+            }
             val assetEntities = prepareDetailAssetEntities(
-                items,
+                supportedAssets.map { it.response },
                 assetDao,
                 editsEnricher
             )
-            val baseOffset = (page - 1) * size
-            val pageChanged = pagedOwnerPageChanged(
-                beforeAssetIds = before.map { it.id },
-                baseOffset = baseOffset,
-                fetchedAssetIds = items.map { it.id },
-                hasMore = hasMore
-            )
-            val crossRefs = items.mapIndexed { index, asset ->
-                PersonAssetCrossRef(personId, asset.id, baseOffset + index)
-            }
+            val fetchedRefs = detailRawAssetRefs(supportedAssets)
+            val crossRefs = personRawCrossRefs(personId, supportedAssets)
             var changed = false
             sessionStateRepository.withCommit(token) {
                 withContext(Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
                         transactor.immediateTransaction {
-                        val skipAssetWrite = detailPageWriteUnchanged(
-                            before = before,
-                            candidates = assetEntities,
-                            baseOffset = baseOffset,
-                            pageChanged = pageChanged,
+                        val existingWindowRefs = personDao.getPersonAssetRefOrdersInSortRange(
+                            personId = personId,
+                            startSortOrder = baseRawOffset,
+                            endSortOrder = rawWindowEnd
+                        ).personRefOrdersToDetailRefs()
+                        val tailRefsAfterWindow = personDao.getPersonAssetRefOrdersFromSortOrder(
+                            personId = personId,
+                            startSortOrder = rawWindowEnd
+                        ).personRefOrdersToDetailRefs()
+                        val rawWindowChanged = detailRawWindowChanged(
+                            existingWindowRefs = existingWindowRefs,
+                            fetchedRefs = fetchedRefs,
+                            tailRefsAfterWindow = tailRefsAfterWindow,
                             hasMore = hasMore
                         )
+                        val skipAssetWrite = detailRawPageWriteUnchanged(
+                            existingWindowRefs = existingWindowRefs,
+                            fetchedRefs = fetchedRefs,
+                            tailRefsAfterWindow = tailRefsAfterWindow,
+                            existingAssetsById = before.associateBy { it.id },
+                            candidates = assetEntities,
+                            hasMore = hasMore
+                        )
+                        val skippedRefs = skippedRange
+                            ?.takeIf { range -> range.startSortOrder < range.endSortOrder }
+                            ?.let { range ->
+                                personDao.getPersonAssetRefOrdersInSortRange(
+                                    personId = personId,
+                                    startSortOrder = range.startSortOrder,
+                                    endSortOrder = range.endSortOrder
+                                )
+                            }
+                            .orEmpty()
                         if (!skipAssetWrite) {
                             assetDao.upsertAssets(assetEntities)
-                            if (pageChanged || !hasMore) {
+                            if (rawWindowChanged) {
                                 // If a fetched page changed, later cached pages may now be
                                 // shifted. Truncate from this page and let loadMore refill a
                                 // consistent snapshot instead of mixing old tail refs with
                                 // fresh page refs.
                                 personDao.replacePersonRefsFromSortOrder(
                                     personId,
-                                    baseOffset,
+                                    baseRawOffset,
                                     crossRefs
                                 )
                             } else {
                                 personDao.replacePersonRefsInSortRange(
                                     personId = personId,
-                                    startSortOrder = baseOffset,
-                                    endSortOrder = baseOffset + size,
+                                    startSortOrder = baseRawOffset,
+                                    endSortOrder = rawWindowEnd,
                                     refs = crossRefs
                                 )
                             }
                         }
-                        val after = if (skipAssetWrite) before else personDao.getPersonAssets(personId)
+                        skippedRange
+                            ?.takeIf { range ->
+                                skippedRefs.isNotEmpty() && range.startSortOrder < range.endSortOrder
+                            }
+                            ?.let { range ->
+                                personDao.clearPersonRefsInSortRange(
+                                    personId = personId,
+                                    startSortOrder = range.startSortOrder,
+                                    endSortOrder = range.endSortOrder
+                                )
+                            }
+                        val after = if (skipAssetWrite && skippedRefs.isEmpty()) {
+                            before
+                        } else {
+                            personDao.getPersonAssets(personId)
+                        }
                         changed = orderedAssetsChanged(before, after)
                         if (changed) {
                             detailMosaicCacheDao.clearOwnerCache(
@@ -243,34 +306,54 @@ class PeopleRepository(
             val before = withContext(Dispatchers.IO) {
                 personDao.getPersonAssets(personId)
             }
+            val beforeRefs = withContext(Dispatchers.IO) {
+                personDao.getPersonAssetRefOrders(personId).personRefOrdersToDetailRefs()
+            }
             val pageSize = 250
-            val allItems = mutableListOf<AssetResponse>()
+            val allItems = mutableListOf<DetailRawAssetResponse>()
+            val consumedPages = mutableSetOf<Int>()
             var page = 1
             while (true) {
+                val pageWindow = peoplePaginationContract { detailRawPageWindow(page, pageSize) }
+                consumedPages += page
                 val response = apiService.getPersonAssets(personId, page, pageSize)
-                allItems += response.assets.items.filter { it.toAssetEntityOrNull() != null }
-                page = response.assets.nextPageNumberOrNull() ?: break
+                allItems += peoplePaginationContract {
+                    supportedDetailRawAssetResponses(
+                        response.assets.items,
+                        pageWindow.startSortOrder
+                    )
+                }
+                val nextPage = response.assets.personNextPageNumberAfter(
+                    currentPage = page,
+                    consumedPages = consumedPages
+                )
+                nextPage?.let { peoplePaginationContract { detailRawPageWindow(it, pageSize) } }
+                page = nextPage ?: break
             }
             val assetEntities = prepareDetailAssetEntities(
-                allItems,
+                allItems.map { it.response },
                 assetDao,
                 editsEnricher
             )
-            val crossRefs = allItems.mapIndexed { index, asset ->
-                PersonAssetCrossRef(personId, asset.id, index)
-            }
+            val fetchedRefs = detailRawAssetRefs(allItems)
+            val crossRefs = personRawCrossRefs(personId, allItems)
             var changed = false
             sessionStateRepository.withCommit(token) {
                 withContext(Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
                         transactor.immediateTransaction {
-                        val skipAssetWrite = !orderedAssetsChanged(before, assetEntities)
+                        val skipAssetWrite = detailRawFullWriteUnchanged(
+                            existingRefs = beforeRefs,
+                            fetchedRefs = fetchedRefs,
+                            existingAssetsById = before.associateBy { it.id },
+                            candidates = assetEntities
+                        )
                         if (!skipAssetWrite) {
                             assetDao.upsertAssets(assetEntities)
                             personDao.replacePersonRefs(personId, crossRefs)
                         }
                         val after = if (skipAssetWrite) before else personDao.getPersonAssets(personId)
-                        changed = orderedAssetsChanged(before, after)
+                        changed = !skipAssetWrite && orderedAssetsChanged(before, after)
                         if (changed) {
                             detailMosaicCacheDao.clearOwnerCache(
                                 DetailMosaicCacheOwnerType.PERSON.name,
@@ -315,15 +398,52 @@ class PeopleRepository(
     }
 }
 
-internal fun pagedOwnerPageChanged(
-    beforeAssetIds: List<String>,
-    baseOffset: Int,
-    fetchedAssetIds: List<String>,
-    hasMore: Boolean
-): Boolean {
-    val previousPageIds = beforeAssetIds
-        .drop(baseOffset)
-        .take(fetchedAssetIds.size)
-    if (previousPageIds != fetchedAssetIds) return true
-    return !hasMore && beforeAssetIds.size > baseOffset + fetchedAssetIds.size
+class PeoplePaginationCompatibilityException internal constructor() :
+    ImmichPaginationCompatibilityException("Invalid Immich people pagination response")
+
+private fun peoplePaginationFailure(): Nothing =
+    throw PeoplePaginationCompatibilityException()
+
+private inline fun <T> peoplePaginationContract(block: () -> T): T =
+    try {
+        block()
+    } catch (_: ImmichPaginationCompatibilityException) {
+        peoplePaginationFailure()
+    }
+
+private fun PeopleResponse.shouldLoadNextPeoplePage(rawCount: Int): Boolean {
+    if (rawCount > total) {
+        peoplePaginationFailure()
+    }
+    return when (hasNextPage) {
+        true -> true
+        false -> {
+            if (rawCount != total) {
+                peoplePaginationFailure()
+            }
+            false
+        }
+        null -> rawCount < total
+    }
 }
+
+private fun SearchResultAssets.personNextPageNumberAfter(
+    currentPage: Int,
+    consumedPages: Set<Int> = setOf(currentPage)
+): Int? =
+    try {
+        nextPageNumberAfter(currentPage, consumedPages)
+    } catch (_: ImmichPaginationCompatibilityException) {
+        peoplePaginationFailure()
+    }
+
+internal fun personRawCrossRefs(
+    personId: String,
+    items: List<DetailRawAssetResponse>
+): List<PersonAssetCrossRef> =
+    items.map { item ->
+        PersonAssetCrossRef(personId, item.response.id, item.sortOrder)
+    }
+
+private fun List<PersonAssetRefOrder>.personRefOrdersToDetailRefs(): List<DetailRawAssetRef> =
+    map { ref -> DetailRawAssetRef(ref.assetId, ref.sortOrder) }

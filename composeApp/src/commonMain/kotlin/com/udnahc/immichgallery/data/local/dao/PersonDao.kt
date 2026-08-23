@@ -9,6 +9,11 @@ import com.udnahc.immichgallery.data.local.entity.PersonAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.PersonEntity
 import kotlinx.coroutines.flow.Flow
 
+data class PersonAssetRefOrder(
+    val assetId: String,
+    val sortOrder: Int
+)
+
 @Dao
 interface PersonDao {
     @Upsert
@@ -22,6 +27,43 @@ interface PersonDao {
 
     @Upsert
     suspend fun upsertPersonRefs(refs: List<PersonAssetCrossRef>)
+
+    @Query(
+        """
+        SELECT assetId, sortOrder FROM person_asset_refs
+        WHERE personId = :personId
+        ORDER BY sortOrder ASC
+        """
+    )
+    suspend fun getPersonAssetRefOrders(personId: String): List<PersonAssetRefOrder>
+
+    @Query(
+        """
+        SELECT assetId, sortOrder FROM person_asset_refs
+        WHERE personId = :personId
+        AND sortOrder >= :startSortOrder
+        AND sortOrder < :endSortOrder
+        ORDER BY sortOrder ASC
+        """
+    )
+    suspend fun getPersonAssetRefOrdersInSortRange(
+        personId: String,
+        startSortOrder: Int,
+        endSortOrder: Int
+    ): List<PersonAssetRefOrder>
+
+    @Query(
+        """
+        SELECT assetId, sortOrder FROM person_asset_refs
+        WHERE personId = :personId
+        AND sortOrder >= :startSortOrder
+        ORDER BY sortOrder ASC
+        """
+    )
+    suspend fun getPersonAssetRefOrdersFromSortOrder(
+        personId: String,
+        startSortOrder: Int
+    ): List<PersonAssetRefOrder>
 
     @Query("DELETE FROM person_asset_refs WHERE personId = :personId")
     suspend fun clearPersonRefs(personId: String)

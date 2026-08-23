@@ -12,5 +12,7 @@ class SyncAllTimelineAssetsAction(
     suspend operator fun invoke(
         buckets: List<TimelineBucket>
     ): Result<TimelineAssetSyncResult> =
-        sessionStateRepository.withOperation { repository.syncAllBucketAssets(buckets) }
+        sessionStateRepository.withOperation {
+            repository.syncAllBucketAssets(buckets)
+        }
 }

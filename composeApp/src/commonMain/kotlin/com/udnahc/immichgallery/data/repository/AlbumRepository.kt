@@ -4,21 +4,20 @@ import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
 import com.udnahc.immichgallery.data.local.AppDatabase
 import com.udnahc.immichgallery.data.local.dao.AlbumDao
+import com.udnahc.immichgallery.data.local.dao.AlbumAssetRefOrder
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.DetailMosaicCacheDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.entity.AlbumAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.AlbumEntity
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
-import com.udnahc.immichgallery.data.model.AssetResponse
-import com.udnahc.immichgallery.data.model.nextPageNumberOrNull
+import com.udnahc.immichgallery.data.model.nextPageNumberAfter
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.domain.model.AlbumDetailSyncResult
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheOwnerType
 import com.udnahc.immichgallery.domain.model.toAlbumEntity
-import com.udnahc.immichgallery.domain.model.toAssetEntityOrNull
 import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDomainOrNull
 import com.udnahc.immichgallery.runSuspendCatching
@@ -140,30 +139,32 @@ class AlbumRepository(
         size: Int = ALBUM_PAGE_SIZE
     ): Result<AlbumDetailSyncResult> {
         return sessionStateRepository.withOperation { token -> runSuspendCatching {
+            val pageWindow = detailRawPageWindow(page, size)
+            val baseRawOffset = pageWindow.startSortOrder
             val before = withContext(Dispatchers.IO) {
                 albumDao.getAlbumAssets(albumId)
             }
             val detail = if (page == 1) apiService.getAlbumDetail(albumId) else null
             val resolvedOrder = normalizeAlbumOrder(detail?.order ?: order)
             val response = apiService.getAlbumAssets(albumId, page, size, resolvedOrder)
-            val nextPage = response.assets.nextPageNumberOrNull()
-            val supportedAssets = response.assets.items.filter { it.toAssetEntityOrNull() != null }
+            val nextPage = response.assets.nextPageNumberAfter(page)
+            nextPage?.let { detailRawPageWindow(it, size) }
+            val rawItems = response.assets.items
             val hasMore = nextPage != null
+            val pageWindowEnd = if (hasMore) {
+                pageWindow.endSortOrder
+            } else {
+                detailRawBoundaryAfter(baseRawOffset, rawItems.size)
+            }
+            val skippedRawRange = detailSkippedForwardRawRange(page, nextPage, size)
+            val supportedAssets = supportedDetailRawAssetResponses(rawItems, baseRawOffset)
             val assetEntities = prepareDetailAssetEntities(
-                supportedAssets,
+                supportedAssets.map { it.response },
                 assetDao,
                 editsEnricher
             )
-            val baseOffset = (page - 1) * size
-            val pageChanged = pagedOwnerPageChanged(
-                beforeAssetIds = before.map { it.id },
-                baseOffset = baseOffset,
-                fetchedAssetIds = supportedAssets.map { it.id },
-                hasMore = hasMore
-            )
-            val crossRefs = supportedAssets.mapIndexed { index, asset ->
-                AlbumAssetCrossRef(albumId, asset.id, baseOffset + index)
-            }
+            val fetchedRefs = detailRawAssetRefs(supportedAssets)
+            val crossRefs = albumRawCrossRefs(albumId, supportedAssets)
             val cachedAlbum = withContext(Dispatchers.IO) {
                 albumDao.getAlbum(albumId)
             }
@@ -184,32 +185,62 @@ class AlbumRepository(
                         if (detailAlbum != null) {
                             albumDao.upsertAlbums(listOf(detailAlbum))
                         }
-                        val skipAssetWrite = detailPageWriteUnchanged(
-                            before = before,
+                        val existingWindowRefs =
+                            if (hasMore) {
+                                albumDao.getAlbumAssetRefOrdersInSortRange(
+                                    albumId = albumId,
+                                    startSortOrder = baseRawOffset,
+                                    endSortOrder = pageWindowEnd
+                                )
+                            } else {
+                                albumDao.getAlbumAssetRefOrdersFromSortOrder(
+                                    albumId = albumId,
+                                    startSortOrder = baseRawOffset
+                                )
+                            }.toDetailRawAssetRefs()
+                        val tailRefsAfterWindow = emptyList<DetailRawAssetRef>()
+                        val rawWindowChanged = detailRawWindowChanged(
+                            existingWindowRefs = existingWindowRefs,
+                            fetchedRefs = fetchedRefs,
+                            tailRefsAfterWindow = tailRefsAfterWindow,
+                            hasMore = hasMore
+                        )
+                        val skipAssetWrite = detailRawPageWriteUnchanged(
+                            existingWindowRefs = existingWindowRefs,
+                            fetchedRefs = fetchedRefs,
+                            tailRefsAfterWindow = tailRefsAfterWindow,
+                            existingAssetsById = before.associateBy { it.id },
                             candidates = assetEntities,
-                            baseOffset = baseOffset,
-                            pageChanged = pageChanged,
                             hasMore = hasMore
                         )
                         if (!skipAssetWrite) {
                             assetDao.upsertAssets(assetEntities)
-                            if (pageChanged || !hasMore) {
+                            if (rawWindowChanged) {
                                 albumDao.replaceAlbumRefsFromSortOrder(
                                     albumId,
-                                    baseOffset,
+                                    baseRawOffset,
                                     crossRefs
                                 )
                             } else {
                                 albumDao.replaceAlbumRefsInSortRange(
                                     albumId = albumId,
-                                    startSortOrder = baseOffset,
-                                    endSortOrder = baseOffset + size,
+                                    startSortOrder = baseRawOffset,
+                                    endSortOrder = pageWindowEnd,
                                     refs = crossRefs
                                 )
                             }
                         }
-                        val after = if (skipAssetWrite) before else albumDao.getAlbumAssets(albumId)
-                        changed = orderedAssetsChanged(before, after)
+                        val rangeToClear = skippedRawRange.takeIf { !rawWindowChanged }
+                        if (rangeToClear != null) {
+                            albumDao.clearAlbumRefsInSortRange(
+                                albumId = albumId,
+                                startSortOrder = rangeToClear.startSortOrder,
+                                endSortOrder = rangeToClear.endSortOrder
+                            )
+                        }
+                        val touchedRefs = !skipAssetWrite || rangeToClear != null
+                        val after = if (touchedRefs) albumDao.getAlbumAssets(albumId) else before
+                        changed = touchedRefs && orderedAssetsChanged(before, after)
                         if (changed) {
                             detailMosaicCacheDao.clearOwnerCache(
                                 DetailMosaicCacheOwnerType.ALBUM.name,
@@ -242,23 +273,36 @@ class AlbumRepository(
             val before = withContext(Dispatchers.IO) {
                 albumDao.getAlbumAssets(albumId)
             }
+            val beforeRefs = withContext(Dispatchers.IO) {
+                albumDao.getAlbumAssetRefOrders(albumId).toDetailRawAssetRefs()
+            }
             val detail = apiService.getAlbumDetail(albumId)
             val order = normalizeAlbumOrder(detail.order)
-            val allItems = mutableListOf<AssetResponse>()
+            val allItems = mutableListOf<DetailRawAssetResponse>()
+            val consumedPages = mutableSetOf<Int>()
             var page = 1
             while (true) {
+                val pageWindow = detailRawPageWindow(page, ALBUM_PAGE_SIZE)
+                consumedPages += page
                 val response = apiService.getAlbumAssets(albumId, page, ALBUM_PAGE_SIZE, order)
-                allItems += response.assets.items.filter { it.toAssetEntityOrNull() != null }
-                page = response.assets.nextPageNumberOrNull() ?: break
+                allItems += supportedDetailRawAssetResponses(
+                    response.assets.items,
+                    pageWindow.startSortOrder
+                )
+                val nextPage = response.assets.nextPageNumberAfter(
+                    currentPage = page,
+                    consumedPages = consumedPages
+                )
+                nextPage?.let { detailRawPageWindow(it, ALBUM_PAGE_SIZE) }
+                page = nextPage ?: break
             }
             val assetEntities = prepareDetailAssetEntities(
-                allItems,
+                allItems.map { it.response },
                 assetDao,
                 editsEnricher
             )
-            val crossRefs = allItems.mapIndexed { index, asset ->
-                AlbumAssetCrossRef(albumId, asset.id, index)
-            }
+            val fetchedRefs = detailRawAssetRefs(allItems)
+            val crossRefs = albumRawCrossRefs(albumId, allItems)
             val cachedAlbum = withContext(Dispatchers.IO) {
                 albumDao.getAlbum(albumId)
             }
@@ -275,13 +319,18 @@ class AlbumRepository(
                     database.useWriterConnection { transactor ->
                         transactor.immediateTransaction {
                         albumDao.upsertAlbums(listOf(detailAlbum))
-                        val skipAssetWrite = !orderedAssetsChanged(before, assetEntities)
+                        val skipAssetWrite = detailRawFullWriteUnchanged(
+                            existingRefs = beforeRefs,
+                            fetchedRefs = fetchedRefs,
+                            existingAssetsById = before.associateBy { it.id },
+                            candidates = assetEntities
+                        )
                         if (!skipAssetWrite) {
                             assetDao.upsertAssets(assetEntities)
                             albumDao.replaceAlbumRefs(albumId, crossRefs)
                         }
                         val after = if (skipAssetWrite) before else albumDao.getAlbumAssets(albumId)
-                        changed = orderedAssetsChanged(before, after)
+                        changed = !skipAssetWrite && orderedAssetsChanged(before, after)
                         if (changed) {
                             detailMosaicCacheDao.clearOwnerCache(
                                 DetailMosaicCacheOwnerType.ALBUM.name,
@@ -330,3 +379,20 @@ class AlbumRepository(
         private const val ALBUM_PAGE_SIZE = 250
     }
 }
+
+internal fun albumRawCrossRefs(
+    albumId: String,
+    items: List<DetailRawAssetResponse>
+): List<AlbumAssetCrossRef> =
+    items.map { item ->
+        AlbumAssetCrossRef(albumId, item.response.id, item.sortOrder)
+    }
+
+internal fun albumSkippedForwardRawRange(
+    page: Int,
+    nextPage: Int?,
+    size: Int
+): DetailRawSortRange? = detailSkippedForwardRawRange(page, nextPage, size)
+
+private fun List<AlbumAssetRefOrder>.toDetailRawAssetRefs(): List<DetailRawAssetRef> =
+    map { ref -> DetailRawAssetRef(ref.assetId, ref.sortOrder) }

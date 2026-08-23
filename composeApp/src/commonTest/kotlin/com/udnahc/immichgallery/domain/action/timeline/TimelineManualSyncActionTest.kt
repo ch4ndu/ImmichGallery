@@ -4,8 +4,11 @@ import com.udnahc.immichgallery.data.repository.SessionOperationStamp
 import com.udnahc.immichgallery.data.repository.SessionOperationRejectedException
 import com.udnahc.immichgallery.data.repository.SessionStateRepository
 import com.udnahc.immichgallery.data.repository.StaleSessionOperationException
+import com.udnahc.immichgallery.data.remote.TimelineApiCompatibilityException
+import com.udnahc.immichgallery.data.remote.TimelineCompatibilityCategory
 import com.udnahc.immichgallery.domain.action.auth.RunSessionOperationAction
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
+import com.udnahc.immichgallery.domain.model.TimelineAssetSyncCompatibilityException
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary
@@ -30,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -56,8 +60,8 @@ class TimelineManualSyncActionTest {
     }
 
     @Test
-    fun changedAndRemovedBucketsAreSurfacedAndCleared() = runTest {
-        val clearedBuckets = mutableSetOf<String>()
+    fun changedAndRemovedBucketsAreSurfacedAndRemovedBucketsAreCleared() = runTest {
+        val clearedBuckets = mutableListOf<Set<String>>()
         val action = action(
             bucketResult = TimelineBucketSyncResult(
                 buckets = listOf(bucket("2026-05")),
@@ -77,7 +81,172 @@ class TimelineManualSyncActionTest {
 
         assertEquals(setOf("2026-04"), result.bucketSyncResult.removedBucketIds)
         assertEquals(setOf("2026-05"), result.assetSyncResult.changedBucketIds)
-        assertEquals(setOf("2026-04", "2026-05"), clearedBuckets)
+        assertEquals(listOf(setOf("2026-04")), clearedBuckets)
+    }
+
+    @Test
+    fun removedBucketsAreClearedBeforeAssetFailure() = runTest {
+        val clearedBuckets = mutableListOf<Set<String>>()
+        val failure = TimelineApiCompatibilityException(
+            serverVersion = "1.142.0",
+            endpoint = "/api/timeline/bucket",
+            category = TimelineCompatibilityCategory.SHAPE
+        )
+        val action = TimelineManualSyncAction(
+            syncBuckets = {
+                Result.success(
+                    TimelineBucketSyncResult(
+                        buckets = listOf(bucket("2026-05")),
+                        removedBucketIds = setOf("2026-04")
+                    )
+                )
+            },
+            syncAssets = { Result.failure(failure) },
+            clearMosaicBuckets = { clearedBuckets += it },
+            prepareMosaic = { _, _, _, _, _, _ ->
+                Result.success(TimelineMosaicPrecomputeResult(emptySet(), emptySet()))
+            }
+        )
+
+        val result = action(request())
+
+        assertEquals(failure, result.exceptionOrNull())
+        assertEquals(listOf(setOf("2026-04")), clearedBuckets)
+    }
+
+    @Test
+    fun removedBucketsAreClearedBeforeChangedSiblingAssetCompatibilityFailureReturns() = runTest {
+        val clearedBuckets = mutableListOf<Set<String>>()
+        val failure = TimelineApiCompatibilityException(
+            serverVersion = "1.142.0",
+            endpoint = "/api/timeline/bucket",
+            category = TimelineCompatibilityCategory.DECODING
+        )
+        val action = TimelineManualSyncAction(
+            syncBuckets = {
+                Result.success(
+                    TimelineBucketSyncResult(
+                        buckets = listOf(bucket("changed"), bucket("failed")),
+                        removedBucketIds = setOf("removed")
+                    )
+                )
+            },
+            syncAssets = { Result.failure(failure) },
+            clearMosaicBuckets = { clearedBuckets += it },
+            prepareMosaic = { _, _, _, _, _, _ ->
+                Result.success(TimelineMosaicPrecomputeResult(emptySet(), emptySet()))
+            }
+        )
+
+        val result = action(request())
+
+        assertEquals(failure, result.exceptionOrNull())
+        assertEquals(listOf(setOf("removed")), clearedBuckets)
+    }
+
+    @Test
+    fun firstCompatibilityPartialFailurePropagatesChangedResultWithoutNoOpRetry() = runTest {
+        val failure = TimelineApiCompatibilityException(
+            serverVersion = "1.142.0",
+            endpoint = "/api/timeline/bucket",
+            category = TimelineCompatibilityCategory.SHAPE
+        )
+        val partialResult = TimelineAssetSyncResult(
+            successfulBucketIds = setOf("changed"),
+            failedBucketIds = setOf("failed"),
+            changedBucketIds = setOf("changed")
+        )
+        var syncCall = 0
+        val action = TimelineManualSyncAction(
+            syncBuckets = {
+                Result.success(
+                    TimelineBucketSyncResult(
+                        buckets = listOf(bucket("changed"), bucket("failed"))
+                    )
+                )
+            },
+            syncAssets = {
+                syncCall++
+                if (syncCall == 1) {
+                    Result.failure(TimelineAssetSyncCompatibilityException(partialResult, failure))
+                } else {
+                    Result.success(
+                        TimelineAssetSyncResult(
+                            successfulBucketIds = setOf("changed"),
+                            failedBucketIds = emptySet(),
+                            changedBucketIds = emptySet()
+                        )
+                    )
+                }
+            },
+            clearMosaicBuckets = {},
+            prepareMosaic = { _, _, _, _, _, _ ->
+                Result.success(TimelineMosaicPrecomputeResult(emptySet(), emptySet()))
+            }
+        )
+
+        val error = assertIs<TimelineAssetSyncCompatibilityException>(
+            action(request()).exceptionOrNull()
+        )
+
+        assertEquals(partialResult, error.partialResult)
+        assertEquals(failure, error.compatibilityCause)
+        assertEquals(1, syncCall)
+    }
+
+    @Test
+    fun retryCompatibilityFailureMergesFirstAndPartialRetryResults() = runTest {
+        val failure = TimelineApiCompatibilityException(
+            serverVersion = "1.142.0",
+            endpoint = "/api/timeline/bucket",
+            category = TimelineCompatibilityCategory.SHAPE
+        )
+        var syncCall = 0
+        val action = TimelineManualSyncAction(
+            syncBuckets = {
+                Result.success(
+                    TimelineBucketSyncResult(
+                        buckets = listOf(bucket("first"), bucket("retry-changed"), bucket("retry-failed"))
+                    )
+                )
+            },
+            syncAssets = {
+                syncCall++
+                if (syncCall == 1) {
+                    Result.success(
+                        TimelineAssetSyncResult(
+                            successfulBucketIds = setOf("first"),
+                            failedBucketIds = setOf("retry-changed", "retry-failed"),
+                            changedBucketIds = setOf("first")
+                        )
+                    )
+                } else {
+                    Result.failure(
+                        TimelineAssetSyncCompatibilityException(
+                            partialResult = TimelineAssetSyncResult(
+                                successfulBucketIds = setOf("retry-changed"),
+                                failedBucketIds = setOf("retry-failed"),
+                                changedBucketIds = setOf("retry-changed")
+                            ),
+                            compatibilityCause = failure
+                        )
+                    )
+                }
+            },
+            clearMosaicBuckets = {},
+            prepareMosaic = { _, _, _, _, _, _ ->
+                Result.success(TimelineMosaicPrecomputeResult(emptySet(), emptySet()))
+            }
+        )
+
+        val error = assertIs<TimelineAssetSyncCompatibilityException>(
+            action(request()).exceptionOrNull()
+        )
+
+        assertEquals(setOf("first", "retry-changed"), error.partialResult.successfulBucketIds)
+        assertEquals(setOf("retry-failed"), error.partialResult.failedBucketIds)
+        assertEquals(setOf("first", "retry-changed"), error.partialResult.changedBucketIds)
+        assertEquals(failure, error.compatibilityCause)
     }
 
     @Test
@@ -436,9 +605,7 @@ class TimelineManualSyncActionTest {
         val remainingAssetResults = assetResults.toMutableList()
         return TimelineManualSyncAction(
             syncBuckets = { Result.success(bucketResult) },
-            syncAssets = {
-                Result.success(remainingAssetResults.removeAt(0))
-            },
+            syncAssets = { Result.success(remainingAssetResults.removeAt(0)) },
             clearMosaicBuckets = clear,
             prepareMosaic = { bucketIds, _, _, _, _, _ ->
                 Result.success(prepare(bucketIds))

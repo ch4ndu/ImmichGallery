@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.udnahc.immichgallery.data.model.ImmichPaginationCompatibilityException
 import com.udnahc.immichgallery.domain.model.ErrorItem
 import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.GroupSize
@@ -490,3 +491,19 @@ internal fun canAutoLoadMore(
 
 internal fun canManuallyLoadMore(hasMore: Boolean, isLoadingMore: Boolean): Boolean =
     hasMore && !isLoadingMore
+
+internal data class DetailPaginationCursor(
+    val hasMore: Boolean,
+    val nextPage: Int?
+)
+
+internal fun detailPaginationCursorAfterFailure(
+    hasMore: Boolean,
+    nextPage: Int?,
+    failure: Throwable
+): DetailPaginationCursor =
+    if (failure is ImmichPaginationCompatibilityException) {
+        DetailPaginationCursor(hasMore = false, nextPage = null)
+    } else {
+        DetailPaginationCursor(hasMore = hasMore, nextPage = nextPage)
+    }

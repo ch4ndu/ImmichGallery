@@ -30,6 +30,30 @@ data class TimelineAssetSyncResult(
     val changedBucketIds: Set<String> = emptySet()
 )
 
+class TimelineAssetSyncCompatibilityException(
+    val partialResult: TimelineAssetSyncResult,
+    val compatibilityCause: Throwable
+) : IllegalStateException(
+    "Timeline asset sync compatibility failure",
+    compatibilityCause
+) {
+    fun withPartialResult(
+        partialResult: TimelineAssetSyncResult
+    ): TimelineAssetSyncCompatibilityException =
+        TimelineAssetSyncCompatibilityException(partialResult, compatibilityCause)
+}
+
+internal fun TimelineAssetSyncResult.mergeRetryResult(
+    retry: TimelineAssetSyncResult
+): TimelineAssetSyncResult {
+    val retrySuccessful = retry.successfulBucketIds
+    return TimelineAssetSyncResult(
+        successfulBucketIds = successfulBucketIds + retrySuccessful,
+        failedBucketIds = (failedBucketIds - retrySuccessful) + retry.failedBucketIds,
+        changedBucketIds = changedBucketIds + retry.changedBucketIds
+    )
+}
+
 @Immutable
 data class TimelinePageIndex(
     val bucketStartPages: List<Int> = emptyList(),

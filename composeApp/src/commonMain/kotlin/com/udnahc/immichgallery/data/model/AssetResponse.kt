@@ -69,60 +69,85 @@ data class AssetPersonResponse(
 @Immutable
 @Serializable
 data class TimelineBucketColumnarResponse(
-    val id: List<String> = emptyList(),
-    val isImage: List<Boolean?> = emptyList(),
-    val fileCreatedAt: List<String?> = emptyList(),
-    val isFavorite: List<Boolean?> = emptyList(),
-    val duration: List<String?> = emptyList(),
-    val thumbhash: List<String?> = emptyList(),
-    val ratio: List<Float?> = emptyList(),
-    val stack: List<List<String>?> = emptyList(),
-    val visibility: List<String?> = emptyList()
+    val createdAt: List<String>,
+    val duration: List<Int?>,
+    val id: List<String>,
+    val isImage: List<Boolean>,
+    val fileCreatedAt: List<String>,
+    val isFavorite: List<Boolean>,
+    val isTrashed: List<Boolean>,
+    val livePhotoVideoId: List<String?>,
+    val localOffsetHours: List<Double>,
+    val ownerId: List<String>,
+    val projectionType: List<String?>,
+    val thumbhash: List<String?>,
+    val ratio: List<Float>,
+    val visibility: List<String>,
+    val stack: List<List<String>?>? = null
 ) {
     fun toAssetResponses(): List<AssetResponse> {
         validateColumnLengths()
         return id.indices.map { i ->
-            val isImg = isImage.getOrElse(i) { true } ?: true
-            val stackTuple = stack.getOrElse(i) { null }
+            val isImg = isImage[i]
+            val stackTuple = stack?.getOrElse(i) { null }
             AssetResponse(
                 id = id[i],
+                ownerId = ownerId[i],
                 type = if (isImg) "IMAGE" else "VIDEO",
                 originalFileName = "",
-                fileCreatedAt = fileCreatedAt.getOrElse(i) { "" } ?: "",
-                isFavorite = isFavorite.getOrElse(i) { false } ?: false,
+                fileCreatedAt = fileCreatedAt[i],
+                isFavorite = isFavorite[i],
                 isArchived = false,
-                thumbhash = thumbhash.getOrElse(i) { null },
-                ratio = ratio.getOrElse(i) { null },
-                stack = stackTuple?.getOrNull(0)?.let { stackId ->
-                    AssetStackResponse(
-                        id = stackId,
-                        primaryAssetId = id[i],
-                        assetCount = stackTuple.getOrNull(1)?.toIntOrNull() ?: 0
-                    )
-                },
-                visibility = visibility.getOrElse(i) { "timeline" } ?: "timeline"
+                thumbhash = thumbhash[i],
+                ratio = ratio[i],
+                stack = stackTuple?.toAssetStack(primaryAssetId = id[i]),
+                visibility = visibility[i]
             )
         }
     }
 
     private fun validateColumnLengths() {
         val expected = id.size
-        require(isImage.size == expected && fileCreatedAt.size == expected) {
-            "Timeline required column lengths do not match id count=$expected: " +
-                "isImage=${isImage.size}, fileCreatedAt=${fileCreatedAt.size}"
-        }
-        val optionalColumns = listOf(
-            "isFavorite" to isFavorite.size,
+        val requiredColumns = listOf(
+            "createdAt" to createdAt.size,
             "duration" to duration.size,
+            "isImage" to isImage.size,
+            "fileCreatedAt" to fileCreatedAt.size,
+            "isFavorite" to isFavorite.size,
+            "isTrashed" to isTrashed.size,
+            "livePhotoVideoId" to livePhotoVideoId.size,
+            "localOffsetHours" to localOffsetHours.size,
+            "ownerId" to ownerId.size,
+            "projectionType" to projectionType.size,
             "thumbhash" to thumbhash.size,
             "ratio" to ratio.size,
-            "stack" to stack.size,
             "visibility" to visibility.size
         )
-        val invalid = optionalColumns.filter { (_, size) -> size != 0 && size != expected }
+        val invalidRequired = requiredColumns.filter { (_, size) -> size != expected }
+        require(invalidRequired.isEmpty()) {
+            "Timeline required column lengths do not match id count=$expected: " +
+                invalidRequired.joinToString { (name, size) -> "$name=$size" }
+        }
+        val optionalColumns = listOf(
+            "stack" to stack?.size,
+        )
+        val invalid = optionalColumns.filter { (_, size) -> size != null && size != expected }
         require(invalid.isEmpty()) {
             "Timeline column lengths do not match id count=$expected: " +
                 invalid.joinToString { (name, size) -> "$name=$size" }
         }
+    }
+
+    private fun List<String>.toAssetStack(primaryAssetId: String): AssetStackResponse {
+        require(size == 2) { "Malformed Timeline stack tuple" }
+        val stackId = getOrNull(0)?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("Malformed Timeline stack tuple")
+        val assetCount = getOrNull(1)?.toIntOrNull()
+            ?: throw IllegalArgumentException("Malformed Timeline stack count")
+        return AssetStackResponse(
+            id = stackId,
+            primaryAssetId = primaryAssetId,
+            assetCount = assetCount
+        )
     }
 }

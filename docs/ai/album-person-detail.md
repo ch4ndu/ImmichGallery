@@ -186,8 +186,29 @@ Album and Person load-more rules:
 - ignore when `hasMore == false`;
 - acquire the owner sync gate, then atomically claim `isLoadingMore` and read the current server-provided `nextPage`;
 - update `hasMore` and `nextPage` only from the successful page response; `nextPage` is the strictly parsed server-returned token, never `page + 1`;
+- require a positive numeric token that moves strictly forward and has not
+  already been consumed; malformed, equal, backward, cyclic, or schema-overflow
+  tokens fail the sync before Room writes and clear the screen's rejected cursor
+  (`hasMore=false`, `nextPage=null`) so automatic pagination cannot retry it;
+- preserve the current cursor after a transient page failure so the explicit
+  retry path remains available;
 - after a successful terminal page or full sync, read and publish the new detail `lastSyncedAt` from Room;
 - call `handleSyncedContentChange(result.changed)` after page writes.
+
+Album and Person repositories enumerate the raw page before filtering
+unsupported media. Supported refs retain `baseRawOffset + rawIndex`, so
+`sortOrder` can be sparse. Incremental comparison uses exact persisted
+`(assetId, sortOrder)` windows: a nonterminal page owns its full requested raw
+range, while a terminal page owns the entire persisted tail. This both removes
+stale rows from short pages and self-heals refs written by the former compact
+ordering without a Room migration. If a valid server token skips numeric pages,
+an unchanged current window clears only the skipped raw range; a changed window
+still truncates its tail to avoid mixing snapshots. Correcting refs alone is not
+an ordered visible-content change and does not trigger layout/Mosaic
+invalidation. A returned token must also resolve to a raw page window whose
+start/end and per-item raw ordinals fit the current Room `Int sortOrder` schema;
+otherwise the response is treated as an API compatibility failure and the
+previous refs remain intact.
 
 The footer appears only while `hasMore` is true. It displays a **Load more** button while idle and the existing progress indicator while loading. Automatic pagination is eligible only after the list can scroll backward, the user is near the end, and no request is active; this prevents a short first page or placeholder layout from starting a request. The explicit button remains available for short or unscrollable first pages.
 

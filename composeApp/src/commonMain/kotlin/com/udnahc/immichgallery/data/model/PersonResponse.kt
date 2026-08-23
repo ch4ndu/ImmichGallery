@@ -15,7 +15,8 @@ data class PersonResponse(
 @Immutable
 @Serializable
 data class PeopleResponse(
-    val people: List<PersonResponse> = emptyList(),
-    val total: Int = 0,
-    val hasNextPage: Boolean = false
+    val people: List<PersonResponse>,
+    val total: Int,
+    val hidden: Int,
+    val hasNextPage: Boolean? = null
 )

@@ -54,6 +54,7 @@ import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowHeightBounds
 import com.udnahc.immichgallery.domain.model.RowHeightScope
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.TimelineAssetSyncCompatibilityException
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
@@ -77,6 +78,7 @@ import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.mosaicFallbackRowHeight
 import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecFor
 import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
+import com.udnahc.immichgallery.domain.model.mergeRetryResult
 import com.udnahc.immichgallery.domain.model.normalizedMosaicFamilies
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayRecordsOrEmpty
@@ -194,7 +196,10 @@ enum class TimelineBucketTargetReason {
 private fun Throwable.timelineMessageOr(
     fallback: ConnectionUiMessage
 ): ConnectionUiMessage =
-    if (this is TimelineApiCompatibilityException) {
+    if (this is TimelineApiCompatibilityException ||
+        (this is TimelineAssetSyncCompatibilityException &&
+            compatibilityCause is TimelineApiCompatibilityException)
+    ) {
         ConnectionUiMessage.IncompatibleTimelineApi
     } else {
         fallback
@@ -1444,6 +1449,7 @@ class TimelineViewModel(
 
             is TimelineManualSyncEvent.Failed -> {
                 log.e { "Manual Timeline sync failed" }
+                publishPartialAssetSyncFailure(event.cause)
                 val completed = completeActiveManualSyncRequest(event.requestId) {
                     it.copy(
                         isSyncing = false,
@@ -1562,7 +1568,6 @@ class TimelineViewModel(
             }
             val changedSuccessfulBucketIds =
                 assetResult.changedBucketIds intersect assetResult.successfulBucketIds
-            clearTimelineMosaicCacheAction.buckets(changedSuccessfulBucketIds)
             val precomputeResult = prepareTimelineMosaicCacheAction(
                 timeBuckets = assetResult.successfulBucketIds,
                 groupSize = snapshot.groupSize,
@@ -1726,7 +1731,6 @@ class TimelineViewModel(
                                                             "after retry"
                                                 }
                                             } else {
-                                                clearTimelineMosaicCacheAction.buckets(assetResult.changedBucketIds intersect assetResult.successfulBucketIds)
                                                 if (!shouldPrepareMosaic) {
                                                     publishColdSyncAssetsOnly(assetResult.successfulBucketIds)
                                                     try {
@@ -1944,22 +1948,36 @@ class TimelineViewModel(
         buckets: List<TimelineBucket>,
         context: String
     ): Result<TimelineAssetSyncResult> {
-        val first = syncAllTimelineAssetsAction(buckets).getOrElse { return Result.failure(it) }
+        val first = syncAllTimelineAssetsAction(buckets).getOrElse { error ->
+            publishPartialAssetSyncFailure(error)
+            return Result.failure(error)
+        }
         if (first.failedBucketIds.isEmpty()) return Result.success(first)
         val retryBuckets = buckets.filter { it.timeBucket in first.failedBucketIds }
         log.d { "Timeline asset sync retry context=<redacted> buckets=<redacted>" }
-        val retry =
-            syncAllTimelineAssetsAction(retryBuckets).getOrElse { return Result.failure(it) }
-        val retrySuccessful = retry.successfulBucketIds
-        val finalSuccessful = first.successfulBucketIds + retrySuccessful
-        val finalFailed = (first.failedBucketIds - retrySuccessful) + retry.failedBucketIds
-        val finalChanged = first.changedBucketIds + retry.changedBucketIds
-        return Result.success(
-            TimelineAssetSyncResult(
-                successfulBucketIds = finalSuccessful,
-                failedBucketIds = finalFailed,
-                changedBucketIds = finalChanged
-            )
+        val retry = syncAllTimelineAssetsAction(retryBuckets).getOrElse { error ->
+            val compatibilityFailure = error as? TimelineAssetSyncCompatibilityException
+            if (compatibilityFailure != null) {
+                val combined = first.mergeRetryResult(compatibilityFailure.partialResult)
+                publishAssetSyncResult(
+                    successfulBucketIds = combined.successfulBucketIds,
+                    failedBucketIds = combined.failedBucketIds,
+                    changedBucketIds = combined.changedBucketIds
+                )
+                return Result.failure(compatibilityFailure.withPartialResult(combined))
+            }
+            return Result.failure(error)
+        }
+        return Result.success(first.mergeRetryResult(retry))
+    }
+
+    private fun publishPartialAssetSyncFailure(error: Throwable) {
+        val partialResult =
+            (error as? TimelineAssetSyncCompatibilityException)?.partialResult ?: return
+        publishAssetSyncResult(
+            successfulBucketIds = partialResult.successfulBucketIds,
+            failedBucketIds = partialResult.failedBucketIds,
+            changedBucketIds = partialResult.changedBucketIds
         )
     }
 
@@ -2374,7 +2392,6 @@ class TimelineViewModel(
                     val failedMosaicBuckets = when {
                         syncResult.changed -> {
                             invalidateRuntimeMosaicAssignments(timeBucket)
-                            clearTimelineMosaicCacheAction.buckets(setOf(timeBucket))
                             val assets = getBucketAssetsUseCase(timeBucket)
                             bucketAssetsCache[timeBucket] = assets
                             publishLoadedBucketResult(timeBucket, changed = true)
@@ -3797,7 +3814,6 @@ class TimelineViewModel(
                     "changedSuccessful=<redacted>"
         }
         publishAssetSyncResult(successfulBucketIds, failedBucketIds, changedBucketIds)
-        clearTimelineMosaicCacheAction.buckets(changedSuccessfulBucketIds)
         val failedMosaicBuckets = precomputeTimelineMosaicForBuckets(
             changedSuccessfulBucketIds,
             sessionStamp

@@ -67,8 +67,28 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - The shared Ktor client has explicit cross-platform timeouts: 15 seconds to connect and 60 seconds for request/socket activity. Endpoint-specific work may override these only when its transfer contract requires a longer bound.
 - Hidden assets should be filtered out before writing or presenting timeline bucket assets.
 - Immich v3 album detail returns metadata only. Fetch album assets through paged metadata search with `albumIds`, the album's server order, and the returned `nextPage` token.
-- People list sync fetches every `/people` page into memory and replaces Room only after the complete paginated fetch succeeds.
-- Album assets, Person assets, and search endpoints may paginate. Parse and follow the endpoint's returned `nextPage` value; never synthesize the next page by incrementing local state. A malformed non-null token is an API compatibility failure. Guard duplicate loads with `isLoadingMore`.
+- People list sync requests `withHidden=true`, fetches every `/people` page into
+  memory, and replaces Room only after the complete paginated fetch succeeds.
+  Hidden rows remain cached so the response `total` is comparable with the raw
+  accumulated count; the existing DAO display query continues to hide them.
+  Treat `hasNextPage=true` as continuation, `false` as terminal only when the
+  raw count equals `total`, and an omitted flag as continuation while the raw
+  count is below `total`. Empty/no-new-ID progress, duplicate IDs, a count above
+  `total`, or an early explicit terminal flag is a compatibility failure and
+  must preserve the prior cache.
+- Album assets, Person assets, and search endpoints may paginate. Parse and
+  follow the endpoint's returned `nextPage` value; never synthesize the next
+  page by incrementing local state. A non-null token must be a positive numeric
+  page strictly greater than the current page and not already consumed;
+  malformed, equal, backward, or cyclic tokens are API compatibility failures.
+  A syntactically valid token is still incompatible if the page window or raw
+  asset ordinal cannot be represented by the schema-v2 `Int sortOrder` used by
+  Album/Person refs. Full loops retain the consumed-page set, and incremental
+  state must not expose a rejected token for another automatic attempt. When an
+  accepted token skips numeric pages, an unchanged current page clears exactly
+  the skipped raw ref range while preserving the later target page; a changed
+  current page keeps the conservative tail truncation so cached pages cannot mix
+  snapshots. Guard duplicate loads with `isLoadingMore`.
 - Explore Search builds endpoint-specific JSON from normalized criteria rather
   than serializing one defaults-heavy request DTO. Omit inactive fields, encode
   explicit missing-value filters as JSON `null`, preserve selected Person,
@@ -82,6 +102,18 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
   `/api/search/suggestions` with only the dependency query values supported by
   that suggestion type. Raw option values and dependencies must not be logged.
 - `AssetResponseDto.stack` is nested and supplies the persisted/displayed stack count. Only `IMAGE` and `VIDEO` enter the gallery cache or domain model; filter `AUDIO` and `OTHER` responses at API-to-cache/domain boundaries.
+- Album and Person relationship order is the raw API ordinal, not the compacted
+  supported-asset index. Enumerate before filtering, persist supported refs with
+  sparse `sortOrder`, compare exact `(assetId, sortOrder)` ranges, and use a raw
+  tail query for a terminal page. Raw page starts, range ends, and
+  `baseRawOffset + rawIndex` are checked with `Long` arithmetic before network
+  continuation or Room mutation; values outside the schema-v2 `Int sortOrder`
+  range are compatibility failures that preserve the prior cache. A normal
+  refresh self-heals legacy compact refs without a Room migration. Ref-only
+  ordinal repair writes the corrected refs but is not a visible-content change
+  and must not invalidate Detail Mosaic.
+- Detail dimension mapping uses EXIF width and height first, with the matching
+  top-level asset field as an independent fallback for each missing dimension.
 - Complete stacks are live viewer data. Resolve the current stack id from
   `/api/assets/{id}` before reading `/api/stacks/{stackId}`, normalize supported
   members in memory, and do not add stack ids or member relationships to Room.
@@ -103,7 +135,12 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
   memory ids, relationships, or seen/saved state. Permission denial and
   unavailable endpoints remain distinct from transient request failure.
 - Result-producing suspend boundaries must rethrow `CancellationException`; cancellation is control flow, not a connection or content failure.
-- Album and Person detail page refreshes should replace the fetched ref window and truncate stale later refs when page membership/order changes. Preserving later cached refs after a changed page can mix snapshots because subsequent pages may have shifted.
+- Album and Person detail page refreshes replace the fetched raw ref window and
+  truncate stale later refs when page membership/order changes. Nonterminal
+  windows span the requested page size even when the response is short;
+  terminal pages compare and replace the full persisted tail. Preserving later
+  cached refs after a changed page can mix snapshots because subsequent pages
+  may have shifted.
 - Removed Album and Person list owners must clear their owner refs, Detail Mosaic artifacts, and detail sync metadata in the same Room transaction that replaces the list.
 - Timeline buckets load lazily. Cached Room refs only mark asset availability. The ViewModel should materialize cached asset rows into memory for visible/nearby buckets and avoid render-facing loading/error mutations for unchanged cached refreshes. Under the cache-only warm policy, completed-cold-cache launch and visible/target bucket changes do not hit the server; top-bar manual refresh is the explicit full Timeline asset refresh. If warm server refresh is enabled, cached launch syncs metadata only and visible/nearby bucket asset refresh is serial and cache-preserving. Unchanged already-loaded refreshes should not republish bucket state or enqueue Mosaic reads.
 

@@ -12,8 +12,29 @@ For Timeline rendering, overlay, scrollbar, and Mosaic display behavior, also re
 - `GetTimelineBucketsUseCase.sync()` refreshes bucket metadata through `TimelineRepository.syncBuckets()`.
 - `SyncAllTimelineAssetsAction` and `LoadBucketAssetsAction` refresh bucket assets through `TimelineRepository.syncBucketAssets(...)`.
 - `TimelineRepository` owns Immich API fetches, Room writes, hidden-asset filtering, edit enrichment, ordered change detection, and sync metadata.
+- `TimelineRepository` also owns persistent Timeline Mosaic invalidation for
+  changed bucket asset writes: it clears assignments, display cache, section
+  geometry, and bucket geometry in the same transaction as the asset/ref write
+  only when the final ordered visible content changed. `TimelineViewModel` owns
+  runtime Mosaic invalidation, in-memory bucket publication, sync-time
+  precompute, and cache-read scheduling after it observes changed bucket
+  results.
 - `PrepareTimelineMosaicCacheAction` is sync-time Mosaic preparation. It runs only when Mosaic is enabled and `ViewConfig.cacheMosaicResults = true`.
 - Runtime Mosaic is render-demand work. Sync paths must not fall through to runtime Mosaic when cache results are off.
+
+## Timeline API Contract
+
+- Both `/api/timeline/buckets` and `/api/timeline/bucket` send query parameters
+  through Ktor builders and request `withStacked=true`. `timeBucket` is never
+  manually concatenated into a URL.
+- The columnar bucket response requires `createdAt`, `duration`, `id`,
+  `isImage`, `fileCreatedAt`, `isFavorite`, `isTrashed`, `livePhotoVideoId`,
+  `localOffsetHours`, `ownerId`, `projectionType`, `thumbhash`, `ratio`, and
+  `visibility`. Every required array must be present and exactly `id.size`;
+  required non-null element types must also decode as non-null. `stack` alone
+  may be absent, and when present it must be exactly `id.size` with valid stack
+  tuples. Decode, tuple, and shape failures become the sanitized
+  Timeline compatibility result and cannot replace existing Room rows.
 
 ## Sync Mode Selection
 
@@ -60,7 +81,11 @@ Cold sync is the only blocking Timeline sync path. It runs when there is no warm
    - set `_isBuilding = false`;
    - set `_buildError = NoConnectionToServer`;
    - do not mark cold sync complete.
-9. Clear Mosaic cache rows for changed successful buckets.
+9. Clear metadata-reported removed-bucket Mosaic rows as soon as metadata has
+   committed, before the fallible asset phase. For changed bucket asset syncs,
+   `TimelineRepository` clears persistent Timeline Mosaic artifacts in the same
+   transaction that writes the new asset refs only when the final ordered
+   visible content changed, before returning the changed result.
 10. If Mosaic is disabled or `cacheMosaicResults = false`:
    - skip `PrepareTimelineMosaicCacheAction`;
    - publish successful buckets as cached, not loaded;
@@ -192,7 +217,14 @@ Manual refresh is the top-bar full Timeline refresh after warm cache exists. It 
 2. `_uiConfig.isSyncing` becomes true and sync banners are cleared.
 3. `beginManualRefresh()` sets `manualRefreshActive = true`, clears pending visible refresh queues, and waits for any active visible refresh job to finish.
 4. On Android, `TimelineManualSyncStarter` starts `SyncForegroundService` with the request. The service calls `startForeground(...)` immediately, then runs `TimelineManualSyncCoordinator` from a service-owned coroutine scope. On JVM/iOS, the ViewModel runs the coordinator directly.
-5. `TimelineManualSyncAction` refreshes bucket metadata, refreshes every metadata bucket asset with one retry for failures, preserves cached data on failures, clears removed/changed Timeline Mosaic artifacts, and runs sync-time Mosaic precompute only when Mosaic cache results are enabled and a valid geometry request was supplied.
+5. `TimelineManualSyncAction` refreshes bucket metadata, immediately clears
+   artifacts for metadata-reported removed buckets, refreshes every remaining
+   bucket asset with one retry for ordinary failures, preserves cached data on
+   failures, and runs sync-time Mosaic precompute only when Mosaic cache
+   results are enabled and a valid geometry request was supplied. Changed
+   bucket asset writes clear their persistent Timeline Mosaic artifacts inside
+   the repository transaction that writes the new refs only when final ordered
+   visible content changed.
 6. `TimelineViewModel` consumes the coordinator result, publishes removed/changed buckets, records successful buckets as server-refreshed, publishes Mosaic geometry summaries from precompute, sets success/failure banners, calls `endManualRefresh()`, and resumes visible refresh.
 7. Album/Person detail syncs may still run concurrently; the foreground notification stays active until every tracked foreground work operation finishes.
 
@@ -223,12 +255,22 @@ If `ViewConfig.cacheMosaicResults = false`, manual refresh does not clear Timeli
 
 Manual refresh loops through every current metadata bucket inside `TimelineManualSyncAction`:
 
-1. Call `SyncAllTimelineAssetsAction` for all buckets.
-2. Retry failed buckets once.
-3. Keep cached rows visible on failure by applying failure state only after the coordinator result returns.
-4. For changed successful buckets, clear persisted Timeline Mosaic artifacts before optional precompute.
-5. For unchanged buckets, suppress publication and Mosaic work.
-6. At the end, the ViewModel sets:
+1. After the metadata transaction, clear every removed-bucket artifact before
+   starting asset requests.
+2. Call `SyncAllTimelineAssetsAction` for all current buckets. Each bucket that
+   takes the write path may still write assets/refs for bookkeeping self-heal,
+   but it clears persistent Timeline Mosaic artifacts in that same transaction
+   only when final ordered visible content changed.
+3. Retry ordinary failed buckets once; successful siblings still complete when
+   another bucket has a compatibility failure.
+4. Compatibility failures carry the partial successful/failed/changed bucket
+   result gathered before the failure. Manual, cold, and blocking-Mosaic bulk
+   consumers must publish that partial result before returning the failure so
+   any changed sibling that already committed Room rows also invalidates stale
+   in-memory assets, runtime Mosaic state, and layout revisions.
+5. Keep cached rows visible on failure by applying failure state only after the coordinator result returns.
+6. For unchanged buckets, suppress publication and Mosaic work.
+7. At the end, the ViewModel sets:
    - `bannerError = CannotConnectToServer` if any bucket failed;
    - `bannerSuccess = ConnectedToServer` only when recovering from a previous banner error;
    - `isSyncing = false`.

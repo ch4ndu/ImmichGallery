@@ -120,8 +120,8 @@ fun AssetResponse.toDetail(baseUrl: String): AssetDetail {
         state = exif?.state,
         country = exif?.country,
         fileSizeInByte = exif?.fileSizeInByte,
-        width = exif?.exifImageWidth,
-        height = exif?.exifImageHeight,
+        width = exif?.exifImageWidth ?: width,
+        height = exif?.exifImageHeight ?: height,
         description = exif?.description,
         people = people.map { person ->
             AssetDetailPerson(

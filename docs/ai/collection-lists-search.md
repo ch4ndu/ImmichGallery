@@ -25,10 +25,16 @@ Album/Person detail is documented separately in
 
 - `PeopleViewModel` observes `GetPeopleUseCase.observe()` from Room and starts a
   server sync when created.
-- `PeopleRepository.syncPeople()` follows every `/api/people` page in memory,
-  then replaces the list only after the complete fetch succeeds. Removed owners
-  clear their detail refs, Detail Mosaic artifacts, and detail sync metadata in
-  the same transaction.
+- `PeopleRepository.syncPeople()` requests `withHidden=true` and follows every
+  `/api/people` page in memory, then replaces the list only after the complete
+  fetch succeeds. Hidden rows remain in Room so the raw accumulated count
+  matches `total`; the DAO keeps them out of the visible list. Explicit
+  `hasNextPage=true` continues, explicit `false` is terminal only when the raw
+  count equals `total`, and an omitted flag continues while the count is below
+  `total`. Empty/duplicate/no-new-ID progress, over-count, or early terminal
+  responses are compatibility failures that preserve the current list and
+  relationships. Removed owners clear their detail refs, Detail Mosaic
+  artifacts, and detail sync metadata in the same successful transaction.
 - Empty-cache and cached-refresh error behavior matches Albums.
 - Name filtering is local, case-insensitive, and derived from the Room-emitted
   list on `Dispatchers.Default`; editing the filter does not call the server.

@@ -13,6 +13,7 @@ import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.data.remote.TimelineApiCompatibilityException
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.TimelineAssetSyncCompatibilityException
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineBucketAssetSyncResult
@@ -197,7 +198,13 @@ class TimelineRepository(
                 "Timeline bucket asset sync fetched bucket=<redacted> fetched=<redacted> " +
                         "visible=<redacted> hidden=<redacted>"
             }
-            val assetEntities = filtered.map { it.toAssetEntity() }
+            val initialAssetEntities = filtered.map { it.toAssetEntity() }
+            val assetEntities = resolveTimelineEditAspects(
+                responses = filtered,
+                candidateAssets = initialAssetEntities,
+                cachedAssets = before,
+                editsEnricher = editsEnricher
+            )
             val crossRefs = filtered.mapIndexed { index, response ->
                 TimelineAssetCrossRef(timeBucket, response.id, index)
             }
@@ -221,26 +228,20 @@ class TimelineRepository(
                     )
                 )
             }
+            val changed = timelineBucketAssetsChanged(before, assetEntities)
             sessionStateRepository.withCommit(token) {
                 withContext(Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
                         transactor.immediateTransaction {
                             assetDao.upsertAssets(assetEntities)
                             timelineDao.replaceBucketRefs(timeBucket, crossRefs)
+                            if (changed) {
+                                clearTimelineMosaicArtifactsForBucket(timeBucket)
+                            }
                         }
                     }
                 }
             }
-            // Timeline bucket responses currently come from Immich's columnar
-            // endpoint, which does not include edit metadata or original
-            // dimensions. This hook enriches when that data is available and
-            // otherwise no-ops; keep it here so lazy mosaic builds can use
-            // edited aspect ratios when the endpoint/model can provide them.
-            editsEnricher.enrich(filtered)
-            val after = withContext(Dispatchers.IO) {
-                assetDao.getTimelineAssets(timeBucket)
-            }
-            val changed = timelineBucketAssetsChanged(before, after)
             log.d {
                 "Timeline bucket asset sync completed bucket=<redacted> previous=<redacted> " +
                         "current=<redacted> changed=<redacted>"
@@ -259,6 +260,14 @@ class TimelineRepository(
         } }
     }
 
+    private suspend fun clearTimelineMosaicArtifactsForBucket(timeBucket: String) {
+        val bucketIds = listOf(timeBucket)
+        timelineDao.clearMosaicAssignmentsForBuckets(bucketIds)
+        timelineDao.clearMosaicGeometryForBuckets(bucketIds)
+        timelineDao.clearMosaicDisplayCacheForBuckets(bucketIds)
+        timelineDao.clearBucketGeometryForBuckets(bucketIds)
+    }
+
     suspend fun syncAllBucketAssets(
         buckets: List<TimelineBucket>
     ): Result<TimelineAssetSyncResult> {
@@ -269,40 +278,30 @@ class TimelineRepository(
             var completed = 0
             var successful = 0
             var failed = 0
-            val results = coroutineScope {
-                buckets.map { bucket ->
-                    async(Dispatchers.IO) {
-                        val result = semaphore.withPermit {
-                            syncBucketAssets(bucket.timeBucket)
-                        }
-                        result.exceptionOrNull()?.let { error ->
-                            if (error is TimelineApiCompatibilityException) throw error
-                        }
-                        val success = result.isSuccess
-                        progressMutex.withLock {
-                            completed++
-                            if (success) successful++ else failed++
-                            log.d {
-                                "Timeline asset sync progress <redacted>/<redacted>: " +
-                                        "<redacted> success=<redacted> successful=<redacted> failed=<redacted>"
-                            }
-                        }
-                        bucket.timeBucket to result.getOrNull()
+            val syncResult = syncTimelineBucketAssetsConcurrently(
+                buckets = buckets,
+                syncBucketAssets = { bucket ->
+                    semaphore.withPermit {
+                        syncBucketAssets(bucket.timeBucket)
                     }
-                }.awaitAll()
-            }
-            log.d { "Finished timeline asset sync: successful=<redacted> failed=<redacted> total=<redacted>" }
-            Result.success(
-                TimelineAssetSyncResult(
-                    successfulBucketIds = results.filter { it.second != null }.map { it.first }
-                        .toSet(),
-                    failedBucketIds = results.filter { it.second == null }.map { it.first }.toSet(),
-                    changedBucketIds = results.mapNotNull { it.second }
-                        .filter { it.changed }
-                        .map { it.timeBucket }
-                        .toSet()
-                )
+                },
+                onProgress = { success ->
+                    progressMutex.withLock {
+                        completed++
+                        if (success) successful++ else failed++
+                        log.d {
+                            "Timeline asset sync progress <redacted>/<redacted>: " +
+                                    "<redacted> success=<redacted> successful=<redacted> failed=<redacted>"
+                        }
+                    }
+                }
             )
+            syncResult.exceptionOrNull()?.let { error ->
+                return@withOperation Result.failure(error)
+            }
+            val assetResult = syncResult.getOrThrow()
+            log.d { "Finished timeline asset sync: successful=<redacted> failed=<redacted> total=<redacted>" }
+            Result.success(assetResult)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -335,6 +334,102 @@ class TimelineRepository(
         private const val FULL_SYNC_BUCKET_PARALLELISM = 4
     }
 }
+
+internal suspend fun syncTimelineBucketAssetsConcurrently(
+    buckets: List<TimelineBucket>,
+    syncBucketAssets: suspend (TimelineBucket) -> Result<TimelineBucketAssetSyncResult>,
+    onProgress: suspend (Boolean) -> Unit = {}
+): Result<TimelineAssetSyncResult> {
+    data class BucketSyncOutcome(
+        val timeBucket: String,
+        val result: TimelineBucketAssetSyncResult?,
+        val compatibilityError: TimelineApiCompatibilityException?
+    )
+
+    val outcomes = coroutineScope {
+        buckets.map { bucket ->
+            async(Dispatchers.IO) {
+                try {
+                    val result = syncBucketAssets(bucket)
+                    val compatibilityError = result.exceptionOrNull() as? TimelineApiCompatibilityException
+                    if (compatibilityError != null) {
+                        onProgress(false)
+                        return@async BucketSyncOutcome(bucket.timeBucket, null, compatibilityError)
+                    }
+                    val bucketResult = result.getOrNull()
+                    onProgress(bucketResult != null)
+                    BucketSyncOutcome(bucket.timeBucket, bucketResult, null)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    onProgress(false)
+                    val compatibilityError = e as? TimelineApiCompatibilityException
+                    BucketSyncOutcome(bucket.timeBucket, null, compatibilityError)
+                }
+            }
+        }.awaitAll()
+    }
+    val partialResult = TimelineAssetSyncResult(
+        successfulBucketIds = outcomes.filter { it.result != null }.map { it.timeBucket }.toSet(),
+        failedBucketIds = outcomes.filter { it.result == null }.map { it.timeBucket }.toSet(),
+        changedBucketIds = outcomes.mapNotNull { it.result }
+            .filter { it.changed }
+            .map { it.timeBucket }
+            .toSet()
+    )
+    outcomes.mapNotNull { it.compatibilityError }.firstOrNull()?.let { error ->
+        return Result.failure(TimelineAssetSyncCompatibilityException(partialResult, error))
+    }
+    return Result.success(partialResult)
+}
+
+private suspend fun resolveTimelineEditAspects(
+    responses: List<com.udnahc.immichgallery.data.model.AssetResponse>,
+    candidateAssets: List<AssetEntity>,
+    cachedAssets: List<AssetEntity>,
+    editsEnricher: AssetEditsEnricher
+): List<AssetEntity> {
+    val cachedById = cachedAssets.associateBy { it.id }
+    val candidatesByResponse = responses.zip(candidateAssets)
+    val aspectsById = editsEnricher.resolve(
+        candidatesByResponse
+            .filterNot { (_, candidate) -> canReuseResolvedTimelineEdit(candidate, cachedById[candidate.id]) }
+            .map { (response) -> response }
+    )
+    return candidatesByResponse.map { (_, candidate) ->
+        val cached = cachedById[candidate.id]
+        val reusableAspect = cached
+            ?.takeIf { canReuseResolvedTimelineEdit(candidate, it) }
+            ?.aspectRatio
+        when {
+            reusableAspect != null -> candidate.copy(
+                aspectRatio = reusableAspect,
+                editsResolved = true
+            )
+
+            aspectsById[candidate.id] != null -> candidate.copy(
+                aspectRatio = aspectsById.getValue(candidate.id),
+                editsResolved = true
+            )
+
+            else -> candidate
+        }
+    }
+}
+
+private fun canReuseResolvedTimelineEdit(
+    candidate: AssetEntity,
+    cached: AssetEntity?
+): Boolean =
+    candidate.isEdited &&
+        cached?.isEdited == true &&
+        cached.editsResolved &&
+        candidate.id == cached.id &&
+        candidate.type == cached.type &&
+        candidate.fileName == cached.fileName &&
+        candidate.createdAt == cached.createdAt &&
+        candidate.isFavorite == cached.isFavorite &&
+        candidate.stackCount == cached.stackCount
 
 internal data class TimelineBucketMetadataChanges(
     val metadataChanged: Boolean,

@@ -79,6 +79,7 @@ class ImmichApiService(
         return try {
             httpClient.get("${session.baseUrl}$endpoint") {
                 header("x-api-key", session.apiKey)
+                parameter("withStacked", true)
             }.body()
         } catch (_: SerializationException) {
             throw TimelineApiCompatibilityException(
@@ -98,8 +99,10 @@ class ImmichApiService(
         val session = requestSession()
         val version = timelineServerVersion(session.baseUrl)
         try {
-            val columnar = httpClient.get("${session.baseUrl}$endpoint?timeBucket=$timeBucket") {
+            val columnar = httpClient.get("${session.baseUrl}$endpoint") {
                 header("x-api-key", session.apiKey)
+                parameter("timeBucket", timeBucket)
+                parameter("withStacked", true)
             }.body<TimelineBucketColumnarResponse>()
             return columnar.toAssetResponses()
         } catch (_: SerializationException) {
@@ -173,6 +176,7 @@ class ImmichApiService(
             header("x-api-key", session.apiKey)
             parameter("page", page)
             parameter("size", size)
+            parameter("withHidden", true)
         }.body()
     }
 

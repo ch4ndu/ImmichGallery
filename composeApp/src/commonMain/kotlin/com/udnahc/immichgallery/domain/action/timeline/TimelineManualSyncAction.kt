@@ -3,12 +3,14 @@ package com.udnahc.immichgallery.domain.action.timeline
 import com.udnahc.immichgallery.data.repository.SessionOperationStamp
 import com.udnahc.immichgallery.data.repository.SessionStateRepository
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
+import com.udnahc.immichgallery.domain.model.TimelineAssetSyncCompatibilityException
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelineBucketSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicPrecomputeResult
+import com.udnahc.immichgallery.domain.model.mergeRetryResult
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import kotlinx.coroutines.CancellationException
 import org.lighthousegames.logging.logging
@@ -79,14 +81,13 @@ class TimelineManualSyncAction internal constructor(
     private suspend fun run(request: TimelineManualSyncRequest): Result<TimelineManualSyncResult> =
         try {
             val bucketResult = syncBuckets().getOrElse { return Result.failure(it) }
+            if (bucketResult.removedBucketIds.isNotEmpty()) {
+                clearMosaicBuckets(bucketResult.removedBucketIds)
+            }
             val assetResult = syncAssetsWithRetry(bucketResult.buckets)
                 .getOrElse { return Result.failure(it) }
             val changedSuccessfulBucketIds =
                 assetResult.changedBucketIds intersect assetResult.successfulBucketIds
-            val bucketsToClear = bucketResult.removedBucketIds + changedSuccessfulBucketIds
-            if (bucketsToClear.isNotEmpty()) {
-                clearMosaicBuckets(bucketsToClear)
-            }
             val mosaicResult =
                 if (request.mosaicEnabled &&
                     request.cacheMosaicResults &&
@@ -130,14 +131,14 @@ class TimelineManualSyncAction internal constructor(
         val first = syncAssets(buckets).getOrElse { return Result.failure(it) }
         if (first.failedBucketIds.isEmpty()) return Result.success(first)
         val retryBuckets = buckets.filter { it.timeBucket in first.failedBucketIds }
-        val retry = syncAssets(retryBuckets).getOrElse { return Result.failure(it) }
-        val retrySuccessful = retry.successfulBucketIds
-        return Result.success(
-            TimelineAssetSyncResult(
-                successfulBucketIds = first.successfulBucketIds + retrySuccessful,
-                failedBucketIds = (first.failedBucketIds - retrySuccessful) + retry.failedBucketIds,
-                changedBucketIds = first.changedBucketIds + retry.changedBucketIds
-            )
-        )
+        val retry = syncAssets(retryBuckets).getOrElse { error ->
+            val compatibilityFailure = error as? TimelineAssetSyncCompatibilityException
+            if (compatibilityFailure != null) {
+                val combined = first.mergeRetryResult(compatibilityFailure.partialResult)
+                return Result.failure(compatibilityFailure.withPartialResult(combined))
+            }
+            return Result.failure(error)
+        }
+        return Result.success(first.mergeRetryResult(retry))
     }
 }

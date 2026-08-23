@@ -1,6 +1,8 @@
 package com.udnahc.immichgallery.ui.component
 
+import com.udnahc.immichgallery.data.model.ImmichPaginationCompatibilityException
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -53,5 +55,29 @@ class PhotoGridDetailPaginationTest {
             )
         )
         assertFalse(canManuallyLoadMore(hasMore = false, isLoadingMore = false))
+    }
+
+    @Test
+    fun compatibilityFailureExhaustsRejectedCursor() {
+        assertEquals(
+            DetailPaginationCursor(hasMore = false, nextPage = null),
+            detailPaginationCursorAfterFailure(
+                hasMore = true,
+                nextPage = 2,
+                failure = ImmichPaginationCompatibilityException()
+            )
+        )
+    }
+
+    @Test
+    fun transientFailurePreservesRetryableCursor() {
+        assertEquals(
+            DetailPaginationCursor(hasMore = true, nextPage = 2),
+            detailPaginationCursorAfterFailure(
+                hasMore = true,
+                nextPage = 2,
+                failure = IllegalStateException("temporary failure")
+            )
+        )
     }
 }

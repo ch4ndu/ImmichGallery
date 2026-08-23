@@ -9,6 +9,11 @@ import com.udnahc.immichgallery.data.local.entity.AlbumEntity
 import com.udnahc.immichgallery.data.local.entity.AssetEntity
 import kotlinx.coroutines.flow.Flow
 
+data class AlbumAssetRefOrder(
+    val assetId: String,
+    val sortOrder: Int
+)
+
 @Dao
 interface AlbumDao {
     @Upsert
@@ -79,6 +84,43 @@ interface AlbumDao {
 
     @Query("SELECT COUNT(*) FROM album_asset_refs WHERE albumId = :albumId")
     suspend fun getAlbumAssetCount(albumId: String): Int
+
+    @Query(
+        """
+        SELECT assetId, sortOrder FROM album_asset_refs
+        WHERE albumId = :albumId
+        ORDER BY sortOrder ASC
+        """
+    )
+    suspend fun getAlbumAssetRefOrders(albumId: String): List<AlbumAssetRefOrder>
+
+    @Query(
+        """
+        SELECT assetId, sortOrder FROM album_asset_refs
+        WHERE albumId = :albumId
+        AND sortOrder >= :startSortOrder
+        AND sortOrder < :endSortOrder
+        ORDER BY sortOrder ASC
+        """
+    )
+    suspend fun getAlbumAssetRefOrdersInSortRange(
+        albumId: String,
+        startSortOrder: Int,
+        endSortOrder: Int
+    ): List<AlbumAssetRefOrder>
+
+    @Query(
+        """
+        SELECT assetId, sortOrder FROM album_asset_refs
+        WHERE albumId = :albumId
+        AND sortOrder >= :startSortOrder
+        ORDER BY sortOrder ASC
+        """
+    )
+    suspend fun getAlbumAssetRefOrdersFromSortOrder(
+        albumId: String,
+        startSortOrder: Int
+    ): List<AlbumAssetRefOrder>
 
     @Query("SELECT COUNT(*) FROM albums")
     suspend fun getAlbumCount(): Int
