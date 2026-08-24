@@ -236,15 +236,20 @@ The coordinator registers that exact stamp before emitting `Started` or reading
 cache/network state, so a queued command cannot re-register under a replacement
 session. `SyncActivityTracker` is the sole foreground-activity count owner; its
 final decrement runs in non-cancellable cleanup, and the Android service removes
-foreground state only when the shared count reaches zero. When session mutation
-cancels or rejects the command, the coordinator emits a session-cancelled event
-before preserving cancellation. Timeline waits for the mutation's published
-admitted outcome before applying that exact command's terminal event: a failed logout retains the owner
-epoch, clears the still-mounted Timeline's transient manual-refresh state, and
-resumes visible work under the new admitted generation without reporting a
-network failure; a successful replacement changes the owner epoch and discards
-the old terminal. Buffered Started/Completed/Failed events run through isolated
-full-stamp gates, so they cannot cancel the long-lived event collector or update
+foreground state only when the shared count reaches zero during normal
+operation. Android's foreground-service timeout is the required exception: it
+terminally cancels all service-owned manual work, removes foreground state, and
+stops that service instance immediately instead of re-entering foreground from
+a still-positive tracker count. When session mutation cancels or rejects the
+command, the coordinator emits a session-cancelled event before preserving
+cancellation. Timeline waits for the mutation's published admitted outcome
+before applying that exact command's terminal event: a failed logout retains
+the owner epoch, clears the still-mounted Timeline's transient manual-refresh
+state, and resumes visible work under the new admitted generation without
+reporting a network failure; a successful replacement changes the owner epoch
+and discards the old terminal. Buffered Started/Completed/Failed events run
+through isolated full-stamp gates, so they cannot cancel the long-lived event
+collector or update
 a newer session.
 
 ### Cache-Off Mosaic Cleanup

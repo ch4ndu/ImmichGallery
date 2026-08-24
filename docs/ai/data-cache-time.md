@@ -12,6 +12,13 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - If the app starts storing durable user-authored data, add explicit migrations and remove destructive fallback for those tables.
 - DAOs expose `Flow` for observed reads and `suspend` functions for writes and imperative reads.
 - Room builders set `setQueryCoroutineContext(Dispatchers.IO)` on every platform, and repositories still wrap imperative DAO reads/writes in `withContext(Dispatchers.IO)` at the call site. Do not rely on caller dispatcher for counts, sync metadata, cached asset reads, or cache clears.
+- iOS stores this re-fetchable database under
+  `Library/Application Support/ImmichGallery`, marks that directory excluded
+  from backup, and relocates the legacy Documents database together with its
+  `-wal` and `-shm` files before Room opens. A partial move, mixed source/target
+  state, or backup-exclusion failure removes the known cache file sets and
+  starts fresh or aborts before opening; this is filesystem cache migration,
+  not a Room schema migration.
 - Cache replacement should be transactional where multiple tables or relationship rows must stay in sync.
 - Stale relationship data should be replaced atomically: delete or replace refs for the scoped owner, then insert current refs. Timeline bucket metadata is the exception: count-changed buckets keep old refs until that bucket's asset refresh succeeds so cached launch rows do not collapse during background work; removed buckets still clear refs immediately.
 - Timeline Mosaic cache rows are split by purpose: assignments are width-independent, while section geometry, aggregate bucket geometry, and mixed display-record cache rows are width/key/version dependent. `PrepareTimelineMosaicCacheAction` and `TimelineMosaicArtifactBuilder` derive Timeline Mosaic artifacts through `MosaicRenderEngine`; `TimelineMosaicCacheRepository` persists, reads, clears, and validates these rows only. `TimelineRepository` stays bucket/asset-sync focused but may expose a bucket snapshot read of ordered assets plus metadata count for precompute. `ViewConfig.cacheMosaicResults = false` disables sync-time Timeline Mosaic artifact preparation and disk reads for rendering; materialized Timeline buckets compute runtime Mosaic state for the requested config only from render-demand work after active scrolling settles instead of fetching old rows from disk.

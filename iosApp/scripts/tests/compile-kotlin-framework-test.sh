@@ -12,15 +12,14 @@ PASSED=0
 new_fixture() {
   name=$1
   TEST_ROOT="$FIXTURE_ROOT/$name"
-  MARKER="$TEST_ROOT/gradle-called"
-  FRAMEWORK="$TEST_ROOT/composeApp/build/xcode-frameworks/Debug/iphonesimulator1.0/ComposeApp.framework/ComposeApp"
 
   mkdir -p \
     "$TEST_ROOT/composeApp/src/commonMain/kotlin" \
     "$TEST_ROOT/composeApp/src/iosMain/kotlin" \
-    "$TEST_ROOT/composeApp/build/xcode-frameworks/Debug/iphonesimulator1.0/ComposeApp.framework" \
     "$TEST_ROOT/gradle/wrapper" \
     "$TEST_ROOT/gradle"
+  TEST_ROOT=$(CDPATH= cd -- "$TEST_ROOT" && pwd)
+  MARKER="$TEST_ROOT/gradle-called"
   touch \
     "$TEST_ROOT/composeApp/src/commonMain/kotlin/Common.kt" \
     "$TEST_ROOT/composeApp/src/iosMain/kotlin/Ios.kt" \
@@ -30,89 +29,84 @@ new_fixture() {
     "$TEST_ROOT/gradle.properties" \
     "$TEST_ROOT/gradle/libs.versions.toml" \
     "$TEST_ROOT/gradle/wrapper/gradle-wrapper.properties" \
-    "$TEST_ROOT/gradlew" \
-    "$FRAMEWORK"
-  find "$TEST_ROOT" -exec touch -t 202001010000 {} +
-  touch -t 202001010100 "$FRAMEWORK"
+    "$TEST_ROOT/local.properties"
 
-  printf '%s\n' '#!/bin/sh' ': > "$IMMICH_GALLERY_GRADLE_MARKER"' > "$TEST_ROOT/gradlew"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    '[ "$#" -eq 1 ] && [ "$1" = ":composeApp:embedAndSignAppleFrameworkForXcode" ] || exit 91' \
+    'printf "%s\n" "$PWD|$1|${IMMICH_GALLERY_LOGIN_SERVER_URL:-}|${IMMICH_GALLERY_LOGIN_API_KEY:-}" > "$IMMICH_GALLERY_GRADLE_MARKER"' \
+    > "$TEST_ROOT/gradlew"
   chmod +x "$TEST_ROOT/gradlew"
-  touch -t 202001010000 "$TEST_ROOT/gradlew"
 }
 
 run_helper() {
+  server_url=${1:-}
+  api_key=${2:-}
+  rm -f "$MARKER"
   IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" \
-    IMMICH_GALLERY_FRAMEWORK_BINARY="$FRAMEWORK" \
     IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
+    IMMICH_GALLERY_LOGIN_SERVER_URL="$server_url" \
+    IMMICH_GALLERY_LOGIN_API_KEY="$api_key" \
     "$HELPER" >/dev/null
-}
-
-expect_skipped() {
-  test_name=$1
-  run_helper
-  if [ -e "$MARKER" ]; then
-    echo "FAIL: $test_name invoked Gradle"
-    exit 1
-  fi
-  PASSED=$((PASSED + 1))
 }
 
 expect_gradle() {
   test_name=$1
-  run_helper
+  server_url=${2:-}
+  api_key=${3:-}
+  run_helper "$server_url" "$api_key"
   if [ ! -e "$MARKER" ]; then
     echo "FAIL: $test_name skipped Gradle"
+    exit 1
+  fi
+
+  expected="$TEST_ROOT|:composeApp:embedAndSignAppleFrameworkForXcode|$server_url|$api_key"
+  actual=$(cat "$MARKER")
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $test_name invoked Gradle with unexpected task, directory, or login inputs"
     exit 1
   fi
   PASSED=$((PASSED + 1))
 }
 
 new_fixture unchanged
-expect_skipped "unchanged inputs"
+expect_gradle "unchanged inputs"
+expect_gradle "repeated unchanged inputs"
 
-new_fixture edited_source
-touch "$TEST_ROOT/composeApp/src/commonMain/kotlin/Common.kt"
-expect_gradle "edited source"
-
-new_fixture added_source
-touch "$TEST_ROOT/composeApp/src/commonMain/kotlin/Added.kt"
-expect_gradle "added source"
-
-new_fixture deleted_source
-rm "$TEST_ROOT/composeApp/src/commonMain/kotlin/Common.kt"
-expect_gradle "deleted source"
-
-new_fixture renamed_source
-mv "$TEST_ROOT/composeApp/src/iosMain/kotlin/Ios.kt" "$TEST_ROOT/composeApp/src/iosMain/kotlin/Renamed.kt"
-expect_gradle "renamed source"
-
-new_fixture changed_resource
-mkdir -p "$TEST_ROOT/composeApp/src/commonMain/composeResources/values"
-touch "$TEST_ROOT/composeApp/src/commonMain/composeResources/values/strings.xml"
-expect_gradle "changed Compose resource"
+new_fixture deleted_local_properties
+rm "$TEST_ROOT/local.properties"
+expect_gradle "deleted local properties input"
 
 new_fixture changed_root_build
-touch "$TEST_ROOT/build.gradle.kts"
+printf '%s\n' '// changed' >> "$TEST_ROOT/build.gradle.kts"
 expect_gradle "changed root build configuration"
 
+new_fixture changed_compose_build
+printf '%s\n' '// changed' >> "$TEST_ROOT/composeApp/build.gradle.kts"
+expect_gradle "changed Compose build configuration"
+
 new_fixture changed_catalog
-touch "$TEST_ROOT/gradle/libs.versions.toml"
+printf '%s\n' '# changed' >> "$TEST_ROOT/gradle/libs.versions.toml"
 expect_gradle "changed version catalog"
 
-new_fixture changed_local_properties
-touch "$TEST_ROOT/local.properties"
-expect_gradle "changed local properties input"
+new_fixture changed_login_server
+expect_gradle "changed login server environment input" "https://photos.example.test/path" "first-key"
+expect_gradle "changed login server environment input again" "https://other.example.test/path" "first-key"
 
-new_fixture missing_framework
-rm "$FRAMEWORK"
-expect_gradle "missing framework"
+new_fixture changed_login_key
+expect_gradle "changed login key environment input" "https://photos.example.test/path" "first-key"
+expect_gradle "changed login key environment input again" "https://photos.example.test/path" "second-key"
 
 new_fixture ide_override
-OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES run_helper
+rm -f "$MARKER"
+OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES \
+  IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" \
+  IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
+  "$HELPER" >/dev/null
 if [ -e "$MARKER" ]; then
   echo "FAIL: IDE override invoked Gradle"
   exit 1
 fi
 PASSED=$((PASSED + 1))
 
-echo "Passed $PASSED Kotlin framework freshness checks"
+echo "Passed $PASSED Kotlin framework invocation checks"

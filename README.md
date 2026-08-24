@@ -156,16 +156,75 @@ Run directly with Gradle:
 ./gradlew :composeApp:run
 ```
 
-The desktop packaging configuration also supports DMG, MSI, and DEB targets on
-their applicable host platforms.
+Development runs use a staged VLC bundle when one is supplied and otherwise
+may use an installed VLC. Native application images and DMG, MSI, or DEB
+packages require a builder-supplied VLC bundle through either
+`-PimmichGallery.vlcBundleDir=/absolute/path/to/vlc-root` or the
+`IMMICH_GALLERY_VLC_BUNDLE_DIR` environment variable. The root contains a
+directory matching the build host (`macos-arm64`, `macos-x64`,
+`windows-arm64`, `windows-x64`, `linux-arm64`, or `linux-x64`):
+
+```text
+<vlc-root>/
+  macos-arm64/
+    lib/
+      libvlc.dylib
+      libvlccore.dylib
+    plugins/
+      .../*.dylib
+
+  windows-x64/
+    libvlc.dll
+    libvlccore.dll
+    plugins/
+      .../*.dll
+
+  linux-x64/
+    libvlc.so*
+    libvlccore.so*
+    plugins/                 # vlc/plugins/ is also accepted
+      .../*.so*
+```
+
+For example, create a self-contained application image on the current host:
+
+```shell
+./gradlew :composeApp:createDistributable \
+  -PimmichGallery.vlcBundleDir=/absolute/path/to/vlc-root
+```
+
+The build validates the current target's core libraries and plugin layout and
+copies only that target into generated application resources. VLC binaries are
+not tracked by this repository and the build never downloads them.
 
 ### iOS
 
-Open `iosApp/iosApp.xcodeproj`, set the development team used by
-`iosApp/Configuration/Config.xcconfig` when signing is required, and build the
-`iosApp` scheme. The Xcode build phase compiles the Kotlin framework through
-`iosApp/scripts/compile-kotlin-framework.sh`; it skips Gradle only when the
-destination framework is newer than all relevant shared/Apple inputs.
+Open `iosApp/iosApp.xcodeproj` and build the `iosApp` scheme. The project keeps
+a stable bundle identifier but does not commit an Apple Developer team or code
+signing identity. For a signed device build or local archive, copy the example
+configuration and replace its placeholder with your team identifier:
+
+```shell
+cp iosApp/Configuration/Local.xcconfig.example iosApp/Configuration/Local.xcconfig
+```
+
+`Local.xcconfig` is gitignored and optionally included by the shared
+`Config.xcconfig`. Xcode automatic signing selects the appropriate local
+identity from `TEAM_ID`; builds that do not need a development team can leave
+it blank. If the shared bundle identifier is not available to your developer
+team, uncomment `PRODUCT_BUNDLE_IDENTIFIER` in the local configuration and set
+it to a globally unique reverse-DNS identifier that you control.
+
+The Xcode build phase invokes
+`:composeApp:embedAndSignAppleFrameworkForXcode` through
+`iosApp/scripts/compile-kotlin-framework.sh` on every build unless Xcode's
+existing Kotlin IDE override is active. Gradle's declared inputs and up-to-date
+checks decide whether work is needed, including changes to local login-prefill
+properties or `IMMICH_GALLERY_LOGIN_*` environment inputs.
+
+Any signed archive produced this way is a builder-owned source-build artifact.
+This repository does not supply distribution certificates, provisioning
+profiles, App Store signing, or a release-distribution workflow.
 
 After command-line Gradle work, stop the daemon with:
 

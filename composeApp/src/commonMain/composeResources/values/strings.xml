@@ -218,6 +218,7 @@
     <!-- Detail -->
     <string name="detail_failed_image">Failed to load image</string>
     <string name="detail_video">Video</string>
+    <string name="video_desktop_unavailable">Desktop video playback is unavailable. Verify the server address and API key. Install VLC for a development run, or rebuild with a VLC bundle configured through immichGallery.vlcBundleDir.</string>
     <string name="stack_count">Stacked photos</string>
     <string name="scroll_drag">Drag to scroll</string>
     <string name="detail_download">Download</string>

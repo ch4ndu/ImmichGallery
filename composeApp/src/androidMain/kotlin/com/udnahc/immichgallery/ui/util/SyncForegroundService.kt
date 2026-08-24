@@ -9,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import com.udnahc.immichgallery.MainActivity
 import com.udnahc.immichgallery.R
 import com.udnahc.immichgallery.data.repository.SessionOperationStamp
@@ -18,8 +20,11 @@ import com.udnahc.immichgallery.domain.action.timeline.TimelineManualSyncRequest
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -29,37 +34,75 @@ import org.lighthousegames.logging.logging
 class SyncForegroundService : Service() {
     private val log = logging("SyncForegroundService")
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val ownership = SyncForegroundServiceOwnership()
+    private val manualJobsByStartId = mutableMapOf<Int, Job>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_MANUAL_TIMELINE_SYNC) {
-            // Satisfy the foreground-service startup deadline while the
-            // coordinator registers the manual sync with the shared tracker.
-            startForegroundNow(activeCount = maxOf(currentTrackedCount(), 1))
-            val request = intent.toManualSyncRequest() ?: run {
-                reconcileForegroundState(startId)
-                return START_NOT_STICKY
-            }
-            serviceScope.launch {
-                runCatching {
-                    KoinPlatform.getKoin()
-                        .get<TimelineManualSyncCoordinator>()
-                        .run(request)
-                }.onFailure { e ->
-                    log.e { "Manual Timeline sync failed in foreground service" }
-                }
-                reconcileForegroundState(startId)
-            }
+        if (!ownership.onServiceStart(startId)) {
+            // A start queued behind a terminal timeout belongs to this expired
+            // instance and must not recreate its cancelled foreground work.
+            serviceStarted = false
+            stopSelf()
             return START_NOT_STICKY
         }
+        when (intent?.action) {
+            ACTION_MANUAL_TIMELINE_SYNC -> {
+                // Satisfy the foreground-service startup deadline while the
+                // coordinator registers the manual sync with the shared tracker.
+                startForegroundNow(activeCount = maxOf(currentTrackedCount(), 1))
+                val request = intent.toManualSyncRequest() ?: run {
+                    reconcileForegroundState()
+                    return START_NOT_STICKY
+                }
+                val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+                    try {
+                        KoinPlatform.getKoin()
+                            .get<TimelineManualSyncCoordinator>()
+                            .run(request)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        log.e { "Manual Timeline sync failed in foreground service" }
+                    }
+                }
+                manualJobsByStartId[startId] = job
+                ownership.onManualJobStarted(startId)
+                job.invokeOnCompletion {
+                    mainHandler.post {
+                        onManualJobFinished(startId, job)
+                    }
+                }
+                job.start()
+                return START_NOT_STICKY
+            }
 
-        reconcileForegroundState(startId)
-        return START_NOT_STICKY
+            ACTION_UPDATE -> {
+                // UPDATE may have arrived through startForegroundService, so
+                // enter foreground before consulting the authoritative tracker.
+                startForegroundNow(activeCount = maxOf(currentTrackedCount(), 1))
+                reconcileForegroundState()
+                return START_NOT_STICKY
+            }
+
+            else -> {
+                reconcileForegroundState()
+                return START_NOT_STICKY
+            }
+        }
     }
 
     override fun onDestroy() {
+        val ownedStartIds = ownership.onDestroy()
+        val ownedJobs = ownedStartIds.mapNotNull(manualJobsByStartId::get)
+        manualJobsByStartId.clear()
+        mainHandler.removeCallbacksAndMessages(null)
         serviceStarted = false
+        ownedJobs.forEach { job ->
+            job.cancel()
+        }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -81,7 +124,19 @@ class SyncForegroundService : Service() {
 
     override fun onTimeout(startId: Int, fgsType: Int) {
         log.d { "Sync foreground service timed out type=<redacted>" }
-        stopSyncForegroundService(startId)
+        // Android's foreground-service timeout is terminal for this service
+        // instance. Never reconcile here because that could promote it again.
+        ownership.onTimeout()
+        val ownedJobs = manualJobsByStartId.values.toList()
+        manualJobsByStartId.clear()
+        mainHandler.removeCallbacksAndMessages(null)
+        serviceStarted = false
+        ownedJobs.forEach { job ->
+            job.cancel()
+        }
+        serviceScope.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun buildNotification(activeCount: Int): Notification {
@@ -125,18 +180,26 @@ class SyncForegroundService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun stopSyncForegroundService(startId: Int) {
-        serviceStarted = false
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf(startId)
+    private fun onManualJobFinished(startId: Int, job: Job) {
+        if (manualJobsByStartId[startId] !== job) return
+        manualJobsByStartId.remove(startId)
+        ownership.onManualJobFinished(startId)
+        reconcileForegroundState()
     }
 
-    private fun reconcileForegroundState(startId: Int) {
+    private fun stopSyncForegroundService(startId: Int) {
+        if (!stopSelfResult(startId)) return
+        ownership.onStopped(startId)
+        serviceStarted = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
+    }
+
+    private fun reconcileForegroundState() {
         val activeCount = currentTrackedCount()
         if (activeCount > 0) {
             startForegroundNow(activeCount)
         } else {
-            stopSyncForegroundService(startId)
+            ownership.stopStartId(activeCount)?.let(::stopSyncForegroundService)
         }
     }
 
@@ -150,7 +213,6 @@ class SyncForegroundService : Service() {
         private const val ACTION_STOP = "com.udnahc.immichgallery.sync.STOP"
         private const val ACTION_MANUAL_TIMELINE_SYNC =
             "com.udnahc.immichgallery.sync.MANUAL_TIMELINE"
-        private const val EXTRA_ACTIVE_COUNT = "active_count"
         private const val EXTRA_MANUAL_SYNC_REQUEST_ID = "manual_sync_request_id"
         private const val EXTRA_SESSION_GENERATION = "session_generation"
         private const val EXTRA_SESSION_OWNER_EPOCH = "session_owner_epoch"
@@ -211,17 +273,13 @@ class SyncForegroundService : Service() {
             if (activeCount > 0) {
                 val intent = Intent(appContext, SyncForegroundService::class.java).apply {
                     action = ACTION_UPDATE
-                    putExtra(EXTRA_ACTIVE_COUNT, activeCount)
                 }
-                val result = runCatching {
+                runCatching {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !serviceStarted) {
                         appContext.startForegroundService(intent)
                     } else {
                         appContext.startService(intent)
                     }
-                }
-                if (result.isSuccess) {
-                    serviceStarted = true
                 }
                 return
             }

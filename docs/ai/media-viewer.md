@@ -127,10 +127,31 @@ video playback, or desktop viewer shortcuts.
 
 - Only the settled pager page is playing; off-screen pages pause.
 - Android sends the API key as an HTTP header to the shared media-player host.
-- JVM appends Immich's supported `apiKey` query parameter because the desktop
-  libVLC path does not reliably forward custom headers.
+- JVM and iOS build media URLs through one fail-closed `AuthenticatedMediaUrl`
+  boundary. It accepts only absolute HTTP(S) URLs, removes duplicate `apiKey`
+  values, appends exactly one percent-encoded key, preserves other query and
+  fragment components, and redacts its diagnostic representation. JVM uses
+  query authentication because libVLC does not reliably forward custom
+  headers; iOS uses it instead of private AVFoundation header options.
 - iOS tries the authenticated original file first, then falls back to Immich's
-  authenticated playback/transcode URL when AVPlayer fails or stalls.
+  authenticated playback/transcode URL when AVPlayer fails or stalls. The
+  bounded fallback observer exists only while that pager page is current;
+  leaving cancels it and returning starts a fresh window while the original is
+  still selected.
+- iOS Picture in Picture is disabled. Enabling it requires a separate contract
+  for AVAudioSession and host background-media capability.
+- Desktop startup probes a validated packaged libVLC bundle before any player
+  class initializes. Native packages require that builder-supplied bundle and
+  fail closed when it is absent or invalid. A Gradle development run may use an
+  installed VLC when no bundle is supplied. The viewer shows a resource-backed
+  recovery message when VLC or the authenticated media URL is unavailable.
+- Android and JVM wrap the native player in a final-pass pointer observer. It
+  never consumes pointer changes and reports only a single-pointer gesture that
+  stays within touch slop, so drags and multi-touch remain player-owned. The
+  pinned Chaintech player consumes both its surface and control taps without
+  exposing which child handled them; consequently a native-control tap can also
+  toggle app chrome. Distinguishing those taps requires replacing or forking
+  the player controls and is not part of this remediation.
 - The video URL and original URL are server-derived edited variants. Video
   controls are platform-player controls rather than custom domain state.
 
@@ -160,7 +181,11 @@ video playback, or desktop viewer shortcuts.
   pages use the asset thumbnail while slideshow is active rather than starting
   video playback.
 - `ScreenWakeLock` stays acquired only while slideshow is active and is released
-  on exit/disposal.
+  on exit/disposal. JVM uses one balanced process-wide owner: Windows performs
+  acquire/reset on the same dedicated JNA thread, macOS owns a `caffeinate`
+  process, and Linux owns a `systemd-inhibit` process when available. Missing
+  native commands are a safe unsupported fallback, and application exit closes
+  only the process/thread owned by ImmichGallery.
 - A tap during slideshow stops it and restores the top bar.
 
 ## Input And Chrome

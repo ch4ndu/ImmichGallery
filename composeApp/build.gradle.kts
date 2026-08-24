@@ -1,16 +1,188 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.JavaExec
+import java.io.File
 import java.util.Properties
+import javax.inject.Inject
+
+@CacheableTask
+abstract class PrepareDesktopVlcBundleTask : DefaultTask() {
+    @get:Input
+    abstract val configuredBundlePath: Property<String>
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val bundleContents: ConfigurableFileCollection
+
+    @get:Internal
+    abstract val projectRoot: DirectoryProperty
+
+    @get:Input
+    abstract val targetId: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputRoot: DirectoryProperty
+
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
+
+    @TaskAction
+    fun prepare() {
+        val outputDirectory = outputRoot.get().asFile
+        fileSystemOperations.delete { delete(outputDirectory) }
+
+        val configuredPath = configuredBundlePath.get().trim()
+        if (configuredPath.isEmpty()) {
+            outputDirectory.resolve("common").mkdirs()
+            return
+        }
+
+        val configuredFile = File(configuredPath)
+        val configuredRoot = if (configuredFile.isAbsolute) {
+            configuredFile
+        } else {
+            projectRoot.get().asFile.resolve(configuredPath)
+        }
+        if (!configuredRoot.isDirectory) {
+            throw GradleException(
+                "The configured VLC bundle root does not exist or is not a directory. " +
+                    "Set -PimmichGallery.vlcBundleDir or IMMICH_GALLERY_VLC_BUNDLE_DIR to a valid bundle root."
+            )
+        }
+
+        val layout = desktopVlcTargetLayout(targetId.get())
+        val targetDirectory = configuredRoot.resolve(layout.targetId)
+        validateDesktopVlcBundle(targetDirectory, layout)
+        fileSystemOperations.sync {
+            from(targetDirectory)
+            into(outputDirectory.resolve("common/vlc"))
+        }
+    }
+
+    private fun desktopVlcTargetLayout(targetId: String): DesktopVlcTargetLayout =
+        when {
+            targetId.startsWith("windows-") -> DesktopVlcTargetLayout(
+                targetId = targetId,
+                nativeDirectory = ".",
+                libVlcPattern = Regex("libvlc\\.dll", RegexOption.IGNORE_CASE),
+                libVlcCorePattern = Regex("libvlccore\\.dll", RegexOption.IGNORE_CASE),
+                pluginBinaryPattern = Regex(".+\\.dll", RegexOption.IGNORE_CASE),
+                pluginDirectories = listOf("plugins", "vlc/plugins"),
+            )
+            targetId.startsWith("macos-") -> DesktopVlcTargetLayout(
+                targetId = targetId,
+                nativeDirectory = "lib",
+                libVlcPattern = Regex("libvlc\\.dylib"),
+                libVlcCorePattern = Regex("libvlccore\\.dylib"),
+                pluginBinaryPattern = Regex(".+\\.dylib"),
+                pluginDirectories = listOf("plugins"),
+            )
+            targetId.startsWith("linux-") -> DesktopVlcTargetLayout(
+                targetId = targetId,
+                nativeDirectory = ".",
+                libVlcPattern = Regex("libvlc\\.so(?:\\.\\d+)*"),
+                libVlcCorePattern = Regex("libvlccore\\.so(?:\\.\\d+)*"),
+                pluginBinaryPattern = Regex(".+\\.so(?:\\.\\d+)*"),
+                pluginDirectories = listOf("plugins", "vlc/plugins"),
+            )
+            else -> throw GradleException("Unsupported VLC bundle target: $targetId")
+        }
+
+    private fun validateDesktopVlcBundle(
+        targetDirectory: java.io.File,
+        layout: DesktopVlcTargetLayout,
+    ) {
+        if (!targetDirectory.isDirectory) {
+            throw GradleException(
+                "Missing VLC bundle target '${layout.targetId}' under the configured bundle root. " +
+                    "Set -PimmichGallery.vlcBundleDir or IMMICH_GALLERY_VLC_BUNDLE_DIR to a root containing that directory."
+            )
+        }
+        val nativeDirectory = targetDirectory.resolve(layout.nativeDirectory)
+        val nativeFiles = nativeDirectory.listFiles()?.filter(File::isFile).orEmpty()
+        if (nativeFiles.none { layout.libVlcPattern.matches(it.name) }) {
+            throw GradleException("VLC bundle target '${layout.targetId}' is missing libVLC in its native directory")
+        }
+        if (nativeFiles.none { layout.libVlcCorePattern.matches(it.name) }) {
+            throw GradleException("VLC bundle target '${layout.targetId}' is missing libvlccore in its native directory")
+        }
+        val firstExistingPluginDirectory = layout.pluginDirectories
+            .map(targetDirectory::resolve)
+            .firstOrNull(File::exists)
+        val hasPlugins = firstExistingPluginDirectory?.isDirectory == true &&
+            firstExistingPluginDirectory.walkTopDown().any { candidate ->
+                candidate.isFile && layout.pluginBinaryPattern.matches(candidate.name)
+            }
+        if (!hasPlugins) {
+            throw GradleException(
+                "VLC bundle target '${layout.targetId}' is missing an OS-appropriate plugin binary " +
+                    "in its first existing plugins directory"
+            )
+        }
+    }
+
+    private data class DesktopVlcTargetLayout(
+        val targetId: String,
+        val nativeDirectory: String,
+        val libVlcPattern: Regex,
+        val libVlcCorePattern: Regex,
+        val pluginBinaryPattern: Regex,
+        val pluginDirectories: List<String>,
+    )
+}
+
+@org.gradle.work.DisableCachingByDefault(because = "Validation-only task with no outputs")
+abstract class RequireDesktopVlcBundleTask : DefaultTask() {
+    @get:Input
+    abstract val configuredBundlePath: Property<String>
+
+    @get:Input
+    abstract val targetId: Property<String>
+
+    @TaskAction
+    fun requireBundle() {
+        if (configuredBundlePath.get().isEmpty()) {
+            throw GradleException(
+                "Native Desktop distributions require a builder-supplied VLC bundle. " +
+                    "Set -PimmichGallery.vlcBundleDir or IMMICH_GALLERY_VLC_BUNDLE_DIR."
+            )
+        }
+    }
+}
+
+private fun currentDesktopVlcTargetId(): String {
+    val os = System.getProperty("os.name").orEmpty()
+    val arch = when (System.getProperty("os.arch").orEmpty().lowercase()) {
+        "aarch64", "arm64" -> "arm64"
+        "amd64", "x86_64" -> "x64"
+        else -> throw GradleException("VLC bundling does not support this Desktop architecture")
+    }
+    val osId = when {
+        os.equals("Mac OS X", ignoreCase = true) -> "macos"
+        os.startsWith("Win", ignoreCase = true) -> "windows"
+        os.startsWith("Linux", ignoreCase = true) -> "linux"
+        else -> throw GradleException("VLC bundling does not support this Desktop operating system")
+    }
+    return "$osId-$arch"
+}
 
 abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
     @get:Optional
@@ -215,6 +387,9 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
+            implementation(libs.jna.jpms)
+            implementation(libs.jna.platform.jpms)
+            implementation(libs.vlcj)
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.ktor.client.java)
         }
@@ -233,14 +408,70 @@ room {
     schemaDirectory("$projectDir/schemas")
 }
 
+val desktopVlcBundlePath = providers.gradleProperty("immichGallery.vlcBundleDir")
+    .map { it.trim() }
+    .filter { it.isNotEmpty() }
+    .orElse(
+        providers.environmentVariable("IMMICH_GALLERY_VLC_BUNDLE_DIR")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    )
+    .orElse("")
+val desktopVlcTargetId = providers.provider(::currentDesktopVlcTargetId)
+val prepareDesktopVlcBundle = tasks.register<PrepareDesktopVlcBundleTask>("prepareDesktopVlcBundle") {
+    description = "Validates and stages the builder-supplied VLC bundle for the current Desktop target."
+    group = "distribution"
+    configuredBundlePath.set(desktopVlcBundlePath)
+    val configuredPath = desktopVlcBundlePath.get()
+    if (configuredPath.isNotEmpty()) {
+        bundleContents.from(rootProject.file(configuredPath))
+    }
+    projectRoot.set(rootProject.layout.projectDirectory)
+    targetId.set(desktopVlcTargetId)
+    outputRoot.set(layout.buildDirectory.dir("generated/desktopVlc/appResources"))
+}
+val requireDesktopVlcBundle = tasks.register<RequireDesktopVlcBundleTask>("requireDesktopVlcBundle") {
+    description = "Requires a complete builder-supplied VLC bundle before creating a native Desktop distribution."
+    group = "distribution"
+    dependsOn(prepareDesktopVlcBundle)
+    configuredBundlePath.set(desktopVlcBundlePath)
+    targetId.set(desktopVlcTargetId)
+}
+
+tasks.withType<AbstractJPackageTask>().configureEach {
+    dependsOn(requireDesktopVlcBundle)
+    inputs.dir(prepareDesktopVlcBundle.flatMap { it.outputRoot })
+        .withPropertyName("desktopVlcAppResources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+tasks.withType<JavaExec>().configureEach {
+    if (name == "run" || name == "runRelease") {
+        dependsOn(prepareDesktopVlcBundle)
+        inputs.dir(prepareDesktopVlcBundle.flatMap { it.outputRoot })
+            .withPropertyName("desktopVlcAppResources")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "com.udnahc.immichgallery.MainKt"
 
         nativeDistributions {
+            appResourcesRootDir.set(prepareDesktopVlcBundle.flatMap { it.outputRoot })
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "com.udnahc.immichgallery"
             packageVersion = "1.2.0"
         }
+    }
+}
+
+// Compose registers and configures JPackage tasks from its own afterEvaluate
+// action. Add the packaged-mode marker afterward so its launcherJvmArgs.set(...)
+// cannot replace this value.
+afterEvaluate {
+    tasks.withType<AbstractJPackageTask>().configureEach {
+        launcherJvmArgs.add("-DimmichGallery.vlcBundleRequired=true")
     }
 }

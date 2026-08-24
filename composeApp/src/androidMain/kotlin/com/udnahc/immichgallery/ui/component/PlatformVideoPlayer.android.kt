@@ -1,7 +1,9 @@
 package com.udnahc.immichgallery.ui.component
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
@@ -14,6 +16,7 @@ import chaintech.videoplayer.model.ScreenResize
 import chaintech.videoplayer.model.VideoPlayerConfig
 import chaintech.videoplayer.ui.video.VideoPlayerComposable
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.observeNonConsumingTap
 
 @Composable
 actual fun PlatformVideoPlayer(
@@ -40,20 +43,22 @@ actual fun PlatformVideoPlayer(
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    VideoPlayerComposable(
-        modifier = modifier,
-        playerHost = host,
-        playerConfig = VideoPlayerConfig(
-            isPauseResumeEnabled = true,
-            isSeekBarVisible = true,
-            enableFullEdgeToEdge = false,
-            isScreenLockEnabled = false,
-            enablePIPControl = false,
-            isScreenResizeEnabled = true,
-            isFullScreenEnabled = false,
-            controlTopPadding = statusBarTop + Dimens.topBarHeight,
-            seekBarBottomPadding = navBarBottom + Dimens.screenPadding,
-            topControlSize = 36.dp
+    Box(modifier = modifier.observeNonConsumingTap(onTap)) {
+        VideoPlayerComposable(
+            modifier = Modifier.fillMaxSize(),
+            playerHost = host,
+            playerConfig = VideoPlayerConfig(
+                isPauseResumeEnabled = true,
+                isSeekBarVisible = true,
+                enableFullEdgeToEdge = false,
+                isScreenLockEnabled = false,
+                enablePIPControl = false,
+                isScreenResizeEnabled = true,
+                isFullScreenEnabled = false,
+                controlTopPadding = statusBarTop + Dimens.topBarHeight,
+                seekBarBottomPadding = navBarBottom + Dimens.screenPadding,
+                topControlSize = 36.dp
+            )
         )
-    )
+    }
 }

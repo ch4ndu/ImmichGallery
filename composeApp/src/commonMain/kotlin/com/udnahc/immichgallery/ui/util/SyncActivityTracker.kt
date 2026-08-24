@@ -51,18 +51,17 @@ class SyncActivityTracker internal constructor(
     val activeCount: StateFlow<Int> = _activeCount.asStateFlow()
 
     suspend fun begin(key: SyncActivityKey) {
-        val count = mutex.withLock {
+        mutex.withLock {
             activeCounts[key] = (activeCounts[key] ?: 0) + 1
             val updatedCount = activeCounts.values.sum()
             _activeCount.value = updatedCount
-            updatedCount
+            notifier.onActiveSyncCountChanged(updatedCount)
         }
-        notifier.onActiveSyncCountChanged(count)
     }
 
     suspend fun end(key: SyncActivityKey) {
         withContext(NonCancellable) {
-            val count = mutex.withLock {
+            mutex.withLock {
                 val current = activeCounts[key] ?: 0
                 when {
                     current <= 1 -> activeCounts.remove(key)
@@ -70,9 +69,8 @@ class SyncActivityTracker internal constructor(
                 }
                 val updatedCount = activeCounts.values.sum()
                 _activeCount.value = updatedCount
-                updatedCount
+                notifier.onActiveSyncCountChanged(updatedCount)
             }
-            notifier.onActiveSyncCountChanged(count)
         }
     }
 

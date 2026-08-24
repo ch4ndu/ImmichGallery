@@ -35,6 +35,11 @@ import kotlinx.cinterop.ObjCAction
 
 private val log = logging()
 
+private enum class IosVideoSource {
+    ORIGINAL,
+    PLAYBACK,
+}
+
 // NSObject subclass so AVPVC's UITapGestureRecognizer has a valid target/action
 // pair. AVPVC also installs its own tap recognizer to toggle its native controls;
 // ours fires alongside (cancelsTouchesInView = false) so both the app's top bar
@@ -57,25 +62,37 @@ actual fun PlatformVideoPlayer(
     onTap: () -> Unit,
     modifier: Modifier
 ) {
-    // On iOS, try the raw original file first. AVPlayer natively decodes
+    // On iOS, try the authenticated original file first. AVPlayer natively decodes
     // mp4/m4v/mov/hevc containers, so the /original endpoint works for the
     // vast majority of user videos. Immich's /video/playback transcode has
     // been observed to produce streams where the audio track decodes but the
     // video track doesn't (black screen + advancing seekbar). Falling back
     // to the transcode covers formats AVPlayer can't open natively (webm, mkv).
-    var currentUrl by remember(originalUrl, playbackUrl) { mutableStateOf(originalUrl) }
-    var triedFallback by remember(originalUrl, playbackUrl) { mutableStateOf(false) }
+    val authenticatedOriginal = remember(originalUrl, apiKey) {
+        AuthenticatedMediaUrl.create(originalUrl, apiKey)
+    }
+    val authenticatedPlayback = remember(playbackUrl, apiKey) {
+        AuthenticatedMediaUrl.create(playbackUrl, apiKey)
+    }
+    var currentSource by remember(originalUrl, playbackUrl, apiKey) {
+        mutableStateOf(
+            if (authenticatedOriginal != null) {
+                IosVideoSource.ORIGINAL
+            } else {
+                IosVideoSource.PLAYBACK
+            }
+        )
+    }
+    val currentMediaUrl = when (currentSource) {
+        IosVideoSource.ORIGINAL -> authenticatedOriginal
+        IosVideoSource.PLAYBACK -> authenticatedPlayback
+    } ?: return
 
     log.d { "PlatformVideoPlayer(iOS): loading <redacted>" }
 
-    val player = remember(currentUrl, playbackUrl, apiKey) {
-        val nsUrl = NSURL.URLWithString(currentUrl)
-            ?: NSURL.URLWithString(playbackUrl)
-        nsUrl?.let { url ->
-            val asset = AVURLAsset(
-                uRL = url,
-                options = mapOf("AVURLAssetHTTPHeaderFieldsKey" to mapOf("x-api-key" to apiKey))
-            )
+    val player = remember(currentMediaUrl.url) {
+        NSURL.URLWithString(currentMediaUrl.url)?.let { url ->
+            val asset = AVURLAsset(uRL = url, options = null)
             val playerItem = AVPlayerItem(asset = asset)
             AVPlayer(playerItem = playerItem)
         }
@@ -83,31 +100,37 @@ actual fun PlatformVideoPlayer(
 
     // Watch for playback failures on the original URL and fall back to the
     // transcoded playback URL if the original format isn't AVPlayer-compatible.
-    LaunchedEffect(player, currentUrl) {
-        if (currentUrl != originalUrl || triedFallback) return@LaunchedEffect
-        val pollCount = 50 // 5 seconds at 100ms each
-        repeat(pollCount) {
-            delay(100)
+    // isCurrentPage is part of the effect key: leaving the page cancels this
+    // bounded window, and returning starts a fresh one without consuming the
+    // fallback while the page was inactive.
+    LaunchedEffect(isCurrentPage, player, currentSource, authenticatedPlayback) {
+        if (
+            !isCurrentPage ||
+            currentSource != IosVideoSource.ORIGINAL ||
+            authenticatedPlayback == null
+        ) {
+            return@LaunchedEffect
+        }
+
+        repeat(FAILURE_OBSERVATION_POLLS) {
+            delay(FAILURE_OBSERVATION_INTERVAL_MILLIS)
             val item = player.currentItem() ?: return@LaunchedEffect
             val errorCount = item.errorLog()?.events?.size ?: 0
             if (errorCount > 0) {
                 log.w {
                     "PlatformVideoPlayer(iOS): errorLog has <redacted> entries on original URL; falling back to transcode"
                 }
-                triedFallback = true
-                currentUrl = playbackUrl
+                currentSource = IosVideoSource.PLAYBACK
                 return@LaunchedEffect
             }
             when (item.status) {
                 AVPlayerItemStatusFailed -> {
-                    val err = item.error
                     log.w {
                         "AVPlayerItem failed on original URL: domain=<redacted> " +
                             "code=<redacted> desc=<redacted>"
                     }
                     log.d { "PlatformVideoPlayer(iOS): falling back to transcode <redacted>" }
-                    triedFallback = true
-                    currentUrl = playbackUrl
+                    currentSource = IosVideoSource.PLAYBACK
                     return@LaunchedEffect
                 }
                 AVPlayerItemStatusReadyToPlay -> {
@@ -121,8 +144,7 @@ actual fun PlatformVideoPlayer(
             log.w {
                 "PlatformVideoPlayer(iOS): original URL stalled (status=<redacted>); falling back to transcode"
             }
-            triedFallback = true
-            currentUrl = playbackUrl
+            currentSource = IosVideoSource.PLAYBACK
         } else {
             log.d { "PlatformVideoPlayer(iOS): original URL playing cleanly" }
         }
@@ -155,7 +177,7 @@ actual fun PlatformVideoPlayer(
             AVPlayerViewController().apply {
                 this.player = player
                 this.showsPlaybackControls = true
-                this.allowsPictureInPicturePlayback = true
+                this.allowsPictureInPicturePlayback = false
                 this.videoGravity = AVLayerVideoGravityResizeAspect
                 val tap = UITapGestureRecognizer(
                     target = tapHandler,
@@ -176,3 +198,6 @@ actual fun PlatformVideoPlayer(
         )
     )
 }
+
+private const val FAILURE_OBSERVATION_POLLS = 50
+private const val FAILURE_OBSERVATION_INTERVAL_MILLIS = 100L

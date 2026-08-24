@@ -1,0 +1,7 @@
+// Copy this file to Local.xcconfig and replace the placeholder when a signed
+// device build or archive needs your Apple Developer team.
+TEAM_ID = YOUR_APPLE_DEVELOPER_TEAM_ID
+
+// Uncomment and replace this value if the shared bundle identifier is not
+// available to your team. Use a globally unique reverse-DNS identifier.
+// PRODUCT_BUNDLE_IDENTIFIER = com.example.ImmichGallery

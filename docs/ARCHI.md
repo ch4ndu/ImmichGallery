@@ -356,7 +356,12 @@ Android manual refresh is executed by `SyncForegroundService` through
 `TimelineManualSyncCoordinator`. iOS and JVM execute the same coordinator from
 the ViewModel. Changed bucket content drives scoped invalidation; a successful
 no-op refresh must not rewrite equivalent data, bump layout revisions, or clear
-Mosaic/row projections.
+Mosaic/row projections. `SyncActivityTracker` total count owns normal Android
+foreground lifetime, while retained service jobs are isolated by start ID so
+an older completion cannot stop newer work. Android's system-delivered
+foreground-service timeout is terminal: it cancels all service-owned manual
+jobs and immediately demotes/stops that instance rather than consulting the
+normal tracker-zero rule.
 
 The authoritative algorithm and failure rules are in
 `docs/ai/timeline-sync.md`; Timeline rendering and scroll targeting are in
@@ -477,10 +482,13 @@ through exit animation.
 Video authentication differs by platform:
 
 - Android supplies the API key as an HTTP header.
-- JVM appends Immich's supported `apiKey` query parameter because desktop
-  libVLC does not reliably forward custom headers.
-- iOS sends the header through `AVURLAsset`, tries the original media first,
-  and falls back to Immich playback/transcode after failure or stall.
+- JVM and iOS use one fail-closed Ktor URL builder to replace duplicate
+  `apiKey` values with exactly one percent-encoded query value. JVM needs query
+  authentication because libVLC does not reliably forward custom headers.
+- iOS uses ordinary public `AVURLAsset` URLs, tries authenticated original media
+  first, and observes failure/stall only while the page is current before
+  falling back to authenticated playback/transcode. Picture in Picture remains
+  disabled until the host owns a background-audio/media contract.
 
 Expanded asset information is fetched on demand and not persisted. Slideshow
 state is shared; platform wake-lock implementations keep the screen awake only
@@ -521,14 +529,28 @@ Android supports API 24 and newer and targets API 37.
 The SwiftUI app hosts `MainViewController()` from the static Kotlin framework.
 The project currently builds ARM64 device and ARM64 simulator targets and sets
 the deployment target to iOS/iPadOS 18.2. The Xcode build phase calls
-`iosApp/scripts/compile-kotlin-framework.sh`, which skips Gradle only when the
-framework is newer than all relevant shared/Apple inputs.
+`iosApp/scripts/compile-kotlin-framework.sh` on every build unless the existing
+Kotlin IDE override is active; Gradle owns input and up-to-date decisions. The
+project has a stable default bundle identifier but no committed team or signing
+identity. Builders provide optional `Local.xcconfig` values for their team and,
+when required, a unique local bundle identifier.
+
+The re-fetchable Room database lives under backup-excluded
+`Library/Application Support/ImmichGallery`. Before Room opens, the builder
+moves the legacy Documents database together with its WAL/SHM sidecars, or
+removes partial/mixed file sets and starts fresh.
 
 ### JVM Desktop
 
 `main.kt` owns a single Compose Desktop window and maps window focus into the
-shared lifecycle. Native distributions support DMG, MSI, and DEB on applicable
-hosts.
+shared lifecycle. It initializes VLC discovery before media-player classes and
+closes the process-wide wake-inhibition owner on application exit. Development
+runs may use installed VLC. Native DMG, MSI, and DEB creation requires a
+builder-supplied, matching VLC bundle that is validated, staged into application
+resources, and selected through exact-directory discovery before native library
+loading. The bundle root comes from `immichGallery.vlcBundleDir` or
+`IMMICH_GALLERY_VLC_BUNDLE_DIR` and contains one `<os>-<arch>` directory; no VLC
+binaries are tracked or downloaded by normal builds.
 
 ## 16. Configuration, Versioning, And Security
 
@@ -554,9 +576,9 @@ the expected transport outside a trusted network.
 
 The API key is application configuration stored by `multiplatform-settings`,
 not a Room row and not a server session token managed by a platform secure
-credential vault. Desktop video may place it in the playback URL query because
-of libVLC header limitations; logs and diagnostics must therefore avoid media
-URLs containing credentials.
+credential vault. JVM and iOS video place it in media URL queries because
+custom-header delivery is not a supported cross-platform player contract; logs
+and diagnostics must therefore avoid media URLs containing credentials.
 
 Current version surfaces are:
 
@@ -591,12 +613,16 @@ Common development commands are:
 
 # Desktop development and packaging
 ./gradlew :composeApp:run
-./gradlew :composeApp:packageReleaseDistributionForCurrentOS
+./gradlew :composeApp:createDistributable \
+  -PimmichGallery.vlcBundleDir=/absolute/path/to/vlc-root
 ```
 
 iOS application builds use the `iosApp` Xcode scheme and its Kotlin framework
-build phase. Gradle daemons must be stopped with `./gradlew --stop` after
-command-line Gradle work.
+build phase. The helper always invokes Gradle unless Xcode's Kotlin IDE override
+is active; Gradle owns input freshness. Desktop development may discover an
+installed VLC, while every native application-image/package task requires the
+validated builder input described in the README. Gradle daemons must be stopped
+with `./gradlew --stop` after command-line Gradle work.
 
 The current Android release build is not production-signed: minification is
 disabled and the release build uses the debug signing configuration. Packaging
@@ -613,11 +639,11 @@ organized as:
   Actions, ViewModels, grid projection, Mosaic scheduling, pagination, sync,
   and UI-helper contracts;
 - `composeApp/src/androidHostTest`: Android-only authenticated image-client
-  policy coverage;
+  policy and foreground-service ownership coverage;
 - `composeApp/src/androidDeviceTest`: the Room 1-to-2 migration test using the
   bundled SQLite driver;
-- `composeApp/src/jvmTest`: JVM settings namespace/migration and process-global
-  Coil singleton lifecycle coverage.
+- `composeApp/src/jvmTest`: JVM settings namespace/migration, process-global
+  Coil singleton lifecycle, VLC bootstrap/layout, and wake-inhibition coverage.
 
 There are currently no project test files under `iosTest`; shared `commonTest`
 tests execute through the platform test tasks. No code-coverage plugin or

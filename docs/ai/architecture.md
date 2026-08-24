@@ -27,14 +27,25 @@ For the shared photo/video viewer, information sheet, slideshow, and return tran
   caches or retain stale controller dependencies. Android also normalizes the
   captured platform context to the application context, so Activity recreation
   cannot be retained.
-- Room database with `BundledSQLiteDriver` and KSP code generation for local cache tables.
+- Room database with `BundledSQLiteDriver` and KSP code generation for local
+  cache tables. iOS stores that re-fetchable cache in backup-excluded
+  Application Support and relocates or removes the legacy Documents database
+  file set before Room opens.
 - Koin DI with `sharedModule` in common code and per-platform `platformModule` database builders.
 - JetBrains Navigation Compose KMP with `@Serializable` type-safe routes.
 - `multiplatform-settings` for server URL, API key, and lightweight settings;
   JVM uses an app-specific Java Preferences node with a guarded legacy-key
   migration.
 - `kotlinx-datetime` for date/time logic.
-- Android foreground work notifications are driven by common `SyncActivityTracker` keys for active sync and explicit Mosaic preparation. Android starts a `dataSync` foreground service for that notification state. Manual Timeline refresh is the exception: on Android the foreground service owns the manual sync command and runs the shared `TimelineManualSyncCoordinator`; other platforms run that coordinator from the ViewModel.
+- Android foreground work notifications are driven by common
+  `SyncActivityTracker` keys for active sync and explicit Mosaic preparation.
+  Tracker count changes and notifier callbacks are serialized, and count zero
+  owns normal foreground removal. Android starts a `dataSync` foreground
+  service for that state; an Android system timeout is terminal and immediately
+  cancels service-owned manual jobs/demotes the timed-out instance. Manual
+  Timeline refresh is service-owned on Android through the shared
+  `TimelineManualSyncCoordinator`; other platforms run that coordinator from
+  the ViewModel.
 - Logout and changed-identity login share an application-wide session mutation
   boundary. It advances the generation, cancels and joins registered old work,
   rotates/clears Coil, clears server-scoped Room/Mosaic/runtime state, and only
@@ -184,7 +195,13 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - `PhotoOverlayHost` defaults to returning to the settled asset. Memories opts
   into origin return so its cover remains the hidden/exit source while the
   static pager continues to report current assets for media behavior.
-- `KenBurnsImage` powers slideshow animation. `ScreenWakeLock` is expect/actual for keeping the screen on.
+- `KenBurnsImage` powers slideshow animation. `ScreenWakeLock` is expect/actual
+  for keeping the screen on. JVM implements that contract with balanced OS
+  inhibition and closes its owned native thread/process on application exit.
+  Desktop native packages require a validated builder-supplied VLC resource
+  bundle from the current `<os>-<arch>` directory; development runs may fall
+  back to an installed VLC. Native package launchers fail closed without the
+  bundle, while normal compile/test tasks neither require nor download it.
 
 ## Pagination And Scrollbar
 

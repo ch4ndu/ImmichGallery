@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SyncActivityTrackerTest {
     @Test
@@ -66,6 +67,31 @@ class SyncActivityTrackerTest {
         tracked.join()
 
         assertEquals(listOf(1, 0), notifier.counts)
+        assertEquals(0, tracker.activeCount.value)
+    }
+
+    @Test
+    fun notifierCallbacksAreSerializedWithCountMutation() = runTest {
+        val mutex = Mutex()
+        val callbackObservedLockedMutex = mutableListOf<Boolean>()
+        val notifier = object : PlatformSyncActivityNotifier {
+            override fun onActiveSyncCountChanged(activeCount: Int) {
+                val acquiredOutsideMutation = mutex.tryLock()
+                if (acquiredOutsideMutation) {
+                    mutex.unlock()
+                }
+                callbackObservedLockedMutex += !acquiredOutsideMutation
+            }
+        }
+        val tracker = SyncActivityTracker(notifier, mutex)
+
+        tracker.begin(SyncActivityKey.Timeline)
+        tracker.begin(SyncActivityKey.Albums)
+        tracker.end(SyncActivityKey.Timeline)
+        tracker.end(SyncActivityKey.Albums)
+
+        assertEquals(4, callbackObservedLockedMutex.size)
+        assertTrue(callbackObservedLockedMutex.all { it })
         assertEquals(0, tracker.activeCount.value)
     }
 
