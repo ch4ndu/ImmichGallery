@@ -109,6 +109,7 @@ For a new persisted cache entity or schema change:
 
 - Run `./gradlew :composeApp:compileKotlinJvm` for normal shared code changes.
 - Build the installable Android application with `./gradlew :androidApp:assembleDebug`; `composeApp` is the KMP library and must not apply `com.android.application`. It uses `com.android.kotlin.multiplatform.library`, so use `:composeApp:compileAndroidMain`, `:composeApp:testAndroidHostTest`, and `:composeApp:connectedAndroidDeviceTest` rather than legacy variant task names.
+- Android release-sensitive changes must also run `./gradlew :androidApp:assembleRelease`; the release build enables R8, so debug assembly does not validate shrinking, obfuscation, or release-only missing-class rules.
 - For platform-sensitive changes, also run the relevant Android or iOS compile task.
 - For broad shared changes, prefer `./gradlew :composeApp:compileKotlinJvm :composeApp:compileKotlinIosSimulatorArm64`.
 - For UI-visible changes, run Desktop manually when that path is in scope.

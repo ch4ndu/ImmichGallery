@@ -631,10 +631,13 @@ installed VLC, while every native application-image/package task requires the
 validated builder input described in the README. Gradle daemons must be stopped
 with `./gradlew --stop` after command-line Gradle work.
 
-The current Android release build is not production-signed: minification is
-disabled and the release build uses the debug signing configuration. Packaging
-or store release work must treat that as an explicit unresolved release
-boundary.
+The current Android release build enables R8 minification but is not
+production-signed: it uses the debug signing configuration. Packaging or store
+release work must treat signing as an explicit unresolved release boundary.
+The app-level R8 rules suppress missing-type warnings for the absent WebView
+dependency referenced by Chaintech's retained optional YouTube path.
+ImmichGallery supports authenticated Immich media URLs only, so that optional
+path is unsupported and unreachable for app-generated playback URLs.
 
 ## 18. Testing And Verification Strategy
 
