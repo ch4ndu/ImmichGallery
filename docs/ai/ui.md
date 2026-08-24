@@ -21,6 +21,9 @@ For shared photo/video viewing, information sheets, slideshow, viewer gestures, 
 - For `MainScreen` tabs, account for status bar plus `Dimens.topBarHeight` and navigation bar plus `Dimens.bottomBarHeight`.
 - For scaffold-style screens, use `innerPadding.calculateTopPadding()` and `innerPadding.calculateBottomPadding()` when wiring scrollbars.
 - `ScrollbarOverlay` requires explicit `topPadding` and `bottomPadding`; do not rely on hidden defaults.
+- Search result content already owns the top inset above its scrollable results,
+  so its `ScrollbarOverlay` top padding is `0.dp`; do not add the scaffold top
+  padding again there.
 - Photo grids should use justified rows or the established Mosaic layout, not unrelated fixed-grid or staggered-grid layouts.
 - Text must fit its container on mobile and desktop.
 - Do not add nested cards or unrelated decorative surfaces.
@@ -73,6 +76,12 @@ For shared photo/video viewing, information sheets, slideshow, viewer gestures, 
 - Use `lastSelectedAssetId` or equivalent retained state so overlay content survives dismiss transitions.
 - Detail still-photo viewing should keep one stable zoomable full-resolution image path visible outside active transition/drag. Drag-dismiss transforms belong on the fitted media container, using tap-anchored layout size/offset so the touched media point stays under the finger; do not rely on draw-only `graphicsLayer` for the exit source rect. Pinch zoom takes precedence over drag before vertical dismiss commits. Use a short full-image alpha handoff for still-photo open/dismiss transitions, keep the shared thumbnail synchronously visible during real transitions, and only reset transforms to identity for snap-back/cancel. Photo overlay transition participation and grid hiding are separate states: only the active transition asset may mount shared-element thumbnail machinery, non-participating cells stay on the plain thumbnail path, and overlay dismiss must synchronously flip visibility and reveal the grid-side source. Detail-side shared thumbnails should use the same bounded exact thumbnail request and cache keys as grid thumbnails to avoid empty destination frames. The current stable baseline retains overlay exit content with `lastSelectedAssetId` or equivalent state; do not reintroduce frozen dismiss-page/source-prep behavior without a focused repro, instrumentation, and manual verification because that approach previously regressed exit animation smoothness.
 - Slideshow auto-advance loops must re-check slideshow and page state after suspending.
+- Slideshow Ken Burns transforms are measurement-based: pan translation is a
+  fraction of the measured container width/height and progress is clamped before
+  linear interpolation. Read animation progress and derive the transform inside
+  `graphicsLayer` so frame updates invalidate layer properties rather than the
+  composable body. Keep request, preset, and measured structural state outside
+  that layer callback.
 - Grid ViewModels own row-height bounds, effective target height, persisted view config, and photo-grid display items.
 - Mosaic assignment, progress chunks, fallback projection, and geometry belong behind `MosaicRenderEngine`; composables should only render display items. Timeline is the exception for assignment timing: assignments are precomputed after sync and persisted, while the ViewModel loads those cached assignments.
 - When Mosaic is enabled, keep it available at all zoom densities for every supported Mosaic density value; do not add target-row-height or group-mode UI gates.
@@ -90,6 +99,14 @@ For shared photo/video viewing, information sheets, slideshow, viewer gestures, 
 - Persist row-height changes through UseCases/Actions, but debounce gesture-driven writes in the ViewModel.
 - Timeline scrollbar custom targeting must keep handle position, labels, year markers, and drag target mapping on the same fraction coordinate system.
 - Scrollbar drag jumps should use non-suspending lazy-state scroll requests such as `requestScrollToItem(...)`. Do not create and cancel remembered-scope scroll coroutines for every drag tick; rapid disposal/cancellation during scrollbar scroll can surface coroutine completion-handler crashes.
+- Scrollbar handles should expose accessibility semantics for their current
+  fraction and allow assistive progress-setting through the same fraction
+  targeting path used by drag.
+- Single-choice rows use one merged row-level radio/selectable action;
+  boolean and multi-choice rows use one merged row-level checkbox/toggleable
+  action. Child controls have no duplicate action, and decorative thumbnails
+  and icons have no content description. Keep a normal Material touch target on
+  outer buttons and size only their inner icon.
 - Timeline scroll and visibility effects should read the precomputed display index from `TimelineState` instead of scanning `displayItems` in `snapshotFlow`. Keep those effects keyed on stable owners such as `LazyListState`, and use `rememberUpdatedState` for the latest display lookup.
 - Timeline scroll state is an input to Mosaic scheduling. While the list is actively scrolling, visible asset rows and thumbnails take priority: runtime Mosaic compute is paused, persisted Mosaic reads are limited to visible/target buckets, and Mosaic display replacement is deferred until scroll settles.
 - Album and Person detail visible-group effects should follow the same stable display-index pattern. Visibility changes may reprioritize or preempt pending/offscreen Mosaic work, but must not restart layout projection or emit a fresh placeholder list just because the user scrolled. Runtime work may continue through `MosaicWorkScheduler` during scroll; completed visible or near-visible groups publish immediately and offscreen replacement is deferred until scrolling settles. When an incomplete group becomes eligible again, resume from its in-memory assignment checkpoint rather than discarding the group or rereading disk cache.

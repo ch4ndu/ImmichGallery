@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
 import com.udnahc.immichgallery.data.repository.SessionOperationStamp
+import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
 import com.udnahc.immichgallery.domain.model.MosaicBandAssignment
 import com.udnahc.immichgallery.domain.model.MosaicKeyScope
@@ -634,7 +635,7 @@ class TimelineRuntimeStateStoreTest {
     private fun dayGroup(sectionKey: String): DayGroup =
         DayGroup(
             sectionKey = sectionKey,
-            label = TimelineSectionLabel.Literal(sectionKey),
+            label = AssetGroupDisplayLabel.UnknownDate,
             assets = emptyList()
         )
 

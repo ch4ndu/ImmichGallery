@@ -27,9 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import coil3.SingletonImageLoader
-import coil3.compose.LocalPlatformContext
-import coil3.request.ImageRequest
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetStackLookup
@@ -43,7 +40,9 @@ import com.udnahc.immichgallery.ui.component.PhotoDragTransform
 import com.udnahc.immichgallery.ui.component.SlideshowOptionsDialog
 import com.udnahc.immichgallery.ui.component.StackAvailability
 import com.udnahc.immichgallery.ui.component.StackSessionOverlay
+import com.udnahc.immichgallery.ui.component.ViewerImagePrefetchCandidates
 import com.udnahc.immichgallery.ui.component.rememberStackSessionController
+import com.udnahc.immichgallery.ui.component.shouldAdvanceSlideshowAfterDelay
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
@@ -55,6 +54,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+
+private data class TimelinePagerObservation(
+    val state: TimelineOverlayState,
+    val projectionKey: TimelinePagerProjectionKey,
+    val settledPage: Int,
+    val isScrollInProgress: Boolean
+)
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -88,6 +94,7 @@ fun TimelinePhotoOverlay(
 
     val state by timelineState.collectAsState()
     val latestState by rememberUpdatedState(state)
+    val latestAssetProvider by rememberUpdatedState(assetProvider)
     var showTopBar by remember { mutableStateOf(true) }
     var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
     var showSlideshowDialog by remember { mutableStateOf(false) }
@@ -133,6 +140,18 @@ fun TimelinePhotoOverlay(
     val pagerState = rememberPagerState(
         initialPage = clampedInitial
     ) { totalPages }
+    var retainedPagerAnchor by remember {
+        mutableStateOf(
+            captureTimelinePagerAnchor(
+                page = clampedInitial,
+                state = state,
+                assetProvider = assetProvider
+            )
+        )
+    }
+    var reconciledProjectionKey by remember {
+        mutableStateOf(timelinePagerProjectionKey(state))
+    }
 
     // Force the pager to snap to the target page on first composition. Inside
     // SharedTransitionLayout's LookaheadScope, the pager's scroll offset can
@@ -150,44 +169,84 @@ fun TimelinePhotoOverlay(
         }
     }
 
-    // Report the currently-viewed asset to the parent so the grid can hide it.
-    // mapNotNull filters out settled pages whose bucket hasn't loaded yet —
-    // otherwise we'd briefly signal null and the grid would flash every cell in.
-    // Keyed on Unit with snapshotFlow so the effect doesn't restart every time
-    // `state.buckets` or `assetProvider` gets a new reference — restart would
-    // drop the flow collection mid-stream on every data update.
     val latestAssetChangedCallback by rememberUpdatedState(onCurrentAssetChanged)
-    LaunchedEffect(Unit) {
+    val latestOnBucketNeeded by rememberUpdatedState(onBucketNeeded)
+    // One owner reconciles settled identity with changing Timeline projection.
+    // A projection update is handled before the numeric settled page is
+    // accepted, preventing insert/remove/materialization changes from silently
+    // transferring the viewer to whichever asset inherited that page number.
+    LaunchedEffect(pagerState) {
         snapshotFlow {
-            resolvePageAsset(pagerState.settledPage, latestState, assetProvider)?.id
+            TimelinePagerObservation(
+                state = latestState,
+                projectionKey = timelinePagerProjectionKey(latestState),
+                settledPage = pagerState.settledPage,
+                isScrollInProgress = pagerState.isScrollInProgress
+            )
         }
-            .mapNotNull { it }
             .distinctUntilChanged()
-            .collect { latestAssetChangedCallback(it) }
-    }
+            .collect { observation ->
+                if (observation.isScrollInProgress) return@collect
+                val projectionChanged = observation.projectionKey != reconciledProjectionKey
+                val retained = retainedPagerAnchor
+                if (projectionChanged && retained != null) {
+                    when (val resolution = reconcileTimelinePagerAnchor(
+                        anchor = retained,
+                        state = observation.state,
+                        assetProvider = latestAssetProvider
+                    )) {
+                        is TimelinePagerAnchorResolution.Found -> {
+                            if (pagerState.settledPage != resolution.pageIndex) {
+                                pagerState.scrollToPage(resolution.pageIndex)
+                            }
+                            val changed = retainedPagerAnchor?.materializedAssetId() !=
+                                    resolution.anchor.assetId
+                            retainedPagerAnchor = resolution.anchor
+                            if (changed) latestAssetChangedCallback(resolution.anchor.assetId)
+                        }
 
-    // Prefetch current ±1 full images into Coil's cache. Neighboring pages
-    // whose bucket hasn't loaded yet are silently skipped — they'll prefetch
-    // whenever their bucket arrives and the pager settles near them.
-    val prefetchContext = LocalPlatformContext.current
-    val imageLoader = remember(prefetchContext) { SingletonImageLoader.get(prefetchContext) }
-    LaunchedEffect(Unit) {
-        snapshotFlow {
-            val settledPage = pagerState.settledPage
-            listOf(settledPage - 1, settledPage, settledPage + 1)
-                .mapNotNull { idx -> resolvePageAsset(idx, latestState, assetProvider) }
-        }
-            .distinctUntilChanged()
-            .collect { assetsToPrefetch ->
-                assetsToPrefetch.forEach { asset ->
-                    imageLoader.enqueue(
-                        ImageRequest.Builder(prefetchContext)
-                            .data(asset.originalUrl)
-                            .build()
-                    )
+                        is TimelinePagerAnchorResolution.Pending -> {
+                            if (pagerState.settledPage != resolution.pageIndex) {
+                                pagerState.scrollToPage(resolution.pageIndex)
+                            }
+                            retainedPagerAnchor = resolution.anchor
+                            latestOnBucketNeeded(resolution.timeBucket)
+                        }
+
+                        TimelinePagerAnchorResolution.Empty -> {
+                            retainedPagerAnchor = null
+                        }
+                    }
+                    reconciledProjectionKey = observation.projectionKey
+                    return@collect
                 }
+
+                captureTimelinePagerAnchor(
+                    page = observation.settledPage,
+                    state = observation.state,
+                    assetProvider = latestAssetProvider
+                )?.let { captured ->
+                    val changed = captured is TimelinePagerAnchor.Materialized &&
+                            retainedPagerAnchor?.materializedAssetId() != captured.assetId
+                    retainedPagerAnchor = captured
+                    if (changed) {
+                        latestAssetChangedCallback(captured.assetId)
+                    }
+                }
+                reconciledProjectionKey = observation.projectionKey
             }
     }
+
+    // Neighboring unloaded buckets are skipped until materialized. The shared
+    // owner filters videos, bounds requests to the viewport, and cancels work
+    // displaced from the settled current ±1 neighborhood.
+    ViewerImagePrefetchCandidates(
+        assets = listOf(
+            pagerState.settledPage - 1,
+            pagerState.settledPage,
+            pagerState.settledPage + 1
+        ).mapNotNull { page -> resolvePageAsset(page, state, assetProvider) }
+    )
 
     // Bucket of the settled page — used by the dismiss callbacks to report
     // where the user landed. The bucket-load kick itself lives in the per-page
@@ -221,11 +280,25 @@ fun TimelinePhotoOverlay(
         if (isCoveredByStack) return@LaunchedEffect
         val config = slideshowConfig ?: return@LaunchedEffect
         if (totalPages <= 1) return@LaunchedEffect
+        val startingPage = pagerState.settledPage
+        val startingTotalPages = totalPages
         delay(config.durationSeconds * 1000L)
+        if (!shouldAdvanceSlideshowAfterDelay(
+                startingConfig = config,
+                currentConfig = slideshowConfig,
+                startingPage = startingPage,
+                currentSettledPage = pagerState.settledPage,
+                startingPageCount = startingTotalPages,
+                currentPageCount = latestState.pageIndex.totalPages,
+                isCoveredByStack = stackController.state.session != null
+            )
+        ) {
+            return@LaunchedEffect
+        }
         val next = nextSlideshowPage(
             order = config.order,
-            current = pagerState.settledPage,
-            total = totalPages,
+            current = startingPage,
+            total = startingTotalPages,
             forward = true,
         )
         pagerState.animateScrollToPage(next)
@@ -292,7 +365,7 @@ fun TimelinePhotoOverlay(
         )
     }
     var isCurrentPageZoomed by remember { mutableStateOf(false) }
-    LaunchedEffect(pagerState.settledPage) { isCurrentPageZoomed = false }
+    LaunchedEffect(currentAsset?.id) { isCurrentPageZoomed = false }
 
     val gestureEnabled = !showDetailSheet && !isSlideshow && !isCoveredByStack
     LaunchedEffect(gestureEnabled) {
@@ -367,17 +440,16 @@ fun TimelinePhotoOverlay(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
             userScrollEnabled = !isCoveredByStack,
-            key = { page -> page }
+            key = { page -> timelinePagerPageKey(page, state, assetProvider) }
         ) { page ->
             val asset = resolvePageAsset(page, state, assetProvider)
             val isSettledPage = pagerState.settledPage == page
 
             // Trigger loading for this page's bucket
-            val latestOnBucketNeeded by rememberUpdatedState(onBucketNeeded)
             LaunchedEffect(page) {
                 snapshotFlow {
                     resolvePageBucket(page, latestState)
-                        ?.takeUnless { bucket -> assetProvider(bucket) != null }
+                        ?.takeUnless { bucket -> latestAssetProvider(bucket) != null }
                 }
                     .mapNotNull { it }
                     .distinctUntilChanged()

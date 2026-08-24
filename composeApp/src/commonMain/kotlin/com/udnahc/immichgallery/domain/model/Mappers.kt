@@ -10,10 +10,6 @@ import com.udnahc.immichgallery.data.model.MemoryResponse
 import com.udnahc.immichgallery.data.model.PersonResponse
 import com.udnahc.immichgallery.data.model.StackResponse
 import com.udnahc.immichgallery.data.model.TimeBucketResponse
-import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import kotlin.time.Instant
 
 private fun AssetResponse.computeAspectRatio(): Float {
     // For edited assets, the server does NOT update width/height/ratio after
@@ -190,40 +186,25 @@ fun AssetEntity.toDomainOrNull(baseUrl: String): Asset? {
 
 // --- TimeBucket mappers ---
 
-fun TimeBucketResponse.toDomain(): TimelineBucket {
-    val label = try {
-        val instant = Instant.parse(timeBucket)
-        val local = instant.toLocalDateTime(TimeZone.currentSystemDefault())
-        val monthName = local.month.name.lowercase().replaceFirstChar { it.uppercase() }
-        "$monthName ${local.year}"
-    } catch (_: Exception) {
-        try {
-            val date = LocalDate.parse(timeBucket.take(10))
-            val monthName = date.month.name.lowercase().replaceFirstChar { it.uppercase() }
-            "$monthName ${date.year}"
-        } catch (_: Exception) {
-            timeBucket
-        }
-    }
-    return TimelineBucket(
-        displayLabel = label,
-        timeBucket = timeBucket,
-        count = count
-    )
-}
+fun TimeBucketResponse.toDomain(): TimelineBucket = TimelineBucket(
+    displayLabel = timelineBucketDisplayLabel(timeBucket),
+    timeBucket = timeBucket,
+    count = count
+)
 
 fun TimeBucketResponse.toEntity(sortOrder: Int): TimelineBucketEntity {
-    val domain = toDomain()
     return TimelineBucketEntity(
         timeBucket = timeBucket,
-        displayLabel = domain.displayLabel,
+        // Schema v2 retains this legacy column for migration compatibility.
+        // Presentation derives a typed label from timeBucket instead.
+        displayLabel = timeBucket,
         count = count,
         sortOrder = sortOrder
     )
 }
 
 fun TimelineBucketEntity.toDomain(): TimelineBucket = TimelineBucket(
-    displayLabel = displayLabel,
+    displayLabel = timelineBucketDisplayLabel(timeBucket),
     timeBucket = timeBucket,
     count = count
 )

@@ -19,7 +19,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -29,10 +28,14 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.ui.component.DetailTopBar
+import com.udnahc.immichgallery.ui.component.DetailAutoLoadKey
 import com.udnahc.immichgallery.ui.component.PhotoGridDetailActions
 import com.udnahc.immichgallery.ui.component.PhotoGridDetailContent
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
+import com.udnahc.immichgallery.ui.component.StaticPhotoOverlaySourceIdentity
+import com.udnahc.immichgallery.ui.component.preparePhotoGridReturnSource
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.component.resolveStaticPhotoOverlayInitialIndex
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -42,7 +45,6 @@ import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_photos
 import immichgallery.composeapp.generated.resources.unknown
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -59,7 +61,6 @@ fun PersonDetailScreen(
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
     val listState = rememberLazyListState()
-    val dismissScope = rememberCoroutineScope()
     var entryResetApplied by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val snackbarText = state.snackbarMessage.asTextOrNull()
@@ -88,76 +89,90 @@ fun PersonDetailScreen(
     val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val contentTopPadding = statusBarPadding + Dimens.topBarHeight
     val contentBottomPadding = navBarPadding
+    val overlaySource = StaticPhotoOverlaySourceIdentity(
+        ownerKey = "person:$personId",
+        assetIds = state.assets.map { it.id },
+        isPending = !state.isSourceReady ||
+            state.isLoading ||
+            state.isBuilding ||
+            state.isSyncing ||
+            state.isLoadingMore ||
+            state.hasMore
+    )
 
     Box(Modifier.fillMaxSize()) {
         PhotoOverlayHost(
-        initialIndexKey = state.assets,
-        onOverlayDismissed = { assetId ->
-            assetId?.let { id ->
-                state.displayIndex.assetDisplayIndexById[id]?.let { itemIndex ->
-                    dismissScope.launch { listState.ensureReturnSourceVisible(itemIndex) }
+            initialIndexKey = overlaySource,
+            onPrepareOverlayDismiss = { assetId ->
+                preparePhotoGridReturnSource(
+                    assetId = assetId,
+                    displayIndexByAssetId = state.displayIndex.assetDisplayIndexById,
+                    ensureVisible = listState::ensureReturnSourceVisible
+                )
+            },
+            resolveInitialIndex = { id ->
+                state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+            },
+            resolveInitialIndexState = { id ->
+                resolveStaticPhotoOverlayInitialIndex(overlaySource, id)
+            },
+            content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
+                PersonDetailContent(
+                    state = state,
+                    ownerKey = "person:$personId",
+                    transitionAssetId = transitionAssetId,
+                    hiddenAssetId = hiddenAssetId,
+                    onPhotoClick = onPhotoClick,
+                    onRetry = viewModel::refreshAll,
+                    onDismissBanner = viewModel::dismissBannerError,
+                    onLoadMore = viewModel::loadMore,
+                    onAvailableWidth = viewModel::setAvailableWidth,
+                    onAvailableViewportHeight = viewModel::setAvailableViewportHeight,
+                    onVisibleBucketIndexesChanged = viewModel::setVisibleBucketIndexes,
+                    onScrollInProgressChanged = viewModel::setScrollInProgress,
+                    onTargetRowHeightChanged = viewModel::setTargetRowHeight,
+                    contentTopPadding = contentTopPadding,
+                    contentBottomPadding = contentBottomPadding,
+                    listState = listState,
+                    sharedTransitionScope = this,
+                )
+            },
+            overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
+                StaticPhotoOverlay(
+                    assets = state.assets,
+                    initialIndex = initialIndex,
+                    apiKey = viewModel.apiKey,
+                    getAssetDetail = viewModel::getAssetDetail,
+                    getAssetStack = viewModel::getAssetStack,
+                    onPersonClick = onPersonClick,
+                    onDismiss = onDismissHost,
+                    onCurrentAssetChanged = onCurrentAssetChanged,
+                    onStlTransitionActiveChanged = onStlTransitionActiveChanged,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
+                )
+            },
+            chrome = { showOverlay ->
+                AnimatedVisibility(
+                    visible = !showOverlay,
+                    enter = systemBarFadeIn,
+                    exit = systemBarFadeOut,
+                ) {
+                    DetailTopBar(
+                        title = personName.ifBlank { unknownLabel },
+                        onBack = onBack,
+                        trailingContent = {
+                            PhotoGridDetailActions(
+                                groupSize = state.groupSize,
+                                viewConfig = state.viewConfig,
+                                onGroupSizeSelected = viewModel::setGroupSize,
+                                onViewConfigChanged = viewModel::setViewConfig,
+                                onPrepareViewConfig = viewModel::prepareMosaicViewConfig
+                            )
+                        }
+                    )
                 }
             }
-        },
-        resolveInitialIndex = { id ->
-            state.assets.indexOfFirst { it.id == id }.takeIf { it >= 0 }
-        },
-        content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
-            PersonDetailContent(
-                state = state,
-                transitionAssetId = transitionAssetId,
-                hiddenAssetId = hiddenAssetId,
-                onPhotoClick = onPhotoClick,
-                onRetry = viewModel::refreshAll,
-                onDismissBanner = viewModel::dismissBannerError,
-                onLoadMore = viewModel::loadMore,
-                onAvailableWidth = viewModel::setAvailableWidth,
-                onAvailableViewportHeight = viewModel::setAvailableViewportHeight,
-                onVisibleBucketIndexesChanged = viewModel::setVisibleBucketIndexes,
-                onScrollInProgressChanged = viewModel::setScrollInProgress,
-                onTargetRowHeightChanged = viewModel::setTargetRowHeight,
-                contentTopPadding = contentTopPadding,
-                contentBottomPadding = contentBottomPadding,
-                listState = listState,
-                sharedTransitionScope = this,
-            )
-        },
-        overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
-            StaticPhotoOverlay(
-                assets = state.assets,
-                initialIndex = initialIndex,
-                apiKey = viewModel.apiKey,
-                getAssetDetail = viewModel::getAssetDetail,
-                getAssetStack = viewModel::getAssetStack,
-                onPersonClick = onPersonClick,
-                onDismiss = onDismissHost,
-                onCurrentAssetChanged = onCurrentAssetChanged,
-                onStlTransitionActiveChanged = onStlTransitionActiveChanged,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = this,
-            )
-        },
-        chrome = { showOverlay ->
-            AnimatedVisibility(
-                visible = !showOverlay,
-                enter = systemBarFadeIn,
-                exit = systemBarFadeOut,
-            ) {
-                DetailTopBar(
-                    title = personName.ifBlank { unknownLabel },
-                    onBack = onBack,
-                    trailingContent = {
-                        PhotoGridDetailActions(
-                            groupSize = state.groupSize,
-                            viewConfig = state.viewConfig,
-                            onGroupSizeSelected = viewModel::setGroupSize,
-                            onViewConfigChanged = viewModel::setViewConfig,
-                            onPrepareViewConfig = viewModel::prepareMosaicViewConfig
-                        )
-                    }
-                )
-            }
-        }
         )
         SnackbarHost(
             hostState = snackbarHostState,
@@ -172,6 +187,7 @@ fun PersonDetailScreen(
 @Composable
 fun PersonDetailContent(
     state: PersonDetailState,
+    ownerKey: String = "person",
     transitionAssetId: String? = null,
     hiddenAssetId: String? = null,
     onPhotoClick: (String) -> Unit,
@@ -215,6 +231,9 @@ fun PersonDetailContent(
         contentBottomPadding = contentBottomPadding,
         listState = listState,
         isLoadingMore = state.isLoadingMore,
+        automaticLoadMoreKey = state.nextPage?.takeIf { state.hasMore }?.let { page ->
+            DetailAutoLoadKey(ownerKey = ownerKey, nextPage = page)
+        },
         onLoadMore = if (state.hasMore) onLoadMore else null,
         sharedTransitionScope = sharedTransitionScope,
     )

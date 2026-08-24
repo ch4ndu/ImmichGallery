@@ -110,7 +110,9 @@ private fun AppNavigationHost(
                 personName = route.personName,
                 onBack = { navController.popBackStack() },
                 onPersonClick = { personId, personName ->
-                    navController.navigate(PersonDetailRoute(personId, personName))
+                    if (shouldNavigateToPersonDetail(route.personId, personId)) {
+                        navController.navigate(PersonDetailRoute(personId, personName))
+                    }
                 },
             )
         }
@@ -132,3 +134,8 @@ private fun AppNavigationHost(
         }
     }
 }
+
+internal fun shouldNavigateToPersonDetail(
+    currentPersonId: String,
+    selectedPersonId: String
+): Boolean = currentPersonId != selectedPersonId

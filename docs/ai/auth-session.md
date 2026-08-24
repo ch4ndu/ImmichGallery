@@ -33,6 +33,10 @@ AppNavigation
 
 1. `LoginViewModel` starts with saved credentials when present, otherwise with
    optional generated local developer defaults.
+   Login submission uses one ViewModel-local single-flight gate claimed before
+   dispatch; repeated activation while validation/session replacement is active
+   does not start another request, and completion or cancellation releases the
+   gate.
 2. Empty server URL or API key is rejected locally.
 3. The server URL is normalized by trimming trailing `/` characters.
 4. Android resolves any required local-network access before contacting a local
@@ -174,6 +178,8 @@ defaults prefill Login only; they do not bypass validation.
   the exact candidate origin;
 - login saves configuration only after validation succeeds, preserves cache
   for an exact normalized URL/key match, and clears old state for any change;
+- rapid repeated login activation starts one request and cancellation/completion
+  makes a later activation eligible;
 - server monitoring starts/stops with Main and lifecycle activity;
 - session mutation cancels and joins registered work, refuses old-generation
   commits/deferred work, and admits new-generation work after a failed clear;

@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -28,6 +29,73 @@ import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.resolvePhotoGridReturnAssetId
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+
+sealed interface PhotoOverlayInitialIndexResolution {
+    data class Found(val index: Int) : PhotoOverlayInitialIndexResolution
+    data object Pending : PhotoOverlayInitialIndexResolution
+    data object Absent : PhotoOverlayInitialIndexResolution
+}
+
+internal data class PhotoOverlayResolvedSelection(
+    val selectedAssetId: String?,
+    val initialIndex: Int?
+)
+
+internal data class StaticPhotoOverlaySourceIdentity(
+    val ownerKey: String,
+    val assetIds: List<String>,
+    val isPending: Boolean
+)
+
+internal fun retainedCurrentViewedAssetId(
+    currentAssetId: String?,
+    requestedAssetId: String
+): String = currentAssetId ?: requestedAssetId
+
+internal fun resolvePhotoOverlaySelection(
+    requestedAssetId: String,
+    resolution: PhotoOverlayInitialIndexResolution
+): PhotoOverlayResolvedSelection = when (resolution) {
+    is PhotoOverlayInitialIndexResolution.Found ->
+        PhotoOverlayResolvedSelection(requestedAssetId, resolution.index)
+
+    PhotoOverlayInitialIndexResolution.Pending ->
+        PhotoOverlayResolvedSelection(requestedAssetId, initialIndex = null)
+
+    PhotoOverlayInitialIndexResolution.Absent ->
+        PhotoOverlayResolvedSelection(selectedAssetId = null, initialIndex = null)
+}
+
+internal suspend fun prepareThenDismissPhotoOverlay(
+    returnAssetId: String?,
+    onPrepare: suspend (String?) -> Unit,
+    onDismissed: (String?) -> Unit
+) {
+    onPrepare(returnAssetId)
+    onDismissed(returnAssetId)
+}
+
+internal suspend fun preparePhotoGridReturnSource(
+    assetId: String?,
+    displayIndexByAssetId: Map<String, Int>,
+    ensureVisible: suspend (Int) -> Unit
+) {
+    val displayIndex = assetId?.let(displayIndexByAssetId::get) ?: return
+    ensureVisible(displayIndex)
+}
+
+internal fun resolveStaticPhotoOverlayInitialIndex(
+    source: StaticPhotoOverlaySourceIdentity,
+    assetId: String
+): PhotoOverlayInitialIndexResolution {
+    val index = source.assetIds.indexOf(assetId)
+    return when {
+        index >= 0 -> PhotoOverlayInitialIndexResolution.Found(index)
+        source.isPending -> PhotoOverlayInitialIndexResolution.Pending
+        else -> PhotoOverlayInitialIndexResolution.Absent
+    }
+}
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -36,8 +104,10 @@ fun PhotoOverlayHost(
     initialIndexKey: Any? = Unit,
     returnTarget: PhotoOverlayReturnTarget = PhotoOverlayReturnTarget.CURRENT_ASSET,
     onOverlayActiveChange: (Boolean) -> Unit = {},
+    onPrepareOverlayDismiss: suspend (currentAssetId: String?) -> Unit = {},
     onOverlayDismissed: (currentAssetId: String?) -> Unit = {},
     resolveInitialIndex: suspend (assetId: String) -> Int?,
+    resolveInitialIndexState: (suspend (assetId: String) -> PhotoOverlayInitialIndexResolution)? = null,
     content: @Composable SharedTransitionScope.(
         showOverlay: Boolean,
         transitionAssetId: String?,
@@ -65,13 +135,46 @@ fun PhotoOverlayHost(
     var lastOverlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     var transitionAssetIdForGrid by remember { mutableStateOf<String?>(null) }
     val latestOnOverlayDismissed = rememberUpdatedState(onOverlayDismissed)
+    val latestOnPrepareOverlayDismiss = rememberUpdatedState(onPrepareOverlayDismiss)
     LaunchedEffect(selectedAssetId, initialIndexKey) {
         val id = selectedAssetId
         if (id != null) {
-            val resolvedIndex = resolveInitialIndex(id) ?: 0
-            overlayInitialIndex = resolvedIndex
-            lastOverlayInitialIndex = resolvedIndex
-            currentViewedAssetId = id
+            when (
+                val resolution = resolveInitialIndexState?.invoke(id)
+                    ?: resolveInitialIndex(id)
+                        ?.let(PhotoOverlayInitialIndexResolution::Found)
+                    ?: PhotoOverlayInitialIndexResolution.Pending
+            ) {
+                is PhotoOverlayInitialIndexResolution.Found -> {
+                    val resolved = resolvePhotoOverlaySelection(id, resolution)
+                    selectedAssetId = resolved.selectedAssetId
+                    overlayInitialIndex = resolved.initialIndex
+                    lastOverlayInitialIndex = resolved.initialIndex
+                    currentViewedAssetId = retainedCurrentViewedAssetId(
+                        currentAssetId = currentViewedAssetId,
+                        requestedAssetId = id
+                    )
+                    transitionAssetIdForGrid = transitionAssetIdForGrid ?: id
+                }
+
+                PhotoOverlayInitialIndexResolution.Pending -> {
+                    val resolved = resolvePhotoOverlaySelection(id, resolution)
+                    selectedAssetId = resolved.selectedAssetId
+                    overlayInitialIndex = resolved.initialIndex
+                    currentViewedAssetId = retainedCurrentViewedAssetId(
+                        currentAssetId = currentViewedAssetId,
+                        requestedAssetId = id
+                    )
+                }
+
+                PhotoOverlayInitialIndexResolution.Absent -> {
+                    val resolved = resolvePhotoOverlaySelection(id, resolution)
+                    selectedAssetId = resolved.selectedAssetId
+                    overlayInitialIndex = resolved.initialIndex
+                    currentViewedAssetId = null
+                    transitionAssetIdForGrid = null
+                }
+            }
         } else {
             currentViewedAssetId = null
             overlayInitialIndex = null
@@ -90,7 +193,7 @@ fun PhotoOverlayHost(
 
     var stlTransitionActive by remember { mutableStateOf(false) }
     var overlayAnimActive by remember { mutableStateOf(false) }
-    LaunchedEffect(selectedAssetId, selectionEpoch) {
+    LaunchedEffect(selectedAssetId, selectionEpoch, overlayVisible) {
         if (selectedAssetId == null && lastSelectedAssetId == null) {
             overlayAnimActive = false
             return@LaunchedEffect
@@ -107,18 +210,31 @@ fun PhotoOverlayHost(
     }
 
     LaunchedEffect(overlayVisible) { onOverlayActiveChange(overlayVisible) }
+    val dismissScope = rememberCoroutineScope()
+    var dismissInProgress by remember { mutableStateOf(false) }
     val dismissOverlay: (String?) -> Unit = remember(returnTarget) {
         { dismissedAssetId ->
-            if (selectedAssetId != null) {
+            if (selectedAssetId != null && !dismissInProgress) {
                 val returnAssetId = resolvePhotoGridReturnAssetId(
                     returnTarget = returnTarget,
                     originAssetId = selectedAssetId,
                     currentAssetId = dismissedAssetId
                 )
-                latestOnOverlayDismissed.value(returnAssetId)
-                overlayAnimActive = true
-                overlayInitialIndex = null
-                selectedAssetId = null
+                dismissInProgress = true
+                dismissScope.launch {
+                    try {
+                        prepareThenDismissPhotoOverlay(
+                            returnAssetId = returnAssetId,
+                            onPrepare = latestOnPrepareOverlayDismiss.value,
+                            onDismissed = latestOnOverlayDismissed.value
+                        )
+                    } finally {
+                        overlayAnimActive = true
+                        overlayInitialIndex = null
+                        selectedAssetId = null
+                        dismissInProgress = false
+                    }
+                }
             }
         }
     }
@@ -143,6 +259,7 @@ fun PhotoOverlayHost(
                                 overlayInitialIndex = null
                                 overlayAnimActive = true
                                 transitionAssetIdForGrid = id
+                                currentViewedAssetId = id
                                 selectedAssetId = id
                             }
                         }

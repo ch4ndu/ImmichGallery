@@ -29,13 +29,19 @@ private const val PAN_FRACTION = 0.04f
  * Each preset defines start and end states for scale and pan direction.
  * Pan values are fractions of the container size, applied based on progress.
  */
-private data class KenBurnsPreset(
+internal data class KenBurnsPreset(
     val startScale: Float,
     val endScale: Float,
     val startPanX: Float, // fraction of width
     val startPanY: Float, // fraction of height
     val endPanX: Float,
     val endPanY: Float
+)
+
+internal data class KenBurnsTransform(
+    val scale: Float,
+    val translationX: Float,
+    val translationY: Float
 )
 
 private val presets = listOf(
@@ -111,11 +117,6 @@ fun KenBurnsImage(
                 heightPx = it.height.toFloat()
             }
     ) {
-        val p = progress.value
-        val scale = preset.startScale + (preset.endScale - preset.startScale) * p
-        val panX = widthPx * (preset.startPanX + (preset.endPanX - preset.startPanX) * p)
-        val panY = heightPx * (preset.startPanY + (preset.endPanY - preset.startPanY) * p)
-
         AsyncImage(
             model = imageRequest,
             contentDescription = null,
@@ -123,11 +124,31 @@ fun KenBurnsImage(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = panX
-                    translationY = panY
+                    val transform = interpolateKenBurnsTransform(
+                        preset = preset,
+                        widthPx = widthPx,
+                        heightPx = heightPx,
+                        progress = progress.value
+                    )
+                    scaleX = transform.scale
+                    scaleY = transform.scale
+                    translationX = transform.translationX
+                    translationY = transform.translationY
                 }
         )
     }
+}
+
+internal fun interpolateKenBurnsTransform(
+    preset: KenBurnsPreset,
+    widthPx: Float,
+    heightPx: Float,
+    progress: Float
+): KenBurnsTransform {
+    val p = progress.coerceIn(0f, 1f)
+    return KenBurnsTransform(
+        scale = preset.startScale + (preset.endScale - preset.startScale) * p,
+        translationX = widthPx * (preset.startPanX + (preset.endPanX - preset.startPanX) * p),
+        translationY = heightPx * (preset.startPanY + (preset.endPanY - preset.startPanY) * p)
+    )
 }

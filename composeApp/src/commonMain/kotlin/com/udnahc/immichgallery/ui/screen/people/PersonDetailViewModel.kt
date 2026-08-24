@@ -55,6 +55,7 @@ data class PersonDetailState(
     val assets: List<Asset> = emptyList(),
     val displayItems: List<PhotoGridDisplayItem> = emptyList(),
     val displayIndex: TimelineDisplayIndex = TimelineDisplayIndex(),
+    val isSourceReady: Boolean = false,
     val availableWidth: Float = 0f,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
     val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f),
@@ -164,7 +165,7 @@ class PersonDetailViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             getPersonAssetsUseCase.observe(personId).collect { assets ->
                 log.d { "Room emitted <redacted> assets for person <redacted>" }
-                _state.update { it.copy(assets = assets) }
+                _state.update { it.copy(assets = assets, isSourceReady = true) }
                 handleAssetEmission(assets)
             }
         }
@@ -230,6 +231,7 @@ class PersonDetailViewModel(
                             _state.update {
                                 it.copy(
                                     assets = assets,
+                                    isSourceReady = true,
                                     hasMore = false,
                                     nextPage = null,
                                     isBuilding = false,
@@ -292,6 +294,7 @@ class PersonDetailViewModel(
 
                 getPersonAssetsPageUseCase(personId, page = page).fold(
                     onSuccess = { result ->
+                        val assets = getPersonAssetsUseCase.getAssets(personId)
                         val lastSync = if (!result.hasMore) {
                             getPersonAssetsUseCase.getLastSyncedAt(personId)
                         } else {
@@ -299,6 +302,8 @@ class PersonDetailViewModel(
                         }
                         _state.update {
                             it.copy(
+                                assets = assets,
+                                isSourceReady = true,
                                 hasMore = result.hasMore,
                                 nextPage = result.nextPage,
                                 isLoadingMore = false,
@@ -361,6 +366,7 @@ class PersonDetailViewModel(
 
                     getPersonAssetsPageUseCase(personId, page = 1).fold(
                         onSuccess = { result ->
+                            val assets = getPersonAssetsUseCase.getAssets(personId)
                             val completedAt = if (!result.hasMore) {
                                 getPersonAssetsUseCase.getLastSyncedAt(personId)
                             } else {
@@ -368,6 +374,8 @@ class PersonDetailViewModel(
                             }
                             _state.update {
                                 it.copy(
+                                    assets = assets,
+                                    isSourceReady = true,
                                     hasMore = result.hasMore,
                                     nextPage = result.nextPage,
                                     isBuilding = false,

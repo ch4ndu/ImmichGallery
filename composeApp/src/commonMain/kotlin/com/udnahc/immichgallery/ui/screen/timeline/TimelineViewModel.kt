@@ -28,6 +28,7 @@ import com.udnahc.immichgallery.domain.action.timeline.requestId
 import com.udnahc.immichgallery.domain.action.timeline.sessionStamp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
+import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.ErrorItem
@@ -66,7 +67,6 @@ import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelinePageIndex
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.ViewConfig
-import com.udnahc.immichgallery.domain.model.bucketIndexForTimelineFraction
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItems
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForGeometryRanges
 import com.udnahc.immichgallery.domain.model.buildPhotoGridPlaceholderItemsForHeight
@@ -84,6 +84,7 @@ import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayRecordsOrEmpt
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
 import com.udnahc.immichgallery.domain.model.timelineScrollTargetForFraction
 import com.udnahc.immichgallery.domain.model.timelineDaySections
+import com.udnahc.immichgallery.domain.model.timelineDayDisplayLabel
 import com.udnahc.immichgallery.domain.model.toPhotoGridDisplayItems
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
@@ -135,7 +136,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
-import kotlinx.datetime.LocalDate
 import org.lighthousegames.logging.logging
 import kotlin.time.TimeSource
 import com.udnahc.immichgallery.domain.model.MosaicSectionState as RuntimeMosaicState
@@ -149,15 +149,9 @@ data class YearMarker(
 @Immutable
 data class DayGroup(
     val sectionKey: String,
-    val label: TimelineSectionLabel,
+    val label: AssetGroupDisplayLabel,
     val assets: List<Asset>
 )
-
-@Immutable
-sealed interface TimelineSectionLabel {
-    data class Literal(val value: String) : TimelineSectionLabel
-    data object UnknownDate : TimelineSectionLabel
-}
 
 @Immutable
 data class TimelineState(
@@ -165,14 +159,15 @@ data class TimelineState(
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
     val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f),
     val isLoading: Boolean = false,
+    val isSourceReady: Boolean = false,
     val error: String? = null,
     val displayItems: List<TimelineDisplayItem> = emptyList(),
     val displayIndex: TimelineDisplayIndex = TimelineDisplayIndex(),
-    val sectionLabelsByKey: Map<String, TimelineSectionLabel> = emptyMap(),
+    val sectionLabelsByKey: Map<String, AssetGroupDisplayLabel> = emptyMap(),
     val yearMarkers: List<YearMarker> = emptyList(),
     val totalItemCount: Int = 0,
     val cumulativeItemCounts: List<Int> = emptyList(),
-    val bucketDisplayLabels: List<String> = emptyList(),
+    val bucketDisplayLabels: List<AssetGroupDisplayLabel> = emptyList(),
     val pageIndex: TimelinePageIndex = TimelinePageIndex(),
     val buckets: List<TimelineBucket> = emptyList(),
     val viewConfig: ViewConfig = ViewConfig(),
@@ -458,6 +453,7 @@ internal fun reorderTimelineRefreshQueue(
 @Immutable
 internal data class BucketData(
     val buckets: List<TimelineBucket> = emptyList(),
+    val isSourceReady: Boolean = false,
     // Cached buckets have Room refs available, but are not necessarily
     // materialized into bucketAssetsCache/display rows yet.
     val cachedBuckets: Set<String> = emptySet(),
@@ -829,12 +825,6 @@ class TimelineViewModel(
     val state: StateFlow<TimelineState>
     val overlayState: StateFlow<TimelineOverlayState>
 
-    val labelProvider: (Float) -> String? = { fraction ->
-        val s = state.value
-        bucketIndexForTimelineFraction(s.pageIndex, fraction)
-            ?.let { index -> s.bucketDisplayLabels.getOrNull(index) }
-    }
-
     init {
         val saved = getTimelineGroupSizeUseCase()
         val initialSize = TimelineGroupSize.entries.find { it.apiValue == saved }
@@ -999,6 +989,9 @@ class TimelineViewModel(
             getTimelineBucketsUseCase.observe().collect { buckets ->
                 log.d { "Room emitted <redacted> buckets" }
                 if (!timelineBucketsChanged(_bucketData.value.buckets, buckets)) {
+                    _bucketData.update { data ->
+                        if (data.isSourceReady) data else data.copy(isSourceReady = true)
+                    }
                     log.d { "Timeline bucket emission ignored because metadata is unchanged" }
                     return@collect
                 }
@@ -1006,6 +999,7 @@ class TimelineViewModel(
                 _bucketData.update { data ->
                     data.copy(
                         buckets = buckets,
+                        isSourceReady = true,
                         cachedBuckets = data.cachedBuckets.filter { it in bucketIds }.toSet(),
                         geometryReadyBuckets = data.geometryReadyBuckets.filter { it.timeBucket in bucketIds }
                             .toSet(),
@@ -3123,6 +3117,7 @@ class TimelineViewModel(
             targetRowHeight = config.targetRowHeight,
             rowHeightBounds = config.rowHeightBounds,
             isLoading = config.isLoading,
+            isSourceReady = data.isSourceReady,
             error = config.error,
             displayItems = displayItems,
             displayIndex = displayIndex,
@@ -3189,7 +3184,7 @@ class TimelineViewModel(
         pageIndex: TimelinePageIndex
     ): ScrollbarData {
         val key = TimelineScrollbarDataCacheKey(
-            bucketLabels = buckets.map { it.displayLabel },
+            bucketTimeBuckets = buckets.map { it.timeBucket },
             pageIndex = pageIndex
         )
         if (key == cachedScrollbarDataKey) return cachedScrollbarData
@@ -3210,11 +3205,11 @@ class TimelineViewModel(
     private fun timelineSectionLabels(
         data: BucketData,
         groupSize: TimelineGroupSize
-    ): Map<String, TimelineSectionLabel> = buildMap {
+    ): Map<String, AssetGroupDisplayLabel> = buildMap {
         data.buckets.forEach { bucket ->
             put(
                 monthMosaicSectionKey(bucket.timeBucket),
-                TimelineSectionLabel.Literal(bucket.displayLabel)
+                bucket.displayLabel
             )
             if (groupSize == TimelineGroupSize.DAY) {
                 val assets = assetsForRender(bucket.timeBucket) ?: return@forEach
@@ -3551,7 +3546,6 @@ class TimelineViewModel(
         val timeBucket = bucket.timeBucket
         val isFailed = timeBucket in data.failedBuckets
         val isLoaded = timeBucket in data.loadedBuckets && assetsForRender(timeBucket) != null
-        val monthLabel = bucket.displayLabel
         val items = mutableListOf<TimelineDisplayItem>()
 
         items.add(
@@ -3559,7 +3553,8 @@ class TimelineViewModel(
                 gridKey = "h_$timeBucket",
                 bucketIndex = index,
                 sectionLabel = monthMosaicSectionKey(timeBucket),
-                label = monthLabel
+                label = timeBucket,
+                assetGroupDisplayLabel = bucket.displayLabel
             )
         )
 
@@ -3684,14 +3679,14 @@ class TimelineViewModel(
                             return items
                         }
                         for (dayGroup in dayGroupList) {
-                            val dayLabel = dayGroup.label
                             val daySectionKey = dayGroup.sectionKey
                             items.add(
                                 HeaderItem(
                                     gridKey = "dh_${timeBucket}_$daySectionKey",
                                     bucketIndex = index,
                                     sectionLabel = daySectionKey,
-                                    label = (dayLabel as? TimelineSectionLabel.Literal)?.value.orEmpty()
+                                    label = daySectionKey,
+                                    assetGroupDisplayLabel = dayGroup.label
                                 )
                             )
                             val dayMosaicKey = mosaicCacheKey(
@@ -5781,10 +5776,7 @@ class TimelineViewModel(
             listOf(
                 TimelineRuntimeMosaicSection(
                     sectionKey = monthMosaicSectionKey(timeBucket),
-                    sectionLabel = _bucketData.value.buckets
-                        .firstOrNull { it.timeBucket == timeBucket }
-                        ?.displayLabel
-                        ?: timeBucket,
+                    sectionLabel = timeBucket,
                     assets = assets
                 )
             )
@@ -6082,16 +6074,10 @@ class TimelineViewModel(
         return sections.map { section ->
             DayGroup(
                 sectionKey = section.sectionKey,
-                label = section.date?.let { TimelineSectionLabel.Literal(it.timelineDisplayLabel()) }
-                    ?: TimelineSectionLabel.UnknownDate,
+                label = timelineDayDisplayLabel(section.date),
                 assets = section.assets
             )
         }
-    }
-
-    private fun LocalDate.timelineDisplayLabel(): String {
-        val monthName = month.name.lowercase()
-        return "$day $monthName $year"
     }
 
     companion object {

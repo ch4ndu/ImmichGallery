@@ -8,6 +8,7 @@ import com.udnahc.immichgallery.domain.usecase.people.GetPeopleUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.util.SyncActivityKey
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
+import com.udnahc.immichgallery.ui.util.OwnerSingleFlightGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +41,7 @@ class PeopleViewModel(
     private val log = logging("PeopleViewModel")
     private val query = MutableStateFlow("")
     private val _state = MutableStateFlow(PeopleState())
+    private val syncGate = OwnerSingleFlightGate()
     val state: StateFlow<PeopleState> = _state.asStateFlow()
 
     init {
@@ -77,7 +79,7 @@ class PeopleViewModel(
     }
 
     private fun syncFromServer() {
-        viewModelScope.launch(Dispatchers.IO) {
+        syncGate.launch(viewModelScope, Dispatchers.IO) {
             syncActivityTracker.track(SyncActivityKey.People) {
                 val hasCachedPeople = getPeopleUseCase.hasCachedPeople()
 
@@ -101,7 +103,7 @@ class PeopleViewModel(
                             )
                         }
                     },
-                    onFailure = { e ->
+                    onFailure = {
                         log.e { "Failed to sync people from server" }
                         if (!hasCachedPeople) {
                             _state.update {

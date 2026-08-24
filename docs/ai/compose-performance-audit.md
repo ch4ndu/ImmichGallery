@@ -95,10 +95,16 @@ profiling is optional unless the user explicitly requests measurement.
   participating in animation, transition, selection, or overlay behavior.
 - Verify image requests have bounded decode sizes, stable models and cache keys,
   appropriate thumbnail variants, and no accidental full-resolution loading in
-  lists. Check cancellation and prefetch ownership.
+  lists. Check cancellation and prefetch ownership: viewer prefetch must stay
+  bounded to the current IMAGE-only viewport window, retain unchanged
+  disposables, and dispose targets that leave the window or leave composition.
 - Flag per-frame object creation, layout-state publication, or expensive drawing
   setup. Use draw caching only when it avoids recreating expensive draw objects;
   do not add it to simple drawing code by default.
+- For layer-only animations such as Ken Burns, keep structural state in
+  composition but read frame progress and calculate layer properties inside the
+  `graphicsLayer` lambda. A runtime recomposition trace remains a separate,
+  explicitly authorized measurement when no existing headless harness exists.
 
 ## Threads, Memory, And Build Configuration
 

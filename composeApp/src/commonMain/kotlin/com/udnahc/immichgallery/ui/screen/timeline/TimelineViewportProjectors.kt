@@ -1,7 +1,9 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelinePageIndex
+import com.udnahc.immichgallery.domain.model.timelineBucketDisplayLabel
 
 internal data class TimelinePageIndexCacheKey(
     val bucketKeys: List<TimelinePageBucketKey>
@@ -16,7 +18,7 @@ internal data class TimelinePageBucketKey(
 )
 
 internal data class TimelineScrollbarDataCacheKey(
-    val bucketLabels: List<String>,
+    val bucketTimeBuckets: List<String>,
     val pageIndex: TimelinePageIndex
 )
 
@@ -24,7 +26,7 @@ internal data class ScrollbarData(
     val yearMarkers: List<YearMarker> = emptyList(),
     val totalItemCount: Int = 0,
     val cumulativeItemCounts: List<Int> = emptyList(),
-    val bucketDisplayLabels: List<String> = emptyList()
+    val bucketDisplayLabels: List<AssetGroupDisplayLabel> = emptyList()
 )
 
 internal fun computeScrollbarData(
@@ -39,16 +41,17 @@ internal fun computeScrollbarData(
     val totalItems = pageIndex.totalPages
 
     val markers = mutableListOf<YearMarker>()
-    var lastYear = ""
+    var lastYear: Int? = null
     for (i in buckets.indices) {
-        val year = buckets[i].displayLabel.substringAfterLast(" ", "")
-        if (year != lastYear && year.isNotEmpty()) {
+        val year = (timelineBucketDisplayLabel(buckets[i].timeBucket)
+                as? AssetGroupDisplayLabel.Month)?.year
+        if (year != null && year != lastYear) {
             val fraction = if (totalItems > 0) {
                 pageIndex.bucketStartPages.getOrElse(i) { 0 }.toFloat() / totalItems
             } else {
                 0f
             }
-            markers.add(YearMarker(fraction.coerceIn(0f, 1f), year))
+            markers.add(YearMarker(fraction.coerceIn(0f, 1f), year.toString()))
             lastYear = year
         }
     }
@@ -57,6 +60,6 @@ internal fun computeScrollbarData(
         yearMarkers = markers,
         totalItemCount = totalItems,
         cumulativeItemCounts = cumulativeCounts,
-        bucketDisplayLabels = buckets.map { it.displayLabel }
+        bucketDisplayLabels = buckets.map(TimelineBucket::displayLabel)
     )
 }

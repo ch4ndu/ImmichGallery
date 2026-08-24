@@ -8,6 +8,7 @@ import com.udnahc.immichgallery.domain.usecase.album.GetAlbumsUseCase
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.util.SyncActivityKey
 import com.udnahc.immichgallery.ui.util.SyncActivityTracker
+import com.udnahc.immichgallery.ui.util.OwnerSingleFlightGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +36,7 @@ class AlbumListViewModel(
 
     private val log = logging("AlbumListViewModel")
     private val _state = MutableStateFlow(AlbumListState())
+    private val syncGate = OwnerSingleFlightGate()
     val state: StateFlow<AlbumListState> = _state.asStateFlow()
 
     init {
@@ -59,7 +61,7 @@ class AlbumListViewModel(
     }
 
     private fun syncFromServer() {
-        viewModelScope.launch(Dispatchers.IO) {
+        syncGate.launch(viewModelScope, Dispatchers.IO) {
             syncActivityTracker.track(SyncActivityKey.Albums) {
                 val hasCachedAlbums = getAlbumsUseCase.hasCachedAlbums()
 
@@ -83,7 +85,7 @@ class AlbumListViewModel(
                             )
                         }
                     },
-                    onFailure = { e ->
+                    onFailure = {
                         log.e { "Failed to sync albums from server" }
                         if (!hasCachedAlbums) {
                             _state.update {

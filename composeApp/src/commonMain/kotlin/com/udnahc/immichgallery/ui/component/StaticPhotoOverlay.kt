@@ -42,9 +42,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.lerp
-import coil3.SingletonImageLoader
-import coil3.compose.LocalPlatformContext
-import coil3.request.ImageRequest
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetStackLookup
@@ -221,25 +218,7 @@ fun StaticPhotoOverlay(
             .collect { latestAssetChangedCallback(it) }
     }
 
-    // Prefetch the current asset's full image plus its neighbors into Coil's
-    // cache so pager swipes and the first tap don't show a loading gap between
-    // the end of the shared-element transition and the full image arriving.
-    val prefetchContext = LocalPlatformContext.current
-    val imageLoader = remember(prefetchContext) { SingletonImageLoader.get(prefetchContext) }
-    LaunchedEffect(Unit) {
-        snapshotFlow { pagerState.settledPage }
-            .distinctUntilChanged()
-            .collect { page ->
-                listOf(page - 1, page, page + 1).forEach { idx ->
-                    val asset = latestAssets.getOrNull(idx) ?: return@forEach
-                    imageLoader.enqueue(
-                        ImageRequest.Builder(prefetchContext)
-                            .data(asset.originalUrl)
-                            .build()
-                    )
-                }
-            }
-    }
+    ViewerImagePrefetch(assets = assets, settledPage = pagerState.settledPage)
 
     // Auto-advance slideshow. Keyed on settledPage + assets.size so the timer
     // resets whenever the page changes or the asset list grows/shrinks mid-
@@ -248,11 +227,26 @@ fun StaticPhotoOverlay(
         if (isCoveredByStack) return@LaunchedEffect
         val config = slideshowConfig ?: return@LaunchedEffect
         if (assets.size <= 1) return@LaunchedEffect
+        val startingPage = pagerState.settledPage
+        val startingPageCount = assets.size
         kotlinx.coroutines.delay(config.durationSeconds * 1000L)
+        if (
+            !shouldAdvanceSlideshowAfterDelay(
+                startingConfig = config,
+                currentConfig = slideshowConfig,
+                startingPage = startingPage,
+                currentSettledPage = pagerState.settledPage,
+                startingPageCount = startingPageCount,
+                currentPageCount = latestAssets.size,
+                isCoveredByStack = stackController.state.session != null
+            )
+        ) {
+            return@LaunchedEffect
+        }
         val next = nextSlideshowPage(
             order = config.order,
             current = pagerState.settledPage,
-            total = assets.size,
+            total = latestAssets.size,
             forward = true,
         )
         pagerState.animateScrollToPage(next)
@@ -457,7 +451,7 @@ fun StaticPhotoOverlay(
                 getAssetDetail = getAssetDetail,
                 onPersonClick = { personId, personName ->
                     showDetailSheet = false
-                    dismissBase(null)
+                    dismissBase(currentAsset.id)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = { showDetailSheet = false }
@@ -472,7 +466,7 @@ fun StaticPhotoOverlay(
                 getAssetStack = getAssetStack,
                 onPersonClick = { personId, personName ->
                     stackController.dismissSession()
-                    dismissBase(null)
+                    dismissBase(currentAsset?.id)
                     onPersonClick(personId, personName)
                 },
                 onDismiss = stackController::dismissSession,
@@ -481,6 +475,21 @@ fun StaticPhotoOverlay(
         }
     }
 }
+
+internal fun shouldAdvanceSlideshowAfterDelay(
+    startingConfig: SlideshowConfig,
+    currentConfig: SlideshowConfig?,
+    startingPage: Int,
+    currentSettledPage: Int,
+    startingPageCount: Int,
+    currentPageCount: Int,
+    isCoveredByStack: Boolean
+): Boolean =
+    currentConfig == startingConfig &&
+            startingPage == currentSettledPage &&
+            startingPageCount == currentPageCount &&
+            currentPageCount > 1 &&
+            !isCoveredByStack
 
 @Composable
 private fun PhotoPageIndicator(

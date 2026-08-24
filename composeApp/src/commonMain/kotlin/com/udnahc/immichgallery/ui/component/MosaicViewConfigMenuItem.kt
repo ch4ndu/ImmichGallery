@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,6 +30,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.LARGE_SCREEN_MOSAIC_COLUMN_COUNTS
@@ -114,7 +119,8 @@ fun MosaicViewConfigMenuItem(
         leadingIcon = {
             Checkbox(
                 checked = viewConfig.mosaicEnabled,
-                onCheckedChange = null
+                onCheckedChange = null,
+                modifier = Modifier.clearAndSetSemantics {}
             )
         },
         text = { Text(stringResource(Res.string.mosaic)) },
@@ -350,12 +356,20 @@ private fun MosaicDensityRow(
     onSelected: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onSelected
+            )
+            .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically
     ) {
         RadioButton(
             selected = selected,
-            onClick = onSelected
+            onClick = null,
+            modifier = Modifier.clearAndSetSemantics {}
         )
         Spacer(Modifier.width(Dimens.smallSpacing))
         Text(text = mosaicDensityLabel(columnCount))
@@ -382,12 +396,20 @@ private fun MosaicBooleanRow(
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                role = Role.Checkbox,
+                onValueChange = onCheckedChange
+            )
+            .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = null,
+            modifier = Modifier.clearAndSetSemantics {}
         )
         Spacer(Modifier.width(Dimens.smallSpacing))
         Text(text = label)
@@ -401,12 +423,20 @@ private fun MosaicFamilyRow(
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                role = Role.Checkbox,
+                onValueChange = onCheckedChange
+            )
+            .semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = null,
+            modifier = Modifier.clearAndSetSemantics {}
         )
         Spacer(Modifier.width(Dimens.smallSpacing))
         Text(text = stringResource(family.labelRes()))

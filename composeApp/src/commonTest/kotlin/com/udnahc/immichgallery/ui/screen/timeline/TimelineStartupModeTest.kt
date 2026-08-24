@@ -103,7 +103,7 @@ class TimelineStartupModeTest {
         timeBucket: String,
         count: Int
     ) = com.udnahc.immichgallery.domain.model.TimelineBucket(
-        displayLabel = timeBucket,
+        displayLabel = com.udnahc.immichgallery.domain.model.timelineBucketDisplayLabel(timeBucket),
         timeBucket = timeBucket,
         count = count
     )

@@ -27,13 +27,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import com.udnahc.immichgallery.domain.model.Memory
 import com.udnahc.immichgallery.ui.component.DetailTopBar
+import com.udnahc.immichgallery.ui.component.PhotoOverlayInitialIndexResolution
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
@@ -52,6 +56,51 @@ import immichgallery.composeapp.generated.resources.retry
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
+internal data class MemoryOverlayOwnerSource(
+    val memoryId: String,
+    val assetIds: List<String>
+)
+
+internal data class MemoryOverlaySourceIdentity(
+    val requestGeneration: Long,
+    val isPending: Boolean,
+    val selectedMemoryId: String?,
+    val owners: List<MemoryOverlayOwnerSource>
+)
+
+internal sealed interface MemoryOverlaySourceResolution {
+    data class Found(
+        val memoryId: String,
+        val assetIndex: Int
+    ) : MemoryOverlaySourceResolution
+
+    data object Pending : MemoryOverlaySourceResolution
+    data object Absent : MemoryOverlaySourceResolution
+}
+
+internal fun resolveMemoryOverlaySource(
+    source: MemoryOverlaySourceIdentity,
+    assetId: String
+): MemoryOverlaySourceResolution {
+    val selectedOwner = source.owners.firstOrNull { it.memoryId == source.selectedMemoryId }
+    val owner = if (selectedOwner != null) {
+        selectedOwner.takeIf { it.assetIds.firstOrNull() == assetId }
+    } else {
+        source.owners.firstOrNull { it.assetIds.firstOrNull() == assetId }
+    }
+    if (owner != null) {
+        return MemoryOverlaySourceResolution.Found(
+            memoryId = owner.memoryId,
+            assetIndex = 0
+        )
+    }
+    return if (source.isPending) {
+        MemoryOverlaySourceResolution.Pending
+    } else {
+        MemoryOverlaySourceResolution.Absent
+    }
+}
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MemoriesScreen(
@@ -60,13 +109,47 @@ fun MemoriesScreen(
     viewModel: MemoriesViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val selectedMemory = state.memories.firstOrNull { it.id == state.selectedMemoryId }
+    var restoredMemoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    val preferredMemoryId = state.selectedMemoryId ?: restoredMemoryId
+    val selectedMemory = state.memories.firstOrNull { it.id == preferredMemoryId }
+    val overlaySource = MemoryOverlaySourceIdentity(
+        requestGeneration = state.activeRequestGeneration,
+        isPending = state.isLoading || state.error != null,
+        selectedMemoryId = preferredMemoryId,
+        owners = state.memories.map { memory ->
+            MemoryOverlayOwnerSource(
+                memoryId = memory.id,
+                assetIds = memory.assets.map { it.id }
+            )
+        }
+    )
 
     PhotoOverlayHost(
-        initialIndexKey = selectedMemory?.id,
+        initialIndexKey = overlaySource,
         returnTarget = PhotoOverlayReturnTarget.ORIGIN_ASSET,
         resolveInitialIndex = { assetId ->
             selectedMemory?.assets?.indexOfFirst { it.id == assetId }?.takeIf { it >= 0 }
+        },
+        resolveInitialIndexState = { assetId ->
+            when (val resolution = resolveMemoryOverlaySource(overlaySource, assetId)) {
+                is MemoryOverlaySourceResolution.Found -> {
+                    restoredMemoryId = resolution.memoryId
+                    if (resolution.memoryId != state.selectedMemoryId) {
+                        viewModel.selectMemory(resolution.memoryId)
+                    }
+                    PhotoOverlayInitialIndexResolution.Found(
+                        resolution.assetIndex
+                    )
+                }
+
+                MemoryOverlaySourceResolution.Pending ->
+                    PhotoOverlayInitialIndexResolution.Pending
+
+                MemoryOverlaySourceResolution.Absent -> {
+                    restoredMemoryId = null
+                    PhotoOverlayInitialIndexResolution.Absent
+                }
+            }
         },
         content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
             MemoriesContent(
@@ -74,6 +157,7 @@ fun MemoriesScreen(
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
                 onMemoryClick = { memory ->
+                    restoredMemoryId = memory.id
                     viewModel.selectMemory(memory.id)
                     onPhotoClick(memory.cover.id)
                 },

@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -49,6 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.ErrorItem
 import com.udnahc.immichgallery.domain.model.HeaderItem
+import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
@@ -58,6 +58,7 @@ import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
 import com.udnahc.immichgallery.domain.model.TimelineScrollbarTargetTracker
 import com.udnahc.immichgallery.domain.model.ViewConfig
+import com.udnahc.immichgallery.domain.model.bucketIndexForTimelineFraction
 import com.udnahc.immichgallery.domain.model.timelineScrollFractionForDisplayIndex
 import com.udnahc.immichgallery.domain.model.visibleBucketIndexesForDisplayIndexes
 import com.udnahc.immichgallery.ui.component.ErrorBanner
@@ -70,6 +71,7 @@ import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.SectionHeader
 import com.udnahc.immichgallery.ui.component.SuccessBanner
 import com.udnahc.immichgallery.ui.component.photoGridDisplayItemContentType
+import com.udnahc.immichgallery.ui.component.localizedMonthName
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -79,24 +81,22 @@ import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.date_group_day
+import immichgallery.composeapp.generated.resources.date_group_month
 import immichgallery.composeapp.generated.resources.loading_timeline
 import immichgallery.composeapp.generated.resources.timeline_failed_tap_retry
 import immichgallery.composeapp.generated.resources.timeline_unknown_date
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
-private data class TimelineScrollAnchor(
-    val assetId: String,
-    val scrollOffset: Int
-)
-
-private data class TimelineBucketScrollAnchor(
-    val bucketIndex: Int,
-    val itemKey: String?,
-    val scrollOffset: Int = 0
+private data class TimelineScrollObservation(
+    val projection: TimelineDisplayIndex,
+    val visibleItems: List<TimelineVisibleScrollItem>,
+    val isScrollInProgress: Boolean
 )
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -160,8 +160,20 @@ fun TimelineScreen(
     }
 
     PhotoOverlayHost(
+        initialIndexKey = timelineOverlayInitialIndexKey(state),
         onOverlayActiveChange = onOverlayActiveChange,
         resolveInitialIndex = { assetId -> viewModel.getGlobalPhotoIndex(assetId) },
+        resolveInitialIndexState = { assetId ->
+            timelineOverlayInitialIndexResolution(
+                index = viewModel.getGlobalPhotoIndex(assetId),
+                sourcePending = timelineOverlaySourcePending(
+                    isSourceReady = state.isSourceReady,
+                    isLoading = state.isLoading,
+                    hasBuckets = state.buckets.isNotEmpty(),
+                    totalPages = state.pageIndex.totalPages
+                )
+            )
+        },
         content = { showOverlay, transitionAssetId, hiddenAssetId, onPhotoClick ->
             // Grid is no longer wrapped in its own AnimatedVisibility — it stays
             // composed behind the overlay so drag-to-dismiss reveals it.
@@ -184,7 +196,6 @@ fun TimelineScreen(
                 onRetry = viewModel::refreshAll,
                 onDismissBannerError = viewModel::dismissBannerError,
                 onDismissBannerSuccess = viewModel::dismissBannerSuccess,
-                labelProvider = viewModel.labelProvider,
                 sharedTransitionScope = this,
             )
         },
@@ -272,16 +283,22 @@ fun TimelineContent(
     onRetry: () -> Unit,
     onDismissBannerError: () -> Unit = {},
     onDismissBannerSuccess: () -> Unit = {},
-    labelProvider: (Float) -> String?,
     sharedTransitionScope: SharedTransitionScope? = null,
 ) {
     val displayItems = state.displayItems
     val targetRowHeight = state.targetRowHeight
-    val latestDisplayItems by rememberUpdatedState(displayItems)
     val latestDisplayIndex by rememberUpdatedState(state.displayIndex)
     val latestPageIndex by rememberUpdatedState(state.pageIndex)
-    var scrollAnchor by remember { mutableStateOf<TimelineScrollAnchor?>(null) }
-    var bucketScrollAnchor by remember { mutableStateOf<TimelineBucketScrollAnchor?>(null) }
+    val scrollAnchorReconciler = remember { TimelineScrollAnchorReconciler() }
+    val localizedBucketLabels = state.bucketDisplayLabels.map { label ->
+        timelineSectionLabelText(label, "")
+    }
+    val labelProvider = remember(state.pageIndex, localizedBucketLabels) {
+        { fraction: Float ->
+            bucketIndexForTimelineFraction(state.pageIndex, fraction)
+                ?.let(localizedBucketLabels::getOrNull)
+        }
+    }
 
     LoadingErrorContent(
         isLoading = state.isLoading && displayItems.isEmpty(),
@@ -292,14 +309,7 @@ fun TimelineContent(
             TimelineScrollEffects(
                 listState = listState,
                 displayIndex = state.displayIndex,
-                scrollAnchor = scrollAnchor,
-                bucketScrollAnchor = bucketScrollAnchor,
-                onScrollAnchorChanged = { anchor ->
-                    scrollAnchor = anchor
-                    if (anchor != null) {
-                        bucketScrollAnchor = null
-                    }
-                },
+                scrollAnchorReconciler = scrollAnchorReconciler,
                 onVisibleBucketsChanged = onVisibleBucketsChanged,
                 onScrollInProgressChanged = onScrollInProgressChanged
             )
@@ -365,11 +375,12 @@ fun TimelineContent(
                         { fraction, commit ->
                             val target = latestScrollTargetForFraction(fraction)
                             if (target != null) {
-                                scrollAnchor = null
-                                bucketScrollAnchor = TimelineBucketScrollAnchor(
+                                scrollAnchorReconciler.requestBucketAnchor(
+                                    projection = latestDisplayIndex,
                                     bucketIndex = target.bucketIndex,
-                                    itemKey = latestDisplayIndex.gridKeyByDisplayIndex
-                                        .getOrNull(target.displayIndex)
+                                    itemKey = latestDisplayIndex.displayIndexesByBucket[target.bucketIndex]
+                                        ?.firstOrNull()
+                                        ?.let(latestDisplayIndex.gridKeyByDisplayIndex::getOrNull)
                                 )
                                 listState.requestScrollToItem(target.displayIndex)
                                 if (commit) {
@@ -477,61 +488,55 @@ fun TimelineContent(
 private fun TimelineScrollEffects(
     listState: LazyListState,
     displayIndex: TimelineDisplayIndex,
-    scrollAnchor: TimelineScrollAnchor?,
-    bucketScrollAnchor: TimelineBucketScrollAnchor?,
-    onScrollAnchorChanged: (TimelineScrollAnchor?) -> Unit,
+    scrollAnchorReconciler: TimelineScrollAnchorReconciler,
     onVisibleBucketsChanged: (List<Int>, TimelineBucketTargetReason) -> Unit,
     onScrollInProgressChanged: (Boolean) -> Unit
 ) {
     val latestDisplayIndex by rememberUpdatedState(displayIndex)
-    val latestScrollAnchor by rememberUpdatedState(scrollAnchor)
-    val latestBucketScrollAnchor by rememberUpdatedState(bucketScrollAnchor)
-    val latestOnScrollAnchorChanged by rememberUpdatedState(onScrollAnchorChanged)
     val latestOnVisibleBucketsChanged by rememberUpdatedState(onVisibleBucketsChanged)
     val latestOnScrollInProgressChanged by rememberUpdatedState(onScrollInProgressChanged)
 
-    LaunchedEffect(listState) {
+    LaunchedEffect(listState, scrollAnchorReconciler) {
         snapshotFlow {
-            firstVisibleAssetAnchor(
-                displayIndex = latestDisplayIndex,
-                visibleItems = listState.layoutInfo.visibleItemsInfo
+            TimelineScrollObservation(
+                projection = latestDisplayIndex,
+                visibleItems = listState.layoutInfo.visibleItemsInfo.map { item ->
+                    TimelineVisibleScrollItem(
+                        displayIndex = item.index,
+                        itemOffset = item.offset
+                    )
+                },
+                isScrollInProgress = listState.isScrollInProgress
             )
         }
             .distinctUntilChanged()
-            .collectLatest { anchor ->
-                latestOnScrollAnchorChanged(anchor)
-            }
-    }
-    LaunchedEffect(listState) {
-        snapshotFlow {
-            Triple(latestDisplayIndex, latestScrollAnchor, latestBucketScrollAnchor) to
-                listState.isScrollInProgress
-        }.distinctUntilChanged().collectLatest { (request, isScrollInProgress) ->
-            if (isScrollInProgress) return@collectLatest
-            val (currentIndex, anchor, bucketAnchor) = request
-            if (anchor != null) {
-                val targetIndex = currentIndex.assetDisplayIndexById[anchor.assetId]
-                    ?: return@collectLatest
-                val currentAnchor = firstVisibleAssetAnchor(
-                    displayIndex = currentIndex,
-                    visibleItems = listState.layoutInfo.visibleItemsInfo
-                )
-                if (currentAnchor?.assetId != anchor.assetId) {
-                    listState.scrollToItem(targetIndex, anchor.scrollOffset)
+            .collect { observation ->
+                val restore = scrollAnchorReconciler.observe(
+                    projection = observation.projection,
+                    visibleItems = observation.visibleItems,
+                    isScrollInProgress = observation.isScrollInProgress
+                ) ?: return@collect
+                restore.displayIndex?.let { targetIndex ->
+                    val targetVisible = listState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { item -> item.index == targetIndex }
+                    if (targetVisible == null ||
+                        -targetVisible.offset != restore.scrollOffset
+                    ) {
+                        listState.scrollToItem(targetIndex, restore.scrollOffset)
+                    }
                 }
-                return@collectLatest
+                if (latestDisplayIndex == observation.projection) {
+                    scrollAnchorReconciler.commitRestore(
+                        projection = observation.projection,
+                        visibleItems = listState.layoutInfo.visibleItemsInfo.map { item ->
+                            TimelineVisibleScrollItem(
+                                displayIndex = item.index,
+                                itemOffset = item.offset
+                            )
+                        }
+                    )
+                }
             }
-            bucketAnchor ?: return@collectLatest
-            val currentFirstIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index
-            val currentFirstBucket =
-                currentFirstIndex?.let { currentIndex.bucketByDisplayIndex.getOrNull(it) }
-            if (currentFirstBucket == bucketAnchor.bucketIndex) return@collectLatest
-            val targetIndex = bucketAnchor.itemKey
-                ?.let(currentIndex.displayIndexByGridKey::get)
-                ?: currentIndex.displayIndexesByBucket[bucketAnchor.bucketIndex]?.firstOrNull()
-                ?: return@collectLatest
-            listState.scrollToItem(targetIndex, bucketAnchor.scrollOffset)
-        }
     }
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -564,7 +569,7 @@ private fun TimelineScrollEffects(
 private fun TimelineLazyList(
     state: LazyListState,
     displayItems: List<TimelineDisplayItem>,
-    sectionLabelsByKey: Map<String, TimelineSectionLabel>,
+    sectionLabelsByKey: Map<String, AssetGroupDisplayLabel>,
     statusBarPadding: Dp,
     navBarPadding: Dp,
     transitionAssetId: String?,
@@ -607,7 +612,7 @@ private fun TimelineOverlayChrome(
     showOverlay: Boolean,
     listState: LazyListState,
     displayIndex: TimelineDisplayIndex,
-    sectionLabelsByKey: Map<String, TimelineSectionLabel>,
+    sectionLabelsByKey: Map<String, AssetGroupDisplayLabel>,
     statusBarPadding: Dp,
     bannerError: ConnectionUiMessage?,
     bannerSuccess: ConnectionUiMessage?,
@@ -666,23 +671,11 @@ private fun nativeListScrollFraction(info: LazyListLayoutInfo): Float {
     return (itemFraction + pixelFraction).coerceIn(0f, 1f)
 }
 
-private fun firstVisibleAssetAnchor(
-    displayIndex: TimelineDisplayIndex,
-    visibleItems: List<LazyListItemInfo>
-): TimelineScrollAnchor? =
-    visibleItems
-        .asSequence()
-        .mapNotNull { itemInfo ->
-            displayIndex.firstAssetIdByDisplayIndex.getOrNull(itemInfo.index)
-                ?.let { assetId -> TimelineScrollAnchor(assetId, itemInfo.offset) }
-        }
-        .firstOrNull()
-
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun TimelineDisplayItemRenderer(
     item: TimelineDisplayItem,
-    sectionLabelsByKey: Map<String, TimelineSectionLabel>,
+    sectionLabelsByKey: Map<String, AssetGroupDisplayLabel>,
     transitionAssetId: String?,
     hiddenAssetId: String?,
     onPhotoClick: (String) -> Unit,
@@ -691,7 +684,10 @@ private fun TimelineDisplayItemRenderer(
 ) {
     when (item) {
         is HeaderItem -> SectionHeader(
-            label = timelineSectionLabelText(sectionLabelsByKey[item.sectionLabel], item.label)
+            label = timelineSectionLabelText(
+                sectionLabelsByKey[item.sectionLabel] ?: item.assetGroupDisplayLabel,
+                item.label
+            )
         )
         is RowItem -> JustifiedPhotoRow(
             row = item,
@@ -738,11 +734,11 @@ private fun ErrorCell(onRetry: () -> Unit) {
 private fun StickyHeaderOverlay(
     listState: LazyListState,
     displayIndex: TimelineDisplayIndex,
-    sectionLabelsByKey: Map<String, TimelineSectionLabel>,
+    sectionLabelsByKey: Map<String, AssetGroupDisplayLabel>,
     statusBarPadding: Dp
 ) {
     val latestDisplayIndex by rememberUpdatedState(displayIndex)
-    var retainedLabel by remember { mutableStateOf<TimelineSectionLabel?>(null) }
+    var retainedLabel by remember { mutableStateOf<AssetGroupDisplayLabel?>(null) }
     val label by remember(listState, sectionLabelsByKey) {
         derivedStateOf {
             latestDisplayIndex.sectionLabelByDisplayIndex
@@ -779,11 +775,23 @@ private fun StickyHeaderOverlay(
 
 @Composable
 private fun timelineSectionLabelText(
-    label: TimelineSectionLabel?,
+    label: AssetGroupDisplayLabel?,
     fallback: String
 ): String = when (label) {
-    is TimelineSectionLabel.Literal -> label.value
-    TimelineSectionLabel.UnknownDate -> stringResource(Res.string.timeline_unknown_date)
+    is AssetGroupDisplayLabel.Month -> stringResource(
+        Res.string.date_group_month,
+        localizedMonthName(label.monthNumber),
+        label.year
+    )
+
+    is AssetGroupDisplayLabel.Day -> stringResource(
+        Res.string.date_group_day,
+        label.date.day,
+        localizedMonthName(label.date.month.ordinal + 1),
+        label.date.year
+    )
+
+    AssetGroupDisplayLabel.UnknownDate -> stringResource(Res.string.timeline_unknown_date)
     null -> fallback
 }
 

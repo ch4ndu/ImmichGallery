@@ -19,8 +19,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,6 +94,7 @@ fun PhotoGridDetailContent(
     contentBottomPadding: Dp = 0.dp,
     listState: LazyListState = rememberLazyListState(),
     isLoadingMore: Boolean = false,
+    automaticLoadMoreKey: DetailAutoLoadKey? = null,
     onLoadMore: (() -> Unit)? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
 ) {
@@ -132,6 +135,7 @@ fun PhotoGridDetailContent(
                 contentBottomPadding = contentBottomPadding,
                 listState = listState,
                 isLoadingMore = isLoadingMore,
+                automaticLoadMoreKey = automaticLoadMoreKey,
                 onLoadMore = onLoadMore,
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
@@ -170,6 +174,7 @@ private fun PhotoGridDetailSurface(
     contentBottomPadding: Dp,
     listState: LazyListState,
     isLoadingMore: Boolean,
+    automaticLoadMoreKey: DetailAutoLoadKey?,
     onLoadMore: (() -> Unit)?,
     transitionAssetId: String?,
     hiddenAssetId: String?,
@@ -208,6 +213,7 @@ private fun PhotoGridDetailSurface(
                 contentTopPadding = contentTopPadding,
                 contentBottomPadding = contentBottomPadding,
                 isLoadingMore = isLoadingMore,
+                automaticLoadMoreKey = automaticLoadMoreKey,
                 onLoadMore = onLoadMore,
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
@@ -234,12 +240,22 @@ private fun PhotoGridDetailLazyList(
     contentTopPadding: Dp,
     contentBottomPadding: Dp,
     isLoadingMore: Boolean,
+    automaticLoadMoreKey: DetailAutoLoadKey?,
     onLoadMore: (() -> Unit)?,
     transitionAssetId: String?,
     hiddenAssetId: String?,
     onPhotoClick: (String) -> Unit,
     sharedTransitionScope: SharedTransitionScope?
 ) {
+    if (onLoadMore != null) {
+        DetailAutoLoadEffect(
+            listState = listState,
+            isLoadingMore = isLoadingMore,
+            automaticLoadMoreKey = automaticLoadMoreKey,
+            onLoadMore = onLoadMore
+        )
+    }
+
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -268,8 +284,7 @@ private fun PhotoGridDetailLazyList(
         if (onLoadMore != null) {
             paginationFooter(
                 isLoadingMore = isLoadingMore,
-                onLoadMore = onLoadMore,
-                listState = listState
+                onLoadMore = onLoadMore
             )
         }
     }
@@ -424,12 +439,10 @@ fun PhotoGridDetailActions(
 
 private fun LazyListScope.paginationFooter(
     isLoadingMore: Boolean,
-    onLoadMore: () -> Unit,
-    listState: LazyListState
+    onLoadMore: () -> Unit
 ) {
     item(key = "load_more_footer") {
         LoadMoreFooter(
-            listState = listState,
             isLoadingMore = isLoadingMore,
             onLoadMore = onLoadMore
         )
@@ -438,28 +451,9 @@ private fun LazyListScope.paginationFooter(
 
 @Composable
 private fun LoadMoreFooter(
-    listState: LazyListState,
     isLoadingMore: Boolean,
     onLoadMore: () -> Unit
 ) {
-    val latestOnLoadMore by rememberUpdatedState(onLoadMore)
-    LaunchedEffect(listState, isLoadingMore) {
-        snapshotFlow {
-            val info = listState.layoutInfo
-            canAutoLoadMore(
-                hasMore = true,
-                isLoadingMore = isLoadingMore,
-                canScrollBackward = listState.canScrollBackward,
-                lastVisibleIndex = info.visibleItemsInfo.lastOrNull()?.index ?: -1,
-                totalItemsCount = info.totalItemsCount
-            )
-        }
-            .distinctUntilChanged()
-            .collect { shouldLoadMore ->
-                if (shouldLoadMore) latestOnLoadMore()
-            }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -473,6 +467,49 @@ private fun LoadMoreFooter(
         } else {
             CircularProgressIndicator()
         }
+    }
+}
+
+@Composable
+private fun DetailAutoLoadEffect(
+    listState: LazyListState,
+    isLoadingMore: Boolean,
+    automaticLoadMoreKey: DetailAutoLoadKey?,
+    onLoadMore: () -> Unit
+) {
+    val latestOnLoadMore by rememberUpdatedState(onLoadMore)
+    val latestAutomaticLoadMoreKey by rememberUpdatedState(automaticLoadMoreKey)
+    var lastAutomaticLoadKey by remember(automaticLoadMoreKey?.ownerKey) {
+        mutableStateOf<DetailAutoLoadKey?>(null)
+    }
+    LaunchedEffect(listState, isLoadingMore) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            DetailAutoLoadCandidate(
+                shouldLoadMore = canAutoLoadMore(
+                    hasMore = true,
+                    isLoadingMore = isLoadingMore,
+                    canScrollBackward = listState.canScrollBackward,
+                    lastVisibleIndex = info.visibleItemsInfo.lastOrNull()?.index ?: -1,
+                    totalItemsCount = info.totalItemsCount
+                ),
+                key = latestAutomaticLoadMoreKey
+            )
+        }
+            .distinctUntilChanged()
+            .collect { candidate ->
+                if (
+                    shouldAutomaticallyLoadDetailPage(
+                        shouldLoadMore = candidate.shouldLoadMore,
+                        isLoadingMore = isLoadingMore,
+                        candidate = candidate.key,
+                        lastAttempt = lastAutomaticLoadKey
+                    )
+                ) {
+                    lastAutomaticLoadKey = candidate.key
+                    latestOnLoadMore()
+                }
+            }
     }
 }
 
@@ -491,6 +528,26 @@ internal fun canAutoLoadMore(
 
 internal fun canManuallyLoadMore(hasMore: Boolean, isLoadingMore: Boolean): Boolean =
     hasMore && !isLoadingMore
+
+data class DetailAutoLoadKey(
+    val ownerKey: String,
+    val nextPage: Int
+)
+
+private data class DetailAutoLoadCandidate(
+    val shouldLoadMore: Boolean,
+    val key: DetailAutoLoadKey?
+)
+
+internal fun shouldAutomaticallyLoadDetailPage(
+    shouldLoadMore: Boolean,
+    isLoadingMore: Boolean,
+    candidate: DetailAutoLoadKey?,
+    lastAttempt: DetailAutoLoadKey?
+): Boolean = shouldLoadMore &&
+        !isLoadingMore &&
+        candidate != null &&
+        candidate != lastAttempt
 
 internal data class DetailPaginationCursor(
     val hasMore: Boolean,

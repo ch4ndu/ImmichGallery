@@ -59,6 +59,7 @@ data class AlbumDetailState(
     val viewConfig: ViewConfig = ViewConfig(),
     val displayItems: List<PhotoGridDisplayItem> = emptyList(),
     val displayIndex: TimelineDisplayIndex = TimelineDisplayIndex(),
+    val isSourceReady: Boolean = false,
     val isLoading: Boolean = false,
     val error: ConnectionUiMessage? = null,
     val bannerError: ConnectionUiMessage? = null,
@@ -167,7 +168,7 @@ class AlbumDetailViewModel(
 
             getAlbumDetailUseCase.observeAssets(albumId).collect { assets ->
                 log.d { "Room emitted <redacted> assets for album <redacted>" }
-                _state.update { it.copy(assets = assets) }
+                _state.update { it.copy(assets = assets, isSourceReady = true) }
                 handleAssetEmission(assets)
             }
         }
@@ -235,6 +236,7 @@ class AlbumDetailViewModel(
                                 it.copy(
                                     albumName = syncResult.albumName.ifBlank { it.albumName },
                                     assets = assets,
+                                    isSourceReady = true,
                                     hasMore = false,
                                     nextPage = null,
                                     isBuilding = false,
@@ -290,6 +292,7 @@ class AlbumDetailViewModel(
 
                 getAlbumDetailUseCase.syncPage(albumId, page, albumOrder).fold(
                     onSuccess = { result ->
+                        val assets = getAlbumDetailUseCase.getAlbumAssets(albumId)
                         val lastSync = if (!result.hasMore) {
                             getAlbumDetailUseCase.getLastSyncedAt(albumId)
                         } else {
@@ -299,6 +302,8 @@ class AlbumDetailViewModel(
                         _state.update {
                             it.copy(
                                 albumName = result.albumName.ifBlank { it.albumName },
+                                assets = assets,
+                                isSourceReady = true,
                                 hasMore = result.hasMore,
                                 nextPage = result.nextPage,
                                 isLoadingMore = false,
@@ -353,6 +358,7 @@ class AlbumDetailViewModel(
 
                     getAlbumDetailUseCase.syncPage(albumId, page = 1).fold(
                         onSuccess = { result ->
+                            val assets = getAlbumDetailUseCase.getAlbumAssets(albumId)
                             val completedAt = if (!result.hasMore) {
                                 getAlbumDetailUseCase.getLastSyncedAt(albumId)
                             } else {
@@ -367,6 +373,8 @@ class AlbumDetailViewModel(
                             _state.update {
                                 it.copy(
                                     albumName = result.albumName,
+                                    assets = assets,
+                                    isSourceReady = true,
                                     hasMore = result.hasMore,
                                     nextPage = result.nextPage,
                                     isBuilding = false,

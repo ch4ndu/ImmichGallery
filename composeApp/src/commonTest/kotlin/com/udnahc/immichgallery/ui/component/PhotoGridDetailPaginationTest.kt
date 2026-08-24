@@ -35,6 +35,44 @@ class PhotoGridDetailPaginationTest {
     }
 
     @Test
+    fun automaticDetailPagingAttemptsEachOwnerPageOnlyOnce() {
+        val key = DetailAutoLoadKey(ownerKey = "album:1", nextPage = 2)
+
+        assertTrue(
+            shouldAutomaticallyLoadDetailPage(
+                shouldLoadMore = true,
+                isLoadingMore = false,
+                candidate = key,
+                lastAttempt = null
+            )
+        )
+        assertFalse(
+            shouldAutomaticallyLoadDetailPage(
+                shouldLoadMore = true,
+                isLoadingMore = false,
+                candidate = key,
+                lastAttempt = key
+            )
+        )
+        assertTrue(
+            shouldAutomaticallyLoadDetailPage(
+                shouldLoadMore = true,
+                isLoadingMore = false,
+                candidate = key.copy(nextPage = 3),
+                lastAttempt = key
+            )
+        )
+        assertTrue(
+            shouldAutomaticallyLoadDetailPage(
+                shouldLoadMore = true,
+                isLoadingMore = false,
+                candidate = key.copy(ownerKey = "person:1"),
+                lastAttempt = key
+            )
+        )
+    }
+
+    @Test
     fun loadingOrExhaustedPagesAreNotEligibleForMoreLoads() {
         assertFalse(
             canAutoLoadMore(

@@ -22,6 +22,10 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Mosaic cache readiness requires source-slice-valid assignments, contiguous positive section geometry ranges, and fingerprint/current-section-valid aggregate geometry. Assignment gaps are legal completed fallback ranges; overlap, wrong-slice ids, duplicate ids, bad visual order, unknown templates, malformed JSON, and height mismatches are cache misses. Mixed display rows are optional for renderability and must independently cover current ordered assets. Timeline geometry hydration reads ordered assets once with aggregate and section geometry; assignments/display rows remain visible-demand reads. Repositories only persist, read, clear, and validate artifacts produced through the domain engine/builder.
 - Runtime exact geometry may be kept in memory for render safety even when `ViewConfig.cacheMosaicResults = false`; this is not a disk-cache read or readiness signal. Disk cache remains disabled in cache-off mode, but render paths still require in-memory exact geometry before publishing partial or ready Mosaic replacements.
 - `AppDatabase` is version 2. Version 2 did not change the exported Room schema, so every platform builder registers an explicit no-op `MIGRATION_1_2` that preserves the re-fetchable cache. Keep the version-1 schema JSON and the Android migration test so this path remains validated. Destructive fallback remains acceptable only for unsupported version gaps while Room contains no durable user-authored data.
+- `timeline_buckets.displayLabel` is a legacy schema column kept for migration
+  compatibility. Timeline presentation derives typed `AssetGroupDisplayLabel`
+  values from `timeBucket`; do not persist localized month or unknown-date text
+  as cache identity.
 
 ## Repository Rules
 

@@ -1,9 +1,14 @@
 package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
+import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class StaticPhotoOverlayTest {
@@ -80,4 +85,190 @@ class StaticPhotoOverlayTest {
         assertEquals(0.05f, pageIndicatorProgress(20, -1f), absoluteTolerance = 0.0001f)
         assertEquals(1f, pageIndicatorProgress(20, 20f), absoluteTolerance = 0.0001f)
     }
+
+    @Test
+    fun staticOverlayInitialIndexDistinguishesPendingAbsentAndFound() {
+        assertEquals(
+            PhotoOverlayInitialIndexResolution.Pending,
+            resolveStaticPhotoOverlayInitialIndex(
+                source = StaticPhotoOverlaySourceIdentity(
+                    ownerKey = "source",
+                    assetIds = emptyList(),
+                    isPending = true
+                ),
+                assetId = "a"
+            )
+        )
+        assertEquals(
+            PhotoOverlayInitialIndexResolution.Absent,
+            resolveStaticPhotoOverlayInitialIndex(
+                source = StaticPhotoOverlaySourceIdentity(
+                    ownerKey = "source",
+                    assetIds = listOf("b"),
+                    isPending = false
+                ),
+                assetId = "a"
+            )
+        )
+        val found = resolveStaticPhotoOverlayInitialIndex(
+            source = StaticPhotoOverlaySourceIdentity(
+                ownerKey = "source",
+                assetIds = listOf("a", "b"),
+                isPending = true
+            ),
+            assetId = "b"
+        )
+        assertIs<PhotoOverlayInitialIndexResolution.Found>(found)
+        assertEquals(1, found.index)
+    }
+
+    @Test
+    fun viewerPrefetchTargetsOnlySettledImageNeighbors() {
+        val assets = listOf(
+            asset("left", AssetType.IMAGE),
+            asset("center-video", AssetType.VIDEO),
+            asset("right", AssetType.IMAGE),
+            asset("outside", AssetType.IMAGE)
+        )
+
+        assertEquals(
+            listOf(
+                ViewerImagePrefetchTarget(
+                    "left",
+                    "https://example.test/left/original",
+                    width = 1440,
+                    height = 900
+                ),
+                ViewerImagePrefetchTarget(
+                    "right",
+                    "https://example.test/right/original",
+                    width = 1440,
+                    height = 900
+                )
+            ),
+            viewerImagePrefetchTargets(
+                assets = assets,
+                settledPage = 1,
+                viewportSize = IntSize(1440, 900)
+            )
+        )
+        assertEquals(
+            emptyList(),
+            viewerImagePrefetchTargets(assets, settledPage = 1, viewportSize = IntSize.Zero)
+        )
+    }
+
+    @Test
+    fun viewerPrefetchControllerDeduplicatesAndCancelsDisplacedAndDisposedWork() {
+        val enqueued = mutableListOf<ViewerImagePrefetchTarget>()
+        val disposed = mutableListOf<ViewerImagePrefetchTarget>()
+        val controller = ViewerImagePrefetchController { target ->
+            enqueued += target
+            ViewerImagePrefetchHandle { disposed += target }
+        }
+        val left = target("left")
+        val center = target("center")
+        val right = target("right")
+
+        controller.update(listOf(left, center, center))
+        controller.update(listOf(center, right))
+
+        assertEquals(listOf(left, center, right), enqueued)
+        assertEquals(listOf(left), disposed)
+        assertEquals(setOf(center, right), controller.activeTargetsForTests())
+
+        controller.dispose()
+
+        assertEquals(listOf(left, center, right), disposed)
+        assertEquals(emptySet(), controller.activeTargetsForTests())
+    }
+
+    @Test
+    fun slideshowAdvanceRequiresStateToRemainCurrentAfterDelay() {
+        val config = SlideshowConfig(durationSeconds = 3)
+
+        assertTrue(
+            shouldAdvanceSlideshowAfterDelay(
+                startingConfig = config,
+                currentConfig = config,
+                startingPage = 1,
+                currentSettledPage = 1,
+                startingPageCount = 2,
+                currentPageCount = 2,
+                isCoveredByStack = false
+            )
+        )
+        assertFalse(
+            shouldAdvanceSlideshowAfterDelay(
+                startingConfig = config,
+                currentConfig = null,
+                startingPage = 1,
+                currentSettledPage = 1,
+                startingPageCount = 2,
+                currentPageCount = 2,
+                isCoveredByStack = false
+            )
+        )
+        assertFalse(
+            shouldAdvanceSlideshowAfterDelay(
+                startingConfig = config,
+                currentConfig = config,
+                startingPage = 1,
+                currentSettledPage = 2,
+                startingPageCount = 2,
+                currentPageCount = 2,
+                isCoveredByStack = false
+            )
+        )
+        assertFalse(
+            shouldAdvanceSlideshowAfterDelay(
+                startingConfig = config,
+                currentConfig = config,
+                startingPage = 1,
+                currentSettledPage = 1,
+                startingPageCount = 1,
+                currentPageCount = 1,
+                isCoveredByStack = false
+            )
+        )
+        assertFalse(
+            shouldAdvanceSlideshowAfterDelay(
+                startingConfig = config,
+                currentConfig = config,
+                startingPage = 1,
+                currentSettledPage = 1,
+                startingPageCount = 2,
+                currentPageCount = 2,
+                isCoveredByStack = true
+            )
+        )
+        assertFalse(
+            shouldAdvanceSlideshowAfterDelay(
+                startingConfig = config,
+                currentConfig = config,
+                startingPage = 1,
+                currentSettledPage = 1,
+                startingPageCount = 2,
+                currentPageCount = 3,
+                isCoveredByStack = false
+            )
+        )
+    }
+
+    private fun asset(id: String, type: AssetType): Asset = Asset(
+        id = id,
+        type = type,
+        fileName = "$id.jpg",
+        createdAt = "2026-08-09T12:00:00Z",
+        thumbnailUrl = "https://example.test/$id/thumb",
+        originalUrl = "https://example.test/$id/original",
+        videoPlaybackUrl = "https://example.test/$id/video"
+    )
+
+    private fun target(id: String): ViewerImagePrefetchTarget = ViewerImagePrefetchTarget(
+        assetId = id,
+        url = "https://example.test/$id/original",
+        width = 1440,
+        height = 900
+    )
 }

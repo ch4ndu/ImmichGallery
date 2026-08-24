@@ -141,6 +141,43 @@ private const val IMAGE_CROSSFADE_MS = 200
 private const val PHOTO_LAYER_HANDOFF_FADE_MS = 100
 private const val THUMBNAIL_DECODE_SIZE = 256
 
+internal data class StillImageLoadState(
+    val url: String,
+    val retryNonce: Int = 0,
+    val hasError: Boolean = false
+) {
+    val requestIdentity: StillImageRequestIdentity
+        get() = StillImageRequestIdentity(url = url, retryNonce = retryNonce)
+}
+
+internal data class StillImageRequestIdentity(
+    val url: String,
+    val retryNonce: Int
+)
+
+internal fun stillImageLoadStateForUrl(
+    current: StillImageLoadState?,
+    url: String
+): StillImageLoadState =
+    if (current?.url == url) current else StillImageLoadState(url = url)
+
+internal fun StillImageLoadState.markLoadingOrSuccess(
+    requestIdentity: StillImageRequestIdentity
+): StillImageLoadState =
+    if (this.requestIdentity == requestIdentity) copy(hasError = false) else this
+
+internal fun StillImageLoadState.markError(
+    requestIdentity: StillImageRequestIdentity
+): StillImageLoadState =
+    if (this.requestIdentity == requestIdentity) copy(hasError = true) else this
+
+internal fun StillImageLoadState.retry(url: String): StillImageLoadState =
+    if (this.url == url) {
+        copy(retryNonce = retryNonce + 1, hasError = false)
+    } else {
+        StillImageLoadState(url = url)
+    }
+
 @Immutable
 internal data class PhotoDragTransform(
     val active: Boolean = false,
@@ -287,6 +324,9 @@ private fun StillAssetPage(
     onZoomStateChanged: ((Boolean) -> Unit)?
 ) {
     val zoomState = rememberCoilZoomState()
+    var imageLoadState by remember(asset.originalUrl) {
+        mutableStateOf(StillImageLoadState(url = asset.originalUrl))
+    }
     val userTransform = zoomState.zoomable.userTransform
     val isZoomed = userTransform.scaleX > 1.01f ||
             userTransform.offsetX != 0f || userTransform.offsetY != 0f
@@ -329,6 +369,10 @@ private fun StillAssetPage(
                 ImageContent(
                     url = asset.originalUrl,
                     thumbnailCacheKey = asset.thumbnailCacheKey,
+                    loadState = imageLoadState,
+                    onLoadStateChanged = { update ->
+                        imageLoadState = update(imageLoadState)
+                    },
                     onTap = onTap,
                     zoomState = zoomState,
                     modifier = Modifier.alpha(fullImageAlpha)
@@ -353,6 +397,10 @@ private fun StillAssetPage(
             ImageContent(
                 url = asset.originalUrl,
                 thumbnailCacheKey = asset.thumbnailCacheKey,
+                loadState = imageLoadState,
+                onLoadStateChanged = { update ->
+                    imageLoadState = update(imageLoadState)
+                },
                 onTap = onTap,
                 zoomState = zoomState,
                 modifier = Modifier.alpha(fullImageAlpha)
@@ -868,12 +916,13 @@ internal fun DetailBottomHandle(
 private fun ImageContent(
     url: String,
     thumbnailCacheKey: String,
+    loadState: StillImageLoadState,
+    onLoadStateChanged: ((StillImageLoadState) -> StillImageLoadState) -> Unit,
     onTap: () -> Unit,
     zoomState: com.github.panpf.zoomimage.CoilZoomState,
     modifier: Modifier = Modifier
 ) {
-    var hasError by remember { mutableStateOf(false) }
-
+    val requestIdentity = loadState.requestIdentity
     log.d { "ImageContent: loading <redacted>" }
 
     // Use the cached thumbnail as a placeholder so a slow network doesn't
@@ -881,18 +930,19 @@ private fun ImageContent(
     // and the full-resolution image arriving. The short crossfade smooths
     // the thumbnail→original handoff.
     val context = LocalPlatformContext.current
-    val imageRequest = remember(context, url, thumbnailCacheKey) {
+    val imageRequest = remember(context, url, thumbnailCacheKey, loadState.retryNonce) {
         ImageRequest.Builder(context)
             .data(url)
             .placeholderMemoryCacheKey(thumbnailCacheKey)
+            .memoryCacheKeyExtra("detailRetryNonce", loadState.retryNonce.toString())
             .crossfade(IMAGE_CROSSFADE_MS)
             .build()
     }
 
-    if (hasError) {
+    if (loadState.hasError) {
         ErrorState(
             message = stringResource(Res.string.detail_failed_image),
-            onRetry = { hasError = false }
+            onRetry = { onLoadStateChanged { current -> current.retry(url) } }
         )
     } else if (LocalAppActive.current) {
         CoilZoomAsyncImage(
@@ -901,6 +951,19 @@ private fun ImageContent(
             modifier = modifier.fillMaxSize(),
             zoomState = zoomState,
             scrollBar = null,
+            onLoading = {
+                onLoadStateChanged { current ->
+                    current.markLoadingOrSuccess(requestIdentity)
+                }
+            },
+            onSuccess = {
+                onLoadStateChanged { current ->
+                    current.markLoadingOrSuccess(requestIdentity)
+                }
+            },
+            onError = {
+                onLoadStateChanged { current -> current.markError(requestIdentity) }
+            },
             onTap = { onTap() }
         )
     } else {

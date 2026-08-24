@@ -4,6 +4,7 @@ import com.udnahc.immichgallery.data.local.entity.AssetEntity
 import com.udnahc.immichgallery.data.remote.TimelineApiCompatibilityException
 import com.udnahc.immichgallery.data.remote.TimelineCompatibilityCategory
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.model.timelineBucketDisplayLabel
 import com.udnahc.immichgallery.domain.model.TimelineBucketAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncCompatibilityException
 import kotlinx.coroutines.CancellationException
@@ -140,7 +141,11 @@ class TimelineBulkAssetSyncTest {
         )
 
     private fun bucket(timeBucket: String): TimelineBucket =
-        TimelineBucket(displayLabel = timeBucket, timeBucket = timeBucket, count = 1)
+        TimelineBucket(
+            displayLabel = timelineBucketDisplayLabel(timeBucket),
+            timeBucket = timeBucket,
+            count = 1
+        )
 
     private fun asset(
         id: String,

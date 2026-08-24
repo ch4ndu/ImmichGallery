@@ -31,7 +31,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +42,8 @@ import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.component.StaticPhotoOverlaySourceIdentity
+import com.udnahc.immichgallery.ui.component.resolveStaticPhotoOverlayInitialIndex
 import com.udnahc.immichgallery.ui.model.asText
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
@@ -56,7 +57,6 @@ import immichgallery.composeapp.generated.resources.favorites_empty
 import immichgallery.composeapp.generated.resources.load_more
 import immichgallery.composeapp.generated.resources.loading_favorites
 import immichgallery.composeapp.generated.resources.retry
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -69,7 +69,14 @@ fun FavoritesScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
-    val dismissScope = rememberCoroutineScope()
+    val overlaySource = StaticPhotoOverlaySourceIdentity(
+        ownerKey = "favorites:${state.ownerId.orEmpty()}:${state.activeRequestGeneration}",
+        assetIds = state.assets.map { it.id },
+        isPending = state.isLoading ||
+            state.isLoadingMore ||
+            state.nextPage != null ||
+            state.firstUnconsumedPage != null
+    )
 
     LaunchedEffect(viewModel.lastViewedAssetId) {
         val rowIndex = viewModel.getDisplayItemIndexForReturn() ?: return@LaunchedEffect
@@ -77,9 +84,17 @@ fun FavoritesScreen(
     }
 
     PhotoOverlayHost(
-        initialIndexKey = state.assets,
+        initialIndexKey = overlaySource,
+        onPrepareOverlayDismiss = { currentAssetId ->
+            viewModel.lastViewedAssetId = currentAssetId
+            viewModel.getDisplayItemIndexForReturn()
+                ?.let { listState.ensureReturnSourceVisible(it) }
+        },
         resolveInitialIndex = { assetId ->
             state.assets.indexOfFirst { it.id == assetId }.takeIf { it >= 0 }
+        },
+        resolveInitialIndexState = { assetId ->
+            resolveStaticPhotoOverlayInitialIndex(overlaySource, assetId)
         },
         content = { _, transitionAssetId, hiddenAssetId, onPhotoClick ->
             FavoritesContent(
@@ -104,14 +119,7 @@ fun FavoritesScreen(
                 getAssetDetail = viewModel::getAssetDetail,
                 getAssetStack = viewModel::getAssetStack,
                 onPersonClick = onPersonClick,
-                onDismiss = { currentAssetId ->
-                    dismissScope.launch {
-                        viewModel.lastViewedAssetId = currentAssetId
-                        viewModel.getDisplayItemIndexForReturn()
-                            ?.let { listState.ensureReturnSourceVisible(it) }
-                        onDismissHost(currentAssetId)
-                    }
-                },
+                onDismiss = onDismissHost,
                 onCurrentAssetChanged = onCurrentAssetChanged,
                 onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                 sharedTransitionScope = sharedTransitionScope,

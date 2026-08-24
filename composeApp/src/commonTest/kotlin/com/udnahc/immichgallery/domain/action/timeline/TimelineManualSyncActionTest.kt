@@ -11,6 +11,7 @@ import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncCompatibilityException
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.model.timelineBucketDisplayLabel
 import com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineBucketSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
@@ -649,5 +650,9 @@ class TimelineManualSyncActionTest {
         )
 
     private fun bucket(timeBucket: String): TimelineBucket =
-        TimelineBucket(displayLabel = timeBucket, timeBucket = timeBucket, count = 1)
+        TimelineBucket(
+            displayLabel = timelineBucketDisplayLabel(timeBucket),
+            timeBucket = timeBucket,
+            count = 1
+        )
 }

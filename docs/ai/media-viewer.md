@@ -7,8 +7,18 @@ video playback, or desktop viewer shortcuts.
 ## Viewer Owners
 
 - `PhotoOverlayHost` owns open/dismiss state, shared-transition lifecycle,
-  transition identity, and the hidden grid asset for Search, Album Detail, and
-  Person Detail.
+  transition identity, and the hidden grid asset for Search, Favorites,
+  Memories, Album Detail, and Person Detail.
+  Opening resolution is explicit: `Found` mounts the overlay at the resolved
+  page, `Pending` keeps the requested asset selected while waiting for the
+  owner source, and `Absent` clears the request. Hosts must not fall back to
+  page zero when a non-Timeline source cannot resolve the requested asset.
+  Each host keys resolution by its owner, ordered asset ids, and source
+  readiness/completeness so an incomplete source cannot be mistaken for an
+  authoritative absence. A restored `Found` selection also reconstructs its
+  grid transition identity. Re-resolving an already-open source preserves the
+  pager's settled current asset rather than resetting return identity to the
+  originally tapped asset.
 - `StaticPhotoOverlay` pages an already materialized ordered asset list for
   those screens.
 - Timeline uses `TimelinePhotoOverlay` because its pager spans lazy buckets.
@@ -32,8 +42,11 @@ video playback, or desktop viewer shortcuts.
 - Every back, drag, or host dismissal reports the currently viewed asset, not
   only the originally selected asset.
 - Before the exit transition, the owning screen maps that id through its current
-  display index and scrolls only when the source is fully off-screen. Timeline
-  commits asset id and bucket together through `TimelineOverlayCoordinator`.
+  display index and scrolls only when the source is fully off-screen. Static
+  overlay hosts must await this return-source preparation before starting the
+  host exit animation, so the grid-side shared-element source is visible in the
+  exit composition. Timeline commits asset id and bucket together through
+  `TimelineOverlayCoordinator`.
 - `lastSelectedAssetId`/host-retained content keeps the exit destination alive
   until the shared transition completes.
 - `PhotoOverlayHost` has an explicit return policy. Current-asset mode is the
@@ -90,6 +103,19 @@ video playback, or desktop viewer shortcuts.
   memory/disk cache keys.
 - Still pages request the edited original URL and use the matching thumbnail as
   the transition/loading source.
+- Still-image load state is scoped to the original URL and retained by the
+  stable page across transition/drag rendering branches. Loading, success, and
+  failure callbacks apply only to the exact URL plus retry-nonce request that
+  produced them. Retry increments that nonce in the Coil request while
+  preserving the asset/page identity; late callbacks from an older nonce are
+  ignored.
+- Static and Timeline still-image viewers prefetch only `IMAGE` assets in the
+  settled viewport window: current page plus one neighbor on each side for
+  static lists, and the resolved candidate pages Timeline supplies for bucketed
+  paging. Prefetch requests use the measured viewport size, retain active Coil
+  disposables for unchanged targets, and dispose targets that leave the window
+  or when the overlay leaves composition. Videos are not prefetched through
+  this still-image path.
 - `CoilZoomAsyncImage` owns pinch/pan zoom. Once zoomed, the media zoom gesture
   takes precedence over drag dismissal.
 - A tap toggles viewer chrome when the detail sheet and slideshow are inactive.
@@ -128,7 +154,8 @@ video playback, or desktop viewer shortcuts.
   in seconds, and animations off or random.
 - Sequential order wraps. Random order chooses a page other than the current one.
 - The timer restarts after each settled page, including a manual desktop advance,
-  and re-checks active slideshow/page state after suspension.
+  and re-checks active slideshow configuration, settled page, page count, and
+  stack coverage after suspension before advancing.
 - Still images use `KenBurnsImage` when random animations are enabled. Video
   pages use the asset thumbnail while slideshow is active rather than starting
   video playback.
@@ -149,14 +176,16 @@ video playback, or desktop viewer shortcuts.
 
 - swiping before dismiss returns to the settled asset rather than the original;
 - a Memories viewer returns non-cover pages to its originating cover card;
+- missing or still-pending open sources do not fall back to page zero;
 - a Memories viewer shows every fractionally active page dot when the complete
   row fits, including 20 assets at 320dp, and otherwise shows fractional
   full-width segmented progress;
 - a fully off-screen return source is made visible before exit;
+- still-image retry is URL-scoped and prefetch stays bounded/disposed;
 - still-image zoom prevents accidental drag dismissal;
 - only the settled video plays and platform authentication reaches Immich;
 - Info loading/failure does not destroy the pager;
-- slideshow stops cleanly, wraps/chooses pages according to config, and releases
-  the wake lock;
+- slideshow stops cleanly, wraps/chooses pages according to config, revalidates
+  state after the delay, and releases the wake lock;
 - desktop shortcuts act only while the viewer is enabled and do not interfere
   with open dialogs/sheets.

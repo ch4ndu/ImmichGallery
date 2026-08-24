@@ -13,6 +13,9 @@ Album/Person detail is documented separately in
   With cached albums, it keeps the grid visible while syncing and shows a
   dismissible banner on failure.
 - The main top-bar refresh callback runs the same sync path.
+- Startup and refresh use one screen-local sync gate; duplicate refresh/startup
+  requests while a list sync is active are ignored until the active sync
+  releases the gate.
 - `AlbumRepository.syncAlbums()` replaces the Album list transactionally. It
   also clears relations, Detail Mosaic artifacts, and detail sync metadata for
   owners removed by the server.
@@ -25,6 +28,9 @@ Album/Person detail is documented separately in
 
 - `PeopleViewModel` observes `GetPeopleUseCase.observe()` from Room and starts a
   server sync when created.
+- Startup and refresh use one screen-local sync gate; duplicate refresh/startup
+  requests while a People sync is active are ignored until the active sync
+  releases the gate.
 - `PeopleRepository.syncPeople()` requests `withHidden=true` and follows every
   `/api/people` page in memory, then replaces the list only after the complete
   fetch succeeds. Hidden rows remain in Room so the raw accumulated count
@@ -157,11 +163,17 @@ Album/Person detail is documented separately in
 
 - Selecting a result opens `StaticPhotoOverlay` over the current ordered result
   list.
+- Opening uses explicit `Found`/`Pending`/`Absent` source resolution. A pending
+  or paginated result source keeps the open request waiting, while a complete
+  absent source cancels the open request instead of falling back to page zero.
+  Resolution is keyed by the search request generation, ordered result ids,
+  loading state, and continuation state.
 - The overlay fetches expanded asset information on demand and may navigate to
   a recognized person's detail screen.
 - On dismiss, `lastViewedAssetId` maps the current asset back to its current
   RowPacking row so an off-screen return source can be made visible before the
-  shared-element exit.
+  shared-element exit. Search awaits that source preparation before dismissing
+  the host overlay.
 - Shared media-viewer behavior lives in `docs/ai/media-viewer.md`.
 
 ## Favorites
@@ -192,6 +204,11 @@ Album/Person detail is documented separately in
   atomically claims load-more work, and owns a separate Favorites row-density
   setting. Favorites uses justified rows only, plus the shared return-source,
   static viewer, Info, slideshow, person navigation, and stack session.
+  Opening uses explicit `Found`/`Pending`/`Absent` source resolution and never
+  substitutes page zero for a missing favorite. Owner/request identity,
+  ordered asset ids, loading state, and continuation/retry state determine
+  whether a missing id is pending or authoritatively absent. Dismiss awaits
+  return-source preparation before the host exit.
 
 ## Memories
 
@@ -212,20 +229,30 @@ Album/Person detail is documented separately in
   `StaticPhotoOverlay`, retaining Info, slideshow, person navigation, mixed
   image/video playback, and viewer-scoped stacks.
 - Memory viewers opt into origin return: paging to a non-cover asset still
-  hides and exits to the selected cover. A nested stack closes to the unchanged
+  hides and exits to the selected cover. Opening uses explicit
+  `Found`/`Pending`/`Absent` source resolution and never substitutes page zero
+  for a missing memory asset. Resolution is keyed by request generation,
+  pending/error state, selected owner, and every loaded memory's ordered asset
+  ids. A failed read stays pending so an explicit Retry can recover the saved
+  viewer; only a successful terminal source can declare the cover absent.
+  After host-state restoration, the selected memory is recovered by its saved
+  cover. Only when that owner no longer exists may resolution search loaded
+  memory covers in display order; it never transfers the origin to a non-cover
+  asset or away from a surviving owner. A nested stack closes to the unchanged
   memory pager before the base viewer exits to that cover.
 
 ## Verification Targets
 
 - Album and People cached content remains visible when refresh fails;
+- Album and People startup/refresh syncs are single-flight;
 - People name filtering is local and case-insensitive;
 - a People list sync follows all pages and does not publish a partial replace;
 - removed Album/Person owners clear owner-scoped detail data transactionally;
 - query/mode changes reject stale network and row-layout results;
 - load-more is duplicate-guarded, follows the server token, and retries only by
   a new explicit/eligible attempt;
-- Search remains RowPacking-only and restores the currently viewed asset row on
-  overlay dismissal.
+- Search remains RowPacking-only, does not page-zero fallback on open, and
+  restores the currently viewed asset row on overlay dismissal.
 - Search option tests cover independent feature/preference failure, positive
   Context/OCR gates, Room-observed People/Albums with cached failure, Tag
   enablement/lazy retry, normalized suggestion caches, and stale dependent

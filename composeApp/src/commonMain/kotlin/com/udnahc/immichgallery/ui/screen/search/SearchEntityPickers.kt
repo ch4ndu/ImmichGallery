@@ -2,7 +2,6 @@ package com.udnahc.immichgallery.ui.screen.search
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -31,6 +31,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
 import coil3.compose.LocalPlatformContext
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
@@ -338,7 +341,7 @@ private fun PersonOptionRow(
     SearchOptionRow(
         label = label,
         selected = selected,
-        leading = { AuthenticatedPickerImage(person.thumbnailUrl, label, circular = true) },
+        leading = { AuthenticatedPickerImage(person.thumbnailUrl, circular = true) },
         onClick = onClick
     )
 }
@@ -353,7 +356,7 @@ private fun AlbumOptionRow(
         label = album.name,
         supporting = stringResource(Res.string.items_count, album.assetCount),
         selected = selected,
-        leading = { AuthenticatedPickerImage(album.thumbnailUrl, album.name, circular = false) },
+        leading = { AuthenticatedPickerImage(album.thumbnailUrl, circular = false) },
         onClick = onClick
     )
 }
@@ -370,7 +373,12 @@ internal fun SearchOptionRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = Dimens.searchOptionRowMinHeight)
-            .clickable(onClick = onClick)
+            .toggleable(
+                value = selected,
+                role = Role.Checkbox,
+                onValueChange = { onClick() }
+            )
+            .semantics(mergeDescendants = true) {}
             .padding(vertical = Dimens.smallSpacing),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
@@ -386,14 +394,17 @@ internal fun SearchOptionRow(
                 )
             }
         }
-        Checkbox(checked = selected, onCheckedChange = null)
+        Checkbox(
+            checked = selected,
+            onCheckedChange = null,
+            modifier = Modifier.clearAndSetSemantics {}
+        )
     }
 }
 
 @Composable
 private fun AuthenticatedPickerImage(
     url: String?,
-    contentDescription: String,
     circular: Boolean
 ) {
     val modifier = Modifier
@@ -409,7 +420,7 @@ private fun AuthenticatedPickerImage(
         )
         Image(
             painter = painter,
-            contentDescription = contentDescription,
+            contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = modifier
         )

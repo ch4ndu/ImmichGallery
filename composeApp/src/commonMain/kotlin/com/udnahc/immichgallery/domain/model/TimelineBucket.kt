@@ -1,13 +1,33 @@
 package com.udnahc.immichgallery.domain.model
 
 import androidx.compose.runtime.Immutable
+import kotlinx.datetime.LocalDate
 
 @Immutable
 data class TimelineBucket(
-    val displayLabel: String,
+    val displayLabel: AssetGroupDisplayLabel,
     val timeBucket: String,
     val count: Int
 )
+
+internal fun timelineBucketDisplayLabel(timeBucket: String): AssetGroupDisplayLabel {
+    if (
+        timeBucket.length < 7 ||
+        timeBucket[4] != '-' ||
+        !timeBucket.substring(0, 4).all(Char::isDigit)
+    ) {
+        return AssetGroupDisplayLabel.UnknownDate
+    }
+    val year = timeBucket.substring(0, 4).toIntOrNull()
+        ?: return AssetGroupDisplayLabel.UnknownDate
+    val monthNumber = timeBucket.substring(5, 7).toIntOrNull()
+        ?.takeIf { it in 1..12 }
+        ?: return AssetGroupDisplayLabel.UnknownDate
+    return AssetGroupDisplayLabel.Month(year = year, monthNumber = monthNumber)
+}
+
+internal fun timelineDayDisplayLabel(date: LocalDate?): AssetGroupDisplayLabel =
+    date?.let(AssetGroupDisplayLabel::Day) ?: AssetGroupDisplayLabel.UnknownDate
 
 @Immutable
 data class TimelineBucketSyncResult(

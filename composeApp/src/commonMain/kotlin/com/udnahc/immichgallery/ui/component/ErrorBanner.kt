@@ -22,9 +22,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.date_group_day
 import immichgallery.composeapp.generated.resources.dismiss
+import immichgallery.composeapp.generated.resources.error_banner_last_updated
 import immichgallery.composeapp.generated.resources.ic_close
+import immichgallery.composeapp.generated.resources.unknown
 import kotlinx.coroutines.delay
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
@@ -40,7 +44,7 @@ fun ErrorBanner(
 ) {
     val displayText = if (lastSyncedAt != null) {
         val formatted = formatLastSynced(lastSyncedAt)
-        "$message. Last updated $formatted"
+        stringResource(Res.string.error_banner_last_updated, message, formatted)
     } else {
         message
     }
@@ -102,7 +106,7 @@ private fun BannerRow(
             modifier = Modifier.weight(1f)
         )
         Spacer(Modifier.width(Dimens.mediumSpacing))
-        IconButton(onClick = onDismiss, modifier = Modifier.size(Dimens.iconSize)) {
+        IconButton(onClick = onDismiss) {
             Icon(
                 painterResource(Res.drawable.ic_close),
                 contentDescription = stringResource(Res.string.dismiss),
@@ -113,13 +117,21 @@ private fun BannerRow(
     }
 }
 
+@Composable
 private fun formatLastSynced(epochMillis: Long): String {
-    return try {
-        val instant = Instant.fromEpochMilliseconds(epochMillis)
-        val local = instant.toLocalDateTime(TimeZone.currentSystemDefault())
-        val monthName = local.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)
-        "${local.day} $monthName ${local.year}"
-    } catch (_: Exception) {
-        "unknown"
-    }
+    val localDate = lastSyncedLocalDate(epochMillis, TimeZone.currentSystemDefault())
+        ?: return stringResource(Res.string.unknown)
+    return stringResource(
+        Res.string.date_group_day,
+        localDate.day,
+        localizedMonthName(localDate.month.ordinal + 1),
+        localDate.year
+    )
 }
+
+internal fun lastSyncedLocalDate(epochMillis: Long, timeZone: TimeZone): LocalDate? =
+    runCatching {
+        Instant.fromEpochMilliseconds(epochMillis)
+            .toLocalDateTime(timeZone)
+            .date
+    }.getOrNull()

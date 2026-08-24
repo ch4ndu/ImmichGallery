@@ -433,6 +433,10 @@ the final settled viewport after fast gesture movement.
 Scrollbar dragging uses the Timeline page index instead of raw lazy-list item
 fractions. This keeps scrollbar labels, year markers, handle position, and drag
 targets aligned with asset counts instead of display row counts.
+The label provider uses typed section labels from `TimelineDisplayIndex`
+instead of parsing localized strings; localized month/unknown-date text is
+resolved at composition time, while scroll/pager identity remains keyed by
+stable bucket, section, page, grid, and asset identifiers.
 
 1. `ScrollbarOverlay` sends a fraction during drag.
 2. `TimelineViewModel.scrollTargetForFraction()` maps that fraction through
@@ -642,12 +646,24 @@ to every thumbnail in a large bucket caused first-scroll jank even when image
 loading was disabled.
 
 When a photo opens, `getGlobalPhotoIndex()` first uses `TimelinePageIndex` and
-`bucketAssetsCache` to find the asset without a Room round trip. On dismiss,
-the overlay reports the current asset id and bucket. `TimelineOverlayCoordinator`
-records both values as one `TimelineOverlayReturnTarget`, preventing the screen
-from observing a mixed old/new pair. The screen then asks the ViewModel for a
-return display index, preferring the exact rendered asset and falling back to
-the bucket placeholder/header when the asset row is not materialized yet.
+`bucketAssetsCache` to find the asset without a Room round trip. Timeline tracks
+whether the Room bucket source has emitted, including an authoritative empty
+result. Before that source is ready, a restored unresolved selection remains
+pending; readiness and loading participate in the host retry identity. If a
+page is not materialized yet, the host also treats the open source as pending
+and waits; only an authoritative absent source clears the request, never by
+falling back to page zero. A pending pager anchor retains its stable bucket and
+local offset and updates its absolute page when preceding buckets move, so a
+later materialization/removal resolves from the shifted position. On dismiss,
+the overlay reports the current asset id and
+bucket. `TimelineOverlayCoordinator` records both values as one
+`TimelineOverlayReturnTarget`, preventing the screen from observing a mixed
+old/new pair. The screen then asks the ViewModel for a return display index,
+preferring the exact rendered asset and falling back to the bucket
+placeholder/header when the asset row is not materialized yet. Timeline photo
+paging uses the same settled still-image prefetch and slideshow revalidation
+contracts as the static viewer, but supplies bucket-projected candidate pages
+around the current Timeline page.
 
 Timeline stack browsing is nested inside `TimelinePhotoOverlay`. Its
 authoritative stack reads and child paging never write `bucketAssetsCache`,
@@ -687,6 +703,8 @@ return policy.
 - Sticky header labels must use the precomputed Timeline display index and
   retain the last non-null label during transient progressive updates; do not
   key header state directly on the whole display-item list.
+- Scrollbar labels must use typed section labels from the precomputed Timeline
+  display index and keep label localization separate from bucket/page identity.
 - Progressive Mosaic chunks should be throttled before publishing to UI state,
   but settled visibility and scrollbar-target changes must flush eligible chunks
   immediately. Do not debounce recording the current target.

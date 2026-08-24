@@ -11,6 +11,7 @@ import com.udnahc.immichgallery.domain.usecase.auth.GetApiKeyUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.GetServerUrlUseCase
 import com.udnahc.immichgallery.domain.usecase.auth.ValidateServerUseCase
 import com.udnahc.immichgallery.ui.model.LoginUiMessage
+import com.udnahc.immichgallery.ui.util.OwnerSingleFlightGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.CoroutineDispatcher
@@ -46,6 +47,7 @@ class LoginViewModel(
             apiKey = getApiKeyUseCase().ifBlank { LocalLoginDefaults.API_KEY }
         )
     )
+    private val loginGate = OwnerSingleFlightGate()
     val state: StateFlow<LoginState> = _state.asStateFlow()
 
     fun updateServerUrl(url: String) {
@@ -70,7 +72,7 @@ class LoginViewModel(
     }
 
     fun login() {
-        viewModelScope.launch(workerDispatcher) {
+        loginGate.launch(viewModelScope, workerDispatcher) {
             val currentState = _state.value
             if (currentState.serverUrl.isBlank() || currentState.apiKey.isBlank()) {
                 _state.update { it.copy(error = LoginUiMessage.RequiredFields) }

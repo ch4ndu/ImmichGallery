@@ -54,8 +54,11 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -66,7 +69,6 @@ import com.udnahc.immichgallery.ui.util.excludeFromSystemGestures
 import com.udnahc.immichgallery.ui.util.rememberHapticFeedback
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_scroll_arrows
-import immichgallery.composeapp.generated.resources.scroll_drag
 import immichgallery.composeapp.generated.resources.scrollbar_thumb
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -253,7 +255,6 @@ private fun ScrollbarHandle(
     val density = LocalDensity.current
     val haptics = rememberHapticFeedback()
     val thumbDescription = stringResource(Res.string.scrollbar_thumb)
-    val dragDescription = stringResource(Res.string.scroll_drag)
 
     var trackHeightPx by remember { mutableStateOf(0) }
     // Pixel values must be recalculated when display density or font scale changes.
@@ -328,6 +329,23 @@ private fun ScrollbarHandle(
             onDragFraction(dragFraction)
         }
     }
+    val onSetProgress: (Float) -> Boolean = { target ->
+        dispatchScrollbarProgressAction(
+            target = target,
+            onStarted = {
+                isDragging = true
+                onDragStarted()
+            },
+            onFraction = { targetFraction ->
+                dragFraction = targetFraction
+                onDragFraction(targetFraction)
+            },
+            onStopped = { targetFraction ->
+                isDragging = false
+                onDragStopped(targetFraction)
+            }
+        )
+    }
 
     val handleColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val handleIconColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -371,7 +389,6 @@ private fun ScrollbarHandle(
             .width(Dimens.scrollbarTouchTargetWidth + Dimens.scrollbarYearLabelWidth)
             .clipToBounds()
             .onSizeChanged { trackHeightPx = it.height }
-            .semantics { contentDescription = thumbDescription }
     ) {
         ScrollbarYearMarkers(
             markers = visibleMarkers,
@@ -387,8 +404,10 @@ private fun ScrollbarHandle(
             handleClipOffsetPx = handleClipOffsetPx,
             handleColor = handleColor,
             handleIconColor = handleIconColor,
-            dragDescription = dragDescription,
+            thumbDescription = thumbDescription,
+            currentFraction = currentFraction,
             draggableState = draggableState,
+            onSetProgress = onSetProgress,
             onDragStarted = {
                 isDragging = true
                 onDragStarted()
@@ -408,6 +427,19 @@ private fun ScrollbarHandle(
             bubbleTextColor = bubbleTextColor
         )
     }
+}
+
+internal fun dispatchScrollbarProgressAction(
+    target: Float,
+    onStarted: () -> Unit,
+    onFraction: (Float) -> Unit,
+    onStopped: (Float) -> Unit
+): Boolean {
+    val targetFraction = target.coerceIn(0f, 1f)
+    onStarted()
+    onFraction(targetFraction)
+    onStopped(targetFraction)
+    return true
 }
 
 @Composable
@@ -465,8 +497,10 @@ private fun BoxScope.ScrollbarThumb(
     handleClipOffsetPx: Int,
     handleColor: Color,
     handleIconColor: Color,
-    dragDescription: String,
+    thumbDescription: String,
+    currentFraction: Float,
     draggableState: DraggableState,
+    onSetProgress: (Float) -> Boolean,
     onDragStarted: () -> Unit,
     onDragStopped: () -> Unit
 ) {
@@ -479,6 +513,11 @@ private fun BoxScope.ScrollbarThumb(
             .offset { IntOffset(x = handleClipOffsetPx, y = handleOffsetPx) }
             .size(Dimens.scrollbarHandleSize)
             .excludeFromSystemGestures()
+            .semantics(mergeDescendants = true) {
+                contentDescription = thumbDescription
+                progressBarRangeInfo = ProgressBarRangeInfo(currentFraction, 0f..1f)
+                setProgress { target -> onSetProgress(target) }
+            }
             .draggable(
                 state = draggableState,
                 orientation = Orientation.Vertical,
@@ -493,7 +532,7 @@ private fun BoxScope.ScrollbarThumb(
         ) {
             Icon(
                 painter = painterResource(Res.drawable.ic_scroll_arrows),
-                contentDescription = dragDescription,
+                contentDescription = null,
                 tint = handleIconColor,
                 modifier = Modifier
                     .size(Dimens.scrollbarHandleIconSize)

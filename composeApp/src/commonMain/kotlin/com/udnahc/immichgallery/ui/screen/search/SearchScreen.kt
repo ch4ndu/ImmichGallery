@@ -35,7 +35,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -48,6 +47,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.domain.model.Person
@@ -62,6 +62,8 @@ import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
 import com.udnahc.immichgallery.ui.component.StaticPhotoOverlay
+import com.udnahc.immichgallery.ui.component.StaticPhotoOverlaySourceIdentity
+import com.udnahc.immichgallery.ui.component.resolveStaticPhotoOverlayInitialIndex
 import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.desktopGridZoom
@@ -79,7 +81,6 @@ import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -95,7 +96,11 @@ fun SearchScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
-    val dismissScope = rememberCoroutineScope()
+    val overlaySource = StaticPhotoOverlaySourceIdentity(
+        ownerKey = "search:${state.activeRequestGeneration}",
+        assetIds = state.results.map { it.id },
+        isPending = state.isLoading || state.isLoadingMore || state.nextPage != null
+    )
 
     // Scroll back to last viewed asset when returning from detail
     LaunchedEffect(viewModel.lastViewedAssetId) {
@@ -104,10 +109,18 @@ fun SearchScreen(
     }
 
     PhotoOverlayHost(
-        initialIndexKey = state.results,
+        initialIndexKey = overlaySource,
         onOverlayActiveChange = onOverlayActiveChange,
+        onPrepareOverlayDismiss = { currentAssetId ->
+            viewModel.lastViewedAssetId = currentAssetId
+            viewModel.getDisplayItemIndexForReturn()
+                ?.let { listState.ensureReturnSourceVisible(it) }
+        },
         resolveInitialIndex = { id ->
             state.results.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+        },
+        resolveInitialIndexState = { id ->
+            resolveStaticPhotoOverlayInitialIndex(overlaySource, id)
         },
         content = { showOverlay, transitionAssetId, hiddenAssetId, onPhotoClick ->
             SearchContent(
@@ -148,14 +161,7 @@ fun SearchScreen(
                 getAssetDetail = viewModel::getAssetDetail,
                 getAssetStack = viewModel::getAssetStack,
                 onPersonClick = onPersonClick,
-                onDismiss = { currentAssetId ->
-                    dismissScope.launch {
-                        viewModel.lastViewedAssetId = currentAssetId
-                        viewModel.getDisplayItemIndexForReturn()
-                            ?.let { listState.ensureReturnSourceVisible(it) }
-                        onDismissHost(currentAssetId)
-                    }
-                },
+                onDismiss = onDismissHost,
                 onCurrentAssetChanged = onCurrentAssetChanged,
                 onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                 sharedTransitionScope = sharedTransitionScope,
@@ -220,7 +226,6 @@ fun SearchContent(
         Box(modifier = Modifier.weight(1f)) {
             SearchResultContent(
                 state = state,
-                statusBarPadding = statusBarPadding,
                 listState = listState,
                 transitionAssetId = transitionAssetId,
                 hiddenAssetId = hiddenAssetId,
@@ -258,7 +263,6 @@ fun SearchContent(
 @Composable
 private fun SearchResultContent(
     state: SearchState,
-    statusBarPadding: Dp,
     listState: LazyListState,
     transitionAssetId: String?,
     hiddenAssetId: String?,
@@ -282,7 +286,6 @@ private fun SearchResultContent(
         )
         state.results.isNotEmpty() || state.nextPage != null -> SearchResultsGrid(
             state = state,
-            statusBarPadding = statusBarPadding,
             listState = listState,
             transitionAssetId = transitionAssetId,
             hiddenAssetId = hiddenAssetId,
@@ -396,7 +399,6 @@ private fun SearchMessageState(
 @Composable
 private fun SearchResultsGrid(
     state: SearchState,
-    statusBarPadding: Dp,
     listState: LazyListState,
     transitionAssetId: String?,
     hiddenAssetId: String?,
@@ -475,7 +477,7 @@ private fun SearchResultsGrid(
         ) {
             ScrollbarOverlay(
                 listState = listState,
-                topPadding = statusBarPadding + Dimens.topBarHeight,
+                topPadding = 0.dp,
                 bottomPadding = Dimens.bottomBarHeight + navBarPadding
             ) {
                 SearchResultsList(

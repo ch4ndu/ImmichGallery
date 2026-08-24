@@ -54,7 +54,11 @@ flowchart TD
 - render `DetailTopBar` with `PhotoGridDetailActions`;
 - host `StaticPhotoOverlay`;
 - reset their non-saveable `LazyListState` to index `0` after the first nonempty display list for each composition;
-- use `PhotoOverlayHost.onOverlayDismissed` to map the current asset id through the current `displayIndex` and restore only a valid grid source after that screen's overlay closes.
+- use `PhotoOverlayHost.onPrepareOverlayDismiss` to map the current asset id
+  through the current `displayIndex` and scroll a fully off-screen source into
+  view before the host starts its exit animation. Missing mappings skip the
+  scroll, and `PhotoOverlayHost` performs the final dismissal only after this
+  preparation callback returns.
 
 The screens do not group assets, pack rows, compute Mosaic bands, read cache artifacts, or decide Mosaic fallback policy.
 
@@ -210,7 +214,7 @@ start/end and per-item raw ordinals fit the current Room `Int sortOrder` schema;
 otherwise the response is treated as an API compatibility failure and the
 previous refs remain intact.
 
-The footer appears only while `hasMore` is true. It displays a **Load more** button while idle and the existing progress indicator while loading. Automatic pagination is eligible only after the list can scroll backward, the user is near the end, and no request is active; this prevents a short first page or placeholder layout from starting a request. The explicit button remains available for short or unscrollable first pages.
+The footer appears only while `hasMore` is true. It displays a **Load more** button while idle and the existing progress indicator while loading. Automatic pagination is eligible only after the list can scroll backward, the user is near the end, and no request is active; this prevents a short first page or placeholder layout from starting a request. The automatic trigger attempts each owner/server-page token once, so a failed token is not retried repeatedly by the same near-end viewport condition. The explicit button remains available for short or unscrollable first pages and is the retry bypass for a still-current token.
 
 Opened-owner sync is separate from Mosaic settings. Sync can change the ordered
 asset list, which may invalidate layout, but sync does not decide whether
@@ -582,9 +586,14 @@ Both screens use `PhotoOverlayHost` and `StaticPhotoOverlay`.
 Open flow:
 
 1. Display item click passes asset id to `PhotoOverlayHost`.
-2. `resolveInitialIndex` maps id into the current ordered asset list.
-3. `StaticPhotoOverlay` pages through the same asset list and fetches asset details on demand.
-4. The clicked grid cell is hidden through `hiddenAssetId` while shared transition is active.
+2. The host source identity includes the Album/Person owner, current ordered
+   asset ids, first Room-emission readiness, active loading/sync state, and
+   pagination completeness. A missing id remains `Pending` while that source
+   can still materialize it; only a complete authoritative source returns
+   `Absent`.
+3. `resolveInitialIndex` maps id into the current ordered asset list.
+4. `StaticPhotoOverlay` pages through the same asset list and fetches asset details on demand.
+5. The clicked grid cell is hidden through `hiddenAssetId` while shared transition is active.
 
 Dismiss flow:
 
@@ -652,5 +661,9 @@ When changing this area, prefer focused tests for:
 - retryable failures remain placeholders and later retry;
 - partial chunks project real bands plus placeholders, not fallback-thumbnail bands;
 - final ready groups can write assignments, mixed display records, section geometry, and aggregate geometry;
-- overlay dismiss maps the current asset id to a valid display item after row/Mosaic transitions.
-- initial short-page pagination requires the explicit button, while a scrolled near-end request is automatic and loading/exhausted states are rejected.
+- overlay dismiss prepares a visible return source before host exit and maps the
+  current asset id to a valid display item after row/Mosaic transitions.
+- initial short-page pagination requires the explicit button, while a scrolled
+  near-end request is automatic, loading/exhausted states are rejected, and
+  automatic retries are suppressed per owner/server-page token until the
+  explicit footer bypass is used.
