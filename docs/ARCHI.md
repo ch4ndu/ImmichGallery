@@ -591,6 +591,13 @@ Current version surfaces are:
 Release work must update and verify every platform version in scope. The
 repository's default branch is `master`.
 
+The repository's current distribution posture is personal and source-built;
+it does not maintain a public binary-release, signing, notarization,
+reproducibility, dependency-locking, SBOM, scanner, or license/notice program.
+Builders remain responsible for their local toolchain, signing identity, and
+VLC input. This owner-accepted posture is a project-scope boundary, not a legal,
+security, provenance, or distribution-compliance claim.
+
 ## 17. Build And Packaging
 
 Common development commands are:

@@ -440,7 +440,9 @@ fun TimelinePhotoOverlay(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
             userScrollEnabled = !isCoveredByStack,
-            key = { page -> timelinePagerPageKey(page, state, assetProvider) }
+            key = { page ->
+                timelinePagerPageKey(page, state, assetProvider).toSaveablePagerKey()
+            }
         ) { page ->
             val asset = resolvePageAsset(page, state, assetProvider)
             val isSettledPage = pagerState.settledPage == page

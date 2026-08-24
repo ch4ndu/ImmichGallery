@@ -139,6 +139,22 @@ class TimelinePhotoOverlayPagingTest {
     }
 
     @Test
+    fun pagerKeysUseStableBundleSaveableStringsWithoutIdentityCollisions() {
+        assertEquals(
+            "asset:a",
+            TimelinePagerPageKey.MaterializedAsset("a").toSaveablePagerKey()
+        )
+        assertEquals(
+            "bucket:5:month:0",
+            TimelinePagerPageKey.UnresolvedBucketOffset("month", 0).toSaveablePagerKey()
+        )
+        assertEquals(
+            "bucket:7:month:0:1",
+            TimelinePagerPageKey.UnresolvedBucketOffset("month:0", 1).toSaveablePagerKey()
+        )
+    }
+
+    @Test
     fun deletedCurrentAssetUsesSuccessorThenPredecessorAtBucketEnd() {
         val before = projection(bucket("month", listOf(asset("a"), asset("b"), asset("c"))))
         val middleAnchor = requireNotNull(

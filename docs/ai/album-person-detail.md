@@ -628,7 +628,9 @@ Load-more failure:
 
 - clear `isLoadingMore`;
 - keep current album/person assets and display output;
-- a later near-end trigger may retry.
+- keep the failed cursor available to the explicit **Load more** button;
+- do not automatically retry the same owner/server-page token from another
+  near-end observation. A new server-page token is independently eligible.
 
 ## Invariants
 

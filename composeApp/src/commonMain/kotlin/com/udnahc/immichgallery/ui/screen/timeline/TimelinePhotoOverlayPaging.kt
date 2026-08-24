@@ -109,6 +109,12 @@ internal fun timelinePagerPageKey(
     }
 }
 
+internal fun TimelinePagerPageKey.toSaveablePagerKey(): String = when (this) {
+    is TimelinePagerPageKey.MaterializedAsset -> "asset:$assetId"
+    is TimelinePagerPageKey.UnresolvedBucketOffset ->
+        "bucket:${timeBucket.length}:$timeBucket:$localOffset"
+}
+
 internal fun captureTimelinePagerAnchor(
     page: Int,
     state: TimelineOverlayState,

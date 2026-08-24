@@ -269,11 +269,14 @@ Mosaic assignments are computed in these cases:
   visible/targeted materialized buckets compute runtime Mosaic directly. Cold,
   warm, and manual sync sources do not compute runtime Mosaic.
 
-Mosaic assignments are not computed on normal scroll, scrollbar drag, width
-changes, group-size changes, or Mosaic-family changes. Those events request
-persisted cache reads. Missing rows remain placeholders until assets or cached
-display records are available; Timeline Mosaic-enabled photo content must not
-render standard justified row fallback.
+Active scroll and scrollbar drag do not start new Mosaic assignment work.
+After an applied width, grouping, density, or Mosaic-family change, visible or
+targeted materialized buckets request the new current configuration. A valid
+persisted artifact may satisfy that request; otherwise render-demand runtime
+work computes the current configuration and can persist a repair when cache
+results are enabled. Timeline never substitutes an older configuration.
+Pending rows remain geometry-preserving placeholders, and Timeline
+Mosaic-enabled photo content must not render standard justified-row fallback.
 
 ### How Persisted Mosaic Is Built
 
@@ -664,6 +667,11 @@ placeholder/header when the asset row is not materialized yet. Timeline photo
 paging uses the same settled still-image prefetch and slideshow revalidation
 contracts as the static viewer, but supplies bucket-projected candidate pages
 around the current Timeline page.
+
+The `HorizontalPager` item key encodes its materialized-asset or unresolved
+bucket/local-offset identity as a namespaced `String`. Android lazy saveable
+state requires Bundle-saveable key types; typed domain pager-key objects must
+not be passed directly to the Compose pager.
 
 Timeline stack browsing is nested inside `TimelinePhotoOverlay`. Its
 authoritative stack reads and child paging never write `bucketAssetsCache`,
