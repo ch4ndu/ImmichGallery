@@ -43,6 +43,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -53,6 +56,7 @@ import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PhotoItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.TimelineDateTarget
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineScrollTarget
@@ -90,6 +94,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -108,6 +113,7 @@ fun TimelineScreen(
     onColdSyncBlockingState: (Boolean) -> Unit = {},
     onMosaicPrepareCallback: ((suspend (ViewConfig) -> Result<Unit>)?) -> Unit = {},
     onOverlayActiveChange: (Boolean) -> Unit = {},
+    onDateNavigationActions: (TimelineDateNavigationActions?) -> Unit = {},
     viewModel: TimelineViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -191,6 +197,9 @@ fun TimelineScreen(
                 scrollTargetForFraction = viewModel::scrollTargetForFraction,
                 onTargetRowHeightChanged = viewModel::setTargetRowHeight,
                 onTimelineLayoutMetricsChanged = viewModel::setTimelineLayoutMetrics,
+                onDateNavigationActions = onDateNavigationActions,
+                resolveDateTarget = viewModel::resolveDateTarget,
+                datePickerYearRange = viewModel::datePickerYearRange,
                 onRetryBucket = viewModel::retryBucket,
                 onPhotoClick = onPhotoClick,
                 onRetry = viewModel::refreshAll,
@@ -284,12 +293,28 @@ fun TimelineContent(
     onDismissBannerError: () -> Unit = {},
     onDismissBannerSuccess: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
+    onDateNavigationActions: (TimelineDateNavigationActions?) -> Unit = {},
+    resolveDateTarget: suspend (LocalDate) -> Result<TimelineDateTarget?> = { Result.success(null) },
+    datePickerYearRange: (LocalDate) -> IntRange = { 1900..2100 },
 ) {
     val displayItems = state.displayItems
     val targetRowHeight = state.targetRowHeight
     val latestDisplayIndex by rememberUpdatedState(state.displayIndex)
     val latestPageIndex by rememberUpdatedState(state.pageIndex)
     val scrollAnchorReconciler = remember { TimelineScrollAnchorReconciler() }
+    val cancelDateNavigation = TimelineDateNavigation(
+        state = state,
+        listState = listState,
+        scrollAnchorReconciler = scrollAnchorReconciler,
+        onActionsChanged = onDateNavigationActions,
+        resolveTarget = resolveDateTarget,
+        yearRange = datePickerYearRange,
+        onBucketTargeted = onViewportBucketTargeted
+    )
+    LaunchedEffect(showOverlay) {
+        if (showOverlay) cancelDateNavigation()
+    }
+    val latestCancelDateNavigation by rememberUpdatedState(cancelDateNavigation)
     val localizedBucketLabels = state.bucketDisplayLabels.map { label ->
         timelineSectionLabelText(label, "")
     }
@@ -332,7 +357,18 @@ fun TimelineContent(
                     )
                 }
 
-                val gridModifier = Modifier.fillMaxSize().let { base ->
+                val gridModifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                    // Observe user input without consuming it. Layout-driven
+                    // scroll restoration must not cancel a pending date jump.
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.type == PointerEventType.Press || event.type == PointerEventType.Scroll) {
+                                latestCancelDateNavigation()
+                            }
+                        }
+                    }
+                }.let { base ->
                     if (state.viewConfig.mosaicEnabled &&
                         (state.viewConfig.disableZoomWhenMosaicEnabled || state.viewConfig.cacheMosaicResults)
                     ) {
@@ -373,6 +409,7 @@ fun TimelineContent(
                     )
                     val scrollToFractionTarget = remember<(Float, Boolean) -> Unit> {
                         { fraction, commit ->
+                            latestCancelDateNavigation()
                             val target = latestScrollTargetForFraction(fraction)
                             if (target != null) {
                                 scrollAnchorReconciler.requestBucketAnchor(

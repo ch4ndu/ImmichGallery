@@ -1,5 +1,7 @@
 package com.udnahc.immichgallery.ui.screen.search
 
+import com.udnahc.immichgallery.ui.util.dateToPickerMillis
+import com.udnahc.immichgallery.ui.util.dateFromPickerMillis
 import com.udnahc.immichgallery.domain.model.Album
 import com.udnahc.immichgallery.domain.model.Person
 import com.udnahc.immichgallery.domain.model.RatingConstraint
@@ -95,7 +97,7 @@ class SearchFilterPresentationTest {
             LocalDate(2026, 3, 8),
             LocalDate(2026, 11, 1)
         ).forEach { date ->
-            assertEquals(date, searchDateFromPickerMillis(searchDateToPickerMillis(date)))
+            assertEquals(date, dateFromPickerMillis(dateToPickerMillis(date)))
         }
     }
 

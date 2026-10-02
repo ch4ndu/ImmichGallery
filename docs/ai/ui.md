@@ -97,6 +97,11 @@ For shared photo/video viewing, information sheets, slideshow, viewer gestures, 
 - Timeline and detail Mosaic UI must not render ready or partial Mosaic replacements without matching exact section geometry. Pending exact placeholders should be chunk-aligned geometry placeholders capped at 32 pieces per section, and rough count placeholders must not be replaced by progressive chunks.
 - Use `PhotoGridLayoutRunner` for expensive zoom-driven row or detail Mosaic projection work. Cached Mosaic column changes come from the settings dialog apply path, not pinch/desktop zoom.
 - Persist row-height changes through UseCases/Actions, but debounce gesture-driven writes in the ViewModel.
+- Timeline date navigation lives in the Timeline overflow menu and uses the
+  shared Material date picker. Its date-only value is encoded at UTC midnight;
+  actual asset matching follows Timeline's local-date grouping. Keep jumps
+  cancellable and resolve final positions through the display index so both
+  justified rows and Mosaic work. See `docs/timeline.md` for fallback rules.
 - Timeline scrollbar custom targeting must keep handle position, labels, year markers, and drag target mapping on the same fraction coordinate system.
 - Scrollbar drag jumps should use non-suspending lazy-state scroll requests such as `requestScrollToItem(...)`. Do not create and cancel remembered-scope scroll coroutines for every drag tick; rapid disposal/cancellation during scrollbar scroll can surface coroutine completion-handler crashes.
 - Scrollbar handles should expose accessibility semantics for their current

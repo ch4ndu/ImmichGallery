@@ -245,4 +245,8 @@
     <string name="tab_albums">Albums</string>
     <string name="tab_people">People</string>
     <string name="tab_explore">Explore</string>
+    <string name="timeline_jump_to_date">Jump to date</string>
+    <string name="timeline_back_to_today">Back to today</string>
+    <string name="timeline_date_navigation_hint">Jump to the closest photo in the selected month, or the nearest available month.</string>
+    <string name="timeline_date_navigation_failed">Could not find a cached date to jump to. Refresh the Timeline and try again.</string>
 </resources>

@@ -57,6 +57,7 @@ import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncCompatibilityException
 import com.udnahc.immichgallery.domain.model.TimelineAssetSyncResult
 import com.udnahc.immichgallery.domain.model.TimelineBucket
+import com.udnahc.immichgallery.domain.model.TimelineDateTarget
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
@@ -82,6 +83,9 @@ import com.udnahc.immichgallery.domain.model.normalizedMosaicFamilies
 import com.udnahc.immichgallery.domain.model.packIntoRows
 import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayRecordsOrEmpty
 import com.udnahc.immichgallery.domain.model.rowHeightBoundsForViewport
+import com.udnahc.immichgallery.domain.model.timelineAssetForDate
+import com.udnahc.immichgallery.domain.model.timelineDatePickerYearRange
+import com.udnahc.immichgallery.domain.model.timelineBucketForDate
 import com.udnahc.immichgallery.domain.model.timelineScrollTargetForFraction
 import com.udnahc.immichgallery.domain.model.timelineDaySections
 import com.udnahc.immichgallery.domain.model.timelineDayDisplayLabel
@@ -93,6 +97,7 @@ import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicGeometrySnapshotUseCase
+import com.udnahc.immichgallery.runSuspendCatching
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
@@ -136,6 +141,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
+import kotlinx.datetime.LocalDate
 import org.lighthousegames.logging.logging
 import kotlin.time.TimeSource
 import com.udnahc.immichgallery.domain.model.MosaicSectionState as RuntimeMosaicState
@@ -187,7 +193,8 @@ enum class TimelineBucketTargetReason {
     VisibleScroll,
     ScrollSettled,
     ScrollbarDrag,
-    ScrollbarStop
+    ScrollbarStop,
+    DateNavigation
 }
 
 private fun Throwable.timelineMessageOr(
@@ -1388,6 +1395,25 @@ class TimelineViewModel(
         publishDeferredScrollMosaicUpdates(priorityBuckets)
         scheduleProgressiveMosaicFlush(immediate = true)
     }
+
+    fun datePickerYearRange(today: LocalDate): IntRange =
+        timelineDatePickerYearRange(state.value.buckets, today)
+
+    suspend fun resolveDateTarget(date: LocalDate): Result<TimelineDateTarget?> =
+        runSuspendCatching {
+            val bucket = withContext(Dispatchers.Default) {
+                timelineBucketForDate(state.value.buckets, date)
+            } ?: return@runSuspendCatching null
+            val assets = withContext(Dispatchers.IO) {
+                assetsForRender(bucket.timeBucket) ?: getBucketAssetsUseCase(bucket.timeBucket)
+            }
+            withContext(Dispatchers.Default) {
+                TimelineDateTarget(
+                    timeBucket = bucket.timeBucket,
+                    assetId = timelineAssetForDate(bucket.timeBucket, assets, date)?.id
+                )
+            }
+        }
 
     fun scrollTargetForFraction(fraction: Float): TimelineScrollTarget? {
         val snapshot = state.value

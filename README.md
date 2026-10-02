@@ -16,7 +16,10 @@ on the server.
 
 - **Timeline** — browse photos and videos chronologically, group by month or
   day, use sticky date context and a date-aware fast scrollbar, and refresh the
-  full Timeline from the server.
+  full Timeline from the server. Use **Jump to date** in the Timeline menu to
+  select a calendar date, or **Back to today** to return to recent photos.
+  Dates use the closest photo in the selected month, with the nearest available
+  month used when that month has no photos.
 - **Albums** — browse album cover thumbnails, names, and item counts, then open
   a cached-first paginated photo grid in the album's server-defined order.
 - **People** — browse face-recognized people, filter names locally, and open a

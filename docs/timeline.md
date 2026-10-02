@@ -631,6 +631,41 @@ the new `TimelineDisplayIndex` is published, it scrolls that asset back to the
 same offset. This preserves the visible position when placeholders above or
 inside the viewport are replaced by partial or ready Mosaic rows.
 
+## Date Navigation
+
+The Timeline overflow menu offers **Jump to date** and **Back to today** while
+nonempty cached content is available. The shared Material calendar supports year
+selection and direct date input. Cancel, outside dismissal, and Back/Escape
+leave the viewport unchanged. Back to today resolves the device-local current
+date through the same navigation path.
+
+Date navigation chooses the requested metadata month, or the nearest nonempty
+dated month (ties prefer the newer month). It reads only that bucket's cached
+assets through the existing UseCase, then chooses the closest dated photo
+within the month using the same local-date grouping as Timeline. Equal day
+distances prefer the newer day; assets within a day retain Timeline's newest
+first order. Unknown dates are not date targets. The picker year range includes
+the library's dated buckets and the current year.
+
+A jump first reveals the selected bucket and submits it to the existing settled
+viewport-target queue. Once the selected asset's justified row or Mosaic band
+appears in the display index, it jumps to that exact item with space for the
+sticky header. This does not change grouping, layout preferences, or the
+cache-only warm-sync policy and does not scan or refresh the full library.
+A missing cached asset falls back to the bucket; a failed cache lookup shows
+an actionable message.
+
+Programmatic anchor restoration does not cancel a date jump. The grid observes
+pointer presses and wheel input without consuming them; those user actions
+release any pending date anchor before ordinary viewport anchoring resumes.
+An exact date target retains its asset identity across intervening projections,
+even when old visible content is in the same month.
+
+Each date selection replaces the previous request, including repeated choices
+of today. User scrolling, scrollbar targeting, opening a photo, leaving the
+screen, or opening another date picker cancels a pending jump so delayed cache
+or Mosaic publication cannot pull the user back.
+
 ## Overlay And Return Targeting
 
 `TimelineScreen` keeps the grid composed behind `TimelinePhotoOverlay` so

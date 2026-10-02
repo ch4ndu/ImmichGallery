@@ -73,6 +73,7 @@ import com.udnahc.immichgallery.ui.component.mosaicColumnOptionsForWindow
 import com.udnahc.immichgallery.ui.screen.album.AlbumListScreen
 import com.udnahc.immichgallery.ui.screen.people.PeopleScreen
 import com.udnahc.immichgallery.ui.screen.search.SearchScreen
+import com.udnahc.immichgallery.ui.screen.timeline.TimelineDateNavigationActions
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
 import com.udnahc.immichgallery.ui.model.asTextOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
@@ -97,8 +98,10 @@ import immichgallery.composeapp.generated.resources.tab_albums
 import immichgallery.composeapp.generated.resources.tab_people
 import immichgallery.composeapp.generated.resources.tab_explore
 import immichgallery.composeapp.generated.resources.tab_timeline
+import immichgallery.composeapp.generated.resources.timeline_back_to_today
 import immichgallery.composeapp.generated.resources.timeline_group_day
 import immichgallery.composeapp.generated.resources.timeline_group_month
+import immichgallery.composeapp.generated.resources.timeline_jump_to_date
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
@@ -183,6 +186,12 @@ fun MainScreen(
     var timelineMosaicPrepareCallback by remember {
         mutableStateOf<(suspend (ViewConfig) -> Result<Unit>)?>(null)
     }
+    var timelineDateNavigationActions by remember {
+        mutableStateOf<TimelineDateNavigationActions?>(null)
+    }
+    val onTimelineDateNavigationActions = remember {
+        { actions: TimelineDateNavigationActions? -> timelineDateNavigationActions = actions }
+    }
     var tabIsSyncing by remember { mutableStateOf(false) }
     var timelineColdSyncBlocking by remember { mutableStateOf(false) }
     val onTabRefreshCallback = remember {
@@ -217,6 +226,7 @@ fun MainScreen(
             onSyncingState = onTabSyncingState,
             onColdSyncBlockingState = onTimelineColdSyncBlockingState,
             onMosaicPrepareCallback = onTimelineMosaicPrepareCallback,
+            onDateNavigationActions = onTimelineDateNavigationActions,
             onOverlayActiveChange = onOverlayActiveChange
         )
 
@@ -241,7 +251,8 @@ fun MainScreen(
             timelineGroupSize = timelineGroupSize,
             timelineGroupEnabled = !viewConfig.mosaicEnabled,
             onTimelineGroupSelected = viewModel::setTimelineGroupSize,
-            showTimelineGroup = isTimelineTab
+            showTimelineGroup = isTimelineTab,
+            dateNavigationActions = timelineDateNavigationActions.takeIf { isTimelineTab }
         )
         SnackbarHost(
             hostState = snackbarHostState,
@@ -264,7 +275,8 @@ private fun MainTabNavHost(
     onSyncingState: (Boolean) -> Unit,
     onColdSyncBlockingState: (Boolean) -> Unit,
     onMosaicPrepareCallback: (((suspend (ViewConfig) -> Result<Unit>)?) -> Unit),
-    onOverlayActiveChange: (Boolean) -> Unit
+    onOverlayActiveChange: (Boolean) -> Unit,
+    onDateNavigationActions: (TimelineDateNavigationActions?) -> Unit
 ) {
     NavHost(
         navController = navController,
@@ -277,6 +289,7 @@ private fun MainTabNavHost(
                 onSyncingState = onSyncingState,
                 onColdSyncBlockingState = onColdSyncBlockingState,
                 onMosaicPrepareCallback = onMosaicPrepareCallback,
+                onDateNavigationActions = onDateNavigationActions,
                 onOverlayActiveChange = onOverlayActiveChange,
             )
         }
@@ -325,7 +338,8 @@ private fun BoxScope.MainShellOverlays(
     timelineGroupSize: TimelineGroupSize,
     timelineGroupEnabled: Boolean,
     onTimelineGroupSelected: (TimelineGroupSize) -> Unit,
-    showTimelineGroup: Boolean
+    showTimelineGroup: Boolean,
+    dateNavigationActions: TimelineDateNavigationActions?
 ) {
     AnimatedVisibility(
         visible = visible,
@@ -344,6 +358,7 @@ private fun BoxScope.MainShellOverlays(
             mosaicViewConfig = mosaicViewConfig,
             onMosaicViewConfigChanged = onMosaicViewConfigChanged,
             onPrepareMosaicViewConfig = onPrepareMosaicViewConfig,
+            dateNavigationActions = dateNavigationActions,
             trailingContent = if (showTimelineGroup) {
                 {
                     TimelineGroupDropdown(
@@ -380,7 +395,7 @@ private fun BoxScope.MainShellOverlays(
 }
 
 @Composable
-private fun TopBarOverlay(
+internal fun TopBarOverlay(
     title: String,
     barColor: androidx.compose.ui.graphics.Color,
     isServerOnline: Boolean,
@@ -392,6 +407,7 @@ private fun TopBarOverlay(
     mosaicViewConfig: ViewConfig? = null,
     onMosaicViewConfigChanged: (ViewConfig) -> Unit = {},
     onPrepareMosaicViewConfig: suspend (ViewConfig) -> Result<Unit> = { Result.success(Unit) },
+    dateNavigationActions: TimelineDateNavigationActions? = null,
     trailingContent: @Composable (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -508,6 +524,22 @@ private fun TopBarOverlay(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    if (dateNavigationActions != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(Res.string.timeline_jump_to_date)) },
+                            onClick = {
+                                showMenu = false
+                                dateNavigationActions.openPicker()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(Res.string.timeline_back_to_today)) },
+                            onClick = {
+                                showMenu = false
+                                dateNavigationActions.backToToday()
+                            }
+                        )
+                    }
                     if (mosaicViewConfig != null) {
                         MosaicViewConfigMenuItem(
                             viewConfig = mosaicViewConfig,

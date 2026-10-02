@@ -9,6 +9,47 @@ import kotlin.test.assertTrue
 
 class TimelineScrollAnchorTest {
     @Test
+    fun requestedDateAssetCannotBeOverwrittenByOldRowsInTheSameBucket() {
+        val before = projection(
+            row(bucket = 0, key = "old-row", assetId = "old"),
+            row(bucket = 0, key = "target-row", assetId = "target")
+        )
+        val after = projection(
+            row(bucket = 0, key = "inserted", assetId = "inserted"),
+            row(bucket = 0, key = "old-row", assetId = "old"),
+            row(bucket = 0, key = "target-row", assetId = "target")
+        )
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.requestAssetAnchor(before, "target", 0, -32)
+        assertNull(reconciler.observe(before, visible(index = 0, offset = 0), false))
+        assertEquals(
+            TimelineScrollRestore(displayIndex = 2, scrollOffset = -32),
+            reconciler.observe(after, visible(index = 0, offset = 0), false)
+        )
+    }
+
+    @Test
+    fun cancellingPendingDateAnchorAllowsUserViewportToWin() {
+        val before = projection(
+            row(bucket = 0, key = "user-row", assetId = "user"),
+            row(bucket = 1, key = "target-row", assetId = "target")
+        )
+        val after = projection(
+            row(bucket = 0, key = "inserted", assetId = "inserted"),
+            row(bucket = 0, key = "user-row", assetId = "user"),
+            row(bucket = 1, key = "target-row", assetId = "target")
+        )
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.requestBucketAnchor(before, 1, "target-row")
+        reconciler.cancelRequestedAnchor()
+        assertNull(reconciler.observe(before, visible(index = 0, offset = -8), false))
+        assertEquals(
+            TimelineScrollRestore(displayIndex = 1, scrollOffset = 8),
+            reconciler.observe(after, visible(index = 0, offset = 0), false)
+        )
+    }
+
+    @Test
     fun insertionBeforeVisibleAssetRestoresExactAssetAndOffset() {
         val before = projection(
             row(bucket = 0, key = "a-row", assetId = "a"),

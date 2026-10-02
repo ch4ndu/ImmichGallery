@@ -50,6 +50,8 @@ import com.udnahc.immichgallery.domain.model.SearchVisibility
 import com.udnahc.immichgallery.domain.model.TakenDateRange
 import com.udnahc.immichgallery.domain.model.valueOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.dateFromPickerMillis
+import com.udnahc.immichgallery.ui.util.dateToPickerMillis
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.cancel
 import immichgallery.composeapp.generated.resources.done
@@ -91,11 +93,7 @@ import immichgallery.composeapp.generated.resources.search_visibility_timeline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.atStartOfDayIn
-import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
-import kotlin.time.Instant
 
 internal fun SearchCriteria.withCountry(value: SearchOptionalValue<String>): SearchCriteria =
     copy(country = value, state = SearchOptionalValue.Any, city = SearchOptionalValue.Any)
@@ -126,12 +124,6 @@ internal fun validateSearchDateRange(range: TakenDateRange): SearchDateRangeVali
     } else {
         SearchDateRangeValidation.VALID
     }
-
-internal fun searchDateToPickerMillis(date: LocalDate): Long =
-    date.atStartOfDayIn(TimeZone.UTC).toEpochMilliseconds()
-
-internal fun searchDateFromPickerMillis(epochMillis: Long): LocalDate =
-    Instant.fromEpochMilliseconds(epochMillis).toLocalDateTime(TimeZone.UTC).date
 
 internal fun shouldShowUnknownSuggestion(
     values: List<SearchSuggestion>,
@@ -422,7 +414,7 @@ private fun SearchDateEditor(
                 SearchDateBoundary.END_INCLUSIVE -> range.endInclusive
             }
             val pickerState = rememberDatePickerState(
-                initialSelectedDateMillis = currentDate?.let(::searchDateToPickerMillis)
+                initialSelectedDateMillis = currentDate?.let(::dateToPickerMillis)
             )
             DatePickerDialog(
                 onDismissRequest = { openBoundary = null },
@@ -431,7 +423,7 @@ private fun SearchDateEditor(
                         enabled = pickerState.selectedDateMillis != null,
                         onClick = {
                             pickerState.selectedDateMillis
-                                ?.let(::searchDateFromPickerMillis)
+                                ?.let(::dateFromPickerMillis)
                                 ?.let { selectedDate ->
                                     val selectedRange = when (boundary) {
                                         SearchDateBoundary.START -> range.copy(start = selectedDate)

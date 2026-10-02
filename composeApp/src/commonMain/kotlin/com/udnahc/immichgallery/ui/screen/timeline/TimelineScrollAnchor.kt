@@ -30,6 +30,28 @@ internal class TimelineScrollAnchorReconciler {
     private var assetAnchor: TimelineAssetScrollAnchor? = null
     private var bucketAnchor: TimelineBucketScrollAnchor? = null
     private var restoringProjection: TimelineDisplayIndex? = null
+    private var requestedAssetId: String? = null
+
+    fun cancelRequestedAnchor() {
+        capturedProjection = null
+        assetAnchor = null
+        bucketAnchor = null
+        restoringProjection = null
+        requestedAssetId = null
+    }
+
+    fun requestAssetAnchor(
+        projection: TimelineDisplayIndex,
+        assetId: String,
+        bucketIndex: Int,
+        scrollOffset: Int
+    ) {
+        capturedProjection = projection
+        assetAnchor = TimelineAssetScrollAnchor(assetId, scrollOffset, bucketIndex, null)
+        bucketAnchor = null
+        restoringProjection = null
+        requestedAssetId = assetId
+    }
 
     fun requestBucketAnchor(
         projection: TimelineDisplayIndex,
@@ -41,6 +63,7 @@ internal class TimelineScrollAnchorReconciler {
         assetAnchor = null
         bucketAnchor = TimelineBucketScrollAnchor(bucketIndex, itemKey, scrollOffset)
         restoringProjection = null
+        requestedAssetId = null
     }
 
     fun observe(
@@ -62,6 +85,11 @@ internal class TimelineScrollAnchorReconciler {
         }
 
         if (restoringProjection != null) return null
+        requestedAssetId?.let { assetId ->
+            val requestedIndex = projection.assetDisplayIndexById[assetId]
+            if (visibleItems.none { it.displayIndex == requestedIndex }) return null
+            requestedAssetId = null
+        }
         val pendingBucket = bucketAnchor
         if (pendingBucket != null) {
             val firstBucket = visibleItems.firstOrNull()?.displayIndex

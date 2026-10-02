@@ -46,9 +46,11 @@ After command-line Gradle work, stop daemons with:
   tests.
 - `composeApp/src/androidDeviceTest` contains the instrumented Room migration
   test.
-- There are currently no project test files in `jvmTest`, `iosTest`, or
-  `androidHostTest`; shared `commonTest` sources are consumed by their platform
-  test tasks.
+- Shared `commonTest` sources are consumed by their platform test tasks.
+  `jvmTest` also includes Desktop Compose interaction tests using
+  `org.jetbrains.compose.ui:ui-test-junit4`. Timeline date navigation exercises calendar
+  cancellation/confirmation, delayed layout publication, and superseded jumps
+  without a live Immich server.
 - Test files use the `*Test.kt` suffix and test functions use `@Test`.
 
 ## Writing Tests

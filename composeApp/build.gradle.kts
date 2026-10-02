@@ -382,6 +382,9 @@ kotlin {
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.ktor.client.mock)
         }
+        jvmTest.dependencies {
+            implementation(libs.compose.uiTestJUnit4)
+        }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
         }
