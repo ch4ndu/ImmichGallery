@@ -168,6 +168,13 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Favorites uses its own `favorites_target_row_height` setting; it does not
   read or modify Explore Search density.
 - Treat view preferences as settings, not Room cache data.
+- Slideshow configuration is device-wide and accessed through
+  `GetSlideshowConfigUseCase` / `SetSlideshowConfigAction` and the viewer
+  preferences ViewModel. Its explicit setting-key allowlist survives logout
+  and changed-server cleanup; credentials and all other existing settings still
+  clear. Persist only order, duration, motion, transition, video policy, mute,
+  optional video limit, captions, and fullscreen. Asset identities, playback
+  position, shuffle history, and caption metadata remain viewer-session state.
 - Clear-login and changed-session flows shut down the installed Coil loader,
   close its disk cache, and delete its app-owned image-cache directory before
   clearing Room, Mosaic, API/runtime, and settings state that could leak from

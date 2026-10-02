@@ -33,6 +33,7 @@ import com.udnahc.immichgallery.domain.action.detail.UpsertDetailMosaicCacheActi
 import com.udnahc.immichgallery.domain.action.settings.SetTargetRowHeightAction
 import com.udnahc.immichgallery.domain.action.settings.SetTimelineGroupSizeAction
 import com.udnahc.immichgallery.domain.action.settings.SetViewConfigAction
+import com.udnahc.immichgallery.domain.action.settings.SetSlideshowConfigAction
 import com.udnahc.immichgallery.domain.action.timeline.ClearTimelineMosaicCacheAction
 import com.udnahc.immichgallery.domain.action.timeline.LoadBucketAssetsAction
 import com.udnahc.immichgallery.domain.action.timeline.PrepareTimelineMosaicCacheAction
@@ -66,12 +67,14 @@ import com.udnahc.immichgallery.domain.usecase.search.SearchAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTargetRowHeightUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetTimelineGroupSizeUseCase
 import com.udnahc.immichgallery.domain.usecase.settings.GetViewConfigUseCase
+import com.udnahc.immichgallery.domain.usecase.settings.GetSlideshowConfigUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicGeometrySnapshotUseCase
 import com.udnahc.immichgallery.ui.navigation.MainScreenViewModel
+import com.udnahc.immichgallery.ui.component.ViewerPreferencesViewModel
 import com.udnahc.immichgallery.ui.navigation.AppStartupViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumDetailViewModel
 import com.udnahc.immichgallery.ui.screen.album.AlbumListViewModel
@@ -179,6 +182,7 @@ val sharedModule = module {
     factory { GetTimelineGroupSizeUseCase(get()) }
     factory { GetTargetRowHeightUseCase(get()) }
     factory { GetViewConfigUseCase(get()) }
+    factory { GetSlideshowConfigUseCase(get()) }
     factory { GetDetailMosaicArtifactsUseCase(get()) }
     factory { GetDetailMosaicCacheUseCase(get()) }
 
@@ -228,11 +232,13 @@ val sharedModule = module {
     factory { SetTimelineGroupSizeAction(get()) }
     factory { SetTargetRowHeightAction(get()) }
     factory { SetViewConfigAction(get()) }
+    factory { SetSlideshowConfigAction(get()) }
     factory { UpsertDetailMosaicArtifactsAction(get(), get()) }
     factory { UpsertDetailMosaicCacheAction(get(), get()) }
     factory { ClearDetailMosaicCacheAction(get()) }
 
     // ViewModels
+    viewModel { ViewerPreferencesViewModel(get(), get()) }
     viewModel { LoginViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { AppStartupViewModel(get(), get(), get()) }
     viewModel { MainScreenViewModel(get(), get(), get(), get(), get(), get(), get(), get()) }

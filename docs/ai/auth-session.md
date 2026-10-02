@@ -119,12 +119,17 @@ configuration-last:
    loader. The process-global Coil slot remains pointed at the shut-down loader
    while Timeline, Album, People, shared asset/sync metadata, Detail Mosaic,
    Timeline Mosaic, and API/runtime server-scoped state are cleared.
-3. Clear `ServerConfigRepository`, including credentials and view preferences,
+3. Clear `ServerConfigRepository`, including credentials and server-scoped view preferences,
    or save the validated replacement URL/key, then install the prepared fresh
    loader. If the wrapped clear/configuration block fails, the configuration is
    unchanged and the prepared loader is still installed so the session remains
    usable and retryable.
 4. For successful logout, emit completion and navigate to Login.
+
+Only the explicit slideshow-configuration setting keys survive configuration
+cleanup. These device-wide preferences contain no server, asset, or playback
+identity. Viewer history, position, captions, and requests are never persisted
+with them and must not survive the owning session.
 
 Cache-producing logical work registers at its real start and carries one
 immutable stamp, made from the current generation and its long-lived screen or

@@ -5,6 +5,11 @@ import com.udnahc.immichgallery.domain.model.DEFAULT_GRID_COLUMN_COUNT
 import com.udnahc.immichgallery.domain.model.DEFAULT_TARGET_ROW_HEIGHT
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.RowHeightScope
+import com.udnahc.immichgallery.domain.model.SlideshowConfig
+import com.udnahc.immichgallery.domain.model.SlideshowMotion
+import com.udnahc.immichgallery.domain.model.SlideshowOrder
+import com.udnahc.immichgallery.domain.model.SlideshowTransition
+import com.udnahc.immichgallery.domain.model.SlideshowVideoPolicy
 import com.udnahc.immichgallery.domain.model.ViewConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +25,7 @@ class ServerConfigRepository(private val settings: Settings) {
     private val _timelineGroupSize =
         MutableStateFlow(settings.getString(TIMELINE_GROUP_SIZE_KEY, "MONTH"))
     private val _viewConfig = MutableStateFlow(readViewConfig())
+    private val _slideshowConfig = MutableStateFlow(readSlideshowConfig())
 
     fun getServerUrl(): String = _session.value.serverUrl
     private fun setServerUrl(url: String) {
@@ -89,6 +95,24 @@ class ServerConfigRepository(private val settings: Settings) {
         return settings.getFloat(targetRowHeightKey(scope), fallback)
     }
 
+    fun getSlideshowConfig(): SlideshowConfig = _slideshowConfig.value
+    fun observeSlideshowConfig(): StateFlow<SlideshowConfig> = _slideshowConfig.asStateFlow()
+    fun setSlideshowConfig(config: SlideshowConfig) {
+        val normalized = config.normalized
+        settings.putString(SLIDESHOW_ORDER_KEY, normalized.order.name)
+        settings.putInt(SLIDESHOW_DURATION_KEY, normalized.durationSeconds)
+        settings.putString(SLIDESHOW_MOTION_KEY, normalized.motion.name)
+        settings.putString(SLIDESHOW_TRANSITION_KEY, normalized.transition.name)
+        settings.putString(SLIDESHOW_VIDEO_POLICY_KEY, normalized.videoPolicy.name)
+        settings.putBoolean(SLIDESHOW_MUTED_KEY, normalized.muted)
+        val limit = normalized.videoLimitSeconds
+        if (limit == null) settings.remove(SLIDESHOW_VIDEO_LIMIT_KEY)
+        else settings.putInt(SLIDESHOW_VIDEO_LIMIT_KEY, limit)
+        settings.putBoolean(SLIDESHOW_CAPTIONS_KEY, normalized.captions)
+        settings.putBoolean(SLIDESHOW_FULLSCREEN_KEY, normalized.fullscreen)
+        _slideshowConfig.value = normalized
+    }
+
     fun hasTargetRowHeight(scope: RowHeightScope): Boolean =
         settings.hasKey(targetRowHeightKey(scope)) ||
                 (scope == RowHeightScope.TIMELINE && settings.hasKey(
@@ -103,10 +127,35 @@ class ServerConfigRepository(private val settings: Settings) {
     }
 
     fun clear() {
-        settings.clear()
+        // These device preferences contain no asset, server, or session identity.
+        val slideshowKeys = SLIDESHOW_SETTING_DESCRIPTORS.map { it.key }.toSet()
+        settings.keys.toList().filterNot { it in slideshowKeys }.forEach(settings::remove)
         _session.value = ServerSessionConfiguration()
         _timelineGroupSize.value = "MONTH"
         _viewConfig.value = readViewConfig()
+    }
+
+    private fun readSlideshowConfig(): SlideshowConfig {
+        val defaults = SlideshowConfig()
+        return SlideshowConfig(
+            order = SlideshowOrder.entries.firstOrNull {
+                it.name == settings.getString(SLIDESHOW_ORDER_KEY, "")
+            } ?: defaults.order,
+            durationSeconds = settings.getInt(SLIDESHOW_DURATION_KEY, defaults.durationSeconds),
+            motion = SlideshowMotion.entries.firstOrNull {
+                it.name == settings.getString(SLIDESHOW_MOTION_KEY, "")
+            } ?: defaults.motion,
+            transition = SlideshowTransition.entries.firstOrNull {
+                it.name == settings.getString(SLIDESHOW_TRANSITION_KEY, "")
+            } ?: defaults.transition,
+            videoPolicy = SlideshowVideoPolicy.entries.firstOrNull {
+                it.name == settings.getString(SLIDESHOW_VIDEO_POLICY_KEY, "")
+            } ?: defaults.videoPolicy,
+            muted = settings.getBoolean(SLIDESHOW_MUTED_KEY, defaults.muted),
+            videoLimitSeconds = settings.getIntOrNull(SLIDESHOW_VIDEO_LIMIT_KEY),
+            captions = settings.getBoolean(SLIDESHOW_CAPTIONS_KEY, defaults.captions),
+            fullscreen = settings.getBoolean(SLIDESHOW_FULLSCREEN_KEY, defaults.fullscreen)
+        ).normalized
     }
 
     private fun readViewConfig(): ViewConfig {
@@ -179,6 +228,27 @@ internal const val VIEW_CONFIG_MOSAIC_FAMILIES_KEY = "view_config_mosaic_familie
 internal const val VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY = "view_config_cache_mosaic_results"
 internal const val VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY = "view_config_disable_mosaic_zoom"
 internal const val VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY = "view_config_mosaic_column_count"
+internal const val SLIDESHOW_ORDER_KEY = "slideshow_order"
+internal const val SLIDESHOW_DURATION_KEY = "slideshow_duration_seconds"
+internal const val SLIDESHOW_MOTION_KEY = "slideshow_motion"
+internal const val SLIDESHOW_TRANSITION_KEY = "slideshow_transition"
+internal const val SLIDESHOW_VIDEO_POLICY_KEY = "slideshow_video_policy"
+internal const val SLIDESHOW_MUTED_KEY = "slideshow_muted"
+internal const val SLIDESHOW_VIDEO_LIMIT_KEY = "slideshow_video_limit_seconds"
+internal const val SLIDESHOW_CAPTIONS_KEY = "slideshow_captions"
+internal const val SLIDESHOW_FULLSCREEN_KEY = "slideshow_fullscreen"
+
+internal val SLIDESHOW_SETTING_DESCRIPTORS = listOf(
+    ServerSettingDescriptor(SLIDESHOW_ORDER_KEY, ServerSettingValueType.STRING),
+    ServerSettingDescriptor(SLIDESHOW_DURATION_KEY, ServerSettingValueType.INT),
+    ServerSettingDescriptor(SLIDESHOW_MOTION_KEY, ServerSettingValueType.STRING),
+    ServerSettingDescriptor(SLIDESHOW_TRANSITION_KEY, ServerSettingValueType.STRING),
+    ServerSettingDescriptor(SLIDESHOW_VIDEO_POLICY_KEY, ServerSettingValueType.STRING),
+    ServerSettingDescriptor(SLIDESHOW_MUTED_KEY, ServerSettingValueType.BOOLEAN),
+    ServerSettingDescriptor(SLIDESHOW_VIDEO_LIMIT_KEY, ServerSettingValueType.INT),
+    ServerSettingDescriptor(SLIDESHOW_CAPTIONS_KEY, ServerSettingValueType.BOOLEAN),
+    ServerSettingDescriptor(SLIDESHOW_FULLSCREEN_KEY, ServerSettingValueType.BOOLEAN)
+)
 
 internal val SERVER_SETTING_DESCRIPTORS = listOf(
     ServerSettingDescriptor(SERVER_URL_KEY, ServerSettingValueType.STRING),
@@ -196,4 +266,4 @@ internal val SERVER_SETTING_DESCRIPTORS = listOf(
     ServerSettingDescriptor(VIEW_CONFIG_CACHE_MOSAIC_RESULTS_KEY, ServerSettingValueType.BOOLEAN),
     ServerSettingDescriptor(VIEW_CONFIG_DISABLE_MOSAIC_ZOOM_KEY, ServerSettingValueType.BOOLEAN),
     ServerSettingDescriptor(VIEW_CONFIG_MOSAIC_COLUMN_COUNT_KEY, ServerSettingValueType.INT)
-)
+) + SLIDESHOW_SETTING_DESCRIPTORS

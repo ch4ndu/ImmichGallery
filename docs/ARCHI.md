@@ -327,6 +327,10 @@ Cache ownership by feature:
 - Detail Mosaic: owner-scoped artifacts for Album and Person detail.
 - Settings: credentials, grouping, row density, and Mosaic preferences remain
   in `multiplatform-settings`, not Room.
+- Device-wide slideshow configuration also uses settings through dedicated
+  read UseCase/write Action and `ViewerPreferencesViewModel`. Its explicit
+  non-sensitive keys survive configuration cleanup; all asset identity,
+  shuffle history, timing, and caption data stay in the viewer session.
 - Coil: memory plus an app-owned platform cache directory. Logout/session
   replacement shuts the active loader and disk cache, deletes that directory,
   keeps the singleton unusable while non-image state and configuration mutate,
