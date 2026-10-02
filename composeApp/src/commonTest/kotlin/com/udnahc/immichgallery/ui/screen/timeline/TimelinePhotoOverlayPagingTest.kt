@@ -6,6 +6,10 @@ import com.udnahc.immichgallery.domain.model.TimelineBucket
 import com.udnahc.immichgallery.domain.model.TimelinePageIndex
 import com.udnahc.immichgallery.domain.model.timelineBucketDisplayLabel
 import com.udnahc.immichgallery.ui.component.PhotoOverlayInitialIndexResolution
+import com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus
+import com.udnahc.immichgallery.domain.model.SlideshowSession
+import com.udnahc.immichgallery.domain.model.SlideshowOrder
+import kotlin.test.assertTrue
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -230,6 +234,49 @@ class TimelinePhotoOverlayPagingTest {
 
         assertEquals("r", nearest.anchor.assetId)
         assertEquals(2, nearest.pageIndex)
+    }
+
+    @Test
+    fun slideshowMaterializationKeepsStableSlotsAndReservedRandomTarget() {
+        val before = projection(bucket("first", listOf(asset("a"))), bucket("lazy", null, 2))
+        val reads = mutableListOf<String>()
+        val source = timelineSlideshowSource(before.state) { reads += it; before.assetsFor(it) }
+        assertEquals(listOf("first", "lazy"), reads)
+        val session = SlideshowSession(source.map { it.candidate }, order = SlideshowOrder.RANDOM)
+        val target = requireNotNull(session.upcoming())
+        val after = projection(bucket("first", listOf(asset("a"))), bucket("lazy", listOf(asset("b"), asset("c"))))
+        val materialized = timelineSlideshowSource(after.state, after::assetsFor)
+        assertEquals(source.map { it.slot }, materialized.map { it.slot })
+        assertEquals((0..2).map { timelineFilmstripPageKey(it, before.state) }, (0..2).map { timelineFilmstripPageKey(it, after.state) })
+        assertEquals(false, session.reconcileSource(materialized.map { it.candidate }))
+        assertTrue(session.isCurrent(target))
+        assertTrue(session.candidate(target)?.assetId in listOf("b", "c"))
+    }
+
+    @Test
+    fun slideshowMissingCacheIsImmediatelyRecoverableOnlyByManualRefresh() {
+        assertEquals(SlideshowCandidateStatus.CACHE_UNAVAILABLE,
+            timelineSlideshowBucketStatus(false, false, false, true, true))
+        assertEquals(SlideshowCandidateStatus.UNRESOLVED,
+            timelineSlideshowBucketStatus(false, false, false, true, false))
+        assertEquals(SlideshowCandidateStatus.UNRESOLVED,
+            timelineSlideshowBucketStatus(false, false, true, true, true))
+        assertEquals(SlideshowCandidateStatus.UNRESOLVED,
+            timelineSlideshowBucketStatus(false, false, false, false, true))
+        assertEquals(SlideshowCandidateStatus.LOADING,
+            timelineSlideshowBucketStatus(true, true, false, true, true))
+        assertEquals(SlideshowCandidateStatus.FAILED,
+            timelineSlideshowBucketStatus(false, true, false, false, true))
+    }
+
+    @Test
+    fun slideshowSourceKeepsPerBucketFailureAndMaterializedAssetPrecedence() {
+        val source = projection(bucket("ready", listOf(asset("a"))), bucket("failed", null, 2))
+        val projected = timelineSlideshowSource(source.state.copy(bucketStatuses = mapOf(
+            "ready" to SlideshowCandidateStatus.FAILED, "failed" to SlideshowCandidateStatus.FAILED
+        )), source::assetsFor)
+        assertEquals(listOf(SlideshowCandidateStatus.MATERIALIZED, SlideshowCandidateStatus.FAILED, SlideshowCandidateStatus.FAILED), projected.map { it.status })
+        assertEquals(listOf("a", null, null), projected.map { it.asset?.id })
     }
 
     private data class BucketFixture(

@@ -69,17 +69,29 @@ on the server.
   even after paging.
 - Open an information sheet for available filename, capture time, dimensions,
   size, people, location, camera/lens/exposure data, and description. Selecting
-  a recognized person opens that person's gallery.
-- Start a sequential or random slideshow, choose its duration, and enable or
-  disable animated still-image motion.
+  a recognized person opens that person's gallery. Open valid coordinates in
+  Maps, copy them, or choose **Show in Timeline** to jump to the capture date.
+- Toggle a thumbnail filmstrip to jump between photos while retaining the
+  current position. Timeline thumbnails load lazily as the strip scrolls.
+- Start a sequential or nonrepeating shuffled slideshow, pause/resume, and
+  revisit displayed slides with Previous/Next. Choose the duration, Cut/Fade/
+  Slide transition, Still/Pan-and-zoom motion, and optional captions. Timing
+  waits for media readiness and pauses while information is open.
+- Choose whether slideshows skip videos, show their thumbnails, or play them
+  with mute and an optional duration limit. Settings are remembered on this
+  device across logout; playback position and history last only for the session.
+- On desktop, toggle window fullscreen from the viewer or have slideshows
+  enter it automatically, restoring the previous placement when they finish.
 - For an asset in an Immich stack, open **View stack** from the viewer menu to
   browse its supported photos and videos. Closing the nested stack returns to
   the same asset in the original viewer before returning to the source grid.
 - When a memory is paged beyond its cover, closing the viewer still returns to
   that memory's cover card. A nested stack closes back to the memory pager
   first, preserving the cover-card return target.
-- Desktop viewer shortcuts: Left/Right to page, Escape to close, Space to toggle
-  slideshow, and `I` to open information.
+- Desktop viewer shortcuts: Left/Right to page or traverse slideshow history,
+  Space to open slideshow options or pause/resume, `I` for information, and
+  `F` for fullscreen. Escape stops a slideshow, then exits fullscreen, then
+  closes the viewer on subsequent presses.
 
 ### Connection, cache, and refresh behavior
 

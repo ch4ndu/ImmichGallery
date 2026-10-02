@@ -1,0 +1,5 @@
+<resources>
+    <string name="viewer_enter_fullscreen">Enter fullscreen</string>
+    <string name="viewer_exit_fullscreen">Exit fullscreen</string>
+    <string name="slideshow_fullscreen">Enter fullscreen automatically</string>
+</resources>

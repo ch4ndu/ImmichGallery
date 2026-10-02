@@ -76,6 +76,7 @@ import com.udnahc.immichgallery.ui.screen.search.SearchScreen
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineDateNavigationActions
 import com.udnahc.immichgallery.ui.screen.timeline.TimelineScreen
 import com.udnahc.immichgallery.ui.model.asTextOrNull
+import com.udnahc.immichgallery.ui.model.MainUiMessage
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
@@ -102,6 +103,7 @@ import immichgallery.composeapp.generated.resources.timeline_back_to_today
 import immichgallery.composeapp.generated.resources.timeline_group_day
 import immichgallery.composeapp.generated.resources.timeline_group_month
 import immichgallery.composeapp.generated.resources.timeline_jump_to_date
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
@@ -125,7 +127,13 @@ fun MainScreen(
     onFavoritesClick: () -> Unit,
     onMemoriesClick: () -> Unit,
     onLogout: () -> Unit,
-    viewModel: MainScreenViewModel = koinViewModel()
+    viewModel: MainScreenViewModel = koinViewModel(),
+    viewerDateRequest: ViewerTimelineDateRequest? = null,
+    onViewerDateRequestHandled: (Long) -> Unit = {},
+    isViewerDateRequestCurrent: (Long) -> Boolean = { true },
+    onShowInTimeline: ((LocalDate) -> Unit)? = null,
+    onLogoutStarted: () -> Unit = {},
+    onLogoutFailed: () -> Unit = {}
 ) {
     val isAppActive = LocalAppActive.current
     DisposableEffect(viewModel, isAppActive) {
@@ -144,6 +152,7 @@ fun MainScreen(
     }
     LaunchedEffect(screenState.message) {
         val message = logoutMessage ?: return@LaunchedEffect
+        if (screenState.message == MainUiMessage.LogoutFailed) onLogoutFailed()
         snackbarHostState.showSnackbar(message)
         viewModel.consumeMessage()
     }
@@ -212,6 +221,17 @@ fun MainScreen(
         { active: Boolean -> overlayActive = active }
     }
 
+    ViewerTimelineDateRequestEffects(
+        navController = tabNavController,
+        request = viewerDateRequest,
+        timelineSelected = isTimelineTab,
+        viewerActive = overlayActive,
+        loggingOut = screenState.isLoggingOut,
+        actions = timelineDateNavigationActions,
+        isCurrent = isViewerDateRequestCurrent,
+        onHandled = onViewerDateRequestHandled
+    )
+
     val barColor = MaterialTheme.colorScheme.background.copy(alpha = BAR_ALPHA)
     val showShellOverlays = !overlayActive && !(isTimelineTab && timelineColdSyncBlocking)
 
@@ -227,6 +247,7 @@ fun MainScreen(
             onColdSyncBlockingState = onTimelineColdSyncBlockingState,
             onMosaicPrepareCallback = onTimelineMosaicPrepareCallback,
             onDateNavigationActions = onTimelineDateNavigationActions,
+            onShowInTimeline = onShowInTimeline,
             onOverlayActiveChange = onOverlayActiveChange
         )
 
@@ -241,7 +262,11 @@ fun MainScreen(
             isSyncing = tabIsSyncing,
             showRefresh = !isExploreTab,
             onRefresh = { tabRefreshCallback?.invoke() },
-            onLogout = viewModel::logout,
+            onLogout = {
+                timelineDateNavigationActions?.cancel()
+                onLogoutStarted()
+                viewModel.logout()
+            },
             logoutEnabled = !screenState.isLoggingOut,
             mosaicViewConfig = viewConfig.takeIf { isTimelineTab },
             onMosaicViewConfigChanged = viewModel::setViewConfig,
@@ -276,7 +301,8 @@ private fun MainTabNavHost(
     onColdSyncBlockingState: (Boolean) -> Unit,
     onMosaicPrepareCallback: (((suspend (ViewConfig) -> Result<Unit>)?) -> Unit),
     onOverlayActiveChange: (Boolean) -> Unit,
-    onDateNavigationActions: (TimelineDateNavigationActions?) -> Unit
+    onDateNavigationActions: (TimelineDateNavigationActions?) -> Unit,
+    onShowInTimeline: ((LocalDate) -> Unit)?
 ) {
     NavHost(
         navController = navController,
@@ -290,6 +316,7 @@ private fun MainTabNavHost(
                 onColdSyncBlockingState = onColdSyncBlockingState,
                 onMosaicPrepareCallback = onMosaicPrepareCallback,
                 onDateNavigationActions = onDateNavigationActions,
+                onShowInTimeline = onShowInTimeline,
                 onOverlayActiveChange = onOverlayActiveChange,
             )
         }
@@ -313,6 +340,7 @@ private fun MainTabNavHost(
                 onFavoritesClick = onFavoritesClick,
                 onMemoriesClick = onMemoriesClick,
                 onOverlayActiveChange = onOverlayActiveChange,
+                onShowInTimeline = onShowInTimeline,
             )
         }
     }
@@ -382,15 +410,17 @@ private fun BoxScope.MainShellOverlays(
             selectedIndex = selectedIndex,
             barColor = barColor,
             onItemClick = { item ->
-                navController.navigate(item.route) {
-                    popUpTo(navController.graph.startDestinationId) {
-                        saveState = true
-                    }
-                    launchSingleTop = true
-                    restoreState = true
-                }
+                navController.selectMainTab(item.route)
             }
         )
+    }
+}
+
+internal fun NavHostController.selectMainTab(route: Any) {
+    navigate(route) {
+        popUpTo(graph.startDestinationId) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
     }
 }
 
@@ -524,7 +554,7 @@ internal fun TopBarOverlay(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
-                    if (dateNavigationActions != null) {
+                    if (dateNavigationActions != null && dateNavigationActions.canOpenDateMenu) {
                         DropdownMenuItem(
                             text = { Text(stringResource(Res.string.timeline_jump_to_date)) },
                             onClick = {

@@ -124,6 +124,13 @@ class SlideshowTiming {
 
     fun isCurrent(request: SlideshowMediaRequest): Boolean = this.request == request
 
+    fun restartWatchdog(nowMillis: Long) {
+        ready = false
+        positionMillis = 0
+        watchdog.reset(nowMillis)
+        updateClocks(nowMillis)
+    }
+
     fun presentationElapsedMillis(nowMillis: Long): Long = presentation.elapsedMillis(nowMillis)
 
     fun motionProgress(config: SlideshowConfig, nowMillis: Long): Float =

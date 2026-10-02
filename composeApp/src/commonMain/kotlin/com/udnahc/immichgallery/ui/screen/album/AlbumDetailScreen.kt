@@ -36,6 +36,7 @@ import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_album
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -46,7 +47,8 @@ fun AlbumDetailScreen(
     albumId: String,
     onBack: () -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
-    viewModel: AlbumDetailViewModel = koinViewModel { parametersOf(albumId) }
+    viewModel: AlbumDetailViewModel = koinViewModel { parametersOf(albumId) },
+    onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -126,6 +128,11 @@ fun AlbumDetailScreen(
                 getAssetStack = viewModel::getAssetStack,
                 onPersonClick = onPersonClick,
                 onDismiss = onDismissHost,
+                onShowInTimeline = onShowInTimeline?.let { showDate ->
+                    { date, currentAssetId ->
+                        onDismissHost.dismiss(currentAssetId) { showDate(date) }
+                    }
+                },
                 onCurrentAssetChanged = onCurrentAssetChanged,
                 onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                 sharedTransitionScope = sharedTransitionScope,

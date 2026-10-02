@@ -114,7 +114,8 @@ fun TimelineScreen(
     onMosaicPrepareCallback: ((suspend (ViewConfig) -> Result<Unit>)?) -> Unit = {},
     onOverlayActiveChange: (Boolean) -> Unit = {},
     onDateNavigationActions: (TimelineDateNavigationActions?) -> Unit = {},
-    viewModel: TimelineViewModel = koinViewModel()
+    viewModel: TimelineViewModel = koinViewModel(),
+    onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsState()
     val isBuilding by viewModel.isBuilding.collectAsState()
@@ -218,6 +219,7 @@ fun TimelineScreen(
                 getAssetStack = viewModel::getAssetStack,
                 assetProvider = viewModel::assetsForRender,
                 onBucketNeeded = viewModel::loadBucketAssets,
+                onRetryBucket = viewModel::retryBucket,
                 onPersonClick = onPersonClick,
                 onDismiss = { currentAssetId, currentBucket ->
                     dismissScope.launch {
@@ -231,6 +233,16 @@ fun TimelineScreen(
                         )
                             ?.let { listState.ensureReturnSourceVisible(it) }
                         onDismissHost(currentAssetId)
+                    }
+                },
+                onShowInTimeline = onShowInTimeline?.let { showDate ->
+                    { date, currentAssetId, currentBucket ->
+                        dismissScope.launch {
+                            val target = viewModel.rememberOverlayReturnTarget(currentAssetId, currentBucket)
+                            viewModel.getDisplayItemIndexForReturn(target?.assetId, target?.bucketTimeBucket)
+                                ?.let { listState.ensureReturnSourceVisible(it) }
+                            onDismissHost.dismiss(currentAssetId) { showDate(date) }
+                        }
                     }
                 },
                 onCurrentAssetChanged = onCurrentAssetChanged,

@@ -76,7 +76,10 @@ import com.github.panpf.zoomimage.rememberCoilZoomState
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
-import com.udnahc.immichgallery.domain.model.SlideshowAnimations
+import com.udnahc.immichgallery.domain.model.SlideshowMotion
+import com.udnahc.immichgallery.domain.model.SlideshowVideoPolicy
+import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
+import androidx.compose.runtime.key
 import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import com.udnahc.immichgallery.ui.model.StackUiMessage
 import com.udnahc.immichgallery.ui.model.asText
@@ -95,6 +98,10 @@ import immichgallery.composeapp.generated.resources.ic_info
 import immichgallery.composeapp.generated.resources.ic_more_vert
 import immichgallery.composeapp.generated.resources.ic_play
 import immichgallery.composeapp.generated.resources.ic_stack
+import immichgallery.composeapp.generated.resources.ic_fullscreen
+import immichgallery.composeapp.generated.resources.ic_fullscreen_exit
+import immichgallery.composeapp.generated.resources.viewer_enter_fullscreen
+import immichgallery.composeapp.generated.resources.viewer_exit_fullscreen
 import immichgallery.composeapp.generated.resources.more_options
 import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.retry_stack_check
@@ -214,7 +221,15 @@ internal fun AssetPage(
     dragTransform: PhotoDragTransform = PhotoDragTransform.Idle,
     isDragging: Boolean = false,
     onZoomStateChanged: ((Boolean) -> Unit)? = null,
+    playback: SlideshowPlaybackState? = null,
+    slideshowProgress: () -> Float = { 0f },
+    onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit = { _, _ -> },
 ) {
+    LocalViewerPlaybackEnvironment.current?.let { environment ->
+        environment.mediaContent(ViewerMediaPresentation(asset, isCurrentPage, isSlideshow, playback,
+            slideshowProgress, onTap, onSlideshowEvent))
+        return
+    }
     // Only treat the shared-element scope as "actively transitioning" during
     // genuine open/dismiss animations (LocalPhotoBoundsTween = true). Pager
     // swipes re-fire a zero-duration sharedElement transition that would
@@ -302,7 +317,10 @@ internal fun AssetPage(
                     animatedVisibilityScope = animatedVisibilityScope,
                     dragTransform = dragTransform,
                     effectiveCoverThumbnail = effectiveCoverThumbnail,
-                    isTransitionActive = isTransitionActive
+                    isTransitionActive = isTransitionActive,
+                    playback = playback,
+                    slideshowProgress = slideshowProgress,
+                    onSlideshowEvent = onSlideshowEvent
                 )
             }
         }
@@ -422,7 +440,10 @@ private fun VideoOrSlideshowAssetPage(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     dragTransform: PhotoDragTransform,
     effectiveCoverThumbnail: Boolean,
-    isTransitionActive: Boolean
+    isTransitionActive: Boolean,
+    playback: SlideshowPlaybackState?,
+    slideshowProgress: () -> Float,
+    onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
 ) {
     if (!dragTransform.active) {
         Box(
@@ -447,7 +468,11 @@ private fun VideoOrSlideshowAssetPage(
             asset = asset,
             isCurrentPage = isCurrentPage,
             slideshowConfig = slideshowConfig,
-            onTap = onTap
+            onTap = onTap,
+            apiKey = apiKey,
+            playback = playback,
+            progress = slideshowProgress,
+            onEvent = onSlideshowEvent
         )
     } else if (asset.type == AssetType.VIDEO && (dragTransform.active || !isTransitionActive)) {
         VideoAssetPage(
@@ -467,32 +492,32 @@ private fun SlideshowAssetPage(
     asset: Asset,
     isCurrentPage: Boolean,
     slideshowConfig: SlideshowConfig?,
-    onTap: () -> Unit
+    onTap: () -> Unit,
+    apiKey: String,
+    playback: SlideshowPlaybackState?,
+    progress: () -> Float,
+    onEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
 ) {
-    val imageUrl =
-        if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
-    val durationMs = (slideshowConfig?.durationSeconds ?: 5) * 1000
-    Box(
-        modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-            detectTapGestures { onTap() }
-        }
-    ) {
-        if (slideshowConfig?.animations == SlideshowAnimations.OFF) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
-            )
+    val request = playback?.request?.takeIf { it.assetId == asset.id }
+    val imageUrl = if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
+    Box(Modifier.fillMaxSize().pointerInput(onTap) { detectTapGestures { onTap() } }) {
+        if (request != null && asset.type == AssetType.VIDEO && slideshowConfig?.videoPolicy == SlideshowVideoPolicy.PLAY) {
+            key(request) {
+                PlatformVideoPlayer(asset.videoPlaybackUrl, asset.originalUrl, apiKey,
+                    isCurrentPage = isCurrentPage && playback.playMedia,
+                    onTap = onTap, modifier = Modifier.fillMaxSize(),
+                    slideshowRequest = request, muted = slideshowConfig.muted, onSlideshowEvent = onEvent)
+            }
+        } else if (request != null) {
+            key(request) {
+                KenBurnsImage(url = imageUrl, progress = progress,
+                    motionEnabled = slideshowConfig?.motion == SlideshowMotion.PAN_AND_ZOOM,
+                    thumbnailCacheKey = asset.thumbnailCacheKey,
+                    onReady = { onEvent(request, SlideshowMediaEvent.ImageReady) },
+                    onError = { onEvent(request, SlideshowMediaEvent.Failed) })
+            }
         } else {
-            KenBurnsImage(
-                url = imageUrl,
-                isActive = isCurrentPage,
-                durationMs = durationMs,
-                thumbnailUrl = asset.thumbnailUrl,
-                thumbnailCacheKey = asset.thumbnailCacheKey,
-                modifier = Modifier.fillMaxSize()
-            )
+            AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
     }
 }
@@ -731,7 +756,9 @@ internal fun DetailTopBarOverlay(
     stackAvailability: StackAvailability = StackAvailability.Unknown,
     onStackMenuOpened: (() -> Unit)? = null,
     onViewStack: (() -> Unit)? = null,
-    onRetryStackCheck: (() -> Unit)? = null
+    onRetryStackCheck: (() -> Unit)? = null,
+    onToggleFullscreen: (() -> Unit)? = null,
+    isFullscreen: Boolean = false
 ) {
     AnimatedVisibility(
         visible = showTopBar,
@@ -766,6 +793,11 @@ internal fun DetailTopBarOverlay(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                if (onToggleFullscreen != null) IconButton(onClick = onToggleFullscreen) {
+                    Icon(painterResource(if (isFullscreen) Res.drawable.ic_fullscreen_exit else Res.drawable.ic_fullscreen),
+                        contentDescription = stringResource(if (isFullscreen) Res.string.viewer_exit_fullscreen else Res.string.viewer_enter_fullscreen),
+                        tint = Color.White)
+                }
                 Box {
                     var menuExpanded by remember { mutableStateOf(false) }
                     IconButton(

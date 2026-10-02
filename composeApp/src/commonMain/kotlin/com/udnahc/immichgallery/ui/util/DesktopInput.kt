@@ -12,6 +12,8 @@ expect fun Modifier.desktopDetailShortcuts(
     onDismiss: () -> Unit,
     onToggleSlideshow: () -> Unit,
     onInfo: () -> Unit,
+    onToggleFullscreen: (() -> Unit)? = null,
+    slideshowActive: Boolean = false,
 ): Modifier
 
 expect fun Modifier.desktopGridZoom(

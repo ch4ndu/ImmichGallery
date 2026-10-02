@@ -28,6 +28,8 @@ import com.udnahc.immichgallery.ui.util.photoTransitionFadeIn
 import com.udnahc.immichgallery.ui.util.photoTransitionFadeOut
 import com.udnahc.immichgallery.ui.util.resolvePhotoGridReturnAssetId
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -70,10 +72,31 @@ internal fun resolvePhotoOverlaySelection(
 internal suspend fun prepareThenDismissPhotoOverlay(
     returnAssetId: String?,
     onPrepare: suspend (String?) -> Unit,
-    onDismissed: (String?) -> Unit
+    onDismissed: (String?) -> Unit,
+    onStartExit: () -> Unit = {},
+    awaitExit: suspend () -> Boolean = { true },
+    afterExit: (() -> Unit)? = null
 ) {
-    onPrepare(returnAssetId)
-    onDismissed(returnAssetId)
+    try {
+        onPrepare(returnAssetId)
+        onDismissed(returnAssetId)
+    } finally {
+        onStartExit()
+    }
+    if (afterExit != null && awaitExit()) {
+        currentCoroutineContext().ensureActive()
+        afterExit()
+    }
+}
+
+/** Ordinary dismiss callers retain their Function1 contract. */
+class PhotoOverlayDismissAction internal constructor(
+    private val onDismiss: (String?, (() -> Unit)?) -> Unit
+) : (String?) -> Unit {
+    override fun invoke(currentAssetId: String?) = onDismiss(currentAssetId, null)
+
+    fun dismiss(currentAssetId: String?, afterExit: () -> Unit) =
+        onDismiss(currentAssetId, afterExit)
 }
 
 internal suspend fun preparePhotoGridReturnSource(
@@ -116,7 +139,7 @@ fun PhotoOverlayHost(
     ) -> Unit,
     overlay: @Composable AnimatedVisibilityScope.(
         initialIndex: Int,
-        onDismissHost: (currentAssetId: String?) -> Unit,
+        onDismissHost: PhotoOverlayDismissAction,
         onCurrentAssetChanged: (String) -> Unit,
         onStlTransitionActiveChanged: (Boolean) -> Unit,
         sharedTransitionScope: SharedTransitionScope
@@ -212,9 +235,10 @@ fun PhotoOverlayHost(
     LaunchedEffect(overlayVisible) { onOverlayActiveChange(overlayVisible) }
     val dismissScope = rememberCoroutineScope()
     var dismissInProgress by remember { mutableStateOf(false) }
-    val dismissOverlay: (String?) -> Unit = remember(returnTarget) {
-        { dismissedAssetId ->
+    val dismissOverlay = remember(returnTarget) {
+        PhotoOverlayDismissAction { dismissedAssetId, afterExit ->
             if (selectedAssetId != null && !dismissInProgress) {
+                val dismissedEpoch = selectionEpoch
                 val returnAssetId = resolvePhotoGridReturnAssetId(
                     returnTarget = returnTarget,
                     originAssetId = selectedAssetId,
@@ -226,12 +250,22 @@ fun PhotoOverlayHost(
                         prepareThenDismissPhotoOverlay(
                             returnAssetId = returnAssetId,
                             onPrepare = latestOnPrepareOverlayDismiss.value,
-                            onDismissed = latestOnOverlayDismissed.value
+                            onDismissed = latestOnOverlayDismissed.value,
+                            onStartExit = {
+                                overlayAnimActive = true
+                                overlayInitialIndex = null
+                                selectedAssetId = null
+                            },
+                            awaitExit = {
+                                snapshotFlow {
+                                    selectionEpoch != dismissedEpoch ||
+                                        (!overlayAnimActive && !stlTransitionActive)
+                                }.first { it }
+                                selectionEpoch == dismissedEpoch && selectedAssetId == null
+                            },
+                            afterExit = afterExit
                         )
                     } finally {
-                        overlayAnimActive = true
-                        overlayInitialIndex = null
-                        selectedAssetId = null
                         dismissInProgress = false
                     }
                 }

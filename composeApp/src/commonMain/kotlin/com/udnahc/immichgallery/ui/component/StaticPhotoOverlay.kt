@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -22,10 +23,14 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Composable
+import com.udnahc.immichgallery.LocalAppActive
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,20 +50,21 @@ import androidx.compose.ui.unit.lerp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetStackLookup
-import com.udnahc.immichgallery.domain.model.SlideshowConfig
-import com.udnahc.immichgallery.domain.model.nextSlideshowPage
 import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.LocalViewerFullscreen
+import com.udnahc.immichgallery.ui.util.LocalViewerFullscreenSession
+import com.udnahc.immichgallery.ui.util.rememberViewerFullscreenSession
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.desktopDetailShortcuts
 import com.udnahc.immichgallery.ui.util.dragToDismiss
-import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.asset_position
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
 
@@ -129,7 +135,8 @@ fun StaticPhotoOverlay(
     onCurrentAssetChanged: (String) -> Unit = {},
     onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    onShowInTimeline: ((date: LocalDate, currentAssetId: String?) -> Unit)? = null
 ) {
     // Forward the STL's actual animation-active state to the screen so the
     // screen can flip `overlayAnimActive` false only when the bounds animation
@@ -143,41 +150,45 @@ fun StaticPhotoOverlay(
             .collect { latestStlCallback(it) }
     }
 
+    val fullscreen = LocalViewerFullscreen.current
+    val fullscreenSession = rememberViewerFullscreenSession()
+    var filmstripExpanded by remember { mutableStateOf(false) }
     var showTopBar by remember { mutableStateOf(true) }
-    var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
     var showSlideshowDialog by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
     val stackController = rememberStackSessionController(getAssetStack)
     val stackSession = stackController.state.session
     val isCoveredByStack = stackSession != null
+    val slideshow = rememberSlideshowBinding(
+        environmentActive = fullscreen.isWindowVisibleAndNotMinimized && LocalAppActive.current && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog &&
+                sharedTransitionScope?.isTransitionActive != true
+    )
+    val playback by slideshow.uiState.collectAsState()
+    val progress = remember(slideshow) { slideshow.state.map { it.motionProgress }.distinctUntilChanged() }.collectAsState(0f)
+    val slideshowConfig = playback.config
     val latestOnDismiss by rememberUpdatedState(onDismiss)
     val dismissBase: (String?) -> Unit = { assetId ->
+        slideshow.send { it.stop() }
         stackController.close()
+        fullscreenSession.close()
         latestOnDismiss(assetId)
     }
 
     val isSlideshow = slideshowConfig != null
-
-    val onTap: () -> Unit = remember {
-        {
-            if (slideshowConfig != null) {
-                slideshowConfig = null
-                showTopBar = true
-            } else {
-                showTopBar = !showTopBar
-            }
-        }
+    DisposableEffect(fullscreenSession, isSlideshow, slideshowConfig?.fullscreen) {
+        val lease = if (slideshowConfig?.fullscreen == true) fullscreenSession.enterSlideshow() else null
+        onDispose { lease?.release() }
     }
 
-    // Wake lock for slideshow mode
-    val wakeLock = rememberScreenWakeLock()
-    LaunchedEffect(isSlideshow) {
-        if (isSlideshow) wakeLock.acquire() else wakeLock.release()
+
+    val onTap: () -> Unit = {
+        if (isSlideshow) slideshow.send { it.toggleControls() } else showTopBar = !showTopBar
     }
-    DisposableEffect(Unit) { onDispose { wakeLock.release() } }
+    LaunchedEffect(isSlideshow) { if (!isSlideshow) showTopBar = true }
+    LaunchedEffect(assets) { slideshow.source { staticSlideshowSource(assets) } }
 
     if (assets.isEmpty()) {
-        Box(Modifier.fillMaxSize().background(Color.Black))
+        SlideshowEmptyViewer(slideshow, playback) { dismissBase(null) }
         return
     }
 
@@ -187,6 +198,18 @@ fun StaticPhotoOverlay(
     ) { assets.size }
     val latestAssets by rememberUpdatedState(assets)
     val currentAsset = assets.getOrNull(pagerState.settledPage)
+    val showDateInTimeline: ((LocalDate) -> Unit)? = onShowInTimeline?.let { showDate ->
+        { date ->
+            showDetailSheet = false
+            showSlideshowDialog = false
+            slideshow.send { it.stop() }
+            stackController.dismissSession()
+            stackController.close()
+            fullscreenSession.close()
+            showDate(date, currentAsset?.id)
+        }
+    }
+
 
     LaunchedEffect(currentAsset?.id) {
         stackController.onSettledAssetChanged(currentAsset?.id)
@@ -218,42 +241,13 @@ fun StaticPhotoOverlay(
             .collect { latestAssetChangedCallback(it) }
     }
 
-    ViewerImagePrefetch(assets = assets, settledPage = pagerState.settledPage)
+    ViewerImagePrefetch(assets = assets, settledPage = pagerState.settledPage, upcoming = playback.upcomingAsset)
 
-    // Auto-advance slideshow. Keyed on settledPage + assets.size so the timer
-    // resets whenever the page changes or the asset list grows/shrinks mid-
-    // slideshow (e.g., from sync).
-    LaunchedEffect(slideshowConfig, pagerState.settledPage, assets.size, isCoveredByStack) {
-        if (isCoveredByStack) return@LaunchedEffect
-        val config = slideshowConfig ?: return@LaunchedEffect
-        if (assets.size <= 1) return@LaunchedEffect
-        val startingPage = pagerState.settledPage
-        val startingPageCount = assets.size
-        kotlinx.coroutines.delay(config.durationSeconds * 1000L)
-        if (
-            !shouldAdvanceSlideshowAfterDelay(
-                startingConfig = config,
-                currentConfig = slideshowConfig,
-                startingPage = startingPage,
-                currentSettledPage = pagerState.settledPage,
-                startingPageCount = startingPageCount,
-                currentPageCount = latestAssets.size,
-                isCoveredByStack = stackController.state.session != null
-            )
-        ) {
-            return@LaunchedEffect
-        }
-        val next = nextSlideshowPage(
-            order = config.order,
-            current = pagerState.settledPage,
-            total = latestAssets.size,
-            forward = true,
-        )
-        pagerState.animateScrollToPage(next)
-    }
+    val slideshowTransition = BindSlideshowPager(slideshow, playback, pagerState, currentAsset)
 
     PlatformBackHandler(enabled = !isCoveredByStack, onBack = {
-        dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
+        if (isSlideshow) slideshow.send { it.stop() }
+        else if (!fullscreenSession.exitFullscreen()) dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
     })
 
     // Slideshow options dialog
@@ -261,7 +255,7 @@ fun StaticPhotoOverlay(
         SlideshowOptionsDialog(
             onConfirm = { config ->
                 showSlideshowDialog = false
-                slideshowConfig = config
+                slideshow.send { it.start(config, pagerState.settledPage) }
                 showTopBar = false
             },
             onDismiss = { showSlideshowDialog = false }
@@ -304,63 +298,40 @@ fun StaticPhotoOverlay(
                 dismissThresholdPx = dismissThresholdPx,
                 flickVelocityPx = flickVelocityPx,
                 onDismiss = {
-                    slideshowConfig = null
+                    slideshow.send { it.stop() }
                     dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
             // Swallow taps that fall in letterbox dead zones so they don't
             // reach the grid composed beneath the overlay.
-            .pointerInput(Unit) { detectTapGestures { } }
+            .pointerInput(isSlideshow) { detectTapGestures { if (isSlideshow) onTap() } }
             .desktopDetailShortcuts(
                 enabled = !showDetailSheet && !showSlideshowDialog && !isCoveredByStack,
+                slideshowActive = isSlideshow,
                 onPrev = {
-                    if (!pagerState.isScrollInProgress) {
-                        val config = slideshowConfig
-                        val target = if (config != null) {
-                            nextSlideshowPage(
-                                config.order,
-                                pagerState.currentPage,
-                                assets.size,
-                                forward = false
-                            )
-                        } else {
-                            (pagerState.currentPage - 1).coerceAtLeast(0)
-                        }
-                        scope.launch { pagerState.animateScrollToPage(target) }
-                    }
+                    if (isSlideshow) slideshow.send { it.previous() }
+                    else if (!pagerState.isScrollInProgress) scope.launch { pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0)) }
                 },
                 onNext = {
-                    if (!pagerState.isScrollInProgress) {
-                        val config = slideshowConfig
-                        val target = if (config != null) {
-                            nextSlideshowPage(
-                                config.order,
-                                pagerState.currentPage,
-                                assets.size,
-                                forward = true
-                            )
-                        } else {
-                            (pagerState.currentPage + 1).coerceAtMost(assets.lastIndex)
-                        }
-                        scope.launch { pagerState.animateScrollToPage(target) }
-                    }
+                    if (isSlideshow) slideshow.send { it.next() }
+                    else if (!pagerState.isScrollInProgress) scope.launch { pagerState.animateScrollToPage((pagerState.currentPage + 1).coerceAtMost(assets.lastIndex)) }
                 },
                 onDismiss = {
-                    slideshowConfig = null
-                    dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
+                    if (isSlideshow) slideshow.send { it.stop() } else if (!fullscreenSession.exitFullscreen()) dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
                 },
                 onToggleSlideshow = {
-                    if (isSlideshow) slideshowConfig = null
-                    else if (assets.size > 1) showSlideshowDialog = true
+                    if (isSlideshow) slideshow.send { it.togglePause() }
+                    else showSlideshowDialog = true
                 },
                 onInfo = { showDetailSheet = true },
+                onToggleFullscreen = if (fullscreen.isSupported) { { fullscreenSession.toggle() } } else null,
             )
     ) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = !isCoveredByStack,
+            userScrollEnabled = !isCoveredByStack && !isSlideshow,
             key = { page -> assets.getOrNull(page)?.id ?: "missing_$page" }
         ) { page ->
             val asset = assets.getOrNull(page)
@@ -383,9 +354,12 @@ fun StaticPhotoOverlay(
                         asset = asset,
                         sharedElementAssetId = sharedElementAssetId ?: asset.id,
                         apiKey = apiKey,
-                        isCurrentPage = isSettledPage && !isCoveredByStack,
+                        isCurrentPage = isSettledPage && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog && LocalAppActive.current,
                         isSlideshow = isSlideshow,
                         slideshowConfig = slideshowConfig,
+                        playback = playback.takeIf { isSettledPage && it.asset?.id == asset.id },
+                        slideshowProgress = { progress.value },
+                        onSlideshowEvent = { request, event -> slideshow.mediaEvent(request, event) },
                         onTap = onTap,
                         sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
                         animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
@@ -397,11 +371,15 @@ fun StaticPhotoOverlay(
             }
         }
 
+        SlideshowFadeLayer(slideshowTransition)
+
         DetailTopBarOverlay(
-            showTopBar = showTopBar,
+            showTopBar = showTopBar && !isSlideshow && !isCoveredByStack,
             title = currentAsset?.fileName.orEmpty(),
             onBack = { dismissBase(currentAsset?.id) },
             onInfo = { showDetailSheet = true },
+            onToggleFullscreen = if (fullscreen.isSupported) { { fullscreenSession.toggle() } } else null,
+            isFullscreen = fullscreen.isFullscreen,
             onSlideshow = if (assets.size > 1) {
                 { showSlideshowDialog = true }
             } else null,
@@ -414,7 +392,6 @@ fun StaticPhotoOverlay(
             } else null,
             onViewStack = if (stackBrowsingEnabled && currentAsset != null) {
                 {
-                    slideshowConfig = null
                     showSlideshowDialog = false
                     showDetailSheet = false
                     stackController.openSession(currentAsset.id)
@@ -425,24 +402,32 @@ fun StaticPhotoOverlay(
             } else null
         )
 
-        if (showPageIndicator && assets.size > 1) {
-            PhotoPageIndicator(
-                currentPage = pagerState.currentPage,
-                currentPageOffsetFraction = pagerState.currentPageOffsetFraction,
-                settledPage = pagerState.settledPage,
-                totalPages = assets.size,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = Dimens.pageIndicatorBottomPadding)
-            )
+        val normalFooterVisible = !isSlideshow && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog &&
+                !dragState.isActive && sharedTransitionScope?.isTransitionActive != true
+        if (normalFooterVisible) {
+            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()) {
+                if (showPageIndicator && assets.size > 1) PhotoPageIndicator(
+                    currentPage = pagerState.currentPage,
+                    currentPageOffsetFraction = pagerState.currentPageOffsetFraction,
+                    settledPage = pagerState.settledPage, totalPages = assets.size,
+                    modifier = Modifier.padding(vertical = Dimens.smallSpacing))
+                if (showTopBar) {
+                    if (filmstripExpanded) ViewerFilmstrip(
+                        totalPages = assets.size, currentPage = pagerState.settledPage,
+                        pageKey = { page -> assets[page].id },
+                        assetForPage = { page -> assets.getOrNull(page) },
+                        onPageSelected = { page -> scope.launch { pagerState.scrollToPage(page) } },
+                    )
+                    ViewerFilmstripControls(totalPages = assets.size, currentPage = pagerState.settledPage,
+                        expanded = filmstripExpanded, onExpandedChange = { filmstripExpanded = it }, showPosition = !showPageIndicator)
+                }
+                DetailBottomHandle(visible = showTopBar, onClick = { showDetailSheet = true })
+            }
         }
 
-        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-            DetailBottomHandle(
-                visible = showTopBar,
-                onClick = { showDetailSheet = true }
-            )
+        if (isSlideshow && !isCoveredByStack) {
+            SlideshowChrome(slideshow, playback, getAssetDetail,
+                onInfo = { showDetailSheet = true }, modifier = Modifier.align(Alignment.BottomCenter), fullscreenSession = fullscreenSession)
         }
 
         if (showDetailSheet && currentAsset != null) {
@@ -454,42 +439,32 @@ fun StaticPhotoOverlay(
                     dismissBase(currentAsset.id)
                     onPersonClick(personId, personName)
                 },
+                captureDateTime = currentAsset.createdAt,
+                onShowInTimeline = showDateInTimeline,
                 onDismiss = { showDetailSheet = false }
             )
         }
 
         if (stackSession != null) {
-            StackSessionOverlay(
-                session = stackSession,
-                apiKey = apiKey,
-                getAssetDetail = getAssetDetail,
-                getAssetStack = getAssetStack,
-                onPersonClick = { personId, personName ->
-                    stackController.dismissSession()
-                    dismissBase(currentAsset?.id)
-                    onPersonClick(personId, personName)
-                },
-                onDismiss = stackController::dismissSession,
-                onRetry = stackController::retrySession
-            )
+            CompositionLocalProvider(LocalViewerFullscreenSession provides fullscreenSession) {
+                StackSessionOverlay(
+                    session = stackSession,
+                    apiKey = apiKey,
+                    getAssetDetail = getAssetDetail,
+                    getAssetStack = getAssetStack,
+                    onPersonClick = { personId, personName ->
+                        stackController.dismissSession()
+                        dismissBase(currentAsset?.id)
+                        onPersonClick(personId, personName)
+                    },
+                    onDismiss = stackController::dismissSession,
+                    onRetry = stackController::retrySession,
+                    onShowInTimeline = showDateInTimeline
+                )
+            }
         }
     }
 }
-
-internal fun shouldAdvanceSlideshowAfterDelay(
-    startingConfig: SlideshowConfig,
-    currentConfig: SlideshowConfig?,
-    startingPage: Int,
-    currentSettledPage: Int,
-    startingPageCount: Int,
-    currentPageCount: Int,
-    isCoveredByStack: Boolean
-): Boolean =
-    currentConfig == startingConfig &&
-            startingPage == currentSettledPage &&
-            startingPageCount == currentPageCount &&
-            currentPageCount > 1 &&
-            !isCoveredByStack
 
 @Composable
 private fun PhotoPageIndicator(

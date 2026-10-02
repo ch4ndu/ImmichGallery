@@ -12,6 +12,8 @@ actual fun Modifier.desktopDetailShortcuts(
     onDismiss: () -> Unit,
     onToggleSlideshow: () -> Unit,
     onInfo: () -> Unit,
+    onToggleFullscreen: (() -> Unit)?,
+    slideshowActive: Boolean,
 ): Modifier = this
 
 actual fun Modifier.desktopGridZoom(

@@ -59,6 +59,7 @@ object Dimens {
     val pageIndicatorProgressHeight = 4.dp
     val pageIndicatorSegmentDividerWidth = 1.dp
     val pageIndicatorBottomPadding = 28.dp
+    val viewerFilmstripHeight = 80.dp
     val photoDismissThreshold = 150.dp
     val photoDismissFlickVelocity = 1200.dp
     val largeScreenMosaicColumnsMinWidth = 600.dp

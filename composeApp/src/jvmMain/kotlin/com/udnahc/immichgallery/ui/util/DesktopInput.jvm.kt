@@ -26,9 +26,12 @@ actual fun Modifier.desktopDetailShortcuts(
     onDismiss: () -> Unit,
     onToggleSlideshow: () -> Unit,
     onInfo: () -> Unit,
+    onToggleFullscreen: (() -> Unit)?,
+    slideshowActive: Boolean,
 ): Modifier {
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(enabled) {
+    // Exiting a show removes its focused controls; keep subsequent viewer keys reachable.
+    LaunchedEffect(enabled, slideshowActive) {
         if (enabled) {
             runCatching { focusRequester.requestFocus() }
         }
@@ -44,6 +47,7 @@ actual fun Modifier.desktopDetailShortcuts(
                 Key.Escape -> { onDismiss(); true }
                 Key.Spacebar -> { onToggleSlideshow(); true }
                 Key.I -> { onInfo(); true }
+                Key.F -> onToggleFullscreen?.let { it(); true } ?: false
                 else -> false
             }
         }

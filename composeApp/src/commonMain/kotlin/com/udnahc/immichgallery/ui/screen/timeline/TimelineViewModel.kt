@@ -98,6 +98,7 @@ import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCas
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicGeometrySnapshotUseCase
 import com.udnahc.immichgallery.runSuspendCatching
+import com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus
 import com.udnahc.immichgallery.ui.model.ConnectionUiMessage
 import com.udnahc.immichgallery.ui.util.MosaicConfigPreparationCoordinator
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
@@ -186,7 +187,10 @@ data class TimelineState(
 @Immutable
 data class TimelineOverlayState(
     val pageIndex: TimelinePageIndex = TimelinePageIndex(),
-    val buckets: List<TimelineBucket> = emptyList()
+    val buckets: List<TimelineBucket> = emptyList(),
+    val bucketStatuses: Map<String, SlideshowCandidateStatus> = emptyMap(),
+    val assetRevisions: Map<String, Int> = emptyMap(),
+    val materializationRevisions: Map<String, Int> = emptyMap()
 )
 
 enum class TimelineBucketTargetReason {
@@ -915,8 +919,19 @@ class TimelineViewModel(
                 )
             )
 
-        overlayState = state
-            .map { TimelineOverlayState(pageIndex = it.pageIndex, buckets = it.buckets) }
+        overlayState = combine(state, _bucketData) { timeline, data ->
+            TimelineOverlayState(pageIndex = timeline.pageIndex, buckets = timeline.buckets,
+                bucketStatuses = timeline.buckets.associate { bucket ->
+                    bucket.timeBucket to timelineSlideshowBucketStatus(
+                        loading = bucket.timeBucket in data.loadingBuckets,
+                        failed = bucket.timeBucket in data.failedBuckets,
+                        cached = bucket.timeBucket in data.cachedBuckets || bucket.timeBucket in data.loadedBuckets,
+                        cacheOnly = !allowTimelineServerRefresh(TimelineServerRefreshSource.ExplicitBucketLoad),
+                        sourceReady = timeline.isSourceReady && !timeline.isSyncing
+                    )
+                }, assetRevisions = data.assetRevisions, materializationRevisions = data.materializationRevisions)
+        }
+            .flowOn(Dispatchers.Default)
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TimelineOverlayState())
 

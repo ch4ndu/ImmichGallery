@@ -1,12 +1,8 @@
 package com.udnahc.immichgallery.ui.component
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,7 +18,6 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import kotlin.random.Random
 
-private const val KEN_BURNS_DURATION_MS = 5000
 private const val PAN_FRACTION = 0.04f
 
 /**
@@ -70,31 +65,18 @@ private val presets = listOf(
 @Composable
 fun KenBurnsImage(
     url: String,
-    isActive: Boolean,
-    durationMs: Int = KEN_BURNS_DURATION_MS,
-    thumbnailUrl: String? = null,
-    thumbnailCacheKey: String? = thumbnailUrl,
+    progress: () -> Float,
+    motionEnabled: Boolean = true,
+    thumbnailCacheKey: String? = null,
+    onReady: () -> Unit = {},
+    onError: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val progress = remember { Animatable(0f) }
     var widthPx by remember { mutableStateOf(0f) }
     var heightPx by remember { mutableStateOf(0f) }
 
     // Pick a random preset per URL
     val preset = remember(url) { presets[Random.nextInt(presets.size)] }
-
-    LaunchedEffect(isActive, url, durationMs) {
-        if (isActive) {
-            progress.snapTo(0f)
-            progress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = durationMs,
-                    easing = LinearEasing
-                )
-            )
-        }
-    }
 
     // Pull the grid-side thumbnail out of Coil's memory cache as an instant
     // placeholder so page advances during slideshow don't flash empty while the
@@ -120,6 +102,8 @@ fun KenBurnsImage(
         AsyncImage(
             model = imageRequest,
             contentDescription = null,
+            onSuccess = { onReady() },
+            onError = { onError() },
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
@@ -128,12 +112,12 @@ fun KenBurnsImage(
                         preset = preset,
                         widthPx = widthPx,
                         heightPx = heightPx,
-                        progress = progress.value
+                        progress = progress()
                     )
-                    scaleX = transform.scale
-                    scaleY = transform.scale
-                    translationX = transform.translationX
-                    translationY = transform.translationY
+                    scaleX = if (motionEnabled) transform.scale else 1f
+                    scaleY = if (motionEnabled) transform.scale else 1f
+                    translationX = if (motionEnabled) transform.translationX else 0f
+                    translationY = if (motionEnabled) transform.translationY else 0f
                 }
         )
     }

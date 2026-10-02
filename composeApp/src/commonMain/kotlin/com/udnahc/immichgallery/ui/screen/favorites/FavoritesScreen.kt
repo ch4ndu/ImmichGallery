@@ -57,6 +57,7 @@ import immichgallery.composeapp.generated.resources.favorites_empty
 import immichgallery.composeapp.generated.resources.load_more
 import immichgallery.composeapp.generated.resources.loading_favorites
 import immichgallery.composeapp.generated.resources.retry
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -65,7 +66,8 @@ import org.koin.compose.viewmodel.koinViewModel
 fun FavoritesScreen(
     onBack: () -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
-    viewModel: FavoritesViewModel = koinViewModel()
+    viewModel: FavoritesViewModel = koinViewModel(),
+    onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -120,6 +122,11 @@ fun FavoritesScreen(
                 getAssetStack = viewModel::getAssetStack,
                 onPersonClick = onPersonClick,
                 onDismiss = onDismissHost,
+                onShowInTimeline = onShowInTimeline?.let { showDate ->
+                    { date, currentAssetId ->
+                        onDismissHost.dismiss(currentAssetId) { showDate(date) }
+                    }
+                },
                 onCurrentAssetChanged = onCurrentAssetChanged,
                 onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                 sharedTransitionScope = sharedTransitionScope,

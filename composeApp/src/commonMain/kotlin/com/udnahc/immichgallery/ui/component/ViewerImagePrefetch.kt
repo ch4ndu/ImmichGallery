@@ -20,15 +20,16 @@ internal data class ViewerImagePrefetchTarget(
     val height: Int
 )
 
+internal fun viewerImagePrefetchAssets(assets: List<Asset>, settledPage: Int, upcoming: Asset?): List<Asset> =
+    (listOf(settledPage - 1, settledPage, settledPage + 1).mapNotNull(assets::getOrNull) + listOfNotNull(upcoming)).distinctBy { it.id }
+
 internal fun viewerImagePrefetchTargets(
     assets: List<Asset>,
     settledPage: Int,
-    viewportSize: IntSize
+    viewportSize: IntSize,
+    upcoming: Asset? = null
 ): List<ViewerImagePrefetchTarget> = viewerImagePrefetchTargets(
-    assets = listOf(settledPage - 1, settledPage, settledPage + 1)
-        .mapNotNull { index ->
-            assets.getOrNull(index)
-        },
+    assets = viewerImagePrefetchAssets(assets, settledPage, upcoming),
     viewportSize = viewportSize
 )
 
@@ -78,11 +79,11 @@ internal class ViewerImagePrefetchController(
 @Composable
 internal fun ViewerImagePrefetch(
     assets: List<Asset>,
-    settledPage: Int
+    settledPage: Int,
+    upcoming: Asset? = null
 ) {
     ViewerImagePrefetchCandidates(
-        assets = listOf(settledPage - 1, settledPage, settledPage + 1)
-            .mapNotNull(assets::getOrNull)
+        assets = viewerImagePrefetchAssets(assets, settledPage, upcoming)
     )
 }
 

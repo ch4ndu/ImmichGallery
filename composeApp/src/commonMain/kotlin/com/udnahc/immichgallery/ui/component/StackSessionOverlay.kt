@@ -40,6 +40,7 @@ import immichgallery.composeapp.generated.resources.retry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 
 @Immutable
@@ -298,7 +299,8 @@ internal fun StackSessionOverlay(
     getAssetStack: suspend (String) -> Result<AssetStackLookup>,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: () -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
     when (session) {
         is StackSession.Loading -> StackSessionStatus(
@@ -322,6 +324,9 @@ internal fun StackSessionOverlay(
             getAssetStack = getAssetStack,
             stackBrowsingEnabled = false,
             onPersonClick = onPersonClick,
+            onShowInTimeline = onShowInTimeline?.let { showDate ->
+                { date, _ -> showDate(date) }
+            },
             onDismiss = { onDismiss() }
         )
     }

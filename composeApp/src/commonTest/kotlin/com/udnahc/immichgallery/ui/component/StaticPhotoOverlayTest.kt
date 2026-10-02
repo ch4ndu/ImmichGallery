@@ -4,7 +4,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetType
-import com.udnahc.immichgallery.domain.model.SlideshowConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -183,78 +182,6 @@ class StaticPhotoOverlayTest {
         assertEquals(emptySet(), controller.activeTargetsForTests())
     }
 
-    @Test
-    fun slideshowAdvanceRequiresStateToRemainCurrentAfterDelay() {
-        val config = SlideshowConfig(durationSeconds = 3)
-
-        assertTrue(
-            shouldAdvanceSlideshowAfterDelay(
-                startingConfig = config,
-                currentConfig = config,
-                startingPage = 1,
-                currentSettledPage = 1,
-                startingPageCount = 2,
-                currentPageCount = 2,
-                isCoveredByStack = false
-            )
-        )
-        assertFalse(
-            shouldAdvanceSlideshowAfterDelay(
-                startingConfig = config,
-                currentConfig = null,
-                startingPage = 1,
-                currentSettledPage = 1,
-                startingPageCount = 2,
-                currentPageCount = 2,
-                isCoveredByStack = false
-            )
-        )
-        assertFalse(
-            shouldAdvanceSlideshowAfterDelay(
-                startingConfig = config,
-                currentConfig = config,
-                startingPage = 1,
-                currentSettledPage = 2,
-                startingPageCount = 2,
-                currentPageCount = 2,
-                isCoveredByStack = false
-            )
-        )
-        assertFalse(
-            shouldAdvanceSlideshowAfterDelay(
-                startingConfig = config,
-                currentConfig = config,
-                startingPage = 1,
-                currentSettledPage = 1,
-                startingPageCount = 1,
-                currentPageCount = 1,
-                isCoveredByStack = false
-            )
-        )
-        assertFalse(
-            shouldAdvanceSlideshowAfterDelay(
-                startingConfig = config,
-                currentConfig = config,
-                startingPage = 1,
-                currentSettledPage = 1,
-                startingPageCount = 2,
-                currentPageCount = 2,
-                isCoveredByStack = true
-            )
-        )
-        assertFalse(
-            shouldAdvanceSlideshowAfterDelay(
-                startingConfig = config,
-                currentConfig = config,
-                startingPage = 1,
-                currentSettledPage = 1,
-                startingPageCount = 2,
-                currentPageCount = 3,
-                isCoveredByStack = false
-            )
-        )
-    }
-
     private fun asset(id: String, type: AssetType): Asset = Asset(
         id = id,
         type = type,
@@ -264,6 +191,14 @@ class StaticPhotoOverlayTest {
         originalUrl = "https://example.test/$id/original",
         videoPlaybackUrl = "https://example.test/$id/video"
     )
+
+    @Test
+    fun slideshowUpcomingPrefetchAddsOnlyTheActualTargetAndDeduplicatesNeighbors() {
+        val assets = (0..9).map { asset("$it", AssetType.IMAGE) }
+        assertEquals(listOf("3", "4", "5", "9"), viewerImagePrefetchAssets(assets, 4, assets[9]).map { it.id })
+        assertEquals(listOf("3", "4", "5"), viewerImagePrefetchAssets(assets, 4, assets[5]).map { it.id })
+        assertEquals(4, viewerImagePrefetchTargets(assets, 4, IntSize(100, 200), assets[9]).size)
+    }
 
     private fun target(id: String): ViewerImagePrefetchTarget = ViewerImagePrefetchTarget(
         assetId = id,

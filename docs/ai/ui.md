@@ -75,7 +75,13 @@ For shared photo/video viewing, information sheets, slideshow, viewer gestures, 
 - Compute rows atomically inside the state update that changes the related data.
 - Use `lastSelectedAssetId` or equivalent retained state so overlay content survives dismiss transitions.
 - Detail still-photo viewing should keep one stable zoomable full-resolution image path visible outside active transition/drag. Drag-dismiss transforms belong on the fitted media container, using tap-anchored layout size/offset so the touched media point stays under the finger; do not rely on draw-only `graphicsLayer` for the exit source rect. Pinch zoom takes precedence over drag before vertical dismiss commits. Use a short full-image alpha handoff for still-photo open/dismiss transitions, keep the shared thumbnail synchronously visible during real transitions, and only reset transforms to identity for snap-back/cancel. Photo overlay transition participation and grid hiding are separate states: only the active transition asset may mount shared-element thumbnail machinery, non-participating cells stay on the plain thumbnail path, and overlay dismiss must synchronously flip visibility and reveal the grid-side source. Detail-side shared thumbnails should use the same bounded exact thumbnail request and cache keys as grid thumbnails to avoid empty destination frames. The current stable baseline retains overlay exit content with `lastSelectedAssetId` or equivalent state. At dismissal, resolve the current asset and await any required return-source preparation before clearing the overlay selection; do not freeze a stale page or source-preparation input when the overlay first opens. Changes to transition timing still require a focused repro and separately authorized visual verification.
-- Slideshow auto-advance loops must re-check slideshow and page state after suspending.
+- Both viewer types use the shared slideshow controller and binding; media and
+  transition callbacks must retain their request identity after suspension.
+  Keep order, timing, readiness, and recovery rules in `media-viewer.md`.
+- Viewer filmstrip/footer visibility follows normal chrome visibility and
+  coverage gates. Hiding chrome preserves the user's expanded-strip choice.
+- Desktop shortcuts restore viewer focus when slideshow controls are removed,
+  so later Escape presses remain reachable after stopping a focused control.
 - Slideshow Ken Burns transforms are measurement-based: pan translation is a
   fraction of the measured container width/height and progress is clamped before
   linear interpolation. Read animation progress and derive the transform inside

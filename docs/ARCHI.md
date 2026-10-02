@@ -494,9 +494,19 @@ Video authentication differs by platform:
   falling back to authenticated playback/transcode. Picture in Picture remains
   disabled until the host owns a background-audio/media contract.
 
-Expanded asset information is fetched on demand and not persisted. Slideshow
-state is shared; platform wake-lock implementations keep the screen awake only
-while a slideshow is active.
+Expanded asset information is fetched on demand and not persisted. Validated
+coordinates support explicit maps/clipboard actions. Viewer date navigation
+finishes return preparation and exit before routing to the existing Main and
+Timeline; unique, session-scoped requests are discarded on logout.
+
+Both overlay types use one shared slideshow controller and serialized binding
+for displayed history, no-repeat order, media readiness, active-time dwell/motion,
+and bounded video/error handling. Preferences use the existing device settings;
+asset/history/request state remains viewer-local. Platform wake inhibition follows
+active presentation and releases on pause, coverage, background, and disposal.
+The desktop window host owns a scoped fullscreen bridge with nested viewer/show
+restoration. Viewer filmstrips reuse bounded thumbnail loading and the existing
+materialized/static or projected/Timeline source rather than loading a new library.
 
 The overflow menu can resolve the settled asset's current stack on demand. A
 positive cached count exposes **View stack** immediately; otherwise opening the

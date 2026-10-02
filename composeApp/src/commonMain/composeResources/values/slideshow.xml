@@ -1,0 +1,34 @@
+<resources>
+    <string name="slideshow_duration_invalid">Enter a duration from 1 to 120 seconds.</string>
+    <string name="slideshow_motion">Photo motion</string>
+    <string name="slideshow_still">Still</string>
+    <string name="slideshow_pan_zoom">Pan and zoom</string>
+    <string name="slideshow_transition">Transition</string>
+    <string name="slideshow_cut">Cut</string>
+    <string name="slideshow_fade">Fade</string>
+    <string name="slideshow_slide">Slide</string>
+    <string name="slideshow_videos">Videos</string>
+    <string name="slideshow_skip">Skip videos</string>
+    <string name="slideshow_thumbnail">Show thumbnail</string>
+    <string name="slideshow_play_video">Play video</string>
+    <string name="slideshow_muted">Mute videos</string>
+    <string name="slideshow_video_limit">Video limit (seconds)</string>
+    <string name="slideshow_video_limit_hint">Leave blank to play to completion.</string>
+    <string name="slideshow_video_limit_invalid">Enter a positive number or leave blank.</string>
+    <string name="slideshow_captions">Show date, location and description</string>
+    <string name="slideshow_previous">Previous slide</string>
+    <string name="slideshow_next">Next slide</string>
+    <string name="slideshow_pause">Pause slideshow</string>
+    <string name="slideshow_resume">Resume slideshow</string>
+    <string name="slideshow_exit">Exit slideshow</string>
+    <string name="slideshow_retry">Retry slide</string>
+    <string name="slideshow_mute">Mute video</string>
+    <string name="slideshow_unmute">Unmute video</string>
+    <string name="slideshow_loading">Loading slide…</string>
+    <string name="slideshow_media_failed">This media could not be played.</string>
+    <string name="slideshow_timeout">This slide stopped responding.</string>
+    <string name="slideshow_bucket_failed">These photos could not be loaded. Retry or choose another slide.</string>
+    <string name="slideshow_manual_refresh">These photos are not cached. Exit and refresh Timeline to load them.</string>
+    <string name="slideshow_all_videos">This source contains only videos. Choose a different video setting.</string>
+    <string name="slideshow_empty">There are no slides available.</string>
+</resources>

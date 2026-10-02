@@ -1,0 +1,6 @@
+<resources>
+    <string name="viewer_filmstrip_show">Show thumbnails</string>
+    <string name="viewer_filmstrip_hide">Hide thumbnails</string>
+    <string name="viewer_filmstrip_placeholder">%1$d</string>
+    <string name="viewer_filmstrip_unloaded">%1$s. Preview not loaded.</string>
+</resources>

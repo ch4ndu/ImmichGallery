@@ -189,6 +189,14 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - Mosaic controls belong only on screens that display photo assets directly, such as Timeline, Album Detail, and Person Detail.
 - Shared element transitions use `SharedTransitionLayout`, matching `sharedBounds` keys, and the `lastSelectedAssetId` pattern so overlay content survives exit animation.
 - `StaticPhotoOverlay` and `TimelinePhotoOverlay` own detail paging, slideshow, and drag-to-dismiss behavior.
+- Their shared `SlideshowPlaybackController`/`SlideshowBinding` serializes
+  playback decisions and publishes immutable snapshots; Compose owns pager and
+  transition presentation. Device preferences pass through dedicated settings
+  UseCase/Action and `ViewerPreferencesViewModel`, while media/history stays
+  viewer-local. The desktop host owns fullscreen placement and scoped restoration.
+- Viewer date actions finish host return preparation and exit before root/Main
+  navigation delivers a unique ephemeral request to the existing Timeline date
+  resolver. No second Timeline route or persistent navigation state is created.
 - `StackSessionOverlay` is an ephemeral nested viewer. It reuses
   `StaticPhotoOverlay` with recursion disabled, while the covered base viewer
   keeps its initiating asset and source-grid return identity unchanged.

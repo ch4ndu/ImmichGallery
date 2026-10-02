@@ -193,4 +193,31 @@ class SlideshowSessionTest {
             assertEquals(assets[0], single.previous())
         }
     }
+    @Test
+    fun uncommittedInitialSelectionStaysOutOfHistoryAcrossSourceReconciliation() {
+        val lazy = SlideshowCandidate(SlideshowSlot.BucketOffset("lazy", 0))
+        val session = SlideshowSession(assets + lazy, lazy.slot, SlideshowOrder.RANDOM, recordInitial = false)
+        session.reconcileSource(assets + lazy)
+        assertNull(session.current)
+        assertFalse(session.canGoPrevious)
+        session.reconcileSource(assets.reversed() + lazy.copy(assetId = "resolved"))
+        assertNull(session.current)
+        session.select(lazy.slot)
+        assertEquals("resolved", session.current?.assetId)
+        assertFalse(session.canGoPrevious)
+    }
+
+    @Test
+    fun reservedBackwardCandidatesDoNotBecomeVisitsUntilCommitted() {
+        val session = SlideshowSession(assets)
+        val rejected = assertNotNull(session.previousTarget())
+        assertEquals("d", session.candidate(rejected)?.assetId)
+        assertEquals("a", session.current?.assetId)
+        session.exclude(rejected.slot)
+        val selected = assertNotNull(session.previousTarget(before = rejected.slot))
+        assertEquals("c", session.previous(selected)?.assetId)
+        assertEquals("a", session.next()?.assetId)
+        assertEquals("c", session.previous()?.assetId)
+    }
+
 }

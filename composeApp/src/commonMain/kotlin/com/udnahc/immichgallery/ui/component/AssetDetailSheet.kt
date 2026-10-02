@@ -23,6 +23,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +35,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -56,9 +63,19 @@ import immichgallery.composeapp.generated.resources.detail_metadata_separator
 import immichgallery.composeapp.generated.resources.detail_people
 import immichgallery.composeapp.generated.resources.detail_size_kb
 import immichgallery.composeapp.generated.resources.detail_size_mb
+import immichgallery.composeapp.generated.resources.viewer_metadata_coordinates_copied
+import immichgallery.composeapp.generated.resources.viewer_metadata_copy_coordinates
+import immichgallery.composeapp.generated.resources.viewer_metadata_copy_failed
+import immichgallery.composeapp.generated.resources.viewer_metadata_maps_failed
+import immichgallery.composeapp.generated.resources.viewer_metadata_open_maps
+import immichgallery.composeapp.generated.resources.viewer_metadata_show_timeline
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
@@ -68,28 +85,45 @@ private const val BYTES_PER_KB = 1_024.0
 private const val BYTES_PER_MB = 1_048_576.0
 private const val THUMBNAIL_DECODE_SIZE = 256
 
+/** [captureDateTime] is the current source Asset.createdAt used by Timeline grouping. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssetDetailSheet(
     assetId: String,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     onPersonClick: (personId: String, personName: String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    captureDateTime: String? = null,
+    onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    var detail by remember { mutableStateOf<AssetDetail?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // Compose 1.11 has no public common plain-text ClipEntry factory.
+    @Suppress("DEPRECATION")
+    val clipboard = LocalClipboardManager.current
+    val uriHandler = LocalUriHandler.current
+    var detail by remember(assetId) { mutableStateOf<AssetDetail?>(null) }
+    var isLoading by remember(assetId) { mutableStateOf(true) }
+    var hasError by remember(assetId) { mutableStateOf(false) }
+    var actionFeedback by remember(assetId) { mutableStateOf<ViewerMetadataFeedback?>(null) }
 
     LaunchedEffect(assetId) {
         isLoading = true
-        error = null
-        withContext(Dispatchers.IO) {
+        hasError = false
+        val result = withContext(Dispatchers.IO) {
             getAssetDetail(assetId)
-        }.fold(
-            onSuccess = { detail = it; isLoading = false },
-            onFailure = { error = it.message; isLoading = false }
+        }
+        currentCoroutineContext().ensureActive()
+        result.fold(
+            onSuccess = {
+                detail = it.takeIf { response -> response.id == assetId }
+                hasError = detail == null
+            },
+            onFailure = {
+                if (it is CancellationException) throw it
+                hasError = true
+            }
         )
+        isLoading = false
     }
 
     ModalBottomSheet(
@@ -113,7 +147,7 @@ fun AssetDetailSheet(
                 }
             }
 
-            error != null -> {
+            hasError -> {
                 Box(
                     modifier = Modifier.fillMaxWidth().height(Dimens.albumCoverHeight),
                     contentAlignment = Alignment.Center
@@ -126,16 +160,49 @@ fun AssetDetailSheet(
             }
 
             detail != null -> {
-                detail?.let { AssetDetailContent(detail = it, onPersonClick = onPersonClick) }
+                detail?.let {
+                    AssetDetailContent(
+                        detail = it,
+                        onPersonClick = onPersonClick,
+                        captureDateTime = captureDateTime,
+                        onShowInTimeline = onShowInTimeline,
+                        actionFeedback = actionFeedback,
+                        onOpenMaps = { url ->
+                            actionFeedback = try {
+                                uriHandler.openUri(url)
+                                null
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Exception) {
+                                ViewerMetadataFeedback.MapsFailed
+                            }
+                        },
+                        onCopyCoordinates = { coordinates ->
+                            actionFeedback = try {
+                                clipboard.setText(AnnotatedString(coordinates))
+                                ViewerMetadataFeedback.CoordinatesCopied
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Exception) {
+                                ViewerMetadataFeedback.CopyFailed
+                            }
+                        }
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AssetDetailContent(
+internal fun AssetDetailContent(
     detail: AssetDetail,
-    onPersonClick: (personId: String, personName: String) -> Unit
+    onPersonClick: (personId: String, personName: String) -> Unit,
+    onOpenMaps: (String) -> Unit,
+    onCopyCoordinates: (String) -> Unit,
+    captureDateTime: String? = null,
+    onShowInTimeline: ((LocalDate) -> Unit)? = null,
+    actionFeedback: ViewerMetadataFeedback? = null
 ) {
     Column(
         modifier = Modifier
@@ -164,6 +231,14 @@ private fun AssetDetailContent(
             )
             Spacer(Modifier.height(Dimens.smallSpacing))
         }
+        val captureDate = remember(captureDateTime, detail.dateTime) {
+            viewerCaptureDate(captureDateTime, detail.dateTime)
+        }
+        if (captureDate != null && onShowInTimeline != null) {
+            TextButton(onClick = { onShowInTimeline(captureDate) }) {
+                Text(stringResource(Res.string.viewer_metadata_show_timeline))
+            }
+        }
 
         // Dimensions & file size
         val sizeInfo = buildSizeInfo(detail)
@@ -187,22 +262,36 @@ private fun AssetDetailContent(
 
         // Location
         val locationText = remember(detail) { buildLocationText(detail) }
-        if (locationText != null) {
+        val coordinates = remember(detail.latitude, detail.longitude) {
+            viewerCoordinates(detail.latitude, detail.longitude)
+        }
+        if (locationText != null || coordinates != null) {
             Spacer(Modifier.height(Dimens.largeSpacing))
             HorizontalDivider()
             Spacer(Modifier.height(Dimens.largeSpacing))
             SheetSectionHeader(stringResource(Res.string.detail_location))
             Spacer(Modifier.height(Dimens.smallSpacing))
-            Text(
-                text = locationText,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            if (detail.latitude != null && detail.longitude != null) {
+            if (locationText != null) {
                 Text(
-                    text = "${detail.latitude}, ${detail.longitude}",
+                    text = locationText,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            if (coordinates != null) {
+                Text(
+                    text = coordinates.text,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                TextButton(onClick = { onOpenMaps(coordinates.mapsUrl) }) {
+                    Text(stringResource(Res.string.viewer_metadata_open_maps))
+                }
+                TextButton(onClick = { onCopyCoordinates(coordinates.text) }) {
+                    Text(stringResource(Res.string.viewer_metadata_copy_coordinates))
+                }
+                if (actionFeedback != null) {
+                    MetadataActionFeedback(actionFeedback)
+                }
             }
         }
 
@@ -233,6 +322,25 @@ private fun AssetDetailContent(
             )
         }
     }
+}
+
+@Composable
+private fun MetadataActionFeedback(feedback: ViewerMetadataFeedback) {
+    val message = when (feedback) {
+        ViewerMetadataFeedback.CoordinatesCopied -> Res.string.viewer_metadata_coordinates_copied
+        ViewerMetadataFeedback.CopyFailed -> Res.string.viewer_metadata_copy_failed
+        ViewerMetadataFeedback.MapsFailed -> Res.string.viewer_metadata_maps_failed
+    }
+    Text(
+        text = stringResource(message),
+        style = MaterialTheme.typography.bodySmall,
+        color = if (feedback == ViewerMetadataFeedback.CoordinatesCopied) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            MaterialTheme.colorScheme.error
+        },
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+    )
 }
 
 @Composable
@@ -302,8 +410,8 @@ private fun formatDateTime(dateTime: String): String? {
             localizedMonthName(local.month.ordinal + 1),
             local.day,
             local.year,
-            local.hour,
-            local.minute
+            local.hour.toString().padStart(2, '0'),
+            local.minute.toString().padStart(2, '0')
         )
     } else {
         dateTime.ifBlank { null }
@@ -362,7 +470,10 @@ private fun AssetDetailContentPreview() {
                 AssetDetailPerson(id = "p2", name = "Bob", thumbnailUrl = "")
             )
         ),
-        onPersonClick = { _, _ -> }
+        onPersonClick = { _, _ -> },
+        onOpenMaps = {},
+        onCopyCoordinates = {},
+        onShowInTimeline = {}
     )
 }
 

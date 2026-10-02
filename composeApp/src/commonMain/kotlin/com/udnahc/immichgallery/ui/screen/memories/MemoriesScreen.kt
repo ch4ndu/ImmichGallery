@@ -53,6 +53,7 @@ import immichgallery.composeapp.generated.resources.loading_memories
 import immichgallery.composeapp.generated.resources.memories
 import immichgallery.composeapp.generated.resources.memories_empty
 import immichgallery.composeapp.generated.resources.retry
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -106,7 +107,8 @@ internal fun resolveMemoryOverlaySource(
 fun MemoriesScreen(
     onBack: () -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
-    viewModel: MemoriesViewModel = koinViewModel()
+    viewModel: MemoriesViewModel = koinViewModel(),
+    onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsState()
     var restoredMemoryId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -177,6 +179,11 @@ fun MemoriesScreen(
                 showPageIndicator = true,
                 onPersonClick = onPersonClick,
                 onDismiss = onDismissHost,
+                onShowInTimeline = onShowInTimeline?.let { showDate ->
+                    { date, currentAssetId ->
+                        onDismissHost.dismiss(currentAssetId) { showDate(date) }
+                    }
+                },
                 onCurrentAssetChanged = onCurrentAssetChanged,
                 onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                 sharedTransitionScope = sharedTransitionScope,

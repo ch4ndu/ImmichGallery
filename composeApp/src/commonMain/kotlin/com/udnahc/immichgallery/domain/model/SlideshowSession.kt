@@ -29,7 +29,8 @@ class SlideshowSession(
     initialSlot: SlideshowSlot? = candidates.firstOrNull()?.slot,
     val order: SlideshowOrder = SlideshowOrder.SEQUENTIAL,
     private val random: Random = Random.Default,
-    sourceRevision: Long = 0
+    sourceRevision: Long = 0,
+    recordInitial: Boolean = true
 ) {
     private var source = candidates.toList()
     private var revision = sourceRevision
@@ -39,14 +40,19 @@ class SlideshowSession(
     private var historyIndex = -1
     private var remaining = mutableListOf<SlideshowSlot>()
     private var pending: SlideshowTarget? = null
+    private var scanAnchor: SlideshowSlot? = initialSlot
+    private var hasRecordedVisit = recordInitial
+    private var pendingBackward = false
+    private var excluded = emptySet<SlideshowSlot>()
 
     val current: SlideshowCandidate? get() = history.getOrNull(historyIndex)
     val currentPage: Int? get() = current?.let { selected -> source.indexOfFirst { it.slot == selected.slot } }
-    val canGoPrevious: Boolean get() = historyIndex > 0 || (order == SlideshowOrder.SEQUENTIAL && source.size > 1)
+    val canGoPrevious: Boolean get() = (historyIndex - 1 downTo 0).any { history[it].slot !in excluded } ||
+            (current != null && order == SlideshowOrder.SEQUENTIAL && source.count { it.slot !in excluded } > 1)
     val size: Int get() = source.size
 
     init {
-        (source.firstOrNull { it.slot == initialSlot } ?: source.firstOrNull())?.let {
+        (source.firstOrNull { it.slot == initialSlot } ?: source.firstOrNull())?.takeIf { recordInitial }?.let {
             history += it
             historyIndex = 0
         }
@@ -55,16 +61,19 @@ class SlideshowSession(
 
     /** Calling repeatedly keeps one target until navigation or a real source change. */
     fun upcoming(): SlideshowTarget? {
-        pending?.let { return it }
-        val nextSlot = history.getOrNull(historyIndex + 1)?.slot ?: when (order) {
+        pending?.takeUnless { pendingBackward }?.let { return it }
+        val nextSlot = history.drop(historyIndex + 1).firstOrNull { it.slot !in excluded }?.slot ?: when (order) {
             SlideshowOrder.SEQUENTIAL -> {
-                val page = currentPage ?: return null
-                source.getOrNull((page + 1) % source.size)?.slot
+                if (source.isEmpty()) return null
+                val page = source.indexOfFirst { it.slot == (scanAnchor ?: current?.slot) }
+                (1..source.size).firstNotNullOfOrNull { offset ->
+                    source[(page + offset).mod(source.size)].slot.takeUnless { it in excluded }
+                }
             }
 
             SlideshowOrder.RANDOM -> {
                 if (remaining.isEmpty()) {
-                    remaining = source.map { it.slot }.shuffled(random).toMutableList()
+                    remaining = source.map { it.slot }.filterNot { it in excluded }.shuffled(random).toMutableList()
                     if (remaining.size > 1 && remaining.first() == current?.slot) {
                         val first = remaining[0]
                         remaining[0] = remaining[1]
@@ -74,6 +83,7 @@ class SlideshowSession(
                 remaining.firstOrNull()
             }
         } ?: return null
+        pendingBackward = false
         return SlideshowTarget(nextSlot, sourceGeneration, navigationGeneration).also { pending = it }
     }
 
@@ -90,26 +100,47 @@ class SlideshowSession(
 
     fun next(target: SlideshowTarget? = upcoming()): SlideshowCandidate? {
         val selected = target?.let(::candidate) ?: return null
-        if (historyIndex < history.lastIndex) {
-            historyIndex += 1
+        hasRecordedVisit = true
+        val forwardIndex = (historyIndex + 1..history.lastIndex).firstOrNull { history[it].slot !in excluded }
+        if (forwardIndex != null) {
+            historyIndex = forwardIndex
         } else {
             history += selected
             historyIndex = history.lastIndex
             remaining.remove(selected.slot)
         }
+        scanAnchor = null
         invalidateTarget()
         return current
     }
 
-    fun previous(): SlideshowCandidate? {
-        if (historyIndex > 0) {
-            historyIndex -= 1
-        } else if (order == SlideshowOrder.SEQUENTIAL && source.size > 1) {
-            val page = currentPage ?: return null
-            history.add(0, source[(page - 1 + source.size) % source.size])
-        } else {
-            return current
+    /** Reserve a backward visit; lazy or excluded candidates never enter history. */
+    fun previousTarget(before: SlideshowSlot? = null): SlideshowTarget? {
+        if (before == null) pending?.takeIf { pendingBackward }?.let { return it }
+        val previous = if (before == null) {
+            (historyIndex - 1 downTo 0).firstOrNull { history[it].slot !in excluded }?.let { history[it].slot }
+        } else null
+        val slot = previous ?: if (order == SlideshowOrder.SEQUENTIAL && current != null && source.size > 1) {
+            val page = source.indexOfFirst { it.slot == (before ?: current?.slot) }
+            (1 until source.size).firstNotNullOfOrNull { offset ->
+                source[(page - offset).mod(source.size)].slot.takeUnless { it in excluded || it == current?.slot }
+            }
+        } else null
+        if (slot == null) return null
+        pendingBackward = true
+        return SlideshowTarget(slot, sourceGeneration, navigationGeneration).also { pending = it }
+    }
+
+    fun previous(target: SlideshowTarget? = previousTarget()): SlideshowCandidate? {
+        val selected = target?.let(::candidate) ?: return current
+        val previousIndex = (historyIndex - 1 downTo 0).firstOrNull { history[it].slot == selected.slot }
+        if (previousIndex != null) historyIndex = previousIndex
+        else {
+            history.add(0, selected)
+            historyIndex = 0
         }
+        hasRecordedVisit = true
+        scanAnchor = null
         invalidateTarget()
         return current
     }
@@ -118,12 +149,23 @@ class SlideshowSession(
     fun select(slot: SlideshowSlot): SlideshowCandidate? {
         val selected = source.firstOrNull { it.slot == slot } ?: return null
         if (selected.slot == current?.slot) return current
+        hasRecordedVisit = true
         while (history.lastIndex > historyIndex) history.removeAt(history.lastIndex)
         history += selected
         historyIndex = history.lastIndex
         remaining.remove(slot)
+        scanAnchor = null
         invalidateTarget()
         return current
+    }
+
+    /** Reject a video candidate without adding an undisplayed visit to history. */
+    fun exclude(slot: SlideshowSlot) {
+        if (slot in excluded) return
+        excluded = excluded + slot
+        remaining.remove(slot)
+        scanAnchor = slot
+        invalidateTarget()
     }
 
     /**
@@ -131,7 +173,7 @@ class SlideshowSession(
      * knows unresolved membership/order changed without a visible token/asset-ID change.
      * Never use a readiness/loading or loaded-asset-index revision here.
      */
-    fun reconcileSource(candidates: List<SlideshowCandidate>, sourceRevision: Long = revision) {
+    fun reconcileSource(candidates: List<SlideshowCandidate>, sourceRevision: Long = revision): Boolean {
         val oldBySlot = source.associateBy { it.slot }
         val changed = sourceRevision != revision || source.map { it.slot } != candidates.map { it.slot } ||
                 candidates.any { next ->
@@ -156,7 +198,9 @@ class SlideshowSession(
         val retainedIndex = retained.indexOfFirst { it.first == historyIndex }
         history.clear()
         history += retained.map { it.second }
-        if (retainedIndex >= 0) {
+        if (!hasRecordedVisit) {
+            historyIndex = -1
+        } else if (retainedIndex >= 0) {
             historyIndex = retainedIndex
         } else {
             val replacement = oldCurrent?.let(::resolve) ?: source.getOrNull(oldPage.coerceAtMost(source.lastIndex))
@@ -173,16 +217,19 @@ class SlideshowSession(
             }
         }
         if (changed) {
+            excluded = emptySet()
+            scanAnchor = scanAnchor?.takeIf { slot -> source.any { it.slot == slot } }
             sourceGeneration += 1
             resetRemaining()
             invalidateTarget()
         }
+        return changed
     }
 
     private fun resetRemaining() {
         remaining = if (order == SlideshowOrder.RANDOM) {
             val retainedForwardSlots = history.drop(historyIndex.coerceAtLeast(0)).map { it.slot }.toSet()
-            source.map { it.slot }.filterNot { it in retainedForwardSlots }.shuffled(random).toMutableList()
+            source.map { it.slot }.filterNot { it in retainedForwardSlots || it in excluded }.shuffled(random).toMutableList()
         } else mutableListOf()
     }
 

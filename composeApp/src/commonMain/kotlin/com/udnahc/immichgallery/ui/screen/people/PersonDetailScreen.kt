@@ -45,6 +45,7 @@ import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.loading_photos
 import immichgallery.composeapp.generated.resources.unknown
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -56,7 +57,8 @@ fun PersonDetailScreen(
     personName: String,
     onBack: () -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit = { _, _ -> },
-    viewModel: PersonDetailViewModel = koinViewModel { parametersOf(personId) }
+    viewModel: PersonDetailViewModel = koinViewModel { parametersOf(personId) },
+    onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
@@ -146,6 +148,11 @@ fun PersonDetailScreen(
                     getAssetStack = viewModel::getAssetStack,
                     onPersonClick = onPersonClick,
                     onDismiss = onDismissHost,
+                    onShowInTimeline = onShowInTimeline?.let { showDate ->
+                        { date, currentAssetId ->
+                            onDismissHost.dismiss(currentAssetId) { showDate(date) }
+                        }
+                    },
                     onCurrentAssetChanged = onCurrentAssetChanged,
                     onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                     sharedTransitionScope = sharedTransitionScope,

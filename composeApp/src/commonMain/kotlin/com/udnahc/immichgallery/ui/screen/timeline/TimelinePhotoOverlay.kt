@@ -6,12 +6,17 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Composable
+import com.udnahc.immichgallery.LocalAppActive
+import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -30,10 +35,15 @@ import androidx.compose.ui.platform.LocalDensity
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetStackLookup
-import com.udnahc.immichgallery.domain.model.SlideshowConfig
-import com.udnahc.immichgallery.domain.model.nextSlideshowPage
 import com.udnahc.immichgallery.ui.component.AssetDetailSheet
+import com.udnahc.immichgallery.ui.component.ViewerFilmstrip
+import com.udnahc.immichgallery.ui.component.ViewerFilmstripControls
 import com.udnahc.immichgallery.ui.component.AssetPage
+import com.udnahc.immichgallery.ui.component.rememberSlideshowBinding
+import com.udnahc.immichgallery.ui.component.BindSlideshowPager
+import com.udnahc.immichgallery.ui.component.SlideshowFadeLayer
+import com.udnahc.immichgallery.ui.component.SlideshowEmptyViewer
+import com.udnahc.immichgallery.ui.component.SlideshowChrome
 import com.udnahc.immichgallery.ui.component.DetailBottomHandle
 import com.udnahc.immichgallery.ui.component.DetailTopBarOverlay
 import com.udnahc.immichgallery.ui.component.PhotoDragTransform
@@ -42,18 +52,19 @@ import com.udnahc.immichgallery.ui.component.StackAvailability
 import com.udnahc.immichgallery.ui.component.StackSessionOverlay
 import com.udnahc.immichgallery.ui.component.ViewerImagePrefetchCandidates
 import com.udnahc.immichgallery.ui.component.rememberStackSessionController
-import com.udnahc.immichgallery.ui.component.shouldAdvanceSlideshowAfterDelay
+import com.udnahc.immichgallery.ui.util.LocalViewerFullscreen
+import com.udnahc.immichgallery.ui.util.LocalViewerFullscreenSession
+import com.udnahc.immichgallery.ui.util.rememberViewerFullscreenSession
 import com.udnahc.immichgallery.ui.util.DragToDismissState
 import com.udnahc.immichgallery.ui.util.PhotoDismissMotion
 import com.udnahc.immichgallery.ui.util.PlatformBackHandler
 import com.udnahc.immichgallery.ui.util.desktopDetailShortcuts
 import com.udnahc.immichgallery.ui.util.dragToDismiss
-import com.udnahc.immichgallery.ui.util.rememberScreenWakeLock
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 
 private data class TimelinePagerObservation(
     val state: TimelineOverlayState,
@@ -73,12 +84,14 @@ fun TimelinePhotoOverlay(
     getAssetStack: suspend (String) -> Result<AssetStackLookup>,
     assetProvider: (String) -> List<Asset>?,
     onBucketNeeded: (timeBucket: String) -> Unit,
+    onRetryBucket: (timeBucket: String) -> Unit,
     onPersonClick: (personId: String, personName: String) -> Unit,
     onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
     onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    onShowInTimeline: ((date: LocalDate, currentAssetId: String?, currentBucket: String?) -> Unit)? = null
 ) {
     // Forward the STL's actual animation-active state to the screen so the
     // screen can flip `overlayAnimActive` false only when the bounds animation
@@ -95,43 +108,49 @@ fun TimelinePhotoOverlay(
     val state by timelineState.collectAsState()
     val latestState by rememberUpdatedState(state)
     val latestAssetProvider by rememberUpdatedState(assetProvider)
+    val fullscreen = LocalViewerFullscreen.current
+    val fullscreenSession = rememberViewerFullscreenSession()
+    var filmstripExpanded by remember { mutableStateOf(false) }
     var showTopBar by remember { mutableStateOf(true) }
-    var slideshowConfig by remember { mutableStateOf<SlideshowConfig?>(null) }
     var showSlideshowDialog by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
     val stackController = rememberStackSessionController(getAssetStack)
     val stackSession = stackController.state.session
     val isCoveredByStack = stackSession != null
+    val slideshow = rememberSlideshowBinding(
+        environmentActive = fullscreen.isWindowVisibleAndNotMinimized && LocalAppActive.current && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog &&
+                sharedTransitionScope?.isTransitionActive != true,
+        onBucketNeeded = onBucketNeeded, onRetryBucket = onRetryBucket
+    )
+    val playback by slideshow.uiState.collectAsState()
+    val progress = remember(slideshow) { slideshow.state.map { it.motionProgress }.distinctUntilChanged() }.collectAsState(0f)
+    val slideshowConfig = playback.config
     val latestOnDismiss by rememberUpdatedState(onDismiss)
     val dismissBase: (String?, String?) -> Unit = { assetId, bucket ->
+        slideshow.send { it.stop() }
         stackController.close()
+        fullscreenSession.close()
         latestOnDismiss(assetId, bucket)
     }
     val fileNameCache = remember { mutableStateMapOf<String, String>() }
 
     val isSlideshow = slideshowConfig != null
-
-    val onTap: () -> Unit = remember {
-        {
-            if (slideshowConfig != null) {
-                slideshowConfig = null
-                showTopBar = true
-            } else {
-                showTopBar = !showTopBar
-            }
-        }
+    DisposableEffect(fullscreenSession, isSlideshow, slideshowConfig?.fullscreen) {
+        val lease = if (slideshowConfig?.fullscreen == true) fullscreenSession.enterSlideshow() else null
+        onDispose { lease?.release() }
     }
 
-    val wakeLock = rememberScreenWakeLock()
-    LaunchedEffect(isSlideshow) {
-        if (isSlideshow) wakeLock.acquire() else wakeLock.release()
+
+    val onTap: () -> Unit = {
+        if (isSlideshow) slideshow.send { it.toggleControls() } else showTopBar = !showTopBar
     }
-    DisposableEffect(Unit) { onDispose { wakeLock.release() } }
+    LaunchedEffect(isSlideshow) { if (!isSlideshow) showTopBar = true }
+    LaunchedEffect(state) { slideshow.source { timelineSlideshowSource(state, assetProvider) } }
 
     val totalPages = state.pageIndex.totalPages
 
     if (totalPages == 0) {
-        Box(Modifier.fillMaxSize().background(Color.Black))
+        SlideshowEmptyViewer(slideshow, playback) { dismissBase(null, null) }
         return
     }
 
@@ -245,7 +264,7 @@ fun TimelinePhotoOverlay(
             pagerState.settledPage - 1,
             pagerState.settledPage,
             pagerState.settledPage + 1
-        ).mapNotNull { page -> resolvePageAsset(page, state, assetProvider) }
+        ).mapNotNull { page -> resolvePageAsset(page, state, assetProvider) } + listOfNotNull(playback.upcomingAsset)
     )
 
     // Bucket of the settled page — used by the dismiss callbacks to report
@@ -253,10 +272,22 @@ fun TimelinePhotoOverlay(
     // LaunchedEffect inside the pager body (covers pre-composed neighbor pages
     // too); no separate kick needed here.
     val currentBucketKey = resolvePageBucket(pagerState.settledPage, state)
-
     val currentAsset = resolvePageAsset(
         pagerState.settledPage, state, assetProvider
     )
+    val showDateInTimeline: ((LocalDate) -> Unit)? = onShowInTimeline?.let { showDate ->
+        { date ->
+            showDetailSheet = false
+            showSlideshowDialog = false
+            slideshow.send { it.stop() }
+            stackController.dismissSession()
+            stackController.close()
+            fullscreenSession.close()
+            showDate(date, currentAsset?.id, currentBucketKey)
+        }
+    }
+
+
 
     LaunchedEffect(pagerState.settledPage, currentAsset?.id) {
         stackController.onSettledAssetChanged(currentAsset?.id)
@@ -274,45 +305,18 @@ fun TimelinePhotoOverlay(
     val latestCurrentAssetId by rememberUpdatedState(currentAsset?.id)
     val latestCurrentBucketKey by rememberUpdatedState(currentBucketKey)
 
-    // Auto-advance slideshow. Keyed on settledPage so the timer resets whenever
-    // the page changes — including manual left/right arrow advances.
-    LaunchedEffect(slideshowConfig, pagerState.settledPage, totalPages, isCoveredByStack) {
-        if (isCoveredByStack) return@LaunchedEffect
-        val config = slideshowConfig ?: return@LaunchedEffect
-        if (totalPages <= 1) return@LaunchedEffect
-        val startingPage = pagerState.settledPage
-        val startingTotalPages = totalPages
-        delay(config.durationSeconds * 1000L)
-        if (!shouldAdvanceSlideshowAfterDelay(
-                startingConfig = config,
-                currentConfig = slideshowConfig,
-                startingPage = startingPage,
-                currentSettledPage = pagerState.settledPage,
-                startingPageCount = startingTotalPages,
-                currentPageCount = latestState.pageIndex.totalPages,
-                isCoveredByStack = stackController.state.session != null
-            )
-        ) {
-            return@LaunchedEffect
-        }
-        val next = nextSlideshowPage(
-            order = config.order,
-            current = startingPage,
-            total = startingTotalPages,
-            forward = true,
-        )
-        pagerState.animateScrollToPage(next)
-    }
+    val slideshowTransition = BindSlideshowPager(slideshow, playback, pagerState, currentAsset)
 
     PlatformBackHandler(enabled = !isCoveredByStack, onBack = {
-        dismissBase(currentAsset?.id, currentBucketKey)
+        if (isSlideshow) slideshow.send { it.stop() }
+        else if (!fullscreenSession.exitFullscreen()) dismissBase(currentAsset?.id, currentBucketKey)
     })
 
     if (showSlideshowDialog) {
         SlideshowOptionsDialog(
             onConfirm = { config ->
                 showSlideshowDialog = false
-                slideshowConfig = config
+                slideshow.send { it.start(config, pagerState.settledPage) }
                 showTopBar = false
             },
             onDismiss = { showSlideshowDialog = false }
@@ -383,63 +387,40 @@ fun TimelinePhotoOverlay(
                 dismissThresholdPx = dismissThresholdPx,
                 flickVelocityPx = flickVelocityPx,
                 onDismiss = {
-                    slideshowConfig = null
+                    slideshow.send { it.stop() }
                     dismissBase(latestCurrentAssetId, latestCurrentBucketKey)
                 },
                 onOpenDetailSheet = { showDetailSheet = true },
             )
             // Swallow taps that fall in letterbox dead zones so they don't
             // reach the grid composed beneath the overlay.
-            .pointerInput(Unit) { detectTapGestures { } }
+            .pointerInput(isSlideshow) { detectTapGestures { if (isSlideshow) onTap() } }
             .desktopDetailShortcuts(
                 enabled = !showDetailSheet && !showSlideshowDialog && !isCoveredByStack,
+                slideshowActive = isSlideshow,
                 onPrev = {
-                    if (!pagerState.isScrollInProgress) {
-                        val config = slideshowConfig
-                        val target = if (config != null) {
-                            nextSlideshowPage(
-                                config.order,
-                                pagerState.currentPage,
-                                totalPages,
-                                forward = false
-                            )
-                        } else {
-                            (pagerState.currentPage - 1).coerceAtLeast(0)
-                        }
-                        scope.launch { pagerState.animateScrollToPage(target) }
-                    }
+                    if (isSlideshow) slideshow.send { it.previous() }
+                    else if (!pagerState.isScrollInProgress) scope.launch { pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0)) }
                 },
                 onNext = {
-                    if (!pagerState.isScrollInProgress) {
-                        val config = slideshowConfig
-                        val target = if (config != null) {
-                            nextSlideshowPage(
-                                config.order,
-                                pagerState.currentPage,
-                                totalPages,
-                                forward = true
-                            )
-                        } else {
-                            (pagerState.currentPage + 1).coerceAtMost(totalPages - 1)
-                        }
-                        scope.launch { pagerState.animateScrollToPage(target) }
-                    }
+                    if (isSlideshow) slideshow.send { it.next() }
+                    else if (!pagerState.isScrollInProgress) scope.launch { pagerState.animateScrollToPage((pagerState.currentPage + 1).coerceAtMost(totalPages - 1)) }
                 },
                 onDismiss = {
-                    slideshowConfig = null
-                    dismissBase(latestCurrentAssetId, latestCurrentBucketKey)
+                    if (isSlideshow) slideshow.send { it.stop() } else if (!fullscreenSession.exitFullscreen()) dismissBase(latestCurrentAssetId, latestCurrentBucketKey)
                 },
                 onToggleSlideshow = {
-                    if (isSlideshow) slideshowConfig = null
-                    else if (totalPages > 1) showSlideshowDialog = true
+                    if (isSlideshow) slideshow.send { it.togglePause() }
+                    else showSlideshowDialog = true
                 },
                 onInfo = { showDetailSheet = true },
+                onToggleFullscreen = if (fullscreen.isSupported) { { fullscreenSession.toggle() } } else null,
             )
     ) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = !isCoveredByStack,
+            userScrollEnabled = !isCoveredByStack && !isSlideshow,
             key = { page ->
                 timelinePagerPageKey(page, state, assetProvider).toSaveablePagerKey()
             }
@@ -476,9 +457,12 @@ fun TimelinePhotoOverlay(
                     AssetPage(
                         asset = asset,
                         apiKey = apiKey,
-                        isCurrentPage = isSettledPage && !isCoveredByStack,
+                        isCurrentPage = isSettledPage && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog && LocalAppActive.current,
                         isSlideshow = isSlideshow,
                         slideshowConfig = slideshowConfig,
+                        playback = playback.takeIf { isSettledPage && it.asset?.id == asset.id },
+                        slideshowProgress = { progress.value },
+                        onSlideshowEvent = { request, event -> slideshow.mediaEvent(request, event) },
                         onTap = onTap,
                         sharedTransitionScope = if (isSettledPage) sharedTransitionScope else null,
                         animatedVisibilityScope = if (isSettledPage) animatedVisibilityScope else null,
@@ -492,11 +476,15 @@ fun TimelinePhotoOverlay(
             }
         }
 
+        SlideshowFadeLayer(slideshowTransition)
+
         DetailTopBarOverlay(
-            showTopBar = showTopBar,
+            showTopBar = showTopBar && !isSlideshow && !isCoveredByStack,
             title = displayFileName,
             onBack = { dismissBase(currentAsset?.id, currentBucketKey) },
             onInfo = { showDetailSheet = true },
+            onToggleFullscreen = if (fullscreen.isSupported) { { fullscreenSession.toggle() } } else null,
+            isFullscreen = fullscreen.isFullscreen,
             onSlideshow = if (totalPages > 1) {
                 { showSlideshowDialog = true }
             } else null,
@@ -509,7 +497,6 @@ fun TimelinePhotoOverlay(
             },
             onViewStack = currentAsset?.let { asset ->
                 {
-                    slideshowConfig = null
                     showSlideshowDialog = false
                     showDetailSheet = false
                     stackController.openSession(asset.id)
@@ -520,11 +507,29 @@ fun TimelinePhotoOverlay(
             }
         )
 
-        Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-            DetailBottomHandle(
-                visible = showTopBar,
-                onClick = { showDetailSheet = true }
-            )
+        val normalFooterVisible = showTopBar && !isSlideshow && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog &&
+                !dragState.isActive && sharedTransitionScope?.isTransitionActive != true
+        if (normalFooterVisible) {
+            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()) {
+                if (filmstripExpanded) ViewerFilmstrip(
+                    totalPages = totalPages, currentPage = pagerState.settledPage,
+                    pageKey = { page -> timelineFilmstripPageKey(page, state) },
+                    assetForPage = { page -> resolvePageAsset(page, state, assetProvider) },
+                    onPageSelected = { page -> scope.launch { pagerState.scrollToPage(page) } },
+                    onVisiblePagesChanged = { pages ->
+                        pages.mapNotNull { resolvePageBucket(it, state) }.distinct()
+                            .filter { assetProvider(it) == null }.forEach(onBucketNeeded)
+                    },
+                )
+                ViewerFilmstripControls(totalPages = totalPages, currentPage = pagerState.settledPage,
+                    expanded = filmstripExpanded, onExpandedChange = { filmstripExpanded = it })
+                DetailBottomHandle(visible = showTopBar, onClick = { showDetailSheet = true })
+            }
+        }
+
+        if (isSlideshow && !isCoveredByStack) {
+            SlideshowChrome(slideshow, playback, getAssetDetail,
+                onInfo = { showDetailSheet = true }, modifier = Modifier.align(Alignment.BottomCenter), fullscreenSession = fullscreenSession)
         }
 
         if (showDetailSheet && currentAsset != null) {
@@ -536,24 +541,29 @@ fun TimelinePhotoOverlay(
                     dismissBase(null, null)
                     onPersonClick(personId, personName)
                 },
+                captureDateTime = currentAsset.createdAt,
+                onShowInTimeline = showDateInTimeline,
                 onDismiss = { showDetailSheet = false }
             )
         }
 
         if (stackSession != null) {
-            StackSessionOverlay(
-                session = stackSession,
-                apiKey = apiKey,
-                getAssetDetail = getAssetDetail,
-                getAssetStack = getAssetStack,
-                onPersonClick = { personId, personName ->
-                    stackController.dismissSession()
-                    dismissBase(null, null)
-                    onPersonClick(personId, personName)
-                },
-                onDismiss = stackController::dismissSession,
-                onRetry = stackController::retrySession
-            )
+            CompositionLocalProvider(LocalViewerFullscreenSession provides fullscreenSession) {
+                StackSessionOverlay(
+                    session = stackSession,
+                    apiKey = apiKey,
+                    getAssetDetail = getAssetDetail,
+                    getAssetStack = getAssetStack,
+                    onPersonClick = { personId, personName ->
+                        stackController.dismissSession()
+                        dismissBase(null, null)
+                        onPersonClick(personId, personName)
+                    },
+                    onDismiss = stackController::dismissSession,
+                    onRetry = stackController::retrySession,
+                    onShowInTimeline = showDateInTimeline
+                )
+            }
         }
     }
 }

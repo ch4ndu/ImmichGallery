@@ -16,6 +16,11 @@ import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.delay
 import org.lighthousegames.logging.logging
+import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
+import platform.AVFoundation.*
+import platform.CoreMedia.CMTimeGetSeconds
+import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSOperationQueue
 import platform.AVFoundation.AVLayerVideoGravityResizeAspect
 import platform.AVFoundation.AVPlayer
 import platform.AVFoundation.AVPlayerItem
@@ -60,7 +65,10 @@ actual fun PlatformVideoPlayer(
     apiKey: String,
     isCurrentPage: Boolean,
     onTap: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    slideshowRequest: SlideshowMediaRequest?,
+    muted: Boolean,
+    onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
 ) {
     // On iOS, try the authenticated original file first. AVPlayer natively decodes
     // mp4/m4v/mov/hevc containers, so the /original endpoint works for the
@@ -74,7 +82,7 @@ actual fun PlatformVideoPlayer(
     val authenticatedPlayback = remember(playbackUrl, apiKey) {
         AuthenticatedMediaUrl.create(playbackUrl, apiKey)
     }
-    var currentSource by remember(originalUrl, playbackUrl, apiKey) {
+    var currentSource by remember(originalUrl, playbackUrl, apiKey, slideshowRequest) {
         mutableStateOf(
             if (authenticatedOriginal != null) {
                 IosVideoSource.ORIGINAL
@@ -86,11 +94,15 @@ actual fun PlatformVideoPlayer(
     val currentMediaUrl = when (currentSource) {
         IosVideoSource.ORIGINAL -> authenticatedOriginal
         IosVideoSource.PLAYBACK -> authenticatedPlayback
-    } ?: return
+    }
+    if (currentMediaUrl == null) {
+        LaunchedEffect(slideshowRequest) { slideshowRequest?.let { onSlideshowEvent(it, SlideshowMediaEvent.Failed) } }
+        return
+    }
 
     log.d { "PlatformVideoPlayer(iOS): loading <redacted>" }
 
-    val player = remember(currentMediaUrl.url) {
+    val player = remember(currentMediaUrl.url, slideshowRequest) {
         NSURL.URLWithString(currentMediaUrl.url)?.let { url ->
             val asset = AVURLAsset(uRL = url, options = null)
             val playerItem = AVPlayerItem(asset = asset)
@@ -105,7 +117,7 @@ actual fun PlatformVideoPlayer(
     // fallback while the page was inactive.
     LaunchedEffect(isCurrentPage, player, currentSource, authenticatedPlayback) {
         if (
-            !isCurrentPage ||
+            slideshowRequest != null || !isCurrentPage ||
             currentSource != IosVideoSource.ORIGINAL ||
             authenticatedPlayback == null
         ) {
@@ -150,13 +162,68 @@ actual fun PlatformVideoPlayer(
         }
     }
 
-    LaunchedEffect(isCurrentPage, player) {
+    LaunchedEffect(isCurrentPage, player, muted) {
+        if (slideshowRequest != null) player.muted = muted
         if (isCurrentPage) {
             log.d { "PlatformVideoPlayer(iOS): playing" }
             player.play()
         } else {
             log.d { "PlatformVideoPlayer(iOS): pausing" }
             player.pause()
+        }
+    }
+
+    val latestPlaying by rememberUpdatedState(isCurrentPage)
+    val latestSlideshowEvent by rememberUpdatedState(onSlideshowEvent)
+    val fallbackPolicy = remember(slideshowRequest) { SlideshowVideoFallbackPolicy() }
+    var ended by remember(player) { mutableStateOf(false) }
+    DisposableEffect(player, slideshowRequest) {
+        val captured = slideshowRequest
+        val capturedSource = currentSource
+        val item = player.currentItem()
+        var installed = true
+        val center = NSNotificationCenter.defaultCenter
+        val observer = if (captured != null && item != null) center.addObserverForName(
+            AVPlayerItemDidPlayToEndTimeNotification, item, NSOperationQueue.mainQueue
+        ) {
+            if (installed && currentSource == capturedSource && player.currentItem() == item) {
+                ended = true
+                latestSlideshowEvent(captured, SlideshowMediaEvent.Completed)
+            }
+        } else null
+        onDispose { installed = false; observer?.let(center::removeObserver) }
+    }
+    LaunchedEffect(player, slideshowRequest, currentSource) {
+        val captured = slideshowRequest ?: return@LaunchedEffect
+        var previousPosition = 0L
+        while (true) {
+            delay(FAILURE_OBSERVATION_INTERVAL_MILLIS)
+            if (!latestPlaying || ended) continue
+            val item = player.currentItem() ?: continue
+            val seconds = CMTimeGetSeconds(player.currentTime())
+            val position = if (seconds.isFinite() && seconds > 0) (seconds * 1_000).toLong() else 0L
+            val advancing = item.status == AVPlayerItemStatusReadyToPlay && position > previousPosition
+            // Error logs include recovered historical failures; progress/stall is authoritative.
+            val failed = item.status == AVPlayerItemStatusFailed
+            when (fallbackPolicy.observe(FAILURE_OBSERVATION_INTERVAL_MILLIS, advancing, failed,
+                canFallback = currentSource == IosVideoSource.ORIGINAL && authenticatedPlayback != null)) {
+                SlideshowVideoFallbackDecision.FALLBACK -> {
+                    latestSlideshowEvent(captured, SlideshowMediaEvent.Fallback)
+                    currentSource = IosVideoSource.PLAYBACK
+                    return@LaunchedEffect
+                }
+                SlideshowVideoFallbackDecision.FAILED -> {
+                    latestSlideshowEvent(captured, SlideshowMediaEvent.Failed)
+                    return@LaunchedEffect
+                }
+                SlideshowVideoFallbackDecision.WAIT -> Unit
+            }
+            latestSlideshowEvent(captured, SlideshowMediaEvent.Buffering(
+                player.timeControlStatus == AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate))
+            if (advancing) {
+                previousPosition = position
+                latestSlideshowEvent(captured, SlideshowMediaEvent.Progress(position))
+            }
         }
     }
 
@@ -176,7 +243,7 @@ actual fun PlatformVideoPlayer(
         factory = {
             AVPlayerViewController().apply {
                 this.player = player
-                this.showsPlaybackControls = true
+                this.showsPlaybackControls = slideshowRequest == null
                 this.allowsPictureInPicturePlayback = false
                 this.videoGravity = AVLayerVideoGravityResizeAspect
                 val tap = UITapGestureRecognizer(
@@ -188,6 +255,7 @@ actual fun PlatformVideoPlayer(
             }
         },
         update = { vc ->
+            vc.showsPlaybackControls = slideshowRequest == null
             if (vc.player !== player) {
                 vc.player = player
             }

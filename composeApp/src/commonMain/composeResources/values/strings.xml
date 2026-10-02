@@ -100,7 +100,7 @@
     <string name="date_month_december">December</string>
     <string name="date_group_month">%1$s %2$d</string>
     <string name="date_group_day">%1$d %2$s %3$d</string>
-    <string name="detail_date_time">%1$s %2$d, %3$d at %4$02d:%5$02d</string>
+    <string name="detail_date_time">%1$s %2$d, %3$d at %4$s:%5$s</string>
     <string name="detail_dimensions">%1$d × %2$d</string>
     <string name="detail_size_kb">%1$.1f KB</string>
     <string name="detail_size_mb">%1$.1f MB</string>

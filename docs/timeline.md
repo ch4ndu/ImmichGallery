@@ -666,15 +666,32 @@ of today. User scrolling, scrollbar targeting, opening a photo, leaving the
 screen, or opening another date picker cancels a pending jump so delayed cache
 or Mosaic publication cannot pull the user back.
 
+Viewer Info's **Show in Timeline** uses this same resolver. The root navigation
+owner retains an ephemeral date plus unique request ID, pops any detail route
+to the existing Main entry, and Main selects its existing Timeline tab. Delivery
+waits for the viewer's successful return preparation and exit to finish, then
+for Timeline's action registration. Requests are acknowledged by ID only after
+acceptance, so same-date repeats and newer replacements remain distinct.
+An initially loading Timeline retains the request; a ready-empty Timeline can
+accept it and show the existing unavailable-date message while keeping the
+date menu hidden. Logout-start invalidates pending and accepted requests and
+rejects callbacks captured before that session ended. These requests are never
+persisted and do not create another Main/Timeline instance.
+
 ## Overlay And Return Targeting
 
 `TimelineScreen` keeps the grid composed behind `TimelinePhotoOverlay` so
 drag-to-dismiss can reveal the grid. The overlay receives:
 
-- a projected `TimelineOverlayState` containing only page index and buckets.
+- a narrow `TimelineOverlayState` containing page index, buckets, candidate load
+  statuses, and asset/materialization revisions.
 - the shared `bucketAssetsCache`, so detail paging and grid display use the same
   materialized asset source.
 - `onBucketNeeded`, so paging into an unloaded bucket can trigger lazy load.
+- an explicit `onRetryBucket`, so retry can reach the existing eligible retry
+  path rather than the ordinary failed-load-suppressing path. Cache-only missing
+  rows remain unavailable until manual Timeline refresh; playback cannot opt out
+  of that policy.
 
 Grid thumbnails are shared-element sources, but normal scrolling cells must use
 the plain `ThumbnailCell` path. Per-cell `AnimatedVisibility` and
@@ -702,6 +719,12 @@ placeholder/header when the asset row is not materialized yet. Timeline photo
 paging uses the same settled still-image prefetch and slideshow revalidation
 contracts as the static viewer, but supplies bucket-projected candidate pages
 around the current Timeline page.
+
+Slideshow uses stable bucket/local-offset slots for order and displayed history.
+Loaded-ID projection changes and materialization revisions update candidate
+readiness without starting a new shuffle cycle; genuine membership/order changes
+reconcile the source. Failed/unavailable candidates are distinct from videos
+when scanning for Skip policy, and upcoming candidate demand remains bounded.
 
 The `HorizontalPager` item key encodes its materialized-asset or unresolved
 bucket/local-offset identity as a namespaced `String`. Android lazy saveable

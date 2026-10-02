@@ -42,7 +42,36 @@ import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Clock
 
-class TimelineDateNavigationActions(val openPicker: () -> Unit, val backToToday: () -> Unit)
+class TimelineDateNavigationActions(
+    val openPicker: () -> Unit,
+    val backToToday: () -> Unit,
+    val canOpenDateMenu: Boolean = true,
+    private val onShowDate: (LocalDate) -> Unit = {},
+    val cancel: () -> Unit = {}
+) {
+    private var registered = false
+
+    /** A stale action cannot acknowledge a root request after Timeline leaves. */
+    fun showDate(date: LocalDate): Boolean {
+        if (!registered) return false
+        onShowDate(date)
+        return true
+    }
+
+    internal fun register() { registered = true }
+
+    internal fun unregister() {
+        if (!registered) return
+        registered = false
+        cancel()
+    }
+}
+
+internal fun timelineDateActionsAvailable(
+    totalPages: Int,
+    isSourceReady: Boolean,
+    isLoading: Boolean
+): Boolean = totalPages > 0 || (isSourceReady && !isLoading)
 
 private data class TimelineDateRequest(val date: LocalDate, val id: Long)
 
@@ -64,7 +93,12 @@ internal fun TimelineDateNavigation(
     var positionedBucket by remember { mutableStateOf<String?>(null) }
     var showFailure by remember { mutableStateOf(false) }
     val latestResolveTarget by rememberUpdatedState(resolveTarget)
-    val enabled = state.pageIndex.totalPages > 0
+    val canOpenDateMenu = state.pageIndex.totalPages > 0
+    val acceptsExternalDate = timelineDateActionsAvailable(
+        totalPages = state.pageIndex.totalPages,
+        isSourceReady = state.isSourceReady,
+        isLoading = state.isLoading
+    )
     val clearRequest = {
         requestedDate = null
         target = null
@@ -81,18 +115,29 @@ internal fun TimelineDateNavigation(
         showFailure = false
         requestedDate = TimelineDateRequest(date, ++nextRequestId)
     }
-    val actions = remember {
+    val actions = remember(canOpenDateMenu) {
         TimelineDateNavigationActions(
             openPicker = {
                 cancel()
                 showPicker = true
             },
-            backToToday = { requestDate(timelineToday()) }
+            backToToday = { requestDate(timelineToday()) },
+            canOpenDateMenu = canOpenDateMenu,
+            onShowDate = requestDate,
+            cancel = {
+                cancel()
+                showPicker = false
+                showFailure = false
+            }
         )
     }
-    DisposableEffect(enabled, onActionsChanged) {
-        onActionsChanged(actions.takeIf { enabled })
-        onDispose { onActionsChanged(null) }
+    DisposableEffect(actions, acceptsExternalDate, onActionsChanged) {
+        if (acceptsExternalDate) actions.register()
+        onActionsChanged(actions.takeIf { acceptsExternalDate })
+        onDispose {
+            actions.unregister()
+            onActionsChanged(null)
+        }
     }
     LaunchedEffect(requestedDate) {
         val request = requestedDate ?: return@LaunchedEffect

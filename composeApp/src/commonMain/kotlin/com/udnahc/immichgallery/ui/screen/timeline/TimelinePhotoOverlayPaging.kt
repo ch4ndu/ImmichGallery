@@ -245,3 +245,41 @@ private fun pendingTimelinePagerResolution(
         )
     )
 }
+
+
+internal fun timelineSlideshowBucketStatus(
+    loading: Boolean,
+    failed: Boolean,
+    cached: Boolean,
+    cacheOnly: Boolean,
+    sourceReady: Boolean
+): com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus = when {
+    loading -> com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus.LOADING
+    failed -> com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus.FAILED
+    cacheOnly && sourceReady && !cached -> com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus.CACHE_UNAVAILABLE
+    else -> com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus.UNRESOLVED
+}
+
+internal fun timelineSlideshowSource(
+    state: TimelineOverlayState,
+    assetProvider: (String) -> List<Asset>?
+): List<com.udnahc.immichgallery.ui.component.SlideshowSourceItem> = buildList {
+    state.buckets.forEachIndexed { index, bucket ->
+        val start = state.pageIndex.bucketStartPages.getOrNull(index) ?: return@forEachIndexed
+        val end = state.pageIndex.bucketStartPages.getOrNull(index + 1) ?: state.pageIndex.totalPages
+        val assets = assetProvider(bucket.timeBucket)
+        repeat((end - start).coerceAtLeast(0)) { offset ->
+            val asset = assets?.getOrNull(offset)
+            add(com.udnahc.immichgallery.ui.component.SlideshowSourceItem(
+                slot = com.udnahc.immichgallery.domain.model.SlideshowSlot.BucketOffset(bucket.timeBucket, offset),
+                asset = asset,
+                status = if (asset != null) com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus.MATERIALIZED
+                    else state.bucketStatuses[bucket.timeBucket] ?: com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus.UNRESOLVED
+            ))
+        }
+    }
+}
+
+/** A strip item keeps the same saveable key when its lazy slot resolves. */
+internal fun timelineFilmstripPageKey(page: Int, state: TimelineOverlayState): String =
+    timelinePagerPageLocation(page, state)?.let { "${it.timeBucket}:${it.localOffset}" } ?: "missing:$page"

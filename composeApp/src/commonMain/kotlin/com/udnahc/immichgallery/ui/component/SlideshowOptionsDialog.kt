@@ -1,122 +1,117 @@
 package com.udnahc.immichgallery.ui.component
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
-import com.udnahc.immichgallery.domain.model.SlideshowAnimations
-import com.udnahc.immichgallery.domain.model.SlideshowConfig
-import com.udnahc.immichgallery.domain.model.SlideshowOrder
+import com.udnahc.immichgallery.domain.model.*
 import com.udnahc.immichgallery.ui.theme.Dimens
-import immichgallery.composeapp.generated.resources.Res
-import immichgallery.composeapp.generated.resources.cancel
-import immichgallery.composeapp.generated.resources.detail_slideshow
-import immichgallery.composeapp.generated.resources.slideshow_animations
-import immichgallery.composeapp.generated.resources.slideshow_animations_off
-import immichgallery.composeapp.generated.resources.slideshow_animations_random
-import immichgallery.composeapp.generated.resources.slideshow_duration_seconds
-import immichgallery.composeapp.generated.resources.slideshow_order
-import immichgallery.composeapp.generated.resources.slideshow_order_random
-import immichgallery.composeapp.generated.resources.slideshow_order_sequential
-import immichgallery.composeapp.generated.resources.slideshow_start
+import com.udnahc.immichgallery.ui.util.LocalViewerFullscreen
+import immichgallery.composeapp.generated.resources.*
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.viewmodel.koinViewModel
+
+internal data class SlideshowOptionsState(
+    val config: SlideshowConfig,
+    val durationText: String = config.durationSeconds.toString(),
+    val limitText: String = config.videoLimitSeconds?.toString().orEmpty()
+) {
+    val validDuration: Boolean get() = durationText.toIntOrNull() in SLIDESHOW_DURATION_SECONDS
+    val validLimit: Boolean get() = config.videoPolicy != SlideshowVideoPolicy.PLAY || limitText.isBlank() || limitText.toIntOrNull()?.let { it > 0 } == true
+    val validated: SlideshowConfig? get() = if (validDuration && validLimit) config.copy(
+        durationSeconds = durationText.toIntOrNull() ?: config.durationSeconds,
+        videoLimitSeconds = if (config.videoPolicy == SlideshowVideoPolicy.PLAY) limitText.toIntOrNull() else config.videoLimitSeconds
+    ) else null
+}
 
 @Composable
 fun SlideshowOptionsDialog(
     onConfirm: (SlideshowConfig) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    preferences: ViewerPreferencesViewModel = koinViewModel()
 ) {
-    var order by remember { mutableStateOf(SlideshowOrder.SEQUENTIAL) }
-    var durationText by remember { mutableStateOf("5") }
-    var animations by remember { mutableStateOf(SlideshowAnimations.RANDOM) }
+    val saved by preferences.slideshowConfig.collectAsState()
+    var state by remember { mutableStateOf(SlideshowOptionsState(saved)) }
+    SlideshowOptionsContent(state, { state = it }, {
+        state.validated?.let { config -> preferences.setSlideshowConfig(config); onConfirm(config) }
+    }, onDismiss, supportsFullscreen = LocalViewerFullscreen.current.isSupported)
+}
 
+@Composable
+internal fun SlideshowOptionsContent(
+    state: SlideshowOptionsState,
+    onChange: (SlideshowOptionsState) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    supportsFullscreen: Boolean = false
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(Res.string.detail_slideshow)) },
         text = {
-            Column {
-                Text(
-                    stringResource(Res.string.slideshow_order),
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Spacer(Modifier.height(Dimens.smallSpacing))
-                Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
-                    FilterChip(
-                        selected = order == SlideshowOrder.SEQUENTIAL,
-                        onClick = { order = SlideshowOrder.SEQUENTIAL },
-                        label = { Text(stringResource(Res.string.slideshow_order_sequential)) }
-                    )
-                    FilterChip(
-                        selected = order == SlideshowOrder.RANDOM,
-                        onClick = { order = SlideshowOrder.RANDOM },
-                        label = { Text(stringResource(Res.string.slideshow_order_random)) }
-                    )
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)) {
+                SlideshowChoice(Res.string.slideshow_order, SlideshowOrder.entries, state.config.order,
+                    { if (it == SlideshowOrder.SEQUENTIAL) Res.string.slideshow_order_sequential else Res.string.slideshow_order_random }) {
+                    onChange(state.copy(config = state.config.copy(order = it)))
                 }
-
-                Spacer(Modifier.height(Dimens.largeSpacing))
-
-                OutlinedTextField(
-                    value = durationText,
-                    onValueChange = { value ->
-                        if (value.all { it.isDigit() } && value.length <= 3) {
-                            durationText = value
-                        }
-                    },
-                    label = { Text(stringResource(Res.string.slideshow_duration_seconds)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(Modifier.height(Dimens.largeSpacing))
-
-                Text(
-                    stringResource(Res.string.slideshow_animations),
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Spacer(Modifier.height(Dimens.smallSpacing))
-                Row(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
-                    FilterChip(
-                        selected = animations == SlideshowAnimations.OFF,
-                        onClick = { animations = SlideshowAnimations.OFF },
-                        label = { Text(stringResource(Res.string.slideshow_animations_off)) }
-                    )
-                    FilterChip(
-                        selected = animations == SlideshowAnimations.RANDOM,
-                        onClick = { animations = SlideshowAnimations.RANDOM },
-                        label = { Text(stringResource(Res.string.slideshow_animations_random)) }
-                    )
+                OutlinedTextField(value = state.durationText, onValueChange = { onChange(state.copy(durationText = it)) },
+                    label = { Text(stringResource(Res.string.slideshow_duration_seconds)) }, singleLine = true,
+                    isError = !state.validDuration,
+                    supportingText = { if (!state.validDuration) Text(stringResource(Res.string.slideshow_duration_invalid)) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                SlideshowChoice(Res.string.slideshow_motion, SlideshowMotion.entries, state.config.motion,
+                    { if (it == SlideshowMotion.STILL) Res.string.slideshow_still else Res.string.slideshow_pan_zoom }) {
+                    onChange(state.copy(config = state.config.copy(motion = it)))
                 }
+                SlideshowChoice(Res.string.slideshow_transition, SlideshowTransition.entries, state.config.transition,
+                    { when (it) { SlideshowTransition.CUT -> Res.string.slideshow_cut; SlideshowTransition.FADE -> Res.string.slideshow_fade; SlideshowTransition.SLIDE -> Res.string.slideshow_slide } }) {
+                    onChange(state.copy(config = state.config.copy(transition = it)))
+                }
+                SlideshowChoice(Res.string.slideshow_videos, SlideshowVideoPolicy.entries, state.config.videoPolicy,
+                    { when (it) { SlideshowVideoPolicy.SKIP -> Res.string.slideshow_skip; SlideshowVideoPolicy.THUMBNAIL -> Res.string.slideshow_thumbnail; SlideshowVideoPolicy.PLAY -> Res.string.slideshow_play_video } }) {
+                    onChange(state.copy(config = state.config.copy(videoPolicy = it)))
+                }
+                if (state.config.videoPolicy == SlideshowVideoPolicy.PLAY) {
+                    SlideshowToggle(Res.string.slideshow_muted, state.config.muted) { onChange(state.copy(config = state.config.copy(muted = it))) }
+                    OutlinedTextField(value = state.limitText, onValueChange = { onChange(state.copy(limitText = it)) },
+                        label = { Text(stringResource(Res.string.slideshow_video_limit)) }, singleLine = true,
+                        isError = !state.validLimit,
+                        supportingText = { Text(stringResource(if (state.validLimit) Res.string.slideshow_video_limit_hint else Res.string.slideshow_video_limit_invalid)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                }
+                if (supportsFullscreen) SlideshowToggle(Res.string.slideshow_fullscreen, state.config.fullscreen) {
+                    onChange(state.copy(config = state.config.copy(fullscreen = it)))
+                }
+                SlideshowToggle(Res.string.slideshow_captions, state.config.captions) { onChange(state.copy(config = state.config.copy(captions = it))) }
             }
         },
-        confirmButton = {
-            TextButton(onClick = {
-                val duration = durationText.toIntOrNull()?.coerceIn(1, 120) ?: 5
-                onConfirm(SlideshowConfig(order, duration, animations))
-            }) {
-                Text(stringResource(Res.string.slideshow_start))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(Res.string.cancel))
-            }
-        }
+        confirmButton = { TextButton(onClick = onConfirm, enabled = state.validated != null) { Text(stringResource(Res.string.slideshow_start)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.cancel)) } }
     )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun <T> SlideshowChoice(title: StringResource, options: List<T>, selected: T, label: (T) -> StringResource, select: (T) -> Unit) {
+    Text(stringResource(title), style = MaterialTheme.typography.labelLarge)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)) {
+        options.forEach { value -> FilterChip(selected = value == selected, onClick = { select(value) }, label = { Text(stringResource(label(value))) }) }
+    }
+}
+
+@Composable
+private fun SlideshowToggle(label: StringResource, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().toggleable(checked, role = Role.Checkbox, onValueChange = onChange).padding(vertical = Dimens.smallSpacing),
+        verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked, onCheckedChange = null)
+        Text(stringResource(label), Modifier.padding(start = Dimens.smallSpacing))
+    }
 }

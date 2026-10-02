@@ -1,0 +1,8 @@
+<resources>
+    <string name="viewer_metadata_open_maps">Open in maps</string>
+    <string name="viewer_metadata_copy_coordinates">Copy coordinates</string>
+    <string name="viewer_metadata_show_timeline">Show in Timeline</string>
+    <string name="viewer_metadata_coordinates_copied">Coordinates copied</string>
+    <string name="viewer_metadata_copy_failed">Could not copy coordinates. Try again.</string>
+    <string name="viewer_metadata_maps_failed">Could not open maps on this device.</string>
+</resources>

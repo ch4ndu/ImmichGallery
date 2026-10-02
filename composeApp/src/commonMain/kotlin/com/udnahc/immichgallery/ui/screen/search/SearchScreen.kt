@@ -81,6 +81,7 @@ import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 import org.jetbrains.compose.resources.painterResource
 import org.koin.compose.viewmodel.koinViewModel
@@ -92,7 +93,8 @@ fun SearchScreen(
     onFavoritesClick: () -> Unit = {},
     onMemoriesClick: () -> Unit = {},
     onOverlayActiveChange: (Boolean) -> Unit = {},
-    viewModel: SearchViewModel = koinViewModel()
+    viewModel: SearchViewModel = koinViewModel(),
+    onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -162,6 +164,11 @@ fun SearchScreen(
                 getAssetStack = viewModel::getAssetStack,
                 onPersonClick = onPersonClick,
                 onDismiss = onDismissHost,
+                onShowInTimeline = onShowInTimeline?.let { showDate ->
+                    { date, currentAssetId ->
+                        onDismissHost.dismiss(currentAssetId) { showDate(date) }
+                    }
+                },
                 onCurrentAssetChanged = onCurrentAssetChanged,
                 onStlTransitionActiveChanged = onStlTransitionActiveChanged,
                 sharedTransitionScope = sharedTransitionScope,

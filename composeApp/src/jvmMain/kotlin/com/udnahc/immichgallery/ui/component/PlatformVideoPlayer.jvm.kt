@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -34,7 +38,10 @@ actual fun PlatformVideoPlayer(
     apiKey: String,
     isCurrentPage: Boolean,
     onTap: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    slideshowRequest: SlideshowMediaRequest?,
+    muted: Boolean,
+    onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
 ) {
     val authenticatedUrl = remember(playbackUrl, apiKey) {
         AuthenticatedMediaUrl.create(playbackUrl, apiKey)
@@ -42,19 +49,34 @@ actual fun PlatformVideoPlayer(
     val isVlcAvailable = remember { JvmVlcBootstrap.isAvailable() }
     Box(modifier = modifier.observeNonConsumingTap(onTap)) {
         if (!isVlcAvailable || authenticatedUrl == null) {
+            LaunchedEffect(slideshowRequest) { slideshowRequest?.let { onSlideshowEvent(it, SlideshowMediaEvent.Failed) } }
             DesktopVideoUnavailable(Modifier.fillMaxSize())
             return@Box
         }
 
-        val host = remember(authenticatedUrl) {
+        val host = remember(authenticatedUrl, slideshowRequest) {
             MediaPlayerHost(
                 authenticatedUrl.url,
                 autoPlay = false,
+                isMuted = slideshowRequest != null && muted,
                 initialVideoFitMode = ScreenResize.FIT
-            )
+            ).also { if (slideshowRequest != null) it.setLooping(false) }
         }
 
-        LaunchedEffect(isCurrentPage) {
+        val latestEvent by rememberUpdatedState(onSlideshowEvent)
+        DisposableEffect(host, slideshowRequest) {
+            val captured = slideshowRequest
+            if (captured != null) {
+                host.onEvent = { event -> chaintechSlideshowEvent(event)?.let { latestEvent(captured, it) } }
+                host.onError = { latestEvent(captured, SlideshowMediaEvent.Failed) }
+            }
+            onDispose { host.onEvent = {}; host.onError = {}; host.pause() }
+        }
+        LaunchedEffect(host, isCurrentPage, muted) {
+            if (slideshowRequest != null) {
+                host.setLooping(false)
+                if (muted) host.mute() else host.unmute()
+            }
             if (isCurrentPage) host.play() else host.pause()
         }
 
@@ -65,12 +87,16 @@ actual fun PlatformVideoPlayer(
             modifier = Modifier.fillMaxSize(),
             playerHost = host,
             playerConfig = VideoPlayerConfig(
-                isPauseResumeEnabled = true,
-                isSeekBarVisible = true,
+                showControlsOverride = if (slideshowRequest == null) null else false,
+                isPauseResumeEnabled = slideshowRequest == null,
+                isSeekBarVisible = slideshowRequest == null,
                 enableFullEdgeToEdge = false,
                 isScreenLockEnabled = false,
                 enablePIPControl = false,
-                isScreenResizeEnabled = true,
+                isScreenResizeEnabled = slideshowRequest == null,
+                isFastForwardBackwardEnabled = slideshowRequest == null,
+                isGestureVolumeControlEnabled = slideshowRequest == null,
+                enableLongPressFastForward = slideshowRequest == null,
                 isFullScreenEnabled = false,
                 controlTopPadding = statusBarTop + Dimens.topBarHeight,
                 seekBarBottomPadding = navBarBottom + Dimens.screenPadding,

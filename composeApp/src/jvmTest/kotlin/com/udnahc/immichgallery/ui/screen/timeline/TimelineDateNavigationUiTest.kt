@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +26,8 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.TimelineBucket
@@ -37,6 +40,8 @@ import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TimelineDateNavigationUiTest {
@@ -47,18 +52,27 @@ class TimelineDateNavigationUiTest {
     private var cancelNavigation: () -> Unit = {}
     private var state by mutableStateOf(timelineState(exact = false))
     private val targetedBuckets = mutableListOf<Int>()
+    private var navigationMounted by mutableStateOf(true)
+    private var dateActions by mutableStateOf<TimelineDateNavigationActions?>(null)
+    private val updateActions: (TimelineDateNavigationActions?) -> Unit = { dateActions = it }
+    private val externalDate = LocalDate(2024, 2, 17)
+    private val externalAcceptances = mutableListOf<Boolean>()
 
-    private fun show(resolve: suspend (LocalDate) -> Result<TimelineDateTarget?>) {
+    private fun show(
+        externalControls: Boolean = false,
+        resolve: suspend (LocalDate) -> Result<TimelineDateTarget?>
+    ) {
         compose.setContent {
             MaterialTheme {
                 listState = rememberLazyListState()
                 val reconciler = remember { TimelineScrollAnchorReconciler() }
-                var actions by remember { mutableStateOf<TimelineDateNavigationActions?>(null) }
-                cancelNavigation = TimelineDateNavigation(
-                    state, listState, reconciler, { actions = it }, resolve,
-                    { 1900..2100 },
-                    { bucket, _ -> targetedBuckets.add(bucket) }
-                )
+                if (navigationMounted) {
+                    cancelNavigation = TimelineDateNavigation(
+                        state, listState, reconciler, updateActions, resolve,
+                        { 1900..2100 },
+                        { bucket, _ -> targetedBuckets.add(bucket) }
+                    )
+                }
                 Column {
                     TopBarOverlay(
                         title = "Timeline",
@@ -69,8 +83,15 @@ class TimelineDateNavigationUiTest {
                         onRefresh = {},
                         onLogout = {},
                         logoutEnabled = true,
-                        dateNavigationActions = actions
+                        dateNavigationActions = dateActions
                     )
+                    if (externalControls) {
+                        Button(
+                            enabled = dateActions != null,
+                            onClick = { externalAcceptances.add(dateActions?.showDate(externalDate) == true) }
+                        ) { Text("External date request") }
+                        Button(onClick = { dateActions?.cancel() }) { Text("Cancel external date") }
+                    }
                     LazyColumn(state = listState) {
                         items(100) { index ->
                             Box(Modifier.height(80.dp)) { Text("Photo row $index") }
@@ -182,6 +203,117 @@ class TimelineDateNavigationUiTest {
         compose.onNodeWithContentDescription("More options").performClick()
         compose.onNodeWithText("Jump to date").assertDoesNotExist()
         compose.onNodeWithText("Back to today").assertDoesNotExist()
+    }
+
+    @Test
+    fun externalDateRevealsBucketThenExactPhotoAfterProjectionArrives() {
+        val dates = mutableListOf<LocalDate>()
+        show(externalControls = true) { date ->
+            dates.add(date)
+            Result.success(TimelineDateTarget("2024-02", "target"))
+        }
+
+        compose.onNodeWithText("External date request").performClick()
+        compose.waitUntil { targetedBuckets.isNotEmpty() }
+        compose.runOnIdle {
+            assertEquals(listOf(externalDate), dates)
+            assertEquals(listOf(true), externalAcceptances)
+            assertEquals(1, targetedBuckets.last())
+            assertTrue(listState.firstVisibleItemIndex >= 49)
+            state = timelineState(exact = true)
+        }
+        compose.waitUntil { listState.layoutInfo.visibleItemsInfo.any { it.index == 75 } }
+        compose.runOnIdle { assertTrue(listState.firstVisibleItemIndex >= 74) }
+    }
+
+    @Test
+    fun repeatedExternalSameDateSupersedesDeferredFirstResolver() {
+        val first = CompletableDeferred<Result<TimelineDateTarget?>>()
+        val dates = mutableListOf<LocalDate>()
+        show(externalControls = true) { date ->
+            dates.add(date)
+            if (dates.size == 1) first.await()
+            else Result.success(TimelineDateTarget("2024-02", null))
+        }
+
+        compose.onNodeWithText("External date request").performClick()
+        compose.waitUntil { dates.size == 1 }
+        compose.onNodeWithText("External date request").performClick()
+        compose.waitUntil { targetedBuckets.isNotEmpty() }
+        first.complete(Result.success(TimelineDateTarget("2024-03", "old")))
+        compose.waitForIdle()
+
+        compose.runOnIdle {
+            assertEquals(listOf(externalDate, externalDate), dates)
+            assertEquals(listOf(true, true), externalAcceptances)
+            assertTrue(targetedBuckets.all { it == 1 })
+        }
+    }
+
+    @Test
+    fun loadingThenReadyEmptyRegistersExternalActionAndShowsFailureWithoutDateMenu() {
+        state = TimelineState(isLoading = true)
+        var resolverCalls = 0
+        show(externalControls = true) { resolverCalls++; Result.success(null) }
+        compose.onNodeWithText("External date request").assertIsNotEnabled()
+        compose.runOnIdle {
+            assertNull(dateActions)
+            state = TimelineState(isSourceReady = true)
+        }
+        compose.waitUntil { dateActions != null }
+        compose.onNodeWithText("External date request").performClick()
+        compose.onNodeWithText(
+            "Could not find a cached date to jump to. Refresh the Timeline and try again."
+        ).assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(1, resolverCalls)
+            assertEquals(listOf(true), externalAcceptances)
+            assertFalse(assertNotNull(dateActions).canOpenDateMenu)
+            assertTrue(targetedBuckets.isEmpty())
+        }
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithContentDescription("More options").performClick()
+        compose.onNodeWithText("Jump to date").assertDoesNotExist()
+        compose.onNodeWithText("Back to today").assertDoesNotExist()
+    }
+
+    @Test
+    fun externalCancellationAfterBucketJumpRejectsLaterExactProjection() {
+        show(externalControls = true) { Result.success(TimelineDateTarget("2024-02", "target")) }
+        compose.onNodeWithText("External date request").performClick()
+        compose.waitUntil { targetedBuckets.isNotEmpty() }
+
+        compose.onNodeWithText("Cancel external date").performClick()
+        compose.runOnIdle { listState.requestScrollToItem(10) }
+        compose.waitForIdle()
+        compose.runOnIdle { state = timelineState(exact = true) }
+        compose.waitForIdle()
+
+        compose.runOnIdle { assertEquals(10, listState.firstVisibleItemIndex) }
+    }
+
+    @Test
+    fun disposalRejectsCapturedExternalActionsAndDeferredResult() {
+        val result = CompletableDeferred<Result<TimelineDateTarget?>>()
+        var resolverStarted = false
+        show(externalControls = true) { resolverStarted = true; result.await() }
+        val oldActions = compose.runOnIdle { assertNotNull(dateActions) }
+        compose.onNodeWithText("External date request").performClick()
+        compose.waitUntil { resolverStarted }
+
+        compose.runOnIdle { navigationMounted = false }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertNull(dateActions)
+            assertFalse(oldActions.showDate(externalDate))
+        }
+        result.complete(Result.success(TimelineDateTarget("2024-02", "target")))
+        compose.waitForIdle()
+
+        compose.runOnIdle {
+            assertTrue(targetedBuckets.isEmpty())
+            assertEquals(0, listState.firstVisibleItemIndex)
+        }
     }
 
     private fun openMenuItem(label: String) {

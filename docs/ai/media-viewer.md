@@ -27,6 +27,10 @@ video playback, or desktop viewer shortcuts.
 - `AssetPage` is the shared still/video/slideshow media surface.
 - `AssetDetailSheet` fetches and renders expanded asset information.
 - `SlideshowOptionsDialog` edits `SlideshowConfig` before playback starts.
+- Both overlay types use `SlideshowBinding` and one shared
+  `SlideshowPlaybackController`. The binding serializes synchronous decisions
+  on a Default-dispatcher consumer and publishes immutable flow snapshots;
+  pager/transition presentation remains owned by Compose.
 - `PlatformVideoPlayer` is expect/actual platform UI.
 - `StackSessionOverlay` owns the loading/error/retry surface for one ephemeral
   nested stack viewer and reuses `StaticPhotoOverlay` for ready members.
@@ -63,6 +67,18 @@ video playback, or desktop viewer shortcuts.
   Accessibility continues to announce the settled page. The indicator stays
   visible when filename chrome is hidden, and nested stack/detail layers cover
   it without changing the base position.
+- Normal viewer chrome offers a filmstrip toggle and position text. The lazy
+  strip resolves only visible thumbnails, marks the selected item, pages on
+  selection, and reveals the settled page with a direct scroll. Static counts
+  describe the materialized source only; Timeline uses its projected count and
+  stable bucket/offset string keys through materialization. Visible strip demand
+  reuses existing bucket loading without a separate library query.
+- Collapsing the strip retains normal position chrome. Memories keeps its
+  established indicator without a second competing position count. Slideshow,
+  drag, shared transition, and covered layers hide the strip; safe-area padding
+  and existing zoom/letterbox input ownership remain with the overlay.
+  Tap-to-hide normal chrome also hides the new strip/position/toggle without
+  forgetting expansion; Memories' original persistent indicator is separate.
 
 ## Viewer-Scoped Stack Browsing
 
@@ -116,6 +132,10 @@ video playback, or desktop viewer shortcuts.
   disposables for unchanged targets, and dispose targets that leave the window
   or when the overlay leaves composition. Videos are not prefetched through
   this still-image path.
+- During slideshow, the reserved upcoming target participates in bounded
+  prefetch, including shuffled and forward-history targets. Lazy Timeline
+  candidates retain bucket/offset identity while assets materialize; loading
+  state and loaded-ID maps must not reset the shuffle cycle.
 - `CoilZoomAsyncImage` owns pinch/pan zoom. Once zoomed, the media zoom gesture
   takes precedence over drag dismissal.
 - A tap toggles viewer chrome when the detail sheet and slideshow are inactive.
@@ -167,37 +187,127 @@ video playback, or desktop viewer shortcuts.
   to that person's detail route.
 - Loading and failure are local to the sheet and do not close or replace the
   underlying pager.
+- Detail/loading/error/action feedback is keyed by the displayed asset. A
+  cancelled request or response for a different asset cannot publish metadata
+  actions for the current sheet.
+- Finite latitude/longitude within inclusive geographic bounds expose explicit
+  Open in maps and Copy coordinates actions, even without a textual location.
+  Maps uses a coordinates-only HTTPS URL; the clipboard receives a plain pair.
+  Copy success and dispatch failures use resource-backed accessible feedback.
+- The sheet exposes Show in Timeline through an optional date callback. Its
+  caller supplies the settled asset's canonical `createdAt` so date grouping
+  agrees with Timeline: instants use the device time zone, valid ISO local
+  datetimes/dates retain their date. A supplied malformed canonical value hides
+  the action. Expanded-detail date fallback is allowed only when canonical
+  data was not supplied, and requires a fully valid ISO value.
+- A date action closes Info and any child stack, then completes the base
+  viewer's return preparation and existing exit lifecycle before routing. The
+  clicked child date is separate from the unchanged base return asset/bucket;
+  Memories still returns to its origin cover. Root navigation pops to the
+  existing Main entry, and Main delivers a uniquely identified ephemeral request
+  to the existing Timeline tab/resolver. Loading delays delivery; ready-empty
+  targets resolve to the existing unavailable-date feedback. Matching-ID
+  acknowledgement, session epochs, and logout-start cancellation prevent replay
+  or stale navigation.
+
+## Desktop Fullscreen Ownership
+
+- The desktop window host binds `WindowState` and provides a scoped
+  `ViewerFullscreenController`; mobile and previews use an unsupported default.
+- A viewer session starts owning placement at its first fullscreen action.
+  Slideshow leases additionally retain the placement at show entry. Releasing
+  a show restores that entry placement, while closing its viewer restores the
+  viewer's entry placement, including maximized or already-fullscreen states.
+- Nested stack viewers inherit the parent session through composition. Covered
+  parents cannot change placement, and nested releases cannot overwrite parent
+  restoration targets. Closing a parent invalidates its entire subtree; stale,
+  duplicate, forgotten, and abandoned cleanup is safe.
+- Window visibility/non-minimization is distinct from application foreground
+  state. The bridge must not replace the playback application's background gate
+  with visibility alone or alter server-status focus monitoring.
+- Fullscreen controls and F are available only where the host supports them.
+  The remembered automatic-fullscreen option acquires a show lease that survives
+  pause/coverage/transient focus loss. Focus loss can freeze presentation time;
+  it must not stop the show, discard history, or release/recreate the lease.
+  Escape stops slideshow first, then exits fullscreen, then dismisses the viewer
+  on subsequent presses. Modal and covered-viewer shortcut gates still apply.
 
 ## Slideshow
 
 - Slideshow is offered only when the viewer has more than one page.
-- `SlideshowConfig` supports sequential or random order, a user-entered duration
-  in seconds, and animations off or random.
-- Sequential order wraps. Random order chooses a page other than the current one.
-- The timer restarts after each settled page, including a manual desktop advance,
-  and re-checks active slideshow configuration, settled page, page count, and
-  stack coverage after suspension before advancing.
-- Still images use `KenBurnsImage` when random animations are enabled. Video
-  pages use the asset thumbnail while slideshow is active rather than starting
-  video playback.
-- `ScreenWakeLock` stays acquired only while slideshow is active and is released
-  on exit/disposal. JVM uses one balanced process-wide owner: Windows performs
+- `SlideshowConfig` independently selects sequential/random order, a validated
+  1–120-second duration, Still/Pan-and-zoom motion, Cut/Fade/Slide transition,
+  Skip/Thumbnail/Play video policy, mute, an optional positive video cap,
+  captions, and desktop automatic fullscreen. Preferences go through the
+  existing settings UseCase/Action and viewer-preferences ViewModel. They are
+  device-wide and survive logout; current assets, history, requests, and caption
+  metadata remain ephemeral to the viewer session.
+- The in-show mute control also updates the remembered mute preference through
+  the ViewModel/Action, preserving the other saved options. It does not persist
+  the current slide, timer, media request, or history.
+- Sequential order wraps. Random order uses a no-repeat cycle and avoids an
+  immediate repeat across cycles. Previous traverses displayed history; Next
+  replays forward history before drawing a new target. Skipped and unresolved
+  candidates must not become displayed history. Genuine source membership/order
+  changes reconcile identity and surviving history; materialization alone does
+  not restart playback order.
+- Full-resolution readiness plus completed transition starts the still-image
+  dwell. Thumbnail placeholders, displaced URLs/retry requests, and previous
+  visits cannot start or advance the timer. Dwell and pan/zoom share accumulated
+  monotonic presentation time; pause/background/coverage/blocking Info freezes
+  both. A new manual visit starts a full interval, while resume retains time.
+- Cut changes pages directly, Slide uses pager movement, and Fade retains only
+  the outgoing and target media rather than traversing intermediate shuffled
+  pages. Completion messages are generation-checked before advancing the
+  controller. Offscreen/covered videos remain paused.
+- Play video starts while awaiting progress, disables looping, and uses a fresh
+  player generation for each visit. Pause/resume retains the same visit and
+  playback position. Chaintech positive observed progress establishes readiness;
+  duration, play commands, and initial nonbuffering do not. A valid short-video
+  end can complete before the first positive progress event. Completion/cap
+  events advance at most once, and the cap uses media position.
+- Active-time startup and no-progress watchdogs bound unavailable media to
+  15 seconds. Failures remain visible briefly before skipping; three consecutive
+  failures pause for Retry/Next/Exit. Successful readiness resets the streak.
+  Lazy Skip resolves candidates as needed and distinguishes all-video input from
+  loading, failed, and cache-policy-unavailable buckets. Retry uses the explicit
+  retry callback. Missing cache-only rows require manual Timeline refresh;
+  slideshow must not override sync policy or repeatedly restart ineffective loads.
+- Captions request only current-slide expanded metadata, discard stale reads,
+  and bound date/location/description text. Metadata failure cannot block media
+  playback or leave the previous slide's caption visible.
+- Previous/Pause-or-Resume/Next/Exit controls remain usable while paused or
+  failed; playing controls can hide after inactivity. Tap toggles controls rather
+  than stopping the show. Exit restores normal viewer chrome.
+- `ScreenWakeLock` stays acquired only while actively presenting playback and
+  releases on pause/background/exit/disposal. JVM uses one balanced process-wide owner: Windows performs
   acquire/reset on the same dedicated JNA thread, macOS owns a `caffeinate`
   process, and Linux owns a `systemd-inhibit` process when available. Missing
   native commands are a safe unsupported fallback, and application exit closes
   only the process/thread owned by ImmichGallery.
-- A tap during slideshow stops it and restores the top bar.
 
 ## Input And Chrome
 
 - Mobile/tablet supports horizontal paging, still-image pinch/pan, tap-to-toggle
   chrome, downward drag dismissal, and an upward drag or bottom handle for Info.
-- JVM additionally supports Left/Right page navigation, Escape dismiss, Space
-  slideshow toggle, and `I` for Info.
+- JVM additionally supports Left/Right page navigation (displayed history during
+  slideshow), Space to open slideshow options or pause/resume an active show,
+  `I` for Info, and F for supported fullscreen. Escape follows slideshow,
+  fullscreen, then viewer dismissal precedence. The shortcut focus effect also
+  follows slideshow presence: stopping a show can remove its focused button,
+  so the normal viewer must reclaim focus for subsequent keys.
 - Grid density uses pinch zoom on touch platforms and Ctrl/Cmd-wheel on JVM;
   that is separate from full-image zoom inside the viewer.
 
 ## Verification Targets
+
+Synthetic JVM Compose tests may provide `LocalViewerPlaybackEnvironment` to
+replace external media rendering, time, and wake inhibition while retaining the
+actual overlay, controller, pager, and callbacks. Production defaults retain
+native rendering, monotonic time, automatic ticks, and platform wake locks.
+Those tests establish interaction/state wiring; native player output, OS window
+placement, clipboard/maps dispatch, and Android/iOS device behavior require
+separate runtime evidence.
 
 - swiping before dismiss returns to the settled asset rather than the original;
 - a Memories viewer returns non-cover pages to its originating cover card;
@@ -210,7 +320,8 @@ video playback, or desktop viewer shortcuts.
 - still-image zoom prevents accidental drag dismissal;
 - only the settled video plays and platform authentication reaches Immich;
 - Info loading/failure does not destroy the pager;
-- slideshow stops cleanly, wraps/chooses pages according to config, revalidates
-  state after the delay, and releases the wake lock;
+- slideshow preserves displayed history through lazy materialization, skips
+  videos in both directions, shares ready dwell/motion time, rejects displaced
+  events, bounds failures/stalls, and balances the wake lock;
 - desktop shortcuts act only while the viewer is enabled and do not interfere
   with open dialogs/sheets.
