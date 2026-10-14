@@ -2,6 +2,12 @@
 
 Date: 2026-10-14
 
+This document records the initial pilot. The subsequent
+[expanded sync, freshness, routing, and impact audit](research_2026-10-14_kotlin-psi-mcp-expanded-audit.md)
+supersedes its untested sync assumptions and extends its coverage. In particular,
+the expanded audit confirms that the published gradle-sync implementation
+disables IDE project-data import on the tested Android Studio build.
+
 ## Decision
 
 Kotlin PSI MCP 0.1.1 is useful for semantic reference discovery, location-based
