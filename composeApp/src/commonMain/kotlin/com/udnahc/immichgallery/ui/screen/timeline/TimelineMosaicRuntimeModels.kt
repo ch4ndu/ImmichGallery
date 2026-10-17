@@ -16,6 +16,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
@@ -738,6 +740,7 @@ internal suspend fun runIsolatedTimelineRuntimeReset(
     }
     Result.success(Unit)
 } catch (e: CancellationException) {
+    currentCoroutineContext().ensureActive()
     Result.failure(e)
 } catch (e: Exception) {
     Result.failure(e)

@@ -100,7 +100,7 @@ fun SearchScreen(
     val listState = rememberLazyListState()
     val overlaySource = StaticPhotoOverlaySourceIdentity(
         ownerKey = "search:${state.activeRequestGeneration}",
-        assetIds = state.results.map { it.id },
+        assetIds = state.resultIds,
         isPending = state.isLoading || state.isLoadingMore || state.nextPage != null
     )
 

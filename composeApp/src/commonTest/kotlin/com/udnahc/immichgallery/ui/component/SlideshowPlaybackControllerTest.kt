@@ -327,6 +327,43 @@ class SlideshowPlaybackControllerTest {
         assertNotEquals(SlideshowFailure.ALL_VIDEOS, f.state.failure)
     }
 
+    @Test fun supplierSourceDefersMaterializationWhileStoppedAndRebuildsOnRestartAfterStop() {
+        val f = Fixture()
+        var firstInvocations = 0
+        var secondInvocations = 0
+
+        f.controller.updateSource {
+            firstInvocations += 1
+            items("a", "b")
+        }
+        f.controller.updateSource {
+            secondInvocations += 1
+            items("b", "c")
+        }
+        f.controller.toggleControls()
+        f.controller.togglePause()
+        f.controller.stop()
+        assertEquals(0, firstInvocations)
+        assertEquals(0, secondInvocations)
+
+        f.controller.start(SlideshowConfig(), page = 0)
+        assertEquals(0, firstInvocations)
+        assertEquals(1, secondInvocations)
+        assertEquals("b", f.state.asset?.id)
+
+        var activeInvocations = 0
+        f.controller.updateSource {
+            activeInvocations += 1
+            items("b", "c", "d")
+        }
+        assertEquals(1, activeInvocations)
+
+        f.controller.stop()
+        f.controller.start(SlideshowConfig(), page = 2)
+        assertEquals(2, activeInvocations)
+        assertEquals("d", f.state.asset?.id)
+    }
+
     private fun items(vararg ids: String) = ids.map(::image)
     private fun image(id: String) = SlideshowSourceItem(SlideshowSlot.Asset(id), asset(id))
     private fun video(id: String) = SlideshowSourceItem(SlideshowSlot.Asset(id), asset(id, AssetType.VIDEO))

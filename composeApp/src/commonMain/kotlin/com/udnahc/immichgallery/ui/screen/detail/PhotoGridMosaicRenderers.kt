@@ -1,6 +1,5 @@
 package com.udnahc.immichgallery.ui.screen.detail
 
-import com.udnahc.immichgallery.runSuspendCatching
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.DetailMosaicCacheEntry
@@ -14,10 +13,6 @@ import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.resolvedRealDisplayBandsOrEmpty
 import com.udnahc.immichgallery.domain.model.resolvedSectionDisplayRecordsOrEmpty
 import com.udnahc.immichgallery.domain.model.toPhotoGridDisplayItems
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
-import kotlinx.coroutines.launch
 
 internal data class IndexedAssetGroup(
     val index: Int,
@@ -100,21 +95,6 @@ internal class RuntimePhotoGridMosaicRenderer {
             placeholderHeight = estimatePhotoGridDisplayItemsHeight(groupItems, GRID_SPACING_DP),
             updatedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
         )
-    }
-
-    fun writeGroupCacheAsync(
-        scope: CoroutineScope,
-        group: IndexedAssetGroup,
-        groupItems: List<PhotoGridDisplayItem>,
-        assetFingerprint: String,
-        lookup: DetailMosaicCacheLookup,
-        upsert: suspend (DetailMosaicCacheEntry) -> Unit,
-        onFailure: (Throwable) -> Unit
-    ) {
-        val entry = groupCacheEntry(group, groupItems, assetFingerprint, lookup) ?: return
-        scope.launch(Dispatchers.IO) {
-            runSuspendCatching { upsert(entry) }.onFailure(onFailure)
-        }
     }
 }
 

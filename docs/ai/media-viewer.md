@@ -30,7 +30,9 @@ video playback, or desktop viewer shortcuts.
 - Both overlay types use `SlideshowBinding` and one shared
   `SlideshowPlaybackController`. The binding serializes synchronous decisions
   on a Default-dispatcher consumer and publishes immutable flow snapshots;
-  pager/transition presentation remains owned by Compose.
+  source-supplier materialization and 33ms tick wakeups are deferred while
+  inactive, materialized atomically on `start(...)`, and cleared on `stop()`.
+  Pager/transition presentation remains owned by Compose.
 - `PlatformVideoPlayer` is expect/actual platform UI.
 - `StackSessionOverlay` owns the loading/error/retry surface for one ephemeral
   nested stack viewer and reuses `StaticPhotoOverlay` for ready members.
@@ -174,6 +176,16 @@ video playback, or desktop viewer shortcuts.
   the player controls and is not part of this remediation.
 - The video URL and original URL are server-derived edited variants. Video
   controls are platform-player controls rather than custom domain state.
+- `StaticPhotoOverlay` and `TimelinePhotoOverlay` measure the rendered height of
+  the bottom footer (`PhotoPageIndicator`, `ViewerFilmstrip`,
+  `ViewerFilmstripControls`, and `DetailBottomHandle`, excluding navigation-bar
+  insets) and forward `bottomChromePadding` (`0.dp` when normal footer chrome is
+  hidden) through `AssetPage` to `PlatformVideoPlayer`. Android shifts
+  `seekBarBottomPadding` by `bottomChromePadding`, JVM pads the
+  `VideoPlayerComposable` container and `seekBarBottomPadding` by
+  `bottomChromePadding`, and iOS adds `bottomChromePadding` to the
+  `AVPlayerViewController` bottom inset so player controls and the thumbnail
+  strip never overlap.
 
 ## Expanded Information
 

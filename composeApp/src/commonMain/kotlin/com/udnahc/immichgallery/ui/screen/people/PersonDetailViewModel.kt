@@ -53,6 +53,7 @@ import org.lighthousegames.logging.logging
 @Immutable
 data class PersonDetailState(
     val assets: List<Asset> = emptyList(),
+    val assetIds: List<String> = assets.map(Asset::id),
     val displayItems: List<PhotoGridDisplayItem> = emptyList(),
     val displayIndex: TimelineDisplayIndex = TimelineDisplayIndex(),
     val isSourceReady: Boolean = false,
@@ -165,7 +166,13 @@ class PersonDetailViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             getPersonAssetsUseCase.observe(personId).collect { assets ->
                 log.d { "Room emitted <redacted> assets for person <redacted>" }
-                _state.update { it.copy(assets = assets, isSourceReady = true) }
+                _state.update {
+                    it.copy(
+                        assets = assets,
+                        assetIds = assets.map(Asset::id),
+                        isSourceReady = true
+                    )
+                }
                 handleAssetEmission(assets)
             }
         }
@@ -227,10 +234,12 @@ class PersonDetailViewModel(
                         val result = getPersonAssetsUseCase.syncAll(personId)
                         result.onSuccess { syncResult ->
                             val assets = getPersonAssetsUseCase.getAssets(personId)
+                            val assetIds = assets.map(Asset::id)
                             val lastSync = getPersonAssetsUseCase.getLastSyncedAt(personId)
                             _state.update {
                                 it.copy(
                                     assets = assets,
+                                    assetIds = assetIds,
                                     isSourceReady = true,
                                     hasMore = false,
                                     nextPage = null,
@@ -295,6 +304,7 @@ class PersonDetailViewModel(
                 getPersonAssetsPageUseCase(personId, page = page).fold(
                     onSuccess = { result ->
                         val assets = getPersonAssetsUseCase.getAssets(personId)
+                        val assetIds = assets.map(Asset::id)
                         val lastSync = if (!result.hasMore) {
                             getPersonAssetsUseCase.getLastSyncedAt(personId)
                         } else {
@@ -303,6 +313,7 @@ class PersonDetailViewModel(
                         _state.update {
                             it.copy(
                                 assets = assets,
+                                assetIds = assetIds,
                                 isSourceReady = true,
                                 hasMore = result.hasMore,
                                 nextPage = result.nextPage,
@@ -367,6 +378,7 @@ class PersonDetailViewModel(
                     getPersonAssetsPageUseCase(personId, page = 1).fold(
                         onSuccess = { result ->
                             val assets = getPersonAssetsUseCase.getAssets(personId)
+                            val assetIds = assets.map(Asset::id)
                             val completedAt = if (!result.hasMore) {
                                 getPersonAssetsUseCase.getLastSyncedAt(personId)
                             } else {
@@ -375,6 +387,7 @@ class PersonDetailViewModel(
                             _state.update {
                                 it.copy(
                                     assets = assets,
+                                    assetIds = assetIds,
                                     isSourceReady = true,
                                     hasMore = result.hasMore,
                                     nextPage = result.nextPage,

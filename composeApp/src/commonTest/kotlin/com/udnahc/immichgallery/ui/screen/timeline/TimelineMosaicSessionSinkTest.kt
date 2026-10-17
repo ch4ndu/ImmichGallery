@@ -87,8 +87,29 @@ class TimelineMosaicSessionSinkTest {
         }
 
         assertTrue(first.isFailure)
+        assertTrue(second.isFailure.not())
         assertTrue(second.isSuccess)
         assertTrue(secondRan)
+    }
+
+    @Test
+    fun isolatedRuntimeResetRethrowsWhenCallerCoroutineIsCancelled() = runTest {
+        val enteredReset = CompletableDeferred<Unit>()
+        var swallowedCallerCancellation = false
+
+        val callerJob = async {
+            val result = runIsolatedTimelineRuntimeReset {
+                enteredReset.complete(Unit)
+                awaitCancellation()
+            }
+            swallowedCallerCancellation = result.isFailure
+        }
+        enteredReset.await()
+        callerJob.cancel(CancellationException("consumer cancelled"))
+        val outcome = runCatching { callerJob.await() }
+
+        assertTrue(outcome.exceptionOrNull() is CancellationException)
+        assertFalse(swallowedCallerCancellation)
     }
 
     @Test

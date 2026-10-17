@@ -237,6 +237,10 @@
     <string name="detail_people">People</string>
     <string name="detail_location">Location</string>
     <string name="detail_camera">Camera</string>
+    <string name="detail_camera_focal_length">%1$dmm</string>
+    <string name="detail_camera_aperture">f/%1$s</string>
+    <string name="detail_camera_shutter_speed">%1$ss</string>
+    <string name="detail_camera_iso">ISO %1$d</string>
     <string name="detail_loading">Loading details…</string>
     <string name="detail_error">Failed to load details</string>
 

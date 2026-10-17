@@ -57,11 +57,6 @@ import kotlinx.datetime.LocalDate
 import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
 
-internal data class MemoryOverlayOwnerSource(
-    val memoryId: String,
-    val assetIds: List<String>
-)
-
 internal data class MemoryOverlaySourceIdentity(
     val requestGeneration: Long,
     val isPending: Boolean,
@@ -118,12 +113,7 @@ fun MemoriesScreen(
         requestGeneration = state.activeRequestGeneration,
         isPending = state.isLoading || state.error != null,
         selectedMemoryId = preferredMemoryId,
-        owners = state.memories.map { memory ->
-            MemoryOverlayOwnerSource(
-                memoryId = memory.id,
-                assetIds = memory.assets.map { it.id }
-            )
-        }
+        owners = state.overlayOwners
     )
 
     PhotoOverlayHost(

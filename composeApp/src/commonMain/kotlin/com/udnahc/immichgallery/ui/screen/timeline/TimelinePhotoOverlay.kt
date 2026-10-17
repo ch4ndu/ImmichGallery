@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,7 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetStackLookup
@@ -417,6 +420,15 @@ fun TimelinePhotoOverlay(
                 onToggleFullscreen = if (fullscreen.isSupported) { { fullscreenSession.toggle() } } else null,
             )
     ) {
+        var bottomChromeHeightPx by remember { mutableIntStateOf(0) }
+        val normalFooterVisible = showTopBar && !isSlideshow && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog &&
+                !dragState.isActive && sharedTransitionScope?.isTransitionActive != true
+        val bottomChromePadding = if (normalFooterVisible) {
+            with(density) { bottomChromeHeightPx.toDp() }
+        } else {
+            0.dp
+        }
+
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -469,6 +481,7 @@ fun TimelinePhotoOverlay(
                         dragTransform = photoDragTransform,
                         isDragging = isSettledPage && dragState.isActive,
                         onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
+                        bottomChromePadding = bottomChromePadding,
                     )
                 } else {
                     CircularProgressIndicator(color = Color.White)
@@ -507,10 +520,13 @@ fun TimelinePhotoOverlay(
             }
         )
 
-        val normalFooterVisible = showTopBar && !isSlideshow && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog &&
-                !dragState.isActive && sharedTransitionScope?.isTransitionActive != true
         if (normalFooterVisible) {
-            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()) {
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .onSizeChanged { bottomChromeHeightPx = it.height }
+            ) {
                 if (filmstripExpanded) ViewerFilmstrip(
                     totalPages = totalPages, currentPage = pagerState.settledPage,
                     pageKey = { page -> timelineFilmstripPageKey(page, state) },

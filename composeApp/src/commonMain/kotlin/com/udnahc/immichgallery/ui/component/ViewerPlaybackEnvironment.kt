@@ -2,6 +2,8 @@ package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
 import com.udnahc.immichgallery.ui.util.ScreenWakeLock
@@ -20,7 +22,8 @@ internal data class ViewerMediaPresentation(
     val playback: SlideshowPlaybackState?,
     val progress: () -> Float,
     val onTap: () -> Unit,
-    val onEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
+    val onEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit,
+    val bottomChromePadding: Dp = 0.dp
 )
 
 internal val LocalViewerPlaybackEnvironment = staticCompositionLocalOf<ViewerPlaybackEnvironment?> { null }

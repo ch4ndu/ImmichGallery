@@ -54,6 +54,10 @@ import com.udnahc.immichgallery.domain.model.AssetDetailPerson
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.detail_camera
+import immichgallery.composeapp.generated.resources.detail_camera_aperture
+import immichgallery.composeapp.generated.resources.detail_camera_focal_length
+import immichgallery.composeapp.generated.resources.detail_camera_iso
+import immichgallery.composeapp.generated.resources.detail_camera_shutter_speed
 import immichgallery.composeapp.generated.resources.detail_date_time
 import immichgallery.composeapp.generated.resources.detail_dimensions
 import immichgallery.composeapp.generated.resources.detail_error
@@ -296,7 +300,33 @@ internal fun AssetDetailContent(
         }
 
         // Camera details
-        val cameraInfo = remember(detail) { buildCameraInfo(detail) }
+        val focalLengthText = detail.focalLength?.let {
+            stringResource(Res.string.detail_camera_focal_length, it.toInt())
+        }
+        val apertureText = detail.aperture?.let {
+            stringResource(Res.string.detail_camera_aperture, it.toString())
+        }
+        val shutterSpeedText = detail.shutterSpeed?.let {
+            stringResource(Res.string.detail_camera_shutter_speed, it)
+        }
+        val isoText = detail.iso?.let {
+            stringResource(Res.string.detail_camera_iso, it)
+        }
+        val cameraInfo = remember(
+            detail,
+            focalLengthText,
+            apertureText,
+            shutterSpeedText,
+            isoText
+        ) {
+            buildCameraInfo(
+                detail = detail,
+                focalLengthText = focalLengthText,
+                apertureText = apertureText,
+                shutterSpeedText = shutterSpeedText,
+                isoText = isoText
+            )
+        }
         if (cameraInfo.isNotEmpty()) {
             Spacer(Modifier.height(Dimens.largeSpacing))
             HorizontalDivider()
@@ -495,17 +525,19 @@ private fun PeopleRowPreview() {
     )
 }
 
-private fun buildCameraInfo(detail: AssetDetail): List<String> {
+private fun buildCameraInfo(
+    detail: AssetDetail,
+    focalLengthText: String?,
+    apertureText: String?,
+    shutterSpeedText: String?,
+    isoText: String?
+): List<String> {
     val lines = mutableListOf<String>()
     val cameraName = listOfNotNull(detail.cameraMake, detail.cameraModel).joinToString(" ")
     if (cameraName.isNotBlank()) lines.add(cameraName)
     if (!detail.lensModel.isNullOrBlank()) lines.add(detail.lensModel)
 
-    val settings = mutableListOf<String>()
-    detail.focalLength?.let { settings.add("${it.toInt()}mm") }
-    detail.aperture?.let { settings.add("f/$it") }
-    detail.shutterSpeed?.let { settings.add("${it}s") }
-    detail.iso?.let { settings.add("ISO $it") }
+    val settings = listOfNotNull(focalLengthText, apertureText, shutterSpeedText, isoText)
     if (settings.isNotEmpty()) lines.add(settings.joinToString("  "))
 
     return lines

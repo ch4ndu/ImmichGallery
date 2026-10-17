@@ -52,6 +52,7 @@ import org.lighthousegames.logging.logging
 data class AlbumDetailState(
     val albumName: String = "",
     val assets: List<Asset> = emptyList(),
+    val assetIds: List<String> = assets.map(Asset::id),
     val availableWidth: Float = 0f,
     val targetRowHeight: Float = DEFAULT_TARGET_ROW_HEIGHT,
     val rowHeightBounds: RowHeightBounds = rowHeightBoundsForViewport(0f),
@@ -168,7 +169,13 @@ class AlbumDetailViewModel(
 
             getAlbumDetailUseCase.observeAssets(albumId).collect { assets ->
                 log.d { "Room emitted <redacted> assets for album <redacted>" }
-                _state.update { it.copy(assets = assets, isSourceReady = true) }
+                _state.update {
+                    it.copy(
+                        assets = assets,
+                        assetIds = assets.map(Asset::id),
+                        isSourceReady = true
+                    )
+                }
                 handleAssetEmission(assets)
             }
         }
@@ -230,12 +237,14 @@ class AlbumDetailViewModel(
                         val result = getAlbumDetailUseCase.syncAll(albumId)
                         result.onSuccess { syncResult ->
                             val assets = getAlbumDetailUseCase.getAlbumAssets(albumId)
+                            val assetIds = assets.map(Asset::id)
                             val lastSync = getAlbumDetailUseCase.getLastSyncedAt(albumId)
                             albumOrder = syncResult.order
                             _state.update {
                                 it.copy(
                                     albumName = syncResult.albumName.ifBlank { it.albumName },
                                     assets = assets,
+                                    assetIds = assetIds,
                                     isSourceReady = true,
                                     hasMore = false,
                                     nextPage = null,
@@ -293,6 +302,7 @@ class AlbumDetailViewModel(
                 getAlbumDetailUseCase.syncPage(albumId, page, albumOrder).fold(
                     onSuccess = { result ->
                         val assets = getAlbumDetailUseCase.getAlbumAssets(albumId)
+                        val assetIds = assets.map(Asset::id)
                         val lastSync = if (!result.hasMore) {
                             getAlbumDetailUseCase.getLastSyncedAt(albumId)
                         } else {
@@ -303,6 +313,7 @@ class AlbumDetailViewModel(
                             it.copy(
                                 albumName = result.albumName.ifBlank { it.albumName },
                                 assets = assets,
+                                assetIds = assetIds,
                                 isSourceReady = true,
                                 hasMore = result.hasMore,
                                 nextPage = result.nextPage,
@@ -359,6 +370,7 @@ class AlbumDetailViewModel(
                     getAlbumDetailUseCase.syncPage(albumId, page = 1).fold(
                         onSuccess = { result ->
                             val assets = getAlbumDetailUseCase.getAlbumAssets(albumId)
+                            val assetIds = assets.map(Asset::id)
                             val completedAt = if (!result.hasMore) {
                                 getAlbumDetailUseCase.getLastSyncedAt(albumId)
                             } else {
@@ -374,6 +386,7 @@ class AlbumDetailViewModel(
                                 it.copy(
                                     albumName = result.albumName,
                                     assets = assets,
+                                    assetIds = assetIds,
                                     isSourceReady = true,
                                     hasMore = result.hasMore,
                                     nextPage = result.nextPage,

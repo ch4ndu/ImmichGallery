@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,10 +43,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
@@ -328,6 +331,15 @@ fun StaticPhotoOverlay(
                 onToggleFullscreen = if (fullscreen.isSupported) { { fullscreenSession.toggle() } } else null,
             )
     ) {
+        var bottomChromeHeightPx by remember { mutableIntStateOf(0) }
+        val normalFooterVisible = !isSlideshow && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog &&
+                !dragState.isActive && sharedTransitionScope?.isTransitionActive != true
+        val bottomChromePadding = if (normalFooterVisible) {
+            with(density) { bottomChromeHeightPx.toDp() }
+        } else {
+            0.dp
+        }
+
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -366,6 +378,7 @@ fun StaticPhotoOverlay(
                         dragTransform = photoDragTransform,
                         isDragging = isSettledPage && dragState.isActive,
                         onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
+                        bottomChromePadding = bottomChromePadding,
                     )
                 }
             }
@@ -402,10 +415,13 @@ fun StaticPhotoOverlay(
             } else null
         )
 
-        val normalFooterVisible = !isSlideshow && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog &&
-                !dragState.isActive && sharedTransitionScope?.isTransitionActive != true
         if (normalFooterVisible) {
-            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()) {
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .onSizeChanged { bottomChromeHeightPx = it.height }
+            ) {
                 if (showPageIndicator && assets.size > 1) PhotoPageIndicator(
                     currentPage = pagerState.currentPage,
                     currentPageOffsetFraction = pagerState.currentPageOffsetFraction,

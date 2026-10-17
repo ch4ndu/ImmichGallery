@@ -41,4 +41,4 @@ enum class MosaicTemplateFamily(
 }
 
 fun Set<MosaicTemplateFamily>.normalizedMosaicFamilies(): Set<MosaicTemplateFamily> =
-    if (isEmpty()) MosaicTemplateFamily.defaultSet() else this
+    if (isEmpty()) MosaicTemplateFamily.defaultSet() else toSet()

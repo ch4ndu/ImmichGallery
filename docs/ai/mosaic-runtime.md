@@ -172,7 +172,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   the owning session boundary before capturing asset/runtime snapshots. This
   prevents an old owner from reading pre-mutation state and later registering
   the resulting artifact under a new session.
-- `MosaicWorkScheduler` uses `DEFAULT_PARALLELISM = 1`, active owner priority, visible-group priority, and pending-work reprioritization.
+- `MosaicWorkScheduler` uses `DEFAULT_PARALLELISM = 1`, active owner priority, visible-group priority, and pending-work reprioritization guarded by a monotonic per-owner visibility revision (applying the latest visible request set on submission so out-of-order visibility updates or newly submitted work cannot invert priority).
 - Cancelling a scheduler waiter cancels its independent execution job and waits
   for that job's completion in non-cancellable cleanup. Session mutation cannot
   proceed merely because the waiter stopped while a late progress callback is

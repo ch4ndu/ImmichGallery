@@ -11,6 +11,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.interop.UIKitViewController
+import androidx.compose.ui.unit.Dp
 import com.udnahc.immichgallery.ui.theme.Dimens
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -66,6 +67,7 @@ actual fun PlatformVideoPlayer(
     isCurrentPage: Boolean,
     onTap: () -> Unit,
     modifier: Modifier,
+    bottomChromePadding: Dp,
     slideshowRequest: SlideshowMediaRequest?,
     muted: Boolean,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -262,7 +264,7 @@ actual fun PlatformVideoPlayer(
         },
         modifier = modifier.padding(
             top = Dimens.topBarHeight,
-            bottom = Dimens.largeSpacing
+            bottom = Dimens.largeSpacing + bottomChromePadding
         )
     )
 }

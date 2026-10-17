@@ -28,8 +28,15 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 @Immutable
+data class MemoryOverlayOwnerSource(
+    val memoryId: String,
+    val assetIds: List<String>
+)
+
+@Immutable
 data class MemoriesState(
     val memories: List<Memory> = emptyList(),
+    val overlayOwners: List<MemoryOverlayOwnerSource> = memories.toOverlayOwnerSources(),
     val isLoading: Boolean = true,
     val error: MemoriesUiMessage? = null,
     val requestedDate: LocalDate? = null,
@@ -79,6 +86,7 @@ class MemoriesViewModel internal constructor(
         _state.update {
             it.copy(
                 memories = emptyList(),
+                overlayOwners = emptyList(),
                 isLoading = true,
                 error = null,
                 requestedDate = requestedDate,
@@ -89,9 +97,11 @@ class MemoriesViewModel internal constructor(
         loadJob = viewModelScope.launch(requestDispatcher) {
             loadMemories(requestedDate).fold(
                 onSuccess = { memories ->
+                    val overlayOwners = memories.toOverlayOwnerSources()
                     updateForGeneration(generation) {
                         it.copy(
                             memories = memories,
+                            overlayOwners = overlayOwners,
                             isLoading = false,
                             error = null
                         )
@@ -133,6 +143,14 @@ class MemoriesViewModel internal constructor(
         }
     }
 }
+
+private fun List<Memory>.toOverlayOwnerSources(): List<MemoryOverlayOwnerSource> =
+    map { memory ->
+        MemoryOverlayOwnerSource(
+            memoryId = memory.id,
+            assetIds = memory.assets.map { it.id }
+        )
+    }
 
 internal fun Throwable.toMemoriesUiMessage(): MemoriesUiMessage = when (this) {
     is MemoryAccessException.PermissionDenied -> MemoriesUiMessage.PermissionDenied

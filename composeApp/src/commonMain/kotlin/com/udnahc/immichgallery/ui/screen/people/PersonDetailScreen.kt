@@ -93,7 +93,7 @@ fun PersonDetailScreen(
     val contentBottomPadding = navBarPadding
     val overlaySource = StaticPhotoOverlaySourceIdentity(
         ownerKey = "person:$personId",
-        assetIds = state.assets.map { it.id },
+        assetIds = state.assetIds,
         isPending = !state.isSourceReady ||
             state.isLoading ||
             state.isBuilding ||

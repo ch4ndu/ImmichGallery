@@ -62,8 +62,10 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.compose.rememberAsyncImagePainter
@@ -221,13 +223,14 @@ internal fun AssetPage(
     dragTransform: PhotoDragTransform = PhotoDragTransform.Idle,
     isDragging: Boolean = false,
     onZoomStateChanged: ((Boolean) -> Unit)? = null,
+    bottomChromePadding: Dp = 0.dp,
     playback: SlideshowPlaybackState? = null,
     slideshowProgress: () -> Float = { 0f },
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit = { _, _ -> },
 ) {
     LocalViewerPlaybackEnvironment.current?.let { environment ->
         environment.mediaContent(ViewerMediaPresentation(asset, isCurrentPage, isSlideshow, playback,
-            slideshowProgress, onTap, onSlideshowEvent))
+            slideshowProgress, onTap, onSlideshowEvent, bottomChromePadding))
         return
     }
     // Only treat the shared-element scope as "actively transitioning" during
@@ -318,6 +321,7 @@ internal fun AssetPage(
                     dragTransform = dragTransform,
                     effectiveCoverThumbnail = effectiveCoverThumbnail,
                     isTransitionActive = isTransitionActive,
+                    bottomChromePadding = bottomChromePadding,
                     playback = playback,
                     slideshowProgress = slideshowProgress,
                     onSlideshowEvent = onSlideshowEvent
@@ -441,6 +445,7 @@ private fun VideoOrSlideshowAssetPage(
     dragTransform: PhotoDragTransform,
     effectiveCoverThumbnail: Boolean,
     isTransitionActive: Boolean,
+    bottomChromePadding: Dp,
     playback: SlideshowPlaybackState?,
     slideshowProgress: () -> Float,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -482,7 +487,8 @@ private fun VideoOrSlideshowAssetPage(
             onTap = onTap,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
-            dragTransform = dragTransform
+            dragTransform = dragTransform,
+            bottomChromePadding = bottomChromePadding
         )
     }
 }
@@ -531,7 +537,8 @@ private fun VideoAssetPage(
     onTap: () -> Unit,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
-    dragTransform: PhotoDragTransform
+    dragTransform: PhotoDragTransform,
+    bottomChromePadding: Dp
 ) {
     PaddedTransformableMediaLayer(
         asset = asset,
@@ -553,6 +560,7 @@ private fun VideoAssetPage(
                     apiKey = apiKey,
                     isCurrentPage = isCurrentPage,
                     onTap = onTap,
+                    bottomChromePadding = bottomChromePadding,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -1013,6 +1021,7 @@ private fun VideoContent(
     apiKey: String,
     isCurrentPage: Boolean,
     onTap: () -> Unit,
+    bottomChromePadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     log.d { "VideoContent: loading video from <redacted>" }
@@ -1030,6 +1039,7 @@ private fun VideoContent(
         apiKey = apiKey,
         isCurrentPage = isCurrentPage,
         onTap = onTap,
+        bottomChromePadding = bottomChromePadding,
         modifier = modifier.fillMaxSize()
     )
 }

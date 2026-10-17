@@ -195,6 +195,9 @@ private fun DetailMosaicDisplayCacheEntity.toDomainOrNull(): DetailMosaicCacheEn
     val ownerType =
         DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
     val parsedGroupSize = runCatching { GroupSize.valueOf(groupSize) }.getOrNull() ?: return null
+    val displayRecords = runCatching {
+        json.decodeFromString<List<MosaicDisplayItemRecord>>(itemsJson)
+    }.getOrNull() ?: return null
     return DetailMosaicCacheEntry(
         ownerType = ownerType,
         ownerId = ownerId,
@@ -209,7 +212,7 @@ private fun DetailMosaicDisplayCacheEntity.toDomainOrNull(): DetailMosaicCacheEn
         maxRowHeightKey = maxRowHeightKey,
         spacingKey = spacingKey,
         displayVersion = displayVersion,
-        displayRecords = json.decodeFromString<List<MosaicDisplayItemRecord>>(itemsJson),
+        displayRecords = displayRecords,
         displayItemCount = displayItemCount,
         placeholderHeight = placeholderHeight,
         updatedAt = updatedAt
@@ -220,6 +223,12 @@ private fun DetailMosaicSectionGeometryEntity.toSectionGeometryDomainOrNull(): D
     val ownerType =
         DetailMosaicCacheOwnerType.entries.firstOrNull { it.name == ownerType } ?: return null
     val parsedGroupSize = runCatching { GroupSize.valueOf(groupSize) }.getOrNull() ?: return null
+    val ranges = if (geometryRangesJson.isEmpty()) {
+        emptyList()
+    } else {
+        runCatching { json.decodeFromString<List<MosaicSectionGeometryRange>>(geometryRangesJson) }
+            .getOrNull() ?: return null
+    }
     return DetailMosaicSectionGeometryEntry(
         ownerType = ownerType,
         ownerId = ownerId,
@@ -236,12 +245,7 @@ private fun DetailMosaicSectionGeometryEntity.toSectionGeometryDomainOrNull(): D
         geometryVersion = geometryVersion,
         placeholderHeight = placeholderHeight,
         displayItemCount = displayItemCount,
-        ranges = if (geometryRangesJson.isEmpty()) {
-            emptyList()
-        } else {
-            runCatching { json.decodeFromString<List<MosaicSectionGeometryRange>>(geometryRangesJson) }
-                .getOrDefault(emptyList())
-        },
+        ranges = ranges,
         updatedAt = updatedAt
     )
 }

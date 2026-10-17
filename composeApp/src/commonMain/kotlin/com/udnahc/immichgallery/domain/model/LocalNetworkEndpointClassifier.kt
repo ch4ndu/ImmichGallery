@@ -1,10 +1,58 @@
 package com.udnahc.immichgallery.domain.model
 
 import io.ktor.http.Url
+import kotlin.coroutines.resume
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal fun interface EndpointHostResolver {
     suspend fun resolve(host: String): List<String>?
+}
+
+internal class BoundedEndpointHostResolver(
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    maxConcurrentLookups: Int = DEFAULT_MAX_CONCURRENT_LOOKUPS,
+    private val blockingResolve: (String) -> List<String>?
+) : EndpointHostResolver {
+    private val lookupScope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val concurrencyGate = Semaphore(maxConcurrentLookups)
+
+    @OptIn(DelicateCoroutinesApi::class)
+    override suspend fun resolve(host: String): List<String>? {
+        if (!concurrencyGate.tryAcquire()) return null
+        return suspendCancellableCoroutine { continuation ->
+            val job = lookupScope.launch(start = CoroutineStart.ATOMIC) {
+                val result = try {
+                    if (continuation.isActive) {
+                        runCatching { blockingResolve(host) }.getOrNull()
+                    } else {
+                        null
+                    }
+                } finally {
+                    concurrencyGate.release()
+                }
+                if (continuation.isActive) {
+                    continuation.resume(result)
+                }
+            }
+            continuation.invokeOnCancellation {
+                job.cancel()
+            }
+        }
+    }
+
+    private companion object {
+        const val DEFAULT_MAX_CONCURRENT_LOOKUPS = 4
+    }
 }
 
 internal enum class EndpointNetworkScope {

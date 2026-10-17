@@ -70,8 +70,9 @@ For the shared photo/video viewer, information sheet, slideshow, and return tran
 
 ## UseCases And Actions
 
-- Reads use one UseCase class per read operation. Existing read UseCases generally expose `suspend operator fun invoke()` returning `Result<T>` or a direct value.
-- Writes and side-effecting operations use one Action class per operation. Actions expose `suspend operator fun invoke(...)`.
+- Reads use UseCase classes. Existing read UseCases generally expose `suspend operator fun invoke()` returning `Result<T>` or a direct value, or `observe*()` flows for Room-backed collections.
+- Standalone writes and side-effecting operations use one Action class per operation. Actions expose `suspend operator fun invoke(...)`.
+- Cached-resource `Get*UseCase` classes (`GetAlbumsUseCase`, `GetAlbumDetailUseCase`, `GetPeopleUseCase`, `GetPersonAssetsUseCase`, `GetPersonAssetsPageUseCase`, `GetTimelineBucketsUseCase`) may also expose repository `sync*` and cold-sync completion entry points alongside their read/observe methods when a single cached resource owns both observation and refresh.
 - New features should create or reuse UseCases/Actions first, then wire them into the relevant ViewModel.
 - Keep repositories behind UseCases/Actions. Screens should not inject repositories or UseCases directly unless the existing navigation/auth bootstrap pattern requires it.
 
@@ -103,8 +104,8 @@ composeApp/src/commonMain/kotlin/com/udnahc/immichgallery/
 |   +-- repository/ # Repositories wrapping API, Room, settings
 +-- domain/
 |   +-- model/      # Domain models, mappers, row packing utilities
-|   +-- usecase/    # One class per read, organized by feature/entity
-|   +-- action/     # One class per write or side effect
+|   +-- usecase/    # Read and cached-resource sync UseCases, organized by feature/entity
+|   +-- action/     # Standalone write or side-effect Actions
 +-- ui/
 |   +-- component/  # Reusable composables
 |   +-- navigation/ # Routes, AppNavigation, MainScreen

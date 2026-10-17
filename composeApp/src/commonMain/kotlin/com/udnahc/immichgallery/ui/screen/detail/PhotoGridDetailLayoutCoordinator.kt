@@ -134,6 +134,7 @@ class PhotoGridDetailLayoutCoordinator<S>(
     private val groupSectionGeometryCache =
         mutableMapOf<DetailGroupDisplayCacheKey, DetailResolvedSectionGeometry>()
     private var visibleBucketIndexes: List<Int> = listOf(0)
+    private var visibilityRevision = 0L
     private var isScrollInProgress = false
     private val deferredMosaicGroupItems = mutableMapOf<Int, List<PhotoGridDisplayItem>>()
     private var deferredMosaicFlushJob: Job? = null
@@ -365,19 +366,20 @@ class PhotoGridDetailLayoutCoordinator<S>(
         val next = indexes.distinct().ifEmpty { listOf(0) }
         if (next == visibleBucketIndexes) return
         visibleBucketIndexes = next
+        val revision = ++visibilityRevision
         if (snapshotOf(getState()).viewConfig.mosaicEnabled) {
-            scope.launch(backgroundDispatcher) {
-                sessionOperationRunner.runForOwner(ownerSessionEpoch) {
-                    flushDeferredMosaicGroups(visibleWindowOnly = true)
-                    recoverVisiblePlaceholderMosaicWork()
-                }
-            }
+            val visibleRequestKeys = next.map(::mosaicGroupRequestKey).toSet()
             scope.launch(backgroundDispatcher) {
                 sessionOperationRunner.runForOwner(ownerSessionEpoch) {
                     mosaicWorkScheduler.reprioritizePending(
                         ownerKey = ownerKey,
-                        visibleRequestKeys = next.map(::mosaicGroupRequestKey).toSet()
+                        visibleRequestKeys = visibleRequestKeys,
+                        visibilityRevision = revision
                     )
+                    if (revision == visibilityRevision) {
+                        flushDeferredMosaicGroups(visibleWindowOnly = true)
+                        recoverVisiblePlaceholderMosaicWork()
+                    }
                 }
             }
             scheduleIncompleteMosaicResume()

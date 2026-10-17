@@ -29,22 +29,15 @@ import org.lighthousegames.logging.logging
  * approximate aspect and `editsResolved` stays false so the next sync retries.
  */
 class AssetEditsEnricher(
-    private val apiService: ImmichApiService,
-    private val assetDao: AssetDao,
-    private val sessionStateRepository: SessionStateRepository
+    private val apiService: ImmichApiService
 ) {
-    private val log = logging("AssetEditsEnricher")
+    constructor(
+        apiService: ImmichApiService,
+        @Suppress("UNUSED_PARAMETER") assetDao: AssetDao,
+        @Suppress("UNUSED_PARAMETER") sessionStateRepository: SessionStateRepository
+    ) : this(apiService)
 
-    suspend fun enrich(assets: List<AssetResponse>) {
-        sessionStateRepository.withOperation { token ->
-            val resolved = resolve(assets)
-            sessionStateRepository.withCommit(token) {
-                resolved.forEach { (assetId, aspectRatio) ->
-                    assetDao.updateAspectRatioResolved(assetId, aspectRatio)
-                }
-            }
-        }
-    }
+    private val log = logging("AssetEditsEnricher")
 
     /**
      * Resolves edited asset aspects without mutating Room. Detail repositories use

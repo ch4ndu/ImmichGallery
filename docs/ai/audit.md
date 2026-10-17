@@ -17,7 +17,7 @@ For standard row packing or justified row audits, also load `docs/ai/row-packing
 
 - ViewModels are screen-specific and do not own another screen's behavior.
 - ViewModels inject UseCases and Actions, not repositories.
-- Reads flow through UseCases; writes and side effects flow through Actions.
+- Reads flow through UseCases; standalone writes and side effects flow through Actions, while cached-resource `Get*UseCase` classes may expose repository `sync*` / cold-sync completion entry points alongside read/observe methods where documented.
 - Screens do not inject repositories. Avoid screen-level UseCase injection except established app bootstrap/auth navigation.
 - DI wiring in `AppModule.kt` is complete.
 - DB and network writes use `Dispatchers.IO`.

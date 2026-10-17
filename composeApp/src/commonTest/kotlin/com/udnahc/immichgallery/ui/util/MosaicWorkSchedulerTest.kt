@@ -273,4 +273,101 @@ class MosaicWorkSchedulerTest {
 
         assertEquals(listOf("group_1", "group_0"), order)
     }
+
+    @Test
+    fun staleVisibilityRevisionIsRejectedAndNewSubmissionsUseLatestVisibleSet() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scheduler = MosaicWorkScheduler(dispatcher, this)
+        val order = mutableListOf<String>()
+
+        scheduler.setActiveForegroundOwner("album")
+        val blocker = async {
+            scheduler.run("timeline", "bg", 0, MosaicWorkPriority.Background) {
+                delay(100)
+            }
+        }
+        runCurrent()
+
+        val groupZero = async {
+            scheduler.run("album", "group_0", 0, MosaicWorkPriority.ForegroundPrefetch) {
+                order += "group_0"
+            }
+        }
+        val groupOne = async {
+            scheduler.run("album", "group_1", 0, MosaicWorkPriority.ForegroundPrefetch) {
+                order += "group_1"
+            }
+        }
+        runCurrent()
+
+        // Newer visibility revision (2) arrives before older revision (1).
+        scheduler.reprioritizePending("album", setOf("group_2"), visibilityRevision = 2L)
+        scheduler.reprioritizePending("album", setOf("group_0"), visibilityRevision = 1L)
+
+        // group_2 submitted with stale ForegroundPrefetch priority is upgraded to ForegroundVisible
+        // because it is in the latest visible set (revision 2).
+        val groupTwo = async {
+            scheduler.run("album", "group_2", 0, MosaicWorkPriority.ForegroundPrefetch) {
+                order += "group_2"
+            }
+        }
+        runCurrent()
+
+        testScheduler.advanceTimeBy(100)
+        runCurrent()
+        blocker.await()
+        groupZero.await()
+        groupOne.await()
+        groupTwo.await()
+
+        assertEquals(listOf("group_2", "group_0", "group_1"), order)
+    }
+
+    @Test
+    fun runningPrefetchWorkSurvivesStaleVisibilityRevisionAndCancelsOnNewerNonVisibleRevision() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scheduler = MosaicWorkScheduler(dispatcher, this)
+        val events = mutableListOf<String>()
+
+        scheduler.setActiveForegroundOwner("album")
+        val runningPrefetch = async {
+            scheduler.run("album", "group_0", 0, MosaicWorkPriority.ForegroundPrefetch) { token ->
+                events += "group_0_start"
+                delay(100)
+                token.ensureActive()
+                events += "group_0_complete"
+            }
+        }
+        runCurrent()
+        assertEquals(listOf("group_0_start"), events)
+
+        // Revision 2 keeps group_0 visible; late Revision 1 marks only group_1 visible.
+        // Because Revision 1 is stale, running group_0 must NOT be cancelled.
+        scheduler.reprioritizePending("album", setOf("group_0"), visibilityRevision = 2L)
+        scheduler.reprioritizePending("album", setOf("group_1"), visibilityRevision = 1L)
+
+        testScheduler.advanceTimeBy(100)
+        runCurrent()
+        runningPrefetch.await()
+        assertEquals(listOf("group_0_start", "group_0_complete"), events)
+
+        // Now start another prefetch item and verify a newer revision (3) that excludes it cancels it.
+        val cancelledPrefetch = async {
+            scheduler.run("album", "group_2", 0, MosaicWorkPriority.ForegroundPrefetch) { token ->
+                events += "group_2_start"
+                delay(100)
+                token.ensureActive()
+                events += "group_2_complete"
+            }
+        }
+        runCurrent()
+        assertEquals(listOf("group_0_start", "group_0_complete", "group_2_start"), events)
+
+        scheduler.reprioritizePending("album", setOf("group_0"), visibilityRevision = 3L)
+        testScheduler.advanceTimeBy(100)
+        runCurrent()
+
+        assertFailsWith<MosaicWorkCancelledException> { cancelledPrefetch.await() }
+        assertEquals(listOf("group_0_start", "group_0_complete", "group_2_start"), events)
+    }
 }

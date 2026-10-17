@@ -14,7 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import chaintech.videoplayer.host.MediaPlayerHost
 import chaintech.videoplayer.model.ScreenResize
 import chaintech.videoplayer.model.VideoPlayerConfig
@@ -30,6 +30,7 @@ actual fun PlatformVideoPlayer(
     isCurrentPage: Boolean,
     onTap: () -> Unit,
     modifier: Modifier,
+    bottomChromePadding: Dp,
     slideshowRequest: SlideshowMediaRequest?,
     muted: Boolean,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -81,8 +82,8 @@ actual fun PlatformVideoPlayer(
                 enableLongPressFastForward = slideshowRequest == null,
                 isFullScreenEnabled = false,
                 controlTopPadding = statusBarTop + Dimens.topBarHeight,
-                seekBarBottomPadding = navBarBottom + Dimens.screenPadding,
-                topControlSize = 36.dp
+                seekBarBottomPadding = navBarBottom + bottomChromePadding + Dimens.screenPadding,
+                topControlSize = Dimens.videoPlayerTopControlSizeMobile
             )
         )
     }

@@ -116,7 +116,7 @@ private const val BAR_ALPHA = 0.8f
 @androidx.compose.runtime.Immutable
 data class BottomNavItem(
     val labelRes: StringResource,
-    val route: Any,
+    val route: Route,
     val iconRes: DrawableResource
 )
 
@@ -141,8 +141,6 @@ fun MainScreen(
         onDispose { viewModel.stopServerStatusMonitoring() }
     }
     val isServerOnline by viewModel.isServerOnline.collectAsState()
-    val timelineGroupSize by viewModel.timelineGroupSize.collectAsState()
-    val viewConfig by viewModel.viewConfig.collectAsState()
     val screenState by viewModel.screenState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val logoutMessage = screenState.message.asTextOrNull()
@@ -188,6 +186,16 @@ fun MainScreen(
     // AlbumList and PeopleList are collection grids, not photo-asset grids.
     val isExploreTab = remember(currentDestination) {
         currentDestination?.hierarchy?.any { it.hasRoute(ExploreRoute::class) } == true
+    }
+    val timelineGroupSize = if (isTimelineTab) {
+        viewModel.timelineGroupSize.collectAsState().value
+    } else {
+        TimelineGroupSize.MONTH
+    }
+    val timelineViewConfig = if (isTimelineTab) {
+        viewModel.viewConfig.collectAsState().value
+    } else {
+        null
     }
 
     // Per-tab refresh callbacks and syncing state — set by each screen
@@ -268,13 +276,13 @@ fun MainScreen(
                 viewModel.logout()
             },
             logoutEnabled = !screenState.isLoggingOut,
-            mosaicViewConfig = viewConfig.takeIf { isTimelineTab },
+            mosaicViewConfig = timelineViewConfig,
             onMosaicViewConfigChanged = viewModel::setViewConfig,
             onPrepareMosaicViewConfig = { config ->
                 timelineMosaicPrepareCallback?.invoke(config) ?: Result.success(Unit)
             },
             timelineGroupSize = timelineGroupSize,
-            timelineGroupEnabled = !viewConfig.mosaicEnabled,
+            timelineGroupEnabled = timelineViewConfig?.mosaicEnabled != true,
             onTimelineGroupSelected = viewModel::setTimelineGroupSize,
             showTimelineGroup = isTimelineTab,
             dateNavigationActions = timelineDateNavigationActions.takeIf { isTimelineTab }

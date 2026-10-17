@@ -43,12 +43,17 @@ internal class SlideshowBinding(
                 while (isActive) {
                     select<Unit> {
                         environments.onReceive { controller.setEnvironment(it) }
-                        sources.onReceive { controller.updateSource(it()) }
+                        sources.onReceive { controller.updateSource(it) }
                         progressEvents.onReceive { (request, event) -> controller.mediaEvent(request, event) }
-                        commands.onReceive { it(controller) }
-                        if (automaticTicks) onTimeout(33) { }
+                        commands.onReceive { command ->
+                            sources.tryReceive().getOrNull()?.let(controller::updateSource)
+                            command(controller)
+                        }
+                        if (automaticTicks && controller.state.value.config != null) onTimeout(33) { }
                     }
-                    controller.tick()
+                    if (controller.state.value.config != null) {
+                        controller.tick()
+                    }
                 }
             } finally { controller.close() }
         }

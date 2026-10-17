@@ -73,7 +73,7 @@ fun FavoritesScreen(
     val listState = rememberLazyListState()
     val overlaySource = StaticPhotoOverlaySourceIdentity(
         ownerKey = "favorites:${state.ownerId.orEmpty()}:${state.activeRequestGeneration}",
-        assetIds = state.assets.map { it.id },
+        assetIds = state.assetIds,
         isPending = state.isLoading ||
             state.isLoadingMore ||
             state.nextPage != null ||

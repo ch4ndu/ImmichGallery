@@ -75,9 +75,6 @@ import org.jetbrains.compose.resources.stringResource
 
 private const val SCROLL_FRACTION_STEP = 0.005f
 private const val MIN_ITEMS_FOR_SCROLLBAR = 10
-private const val YEAR_MARKER_EDGE_PADDING = 24f
-private const val YEAR_MARKER_MIN_SPACING_DP = 28f
-private const val HANDLE_EDGE_PADDING = 8f
 private const val BUBBLE_ALPHA = 0.9f
 
 @Composable
@@ -261,8 +258,8 @@ private fun ScrollbarHandle(
     val topPaddingPx = remember(density, topPadding) { with(density) { topPadding.toPx() } }
     val bottomPaddingPx = remember(density, bottomPadding) { with(density) { bottomPadding.toPx() } }
     val handleSizePx = remember(density) { with(density) { Dimens.scrollbarHandleSize.toPx() } }
-    val handleEdgePaddingPx = remember(density) { with(density) { HANDLE_EDGE_PADDING.dp.toPx() } }
-    val yearMarkerEdgePaddingPx = remember(density) { with(density) { YEAR_MARKER_EDGE_PADDING.dp.toPx() } }
+    val handleEdgePaddingPx = remember(density) { with(density) { Dimens.scrollbarHandleEdgePadding.toPx() } }
+    val yearMarkerEdgePaddingPx = remember(density) { with(density) { Dimens.scrollbarYearMarkerEdgePadding.toPx() } }
     val handleClipOffsetPx =
         remember(density) { with(density) { Dimens.scrollbarHandleClipOffset.toPx() }.toInt() }
     val bubbleVerticalOffsetPx =
@@ -355,7 +352,7 @@ private fun ScrollbarHandle(
 
     // Filter out overlapping year markers — skip markers too close to the previous one
     val yearMarkerMinSpacingPx = remember(density) {
-        with(density) { YEAR_MARKER_MIN_SPACING_DP.dp.toPx() }
+        with(density) { Dimens.scrollbarYearMarkerMinSpacing.toPx() }
     }
     val visibleMarkers = remember(
         yearMarkers,

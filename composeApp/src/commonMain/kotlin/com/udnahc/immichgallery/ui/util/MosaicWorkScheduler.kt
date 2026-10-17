@@ -40,6 +40,7 @@ class MosaicWorkScheduler(
     private val mutex = Mutex()
     private val pending = MosaicPriorityWorkQueue()
     private val running = mutableSetOf<MosaicWork<*>>()
+    private val ownerVisibleRequests = mutableMapOf<String, OwnerVisibilitySnapshot>()
     private var workerJob: Job? = null
     private var sequence = 0L
     private var activeForegroundOwner: String? = null
@@ -72,6 +73,7 @@ class MosaicWorkScheduler(
 
     suspend fun cancelOwner(ownerKey: String) {
         val removed = mutex.withLock {
+            ownerVisibleRequests.remove(ownerKey)
             val stale = pending.removeAll { it.ownerKey == ownerKey }
             running.filter { it.ownerKey == ownerKey }.forEach { it.cancel() }
             stale
@@ -86,9 +88,26 @@ class MosaicWorkScheduler(
 
     suspend fun reprioritizePending(
         ownerKey: String,
-        visibleRequestKeys: Set<String>
+        visibleRequestKeys: Set<String>,
+        visibilityRevision: Long? = null
     ) {
-        val cancelledRunning = mutex.withLock {
+        mutex.withLock {
+            if (visibilityRevision != null) {
+                val currentRevision = ownerVisibleRequests[ownerKey]?.revision
+                if (currentRevision != null && visibilityRevision < currentRevision) {
+                    return
+                }
+                ownerVisibleRequests[ownerKey] = OwnerVisibilitySnapshot(
+                    revision = visibilityRevision,
+                    visibleRequestKeys = visibleRequestKeys
+                )
+            } else {
+                val nextRevision = (ownerVisibleRequests[ownerKey]?.revision ?: 0L) + 1L
+                ownerVisibleRequests[ownerKey] = OwnerVisibilitySnapshot(
+                    revision = nextRevision,
+                    visibleRequestKeys = visibleRequestKeys
+                )
+            }
             pending
                 .filter { it.ownerKey == ownerKey && it.priority != MosaicWorkPriority.Background }
                 .forEach { work ->
@@ -98,18 +117,16 @@ class MosaicWorkScheduler(
                         MosaicWorkPriority.ForegroundPrefetch
                     }
                 }
-            if (visibleRequestKeys.isEmpty()) {
-                emptyList()
-            } else {
+            if (visibleRequestKeys.isNotEmpty()) {
                 running
                     .filter { work ->
                         work.ownerKey == ownerKey &&
                                 work.priority == MosaicWorkPriority.ForegroundPrefetch &&
                                 work.requestKey !in visibleRequestKeys
                     }
+                    .forEach { it.cancel() }
             }
         }
-        cancelledRunning.forEach { it.cancel() }
     }
 
     suspend fun <T> run(
@@ -128,6 +145,15 @@ class MosaicWorkScheduler(
             block = block
         )
         val replaced = mutex.withLock {
+            if (work.priority != MosaicWorkPriority.Background) {
+                ownerVisibleRequests[ownerKey]?.visibleRequestKeys?.let { visibleKeys ->
+                    work.priority = if (requestKey in visibleKeys) {
+                        MosaicWorkPriority.ForegroundVisible
+                    } else {
+                        MosaicWorkPriority.ForegroundPrefetch
+                    }
+                }
+            }
             val stale = pending.removeAll { it.ownerKey == ownerKey && it.requestKey == requestKey }
             pending.add(work)
             startWorkerIfNeeded()
@@ -280,6 +306,11 @@ class MosaicWorkScheduler(
             return next
         }
     }
+
+    private data class OwnerVisibilitySnapshot(
+        val revision: Long,
+        val visibleRequestKeys: Set<String>
+    )
 
     companion object {
         private const val DEFAULT_PARALLELISM = 1

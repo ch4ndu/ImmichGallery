@@ -18,10 +18,13 @@ import com.udnahc.immichgallery.ui.util.ViewerFullscreenController
 import com.udnahc.immichgallery.ui.util.ViewerWindowPlacement
 import com.udnahc.immichgallery.ui.util.installJvmWakeInhibitionShutdownHook
 import com.udnahc.immichgallery.ui.util.shutdownJvmWakeInhibition
+import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.app_title
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.WindowEvent
 import java.awt.event.WindowFocusListener
+import org.jetbrains.compose.resources.stringResource
 import org.koin.core.context.startKoin
 import org.koin.mp.KoinPlatform
 
@@ -42,7 +45,7 @@ fun main() {
                     shutdownJvmWakeInhibition()
                     exitApplication()
                 },
-                title = "ImmichGallery",
+                title = stringResource(Res.string.app_title),
                 state = windowState,
             ) {
                 var windowVisible by remember(window) { mutableStateOf(window.isVisible) }

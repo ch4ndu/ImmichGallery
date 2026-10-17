@@ -44,6 +44,9 @@ object Dimens {
     val scrollbarYearLabelPaddingHorizontal = 6.dp
     val scrollbarYearLabelWidth = 196.dp
     val scrollbarBubbleVerticalOffset = 20.dp
+    val scrollbarHandleEdgePadding = 8.dp
+    val scrollbarYearMarkerEdgePadding = 24.dp
+    val scrollbarYearMarkerMinSpacing = 28.dp
     val stackBadgeIconSize = 12.dp
     val stackBadgePaddingHorizontal = 6.dp
     val stackBadgePaddingVertical = 2.dp
@@ -60,6 +63,8 @@ object Dimens {
     val pageIndicatorSegmentDividerWidth = 1.dp
     val pageIndicatorBottomPadding = 28.dp
     val viewerFilmstripHeight = 80.dp
+    val videoPlayerTopControlSizeMobile = 36.dp
+    val videoPlayerTopControlSizeDesktop = 48.dp
     val photoDismissThreshold = 150.dp
     val photoDismissFlickVelocity = 1200.dp
     val largeScreenMosaicColumnsMinWidth = 600.dp

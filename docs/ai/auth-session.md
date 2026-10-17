@@ -82,9 +82,11 @@ those known legacy keys; logout never clears unrelated root preferences.
   as local.
 - Loopback, RFC1918/private, link-local, CGNAT, local IPv6, single-label hosts,
   and `.local` hosts classify locally without DNS.
-- Other hostnames may be resolved on IO for up to 1.5 seconds. A resolution
-  timeout or failure is `Unknown`, which follows ordinary connection handling
-  instead of prompting.
+- Other hostnames may be resolved on IO for up to 1.5 seconds using bounded
+  concurrency and prompt cancellation decoupling (`DnsResolver` with
+  `CancellationSignal` on Android API 29+, `BoundedEndpointHostResolver` on
+  `Dispatchers.IO` elsewhere). A resolution timeout or failure is `Unknown`,
+  which follows ordinary connection handling instead of prompting.
 - `AndroidLocalNetworkAccessController` binds its Activity Result launcher to
   each `MainActivity`; it is reached through `EnsureLocalNetworkAccessAction`.
 - A denied login exposes the app-settings recovery action. The permission result

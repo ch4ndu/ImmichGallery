@@ -74,7 +74,7 @@ fun AlbumDetailScreen(
     val contentBottomPadding = navBarPadding
     val overlaySource = StaticPhotoOverlaySourceIdentity(
         ownerKey = "album:$albumId",
-        assetIds = state.assets.map { it.id },
+        assetIds = state.assetIds,
         isPending = !state.isSourceReady ||
             state.isLoading ||
             state.isBuilding ||

@@ -55,6 +55,7 @@ internal class SlideshowPlaybackController(
     private val mutableState = MutableStateFlow(SlideshowPlaybackState())
     val state: StateFlow<SlideshowPlaybackState> = mutableState.asStateFlow()
     private var source = emptyList<SlideshowSourceItem>()
+    private var pendingSourceSupplier: (() -> List<SlideshowSourceItem>)? = null
     private var session: SlideshowSession? = null
     private val timing = SlideshowTiming()
     private val failureClock = SlideshowActiveClock()
@@ -70,8 +71,21 @@ internal class SlideshowPlaybackController(
     private var fallbackUsed = false
     private var closed = false
 
+    fun updateSource(supplier: () -> List<SlideshowSourceItem>) {
+        if (closed) return
+        pendingSourceSupplier = supplier
+        if (session != null) {
+            applySourceItems(supplier())
+        }
+    }
+
     fun updateSource(items: List<SlideshowSourceItem>) {
         if (closed) return
+        pendingSourceSupplier = null
+        applySourceItems(items)
+    }
+
+    private fun applySourceItems(items: List<SlideshowSourceItem>) {
         source = items
         val order = session ?: return
         val changed = order.reconcileSource(items.map { it.candidate })
@@ -109,6 +123,7 @@ internal class SlideshowPlaybackController(
 
     fun start(config: SlideshowConfig, page: Int) {
         if (closed || !config.isValid) return
+        pendingSourceSupplier?.let { source = it() }
         val initial = source.getOrNull(page) ?: source.firstOrNull()
         session = SlideshowSession(source.map { it.candidate }, initial?.slot, config.order, random, recordInitial = false)
         timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.RUNNING, nowMillis())
@@ -125,6 +140,7 @@ internal class SlideshowPlaybackController(
     fun stop() {
         timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.STOPPED, nowMillis())
         session = null
+        source = emptyList()
         pendingSlot = null
         pendingTarget = null
         requestedBuckets.clear()
@@ -132,7 +148,7 @@ internal class SlideshowPlaybackController(
         mutableState.value = SlideshowPlaybackState(navigationId = navigationId)
     }
 
-    fun close() { stop(); closed = true; source = emptyList() }
+    fun close() { stop(); closed = true; pendingSourceSupplier = null; source = emptyList() }
 
     fun next() {
         val order = session ?: return

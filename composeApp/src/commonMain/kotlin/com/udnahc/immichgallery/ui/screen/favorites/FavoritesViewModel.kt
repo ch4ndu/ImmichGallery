@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 @Immutable
 data class FavoritesState(
     val assets: List<Asset> = emptyList(),
+    val assetIds: List<String> = assets.map(Asset::id),
     val rows: List<RowItem> = emptyList(),
     val isLoading: Boolean = true,
     val isLoadingMore: Boolean = false,
@@ -131,6 +132,7 @@ class FavoritesViewModel internal constructor(
         _state.update {
             it.copy(
                 assets = emptyList(),
+                assetIds = emptyList(),
                 rows = emptyList(),
                 isLoading = true,
                 isLoadingMore = false,
@@ -185,9 +187,12 @@ class FavoritesViewModel internal constructor(
     ) {
         loadFavorites(ownerId, startingPage, consumedPages).fold(
             onSuccess = { outcome ->
+                val assets = outcome.assets.distinctBy(Asset::id)
+                val assetIds = assets.map(Asset::id)
                 val published = updateForGeneration(generation) {
                     it.copy(
-                        assets = outcome.assets.distinctBy(Asset::id),
+                        assets = assets,
+                        assetIds = assetIds,
                         isLoading = false,
                         error = null,
                         nextPage = outcome.nextPage,
@@ -233,8 +238,10 @@ class FavoritesViewModel internal constructor(
             loadFavorites(ownerId, page, previous.consumedPages).fold(
                 onSuccess = { outcome ->
                     val published = updateForGeneration(generation) {
+                        val assets = (it.assets + outcome.assets).distinctBy(Asset::id)
                         it.copy(
-                            assets = (it.assets + outcome.assets).distinctBy(Asset::id),
+                            assets = assets,
+                            assetIds = assets.map(Asset::id),
                             isLoadingMore = false,
                             loadMoreError = null,
                             nextPage = outcome.nextPage,

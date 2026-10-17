@@ -67,6 +67,7 @@ data class SearchState(
     val appliedCriteria: SearchCriteria = SearchCriteria(),
     val submittedSession: SearchSession? = null,
     val results: List<Asset> = emptyList(),
+    val resultIds: List<String> = results.map(Asset::id),
     val rows: List<RowItem> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
@@ -401,6 +402,7 @@ class SearchViewModel internal constructor(
                 error = null,
                 hasSearched = true,
                 results = emptyList(),
+                resultIds = emptyList(),
                 rows = emptyList(),
                 submittedSession = session
             )
@@ -449,9 +451,12 @@ class SearchViewModel internal constructor(
 
     private fun publishFirstPage(session: SearchSession, result: SearchResult) {
         val consumedPages = setOf(1)
+        val results = result.assets.distinctBy(Asset::id)
+        val resultIds = results.map(Asset::id)
         val published = updateForSession(session) {
             it.copy(
-                results = result.assets.distinctBy(Asset::id),
+                results = results,
+                resultIds = resultIds,
                 isLoading = false,
                 submittedSession = session.copy(
                     currentPage = 1,
@@ -471,8 +476,10 @@ class SearchViewModel internal constructor(
         val published = updateForSession(session) { current ->
             val currentSession = current.submittedSession ?: return@updateForSession current
             val consumedPages = currentSession.consumedPages + page
+            val results = (current.results + result.assets).distinctBy(Asset::id)
             current.copy(
-                results = (current.results + result.assets).distinctBy(Asset::id),
+                results = results,
+                resultIds = results.map(Asset::id),
                 isLoadingMore = false,
                 submittedSession = currentSession.copy(
                     currentPage = page,
@@ -706,6 +713,7 @@ class SearchViewModel internal constructor(
 private fun SearchState.clearedExecution(): SearchState = copy(
     submittedSession = null,
     results = emptyList(),
+    resultIds = emptyList(),
     rows = emptyList(),
     isLoading = false,
     isLoadingMore = false,

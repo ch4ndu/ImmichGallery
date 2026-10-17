@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.component
 
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
@@ -25,7 +26,9 @@ import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.LocalAppActive
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetStackLookup
 import com.udnahc.immichgallery.domain.model.AssetType
+import com.udnahc.immichgallery.ui.theme.Dimens
 import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
 import org.junit.Rule
@@ -212,6 +215,65 @@ class ViewerFilmstripUiTest {
         compose.runOnIdle { mounted = false }
         compose.onNodeWithTag(FILMSTRIP_TAG).assertDoesNotExist()
         compose.runOnIdle { assertTrue(latestDemand.last().isEmpty()) }
+    }
+
+    @OptIn(ExperimentalSharedTransitionApi::class)
+    @Test
+    fun overlayForwardsMeasuredFooterHeightToVideoPlayerAndClearsItWhenChromeHides() {
+        val fixture = ViewerOverlayUiFixture()
+        val assets = listOf(
+            viewerFixtureAsset("v1", AssetType.VIDEO),
+            viewerFixtureAsset("i2", AssetType.IMAGE),
+        )
+        try {
+            compose.mainClock.autoAdvance = true
+            compose.setContent {
+                fixture.Content {
+                    Box(Modifier.width(360.dp).height(640.dp)) {
+                        StaticPhotoOverlay(
+                            assets = assets,
+                            initialIndex = 0,
+                            apiKey = "",
+                            getAssetDetail = { Result.success(viewerFixtureDetail(it)) },
+                            getAssetStack = { Result.success(AssetStackLookup.NoStack) },
+                            onPersonClick = { _, _ -> },
+                            onDismiss = {},
+                        )
+                    }
+                }
+            }
+
+            compose.waitUntil {
+                (fixture.presentations["v1"]?.bottomChromePadding ?: 0.dp) > 0.dp
+            }
+            val collapsedPadding = compose.runOnIdle {
+                val padding = requireNotNull(fixture.presentations["v1"]).bottomChromePadding
+                assertTrue(padding > 0.dp, "Expected positive collapsed footer padding, got $padding")
+                padding
+            }
+
+            compose.onNodeWithText("Show thumbnails").performClick()
+            compose.waitUntil {
+                (fixture.presentations["v1"]?.bottomChromePadding ?: 0.dp) > collapsedPadding
+            }
+            compose.runOnIdle {
+                val expandedPadding = requireNotNull(fixture.presentations["v1"]).bottomChromePadding
+                assertEquals(
+                    collapsedPadding + Dimens.viewerFilmstripHeight,
+                    expandedPadding,
+                )
+            }
+
+            compose.onNodeWithTag("media:v1:selected").performClick()
+            compose.waitUntil {
+                fixture.presentations["v1"]?.bottomChromePadding == 0.dp
+            }
+            compose.runOnIdle {
+                assertEquals(0.dp, requireNotNull(fixture.presentations["v1"]).bottomChromePadding)
+            }
+        } finally {
+            fixture.dispose()
+        }
     }
 
     private fun showStrip() {

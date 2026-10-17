@@ -19,7 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import chaintech.videoplayer.host.MediaPlayerHost
 import chaintech.videoplayer.model.ScreenResize
 import chaintech.videoplayer.model.VideoPlayerConfig
@@ -39,6 +39,7 @@ actual fun PlatformVideoPlayer(
     isCurrentPage: Boolean,
     onTap: () -> Unit,
     modifier: Modifier,
+    bottomChromePadding: Dp,
     slideshowRequest: SlideshowMediaRequest?,
     muted: Boolean,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -84,7 +85,7 @@ actual fun PlatformVideoPlayer(
         val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
         VideoPlayerComposable(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(bottom = bottomChromePadding),
             playerHost = host,
             playerConfig = VideoPlayerConfig(
                 showControlsOverride = if (slideshowRequest == null) null else false,
@@ -99,8 +100,8 @@ actual fun PlatformVideoPlayer(
                 enableLongPressFastForward = slideshowRequest == null,
                 isFullScreenEnabled = false,
                 controlTopPadding = statusBarTop + Dimens.topBarHeight,
-                seekBarBottomPadding = navBarBottom + Dimens.screenPadding,
-                topControlSize = 48.dp
+                seekBarBottomPadding = navBarBottom + bottomChromePadding + Dimens.screenPadding,
+                topControlSize = Dimens.videoPlayerTopControlSizeDesktop
             )
         )
     }

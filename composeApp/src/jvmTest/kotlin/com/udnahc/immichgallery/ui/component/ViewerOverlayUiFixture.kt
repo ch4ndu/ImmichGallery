@@ -41,6 +41,7 @@ internal class ViewerOverlayUiFixture(
     private val viewModelOwner = object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
     val bindings = CopyOnWriteArrayList<SlideshowBinding>()
     val media = ConcurrentHashMap<SlideshowMediaRequest, ViewerMediaPresentation>()
+    val presentations = ConcurrentHashMap<String, ViewerMediaPresentation>()
     val settledIds = CopyOnWriteArrayList<String>()
     var now = 0L
     var appActive by mutableStateOf(true)
@@ -63,7 +64,10 @@ internal class ViewerOverlayUiFixture(
         },
         mediaContent = { presentation ->
             val onTap by rememberUpdatedState(presentation.onTap)
-            SideEffect { presentation.playback?.request?.let { media[it] = presentation } }
+            SideEffect {
+                if (presentation.isCurrentPage) presentations[presentation.asset.id] = presentation
+                presentation.playback?.request?.let { media[it] = presentation }
+            }
             Box(Modifier.fillMaxSize().background(Color.DarkGray)
                 .testTag("media:${presentation.asset.id}:${if (presentation.isCurrentPage) "selected" else "adjacent"}")
                 .pointerInput(Unit) { detectTapGestures { onTap() } }) {
