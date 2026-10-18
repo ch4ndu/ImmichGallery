@@ -38,7 +38,11 @@ data class PlaceholderItem(
     override val gridKey: String,
     override val bucketIndex: Int,
     override val sectionLabel: String,
-    val estimatedHeight: Float = 150f
+    val estimatedHeight: Float = 150f,
+    val sourceStartIndex: Int? = null,
+    val sourceCount: Int? = null,
+    // True when the range indexes the bucket's ordered assets (estimates), false when section-local (exact ranges).
+    val sourceIsBucketOrdinal: Boolean = false
 ) : PhotoGridDisplayItem {
     override val isFullSpan: Boolean = false
 }

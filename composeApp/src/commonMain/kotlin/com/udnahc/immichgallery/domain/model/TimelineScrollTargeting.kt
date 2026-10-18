@@ -35,12 +35,68 @@ data class TimelineDisplayIndex(
     val sectionLabelByDisplayIndex: List<String> = emptyList(),
     val firstAssetIdByDisplayIndex: List<String?> = emptyList(),
     val gridKeyByDisplayIndex: List<String> = emptyList(),
-    val displayIndexByGridKey: Map<String, Int> = emptyMap()
+    val displayIndexByGridKey: Map<String, Int> = emptyMap(),
+    val heightDpByDisplayIndex: List<Float> = emptyList(),
+    // Stable items keep their height across placeholder replacement and may anchor scroll restoration.
+    val stableAnchorByDisplayIndex: List<Boolean> = emptyList(),
+    val bucketOrdinalStartByDisplayIndex: List<Int> = emptyList(),
+    val bucketOrdinalCountByDisplayIndex: List<Int> = emptyList(),
+    val bucketIdentityByIndex: List<String> = emptyList()
 )
 
 fun buildTimelineDisplayIndex(displayItems: List<TimelineDisplayItem>): TimelineDisplayIndex {
-    return buildPhotoGridDisplayIndex(displayItems)
+    val base = buildPhotoGridDisplayIndex(displayItems)
+    if (displayItems.isEmpty()) return base
+    val ordinalStarts = ArrayList<Int>(displayItems.size)
+    val ordinalCounts = ArrayList<Int>(displayItems.size)
+    val runningTotalByBucket = mutableMapOf<Int, Int>()
+    val sectionBase = mutableMapOf<Pair<Int, String>, Int>()
+    displayItems.forEach { item ->
+        val range = when (item) {
+            is MosaicBandItem -> item.sourceStartIndex to item.sourceCount
+            is RowItem -> item.sourceStartIndex to item.sourceCount
+            is PlaceholderItem -> item.sourceStartIndex?.let { start -> item.sourceCount?.let { start to it } }
+            else -> null
+        }
+        if (range == null) {
+            ordinalStarts.add(-1)
+            ordinalCounts.add(0)
+            return@forEach
+        }
+        val running = runningTotalByBucket[item.bucketIndex] ?: 0
+        val start = if (item is PlaceholderItem && item.sourceIsBucketOrdinal) {
+            range.first
+        } else {
+            sectionBase.getOrPut(item.bucketIndex to item.sectionLabel) { running } + range.first
+        }
+        ordinalStarts.add(start)
+        ordinalCounts.add(range.second)
+        runningTotalByBucket[item.bucketIndex] = maxOf(running, start + range.second)
+    }
+    return base.copy(
+        heightDpByDisplayIndex = displayItems.map(::photoGridDisplayItemHeightDp),
+        stableAnchorByDisplayIndex = displayItems.map(::isStableScrollAnchor),
+        bucketOrdinalStartByDisplayIndex = ordinalStarts,
+        bucketOrdinalCountByDisplayIndex = ordinalCounts
+    )
 }
+
+fun photoGridDisplayItemHeightDp(item: PhotoGridDisplayItem): Float =
+    when (item) {
+        is HeaderItem -> PHOTO_GRID_SECTION_HEADER_HEIGHT_DP
+        is ErrorItem -> PHOTO_GRID_SECTION_HEADER_HEIGHT_DP
+        is RowItem -> item.rowHeight
+        is MosaicBandItem -> item.bandHeight
+        is PlaceholderItem -> item.estimatedHeight
+        is PhotoItem -> 0f
+    }
+
+private fun isStableScrollAnchor(item: PhotoGridDisplayItem): Boolean =
+    when (item) {
+        is HeaderItem, is ErrorItem, is RowItem, is MosaicBandItem -> true
+        is PlaceholderItem -> item.sourceStartIndex != null && !item.sourceIsBucketOrdinal
+        is PhotoItem -> false
+    }
 
 fun buildPhotoGridDisplayIndex(displayItems: List<PhotoGridDisplayItem>): TimelineDisplayIndex {
     if (displayItems.isEmpty()) return TimelineDisplayIndex()

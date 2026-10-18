@@ -1361,6 +1361,11 @@ class TimelineViewModel(
         idleNeighborWarmupJob = viewModelScope.launch(Dispatchers.Default) {
             delay(TIMELINE_IDLE_NEIGHBOR_WARMUP_DELAY_MS)
             if (isTimelineScrollActive.value) return@launch
+            val config = _uiConfig.value
+            if (config.viewConfig.mosaicEnabled && !config.viewConfig.cacheMosaicResults) {
+                warmCacheOffMosaicWindow(priorityIndexes, config)
+                return@launch
+            }
             val bucketCount = state.value.buckets.size
             val neighbors = priorityIndexes
                 .flatMap(::bucketIndexesNearPriority)
@@ -1374,6 +1379,62 @@ class TimelineViewModel(
             )
         }
     }
+
+    // Cache-off has no persisted geometry, so exact layout must be computed before buckets reach the viewport.
+    private fun warmCacheOffMosaicWindow(priorityIndexes: List<Int>, config: UiConfig) {
+        val snapshot = state.value
+        val bucketHeights = timelineBucketDisplayHeights(snapshot.displayItems, snapshot.buckets.size)
+        val window = selectCacheOffWarmupBucketIndexes(
+            settledIndexes = priorityIndexes,
+            bucketHeights = bucketHeights,
+            viewportHeight = config.availableHeight,
+            screensPerDirection = TIMELINE_CACHE_OFF_WARMUP_SCREENS,
+            maxBucketsPerDirection = TIMELINE_CACHE_OFF_WARMUP_MAX_BUCKETS_PER_DIRECTION,
+            isComputed = { index ->
+                snapshot.buckets.getOrNull(index)?.timeBucket?.let(::isTimelineBucketMosaicComputed) == true
+            }
+        )
+        if (window.isEmpty()) return
+        val loadedBuckets = _bucketData.value.loadedBuckets
+        val windowBuckets = window.mapNotNull { index -> snapshot.buckets.getOrNull(index)?.timeBucket }
+        val (loaded, unloaded) = windowBuckets.partition { it in loadedBuckets && assetsForRender(it) != null }
+        if (unloaded.isNotEmpty()) {
+            loadBucketIndexes(
+                bucketIndexes = window.filter { snapshot.buckets.getOrNull(it)?.timeBucket in unloaded },
+                priority = TimelineRefreshQueuePriority.Visible,
+                source = TimelineServerRefreshSource.Visible
+            )
+        }
+        // Materialization only enqueues newly published buckets; loaded neighbors need explicit demand.
+        requestTimelineMosaicCacheReadForBuckets(
+            timeBuckets = loaded,
+            source = TimelineMosaicWorkSource.RenderDemand
+        )
+        log.d { "Timeline cache-off Mosaic warmup window=<redacted> loaded=<redacted> unloaded=<redacted>" }
+    }
+
+    private fun isTimelineBucketMosaicComputed(timeBucket: String): Boolean {
+        val config = _uiConfig.value
+        val assets = assetsForRender(timeBucket) ?: return false
+        if (assets.isEmpty()) return true
+        val assetRevision = _bucketData.value.assetRevisionFor(timeBucket)
+        return runtimeMosaicSections(timeBucket, config.groupSize, assetRevision, assets).all { section ->
+            isCurrentRuntimeMosaicSection(
+                mosaicCacheKey(
+                    timeBucket = timeBucket,
+                    sectionKey = section.sectionKey,
+                    columnCount = config.mosaicColumnCount,
+                    assetRevision = assetRevision,
+                    families = config.viewConfig.mosaicFamilies
+                )
+            )
+        }
+    }
+
+    private fun isCurrentRuntimeMosaicSection(key: MosaicCacheKey): Boolean =
+        _mosaicStates.value[key] is RuntimeMosaicState.Ready &&
+                _mosaicGeometryStates.value[key] != null &&
+                key !in repairRequiredMosaicKeys.value
 
     private fun settledTimelineBucketIndexes(): List<Int> =
         orderedSettledTimelineBucketIndexes(
@@ -3149,7 +3210,13 @@ class TimelineViewModel(
         dispatchRepairRequiredMosaicKeys()
         val pageIndex = pageIndexForState(data)
         val scrollbarData = scrollbarDataForState(data.buckets, pageIndex)
-        val displayIndex = displayIndexForItems(displayItems)
+        val displayIndex = displayIndexForItems(
+            displayItems,
+            data.buckets.map { bucket ->
+                "${bucket.timeBucket}#${data.assetRevisionFor(bucket.timeBucket)}#" +
+                        "${config.groupSize.apiValue}#${config.mosaicColumnCount}"
+            }
+        )
         val sectionLabelsByKey = timelineSectionLabels(data, config.groupSize, skeletonBuckets)
         val elapsed = mark.elapsedNow()
         if (elapsed.inWholeMilliseconds >= TIMELINE_REBUILD_LOG_THRESHOLD_MS) {
@@ -3277,9 +3344,17 @@ class TimelineViewModel(
         }
     }
 
-    private fun displayIndexForItems(displayItems: List<TimelineDisplayItem>): TimelineDisplayIndex {
-        if (displayItems === cachedDisplayIndexItems) return cachedDisplayIndex
-        return buildTimelineDisplayIndex(displayItems).also { displayIndex ->
+    private fun displayIndexForItems(
+        displayItems: List<TimelineDisplayItem>,
+        bucketIdentities: List<String>
+    ): TimelineDisplayIndex {
+        if (displayItems === cachedDisplayIndexItems) {
+            if (cachedDisplayIndex.bucketIdentityByIndex != bucketIdentities) {
+                cachedDisplayIndex = cachedDisplayIndex.copy(bucketIdentityByIndex = bucketIdentities)
+            }
+            return cachedDisplayIndex
+        }
+        return buildTimelineDisplayIndex(displayItems).copy(bucketIdentityByIndex = bucketIdentities).also { displayIndex ->
             cachedDisplayIndexItems = displayItems
             cachedDisplayIndex = displayIndex
         }
@@ -3636,7 +3711,7 @@ class TimelineViewModel(
         skeleton: TimelineMosaicBucketSkeleton?
     ): List<TimelineDisplayItem> {
         val timeBucket = bucket.timeBucket
-        val useAlignedMosaic = useMosaic && mosaicLayoutSpec != null && viewConfig.cacheMosaicResults
+        val useAlignedMosaic = useMosaic && mosaicLayoutSpec != null
         val isFailed = timeBucket in data.failedBuckets
         val isLoaded = timeBucket in data.loadedBuckets && assetsForRender(timeBucket) != null
         val items = mutableListOf<TimelineDisplayItem>()
@@ -3685,7 +3760,8 @@ class TimelineViewModel(
                         sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
                         bucketIndex = index,
                         sectionLabel = monthMosaicSectionKey(timeBucket),
-                        placeholderHeight = bucketGeometryHeight
+                        placeholderHeight = bucketGeometryHeight,
+                        ordinalCount = bucket.count
                     )
                 } else if (useMosaic && bucketGeometryKey != null && bucketGeometryKey in data.geometryReadyBuckets) {
                     // Exact geometry is known to be empty for this bucket.
@@ -3773,11 +3849,15 @@ class TimelineViewModel(
                                 sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
                                 bucketIndex = index,
                                 sectionLabel = monthMosaicSectionKey(timeBucket),
-                                placeholderHeight = aggregatePlaceholderHeight
+                                placeholderHeight = aggregatePlaceholderHeight,
+                                ordinalCount = assets.size
                             )
                             return items
                         }
+                        var nextDayOrdinalBase = 0
                         for (dayGroup in dayGroupList) {
+                            val dayOrdinalBase = nextDayOrdinalBase
+                            nextDayOrdinalBase += dayGroup.assets.size
                             val daySectionKey = dayGroup.sectionKey
                             items.add(
                                 HeaderItem(
@@ -3828,7 +3908,8 @@ class TimelineViewModel(
                                         sectionLabel = daySectionKey,
                                         assets = dayGroup.assets,
                                         mosaicLayoutSpec = mosaicLayoutSpec,
-                                        sectionGeometry = mosaicGeometryStates[dayMosaicKey]
+                                        sectionGeometry = mosaicGeometryStates[dayMosaicKey],
+                                        ordinalBase = dayOrdinalBase
                                     )
                                 }
 
@@ -3878,7 +3959,8 @@ class TimelineViewModel(
                                         sectionLabel = daySectionKey,
                                         assets = dayGroup.assets,
                                         mosaicLayoutSpec = mosaicLayoutSpec,
-                                        sectionGeometry = mosaicGeometryStates[dayMosaicKey]
+                                        sectionGeometry = mosaicGeometryStates[dayMosaicKey],
+                                        ordinalBase = dayOrdinalBase
                                     )
                                 }
 
@@ -3892,7 +3974,8 @@ class TimelineViewModel(
                                         assetCount = dayGroup.assets.size,
                                         groupSize = TimelineGroupSize.MONTH,
                                         availableWidth = availableWidth,
-                                        targetRowHeight = mosaicLayoutSpec?.cellHeight ?: targetRowHeight
+                                        targetRowHeight = mosaicLayoutSpec?.cellHeight ?: targetRowHeight,
+                                        ordinalBase = dayOrdinalBase
                                     )
                                 }
 
@@ -3951,7 +4034,8 @@ class TimelineViewModel(
                                 sectionKey = timelinePlaceholderSectionKey(timeBucket, groupSize),
                                 bucketIndex = index,
                                 sectionLabel = monthSectionKey,
-                                placeholderHeight = aggregatePlaceholderHeight
+                                placeholderHeight = aggregatePlaceholderHeight,
+                                ordinalCount = assets.size
                             )
                             return items
                         }
@@ -4140,7 +4224,8 @@ class TimelineViewModel(
         assetCount: Int,
         groupSize: TimelineGroupSize,
         availableWidth: Float,
-        targetRowHeight: Float
+        targetRowHeight: Float,
+        ordinalBase: Int = 0
     ) {
         val estimatedDayHeaders = if (groupSize == TimelineGroupSize.DAY) {
             (assetCount / 3).coerceAtLeast(1)
@@ -4160,7 +4245,7 @@ class TimelineViewModel(
                 prefix = "pl",
                 timeBucket = timeBucket,
                 sectionKey = sectionKey
-            )
+            ).withBucketOrdinals(ordinalBase, assetCount)
         )
     }
 
@@ -4210,7 +4295,7 @@ class TimelineViewModel(
                         prefix = "pl",
                         timeBucket = timeBucket,
                         sectionKey = sectionKey
-                    )
+                    ).withBucketOrdinals(0, assets.size)
                 )
                 return
             }
@@ -4360,7 +4445,8 @@ class TimelineViewModel(
         sectionLabel: String,
         assets: List<Asset>,
         mosaicLayoutSpec: MosaicLayoutSpec,
-        sectionGeometry: TimelineMosaicSectionGeometry?
+        sectionGeometry: TimelineMosaicSectionGeometry?,
+        ordinalBase: Int = 0
     ) {
         val ranges = sectionGeometry?.ranges.orEmpty()
         if (ranges.isNotEmpty()) {
@@ -4382,7 +4468,9 @@ class TimelineViewModel(
                 sectionKey = sectionKey,
                 bucketIndex = bucketIndex,
                 sectionLabel = sectionLabel,
-                placeholderHeight = height
+                placeholderHeight = height,
+                ordinalCount = assets.size,
+                ordinalBase = ordinalBase
             )
             return
         }
@@ -4395,7 +4483,8 @@ class TimelineViewModel(
             assetCount = assets.size,
             groupSize = TimelineGroupSize.MONTH,
             availableWidth = mosaicLayoutSpec.availableWidth,
-            targetRowHeight = mosaicLayoutSpec.cellHeight
+            targetRowHeight = mosaicLayoutSpec.cellHeight,
+            ordinalBase = ordinalBase
         )
     }
 
@@ -4429,7 +4518,9 @@ class TimelineViewModel(
         sectionKey: String,
         bucketIndex: Int,
         sectionLabel: String,
-        placeholderHeight: Float
+        placeholderHeight: Float,
+        ordinalCount: Int = 0,
+        ordinalBase: Int = 0
     ) {
         items.addAll(
             remapTimelinePlaceholderKeys(
@@ -4442,7 +4533,7 @@ class TimelineViewModel(
                 prefix = "pl",
                 timeBucket = timeBucket,
                 sectionKey = sectionKey
-            )
+            ).withBucketOrdinals(ordinalBase, ordinalCount)
         )
     }
 
@@ -5521,6 +5612,7 @@ class TimelineViewModel(
                     assetRevision = assetRevision,
                     families = families
                 )
+                if (isCurrentRuntimeMosaicSection(key)) continue
                 val generationStamp = TimelineRuntimeGenerationStamp(
                     globalGeneration = capturedOriginPublishStamp.globalGeneration,
                     bucketGeneration = capturedOriginPublishStamp.bucketGenerations[timeBucket] ?: 0L
@@ -6272,6 +6364,8 @@ class TimelineViewModel(
         private const val CACHED_BUCKET_MATERIALIZATION_CHUNK_SIZE = 2
         private const val PROGRESSIVE_MOSAIC_FLUSH_DELAY_MS = 250L
         private const val TIMELINE_IDLE_NEIGHBOR_WARMUP_DELAY_MS = 250L
+        private const val TIMELINE_CACHE_OFF_WARMUP_SCREENS = 4f
+        private const val TIMELINE_CACHE_OFF_WARMUP_MAX_BUCKETS_PER_DIRECTION = 6
         private const val TIMELINE_REBUILD_LOG_THRESHOLD_MS = 16L
     }
 }

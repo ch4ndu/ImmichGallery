@@ -5,6 +5,8 @@ import com.udnahc.immichgallery.data.repository.SessionOperationStamp
 import com.udnahc.immichgallery.data.repository.StaleSessionOperationException
 import com.udnahc.immichgallery.domain.action.auth.SessionOperationRunner
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.photoGridDisplayItemHeightDp
+import com.udnahc.immichgallery.domain.model.GRID_SPACING_DP
 import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
 import com.udnahc.immichgallery.domain.model.GeometryAlignedRange
 import com.udnahc.immichgallery.domain.model.GeometryAlignedSection
@@ -134,7 +136,9 @@ internal fun timelineGeometryAlignedItems(
                 gridKey = key,
                 bucketIndex = bucketIndex,
                 sectionLabel = sectionLabel,
-                estimatedHeight = range.height
+                estimatedHeight = range.height,
+                sourceStartIndex = range.sourceStartIndex,
+                sourceCount = range.sourceCount
             )
         }
     }
@@ -947,3 +951,66 @@ internal data class TimelineGeometryInputs(
     val buckets: Map<MosaicCacheKey, Float>,
     val skeleton: TimelineSkeletonState
 )
+
+internal fun timelineBucketDisplayHeights(
+    displayItems: List<TimelineDisplayItem>,
+    bucketCount: Int
+): List<Float> {
+    val heights = FloatArray(bucketCount)
+    displayItems.forEach { item ->
+        if (item.bucketIndex in 0 until bucketCount) {
+            heights[item.bucketIndex] += photoGridDisplayItemHeightDp(item) + GRID_SPACING_DP
+        }
+    }
+    return heights.toList()
+}
+
+// Walks outward from the settled viewport, nearest first, until each direction covers the screen budget or bucket cap.
+internal fun selectCacheOffWarmupBucketIndexes(
+    settledIndexes: List<Int>,
+    bucketHeights: List<Float>,
+    viewportHeight: Float,
+    screensPerDirection: Float,
+    maxBucketsPerDirection: Int,
+    isComputed: (Int) -> Boolean
+): List<Int> {
+    if (settledIndexes.isEmpty() || bucketHeights.isEmpty() || viewportHeight <= 0f) return emptyList()
+    val budget = viewportHeight * screensPerDirection
+    fun direction(start: Int, step: Int): List<Int> = buildList {
+        var index = start
+        var covered = 0f
+        var visited = 0
+        while (index in bucketHeights.indices && covered < budget && visited < maxBucketsPerDirection) {
+            if (index !in settledIndexes && !isComputed(index)) add(index)
+            covered += bucketHeights[index]
+            visited++
+            index += step
+        }
+    }
+    val below = direction(settledIndexes.max() + 1, 1)
+    val above = direction(settledIndexes.min() - 1, -1)
+    return buildList {
+        for (i in 0 until maxOf(below.size, above.size)) {
+            below.getOrNull(i)?.let(::add)
+            above.getOrNull(i)?.let(::add)
+        }
+    }
+}
+
+// Splits a bucket-ordinal range across estimate pieces in proportion to their heights.
+internal fun List<PlaceholderItem>.withBucketOrdinals(base: Int, count: Int): List<PlaceholderItem> {
+    if (isEmpty() || count <= 0) return this
+    val total = sumOf { it.estimatedHeight.toDouble() }
+    if (total <= 0.0) return this
+    var cumulative = 0.0
+    return mapIndexed { index, item ->
+        val start = (cumulative / total * count).toInt()
+        cumulative += item.estimatedHeight
+        val end = if (index == lastIndex) count else (cumulative / total * count).toInt()
+        item.copy(
+            sourceStartIndex = base + start,
+            sourceCount = (end - start).coerceAtLeast(0),
+            sourceIsBucketOrdinal = true
+        )
+    }
+}

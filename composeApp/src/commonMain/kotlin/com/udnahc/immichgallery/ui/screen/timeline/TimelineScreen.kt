@@ -47,6 +47,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.ErrorItem
@@ -534,7 +535,7 @@ fun TimelineContent(
 }
 
 @Composable
-private fun TimelineScrollEffects(
+internal fun TimelineScrollEffects(
     listState: LazyListState,
     displayIndex: TimelineDisplayIndex,
     scrollAnchorReconciler: TimelineScrollAnchorReconciler,
@@ -544,8 +545,19 @@ private fun TimelineScrollEffects(
     val latestDisplayIndex by rememberUpdatedState(displayIndex)
     val latestOnVisibleBucketsChanged by rememberUpdatedState(onVisibleBucketsChanged)
     val latestOnScrollInProgressChanged by rememberUpdatedState(onScrollInProgressChanged)
+    val density = LocalDensity.current
+    val latestDensity by rememberUpdatedState(density)
 
     LaunchedEffect(listState, scrollAnchorReconciler) {
+        fun anchorMetrics(): TimelineAnchorMetrics {
+            val currentDensity = latestDensity
+            val layoutInfo = listState.layoutInfo
+            return TimelineAnchorMetrics(
+                heightPx = { heightDp -> with(currentDensity) { heightDp.dp.roundToPx() } },
+                spacingPx = with(currentDensity) { Dimens.gridSpacing.roundToPx() },
+                viewportPx = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+            )
+        }
         snapshotFlow {
             TimelineScrollObservation(
                 projection = latestDisplayIndex,
@@ -564,7 +576,8 @@ private fun TimelineScrollEffects(
                 val restore = scrollAnchorReconciler.observe(
                     projection = observation.projection,
                     visibleItems = observation.visibleItems,
-                    isScrollInProgress = observation.isScrollInProgress
+                    isScrollInProgress = observation.isScrollInProgress,
+                    metrics = anchorMetrics()
                 ) ?: return@collect
                 restore.displayIndex?.let { targetIndex ->
                     val targetVisible = listState.layoutInfo.visibleItemsInfo
@@ -584,7 +597,8 @@ private fun TimelineScrollEffects(
                                 itemOffset = item.offset,
                                 key = item.key as? String
                             )
-                        }
+                        },
+                        metrics = anchorMetrics()
                     )
                 }
             }

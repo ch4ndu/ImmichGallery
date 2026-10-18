@@ -1,6 +1,12 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import com.udnahc.immichgallery.domain.model.HeaderItem
+import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.PhotoGridDisplayItem
+import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
+import com.udnahc.immichgallery.domain.model.buildTimelineDisplayIndex
+import kotlin.math.roundToInt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -248,6 +254,109 @@ class TimelineScrollAnchorTest {
             reconciler.observe(after, visible(index = 0, offset = 0), false)
         )
     }
+
+    @Test
+    fun clippedEstimateAboveVisibleBandPinsTheVisibleBand() {
+        val before = timelineProjection(header("h_b"), estimate("est", 500f, 0, 10), rangeBand("mr_b_0_4", 0, 4, 300f))
+        val after = timelineProjection(header("h_b"), estimate("est2", 120f, 0, 10), rangeBand("mr_b_0_4", 0, 4, 300f))
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.observe(
+            before,
+            listOf(TimelineVisibleScrollItem(1, -100, "est"), TimelineVisibleScrollItem(2, 400, "mr_b_0_4")),
+            false
+        )
+
+        assertEquals(TimelineScrollRestore(displayIndex = 2, scrollOffset = -400), reconciler.observe(after, visible(0, 0), false))
+    }
+
+    @Test
+    fun estimateOnlyViewportKeepsPixelDistanceFromPrecedingHeader() {
+        val metrics = TimelineAnchorMetrics(heightPx = { (it * 2.75f).roundToInt() }, spacingPx = 6, viewportPx = 2000)
+        val before = timelineProjection(header("h_b"), estimate("e1", 1000f, 0, 10), estimate("e2", 1000f, 10, 10))
+        val after = timelineProjection(header("h_b"), rangeBand("mr_b_0_20", 0, 20, 700f))
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.observe(before, listOf(TimelineVisibleScrollItem(2, -50, "e2")), false, metrics)
+
+        val expectedDistance = 50 + 2750 + 6 + 132 + 6
+        assertEquals(
+            TimelineScrollRestore(displayIndex = 0, scrollOffset = expectedDistance),
+            reconciler.observe(after, visible(0, 0), false, metrics)
+        )
+    }
+
+    @Test
+    fun farFromAnyHeaderEstimatedOrdinalMapsIntoSecondDayAfterMaterialization() {
+        val metrics = TimelineAnchorMetrics(heightPx = { it.roundToInt() }, spacingPx = 0, viewportPx = 1000)
+        val before = timelineProjection(
+            header("h_b"),
+            estimate("estA", 5000f, 0, 50),
+            estimate("estB", 5000f, 50, 50),
+            identity = "b#1#DAY#4"
+        )
+        val after = timelineProjection(
+            header("h_b"),
+            header("dh_1", section = "b|day|1"),
+            rangeBand("mr_d1_0", 0, 30, 600f, section = "b|day|1"),
+            rangeBand("mr_d1_30", 30, 30, 600f, section = "b|day|1"),
+            header("dh_2", section = "b|day|2"),
+            rangeBand("mr_d2_0", 0, 20, 400f, section = "b|day|2"),
+            rangeBand("mr_d2_20", 20, 20, 400f, section = "b|day|2"),
+            identity = "b#1#DAY#4"
+        )
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.observe(before, listOf(TimelineVisibleScrollItem(2, -2500, "estB")), false, metrics)
+
+        assertEquals(
+            TimelineScrollRestore(displayIndex = 5, scrollOffset = 300),
+            reconciler.observe(after, visible(0, 0), false, metrics)
+        )
+    }
+
+    @Test
+    fun estimatedOrdinalIsRejectedAfterBucketContentRevisionChanges() {
+        val metrics = TimelineAnchorMetrics(heightPx = { it.roundToInt() }, spacingPx = 0, viewportPx = 1000)
+        val before = timelineProjection(
+            header("h_b"),
+            estimate("estA", 5000f, 0, 50),
+            estimate("estB", 5000f, 50, 50),
+            identity = "b#1#DAY#4"
+        )
+        val after = timelineProjection(
+            header("h_b"),
+            rangeBand("mr_b_0", 0, 100, 4000f),
+            identity = "b#2#DAY#4"
+        )
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.observe(before, listOf(TimelineVisibleScrollItem(2, -2500, "estB")), false, metrics)
+
+        assertNull(reconciler.observe(after, visible(0, 0), false, metrics)?.displayIndex)
+    }
+
+    private fun header(key: String, section: String = "b|month") = HeaderItem(key, 0, section, key)
+
+    private fun estimate(key: String, height: Float, start: Int, count: Int) = PlaceholderItem(
+        gridKey = key,
+        bucketIndex = 0,
+        sectionLabel = "b|month",
+        estimatedHeight = height,
+        sourceStartIndex = start,
+        sourceCount = count,
+        sourceIsBucketOrdinal = true
+    )
+
+    private fun rangeBand(key: String, start: Int, count: Int, height: Float, section: String = "b|month") =
+        MosaicBandItem(
+            gridKey = key,
+            bucketIndex = 0,
+            sectionLabel = section,
+            tiles = emptyList(),
+            bandHeight = height,
+            sourceStartIndex = start,
+            sourceCount = count
+        )
+
+    private fun timelineProjection(vararg items: PhotoGridDisplayItem, identity: String = "b#1#MONTH#4") =
+        buildTimelineDisplayIndex(items.toList()).copy(bucketIdentityByIndex = listOf(identity))
 
     private data class Row(
         val bucket: Int,
