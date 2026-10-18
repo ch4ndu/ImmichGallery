@@ -59,6 +59,21 @@ data class SectionGeometry(
     val ranges: List<MosaicSectionGeometryRange> = emptyList()
 )
 
+const val MOSAIC_GEOMETRY_RANGE_HEIGHT_TOLERANCE = 0.01f
+
+@Immutable
+data class GeometryAlignedRange(
+    val range: MosaicSectionGeometryRange,
+    val item: PhotoGridDisplayItem?
+)
+
+@Immutable
+data class GeometryAlignedSection(
+    val ranges: List<GeometryAlignedRange>
+) {
+    val allMatched: Boolean = ranges.all { it.item != null }
+}
+
 @Immutable
 data class AggregateGeometry(
     val owner: MosaicOwnerKey,
@@ -510,6 +525,36 @@ class MosaicRenderEngine : MosaicSectionComputer {
                 expectedTotalHeight
             )
         }
+    }
+
+    // Pairs each geometry range with the completed item that occupies exactly that source slice and height.
+    fun alignToGeometryRanges(
+        items: List<PhotoGridDisplayItem>,
+        ranges: List<MosaicSectionGeometryRange>,
+        tolerance: Float = MOSAIC_GEOMETRY_RANGE_HEIGHT_TOLERANCE
+    ): GeometryAlignedSection {
+        val completedBySlice = items.mapNotNull { item ->
+            when (item) {
+                is MosaicBandItem -> item.takeIf { it.kind == MosaicBandKind.REAL }
+                    ?.let { band -> Triple(band.sourceStartIndex, band.sourceCount, band.bandHeight) to item }
+
+                is RowItem -> item.takeIf { it.kind == RowItemKind.MOSAIC_FALLBACK }
+                    ?.let { row -> Triple(row.sourceStartIndex, row.sourceCount, row.rowHeight) to item }
+
+                else -> null
+            }
+        }.associateBy({ (slice, _) -> slice.first to slice.second }) { (slice, item) -> slice.third to item }
+        return GeometryAlignedSection(
+            ranges.sortedBy { it.sourceStartIndex }.map { range ->
+                val candidate = completedBySlice[range.sourceStartIndex to range.sourceCount]
+                GeometryAlignedRange(
+                    range = range,
+                    item = candidate
+                        ?.takeIf { (height, _) -> kotlin.math.abs(height - range.height) <= tolerance }
+                        ?.second
+                )
+            }
+        )
     }
 
     override fun computeSectionGeometry(

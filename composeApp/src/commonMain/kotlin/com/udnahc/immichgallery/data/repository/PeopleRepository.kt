@@ -230,7 +230,7 @@ class PeopleRepository(
                             }
                             .orEmpty()
                         if (!skipAssetWrite) {
-                            assetDao.upsertAssets(assetEntities)
+                            assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             if (rawWindowChanged) {
                                 // If a fetched page changed, later cached pages may now be
                                 // shifted. Truncate from this page and let loadMore refill a
@@ -349,7 +349,7 @@ class PeopleRepository(
                             candidates = assetEntities
                         )
                         if (!skipAssetWrite) {
-                            assetDao.upsertAssets(assetEntities)
+                            assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             personDao.replacePersonRefs(personId, crossRefs)
                         }
                         val after = if (skipAssetWrite) before else personDao.getPersonAssets(personId)

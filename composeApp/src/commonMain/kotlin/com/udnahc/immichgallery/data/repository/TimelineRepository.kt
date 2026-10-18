@@ -150,6 +150,7 @@ class TimelineRepository(
                             // that can safely clear relationship rows immediately.
                             removedBucketIds.forEach { timeBucket ->
                                 timelineDao.clearTimelineRefsForBucket(timeBucket)
+                                timelineDao.deleteBucketSnapshot(timeBucket)
                             }
                             timelineDao.replaceBuckets(entities)
                         }
@@ -233,8 +234,9 @@ class TimelineRepository(
                 withContext(Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
                         transactor.immediateTransaction {
-                            assetDao.upsertAssets(assetEntities)
+                            assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             timelineDao.replaceBucketRefs(timeBucket, crossRefs)
+                            assetDao.refreshTimelineBucketSnapshots(listOf(timeBucket))
                             if (changed) {
                                 clearTimelineMosaicArtifactsForBucket(timeBucket)
                             }
@@ -320,6 +322,7 @@ class TimelineRepository(
                 transactor.immediateTransaction {
                     timelineDao.clearBuckets()
                     timelineDao.clearAllTimelineRefs()
+                    timelineDao.clearAllBucketSnapshots()
                 }
             }
         }

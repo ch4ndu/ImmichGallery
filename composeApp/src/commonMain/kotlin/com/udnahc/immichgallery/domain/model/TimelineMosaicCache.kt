@@ -3,6 +3,7 @@ package com.udnahc.immichgallery.domain.model
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlin.math.roundToInt
 import kotlin.time.Instant
 import kotlinx.serialization.Serializable
 
@@ -53,6 +54,25 @@ data class TimelineBucketGeometrySummary(
     val displayItemCount: Int
 )
 
+@Serializable
+data class TimelineMosaicSectionManifestEntry(
+    val sectionKey: String,
+    val assetCount: Int
+)
+
+data class TimelineMosaicBucketSkeleton(
+    val timeBucket: String,
+    val assetCount: Int,
+    val placeholderHeight: Float,
+    val sections: List<TimelineMosaicGeometrySummary>
+) {
+    val contentToken: Int = sections.hashCode() * 31 + placeholderHeight.hashCode()
+}
+
+data class TimelineMosaicSkeleton(
+    val buckets: Map<String, TimelineMosaicBucketSkeleton>
+)
+
 data class TimelineBucketSnapshot(
     val timeBucket: String,
     val assets: List<Asset>,
@@ -74,11 +94,6 @@ data class TimelineMosaicCacheStatus(
     val assignmentGeometryReadyBucketIds: Set<String> = completeBucketIds,
     val displayCacheReadyBucketIds: Set<String> = completeBucketIds,
     val missingSectionKeysByBucket: Map<String, Set<String>> = emptyMap()
-)
-
-data class TimelineMosaicGeometrySnapshot(
-    val bucketGeometrySummaries: List<TimelineBucketGeometrySummary>,
-    val sectionGeometrySummaries: List<TimelineMosaicGeometrySummary>
 )
 
 data class TimelineMosaicRepairSectionInput(
@@ -191,6 +206,8 @@ data class TimelineMosaicBucketGeometryArtifact(
     val geometryRequest: TimelineMosaicGeometryRequest,
     val placeholderHeight: Float,
     val displayItemCount: Int,
+    val sectionManifest: List<TimelineMosaicSectionManifestEntry> = emptyList(),
+    val groupingZoneId: String = "",
     val updatedAt: Long
 )
 
@@ -236,19 +253,24 @@ fun MosaicBandAssignmentDto.toDomain(): MosaicBandAssignment =
 fun timelineMosaicFamiliesKey(families: Set<MosaicTemplateFamily>): String =
     families.map { it.persistedId }.sorted().joinToString("|")
 
-fun orderedTimelineAssetsFingerprint(assets: List<Asset>): String =
-    assets.joinToString(separator = "\n") { asset ->
-        listOf(
-            asset.id,
-            asset.type.name,
-            asset.fileName,
-            asset.createdAt,
-            asset.isFavorite.toString(),
-            asset.stackCount.toString(),
-            asset.aspectRatio.toString(),
-            asset.isEdited.toString()
-        ).joinToString(separator = "\u001f")
+fun orderedTimelineAssetsFingerprint(assets: List<Asset>): String {
+    val hasher = OrderedFingerprintHasher()
+    assets.forEach { asset ->
+        hasher.addAsset(
+            listOf(
+                asset.id,
+                asset.type.name,
+                asset.fileName,
+                asset.createdAt,
+                asset.isFavorite.toString(),
+                asset.stackCount.toString(),
+                asset.aspectRatio.toString(),
+                asset.isEdited.toString()
+            )
+        )
     }
+    return hasher.result()
+}
 
 fun shouldRejectUnsyncedEmptyTimelineBucket(
     actualAssetCount: Int,
@@ -387,6 +409,24 @@ fun timelineDaySections(
     }
 }
 
+// DAY section membership depends on the device zone, so DAY artifacts carry it as identity.
+fun timelineMosaicGroupingZoneId(groupSize: TimelineGroupSize): String =
+    if (groupSize == TimelineGroupSize.DAY) TimeZone.currentSystemDefault().id else ""
+
+fun timelineMosaicCacheWidth(availableWidth: Float): Float =
+    (availableWidth * TIMELINE_MOSAIC_WIDTH_QUANTUM).roundToInt() / TIMELINE_MOSAIC_WIDTH_QUANTUM
+
+fun timelineDaySectionDisplayLabel(sectionKey: String): AssetGroupDisplayLabel? {
+    val dayIdentity = sectionKey.substringAfter("|day|", missingDelimiterValue = "")
+    if (dayIdentity.isEmpty()) return null
+    if (dayIdentity == TIMELINE_UNKNOWN_DATE_SECTION_ID) return AssetGroupDisplayLabel.UnknownDate
+    return try {
+        AssetGroupDisplayLabel.Day(LocalDate.parse(dayIdentity))
+    } catch (_: Exception) {
+        null
+    }
+}
+
 fun timelineMonthMosaicSectionKey(timeBucket: String): String = "$timeBucket|month"
 
 fun timelineDayMosaicSectionKey(
@@ -396,3 +436,4 @@ fun timelineDayMosaicSectionKey(
     "$timeBucket|day|$dayIdentity"
 
 const val TIMELINE_UNKNOWN_DATE_SECTION_ID = "unknown-date"
+const val TIMELINE_MOSAIC_WIDTH_QUANTUM = 100f

@@ -206,6 +206,49 @@ class TimelineScrollAnchorTest {
         assertEquals("a", reconciler.anchoredAssetIdForTests())
     }
 
+    @Test
+    fun placeholderOnlyViewportRestoresByKeyInsteadOfStaleAssetAbove() {
+        val top = projection(
+            row(bucket = 0, key = "a-row", assetId = "a"),
+            row(bucket = 1, key = "mr_1_0_4", assetId = null),
+            row(bucket = 1, key = "mr_1_4_4", assetId = null)
+        )
+        val ready = projection(
+            row(bucket = 0, key = "a-row", assetId = "a"),
+            row(bucket = 1, key = "mr_1_0_4", assetId = "b"),
+            row(bucket = 1, key = "mr_1_4_4", assetId = "c")
+        )
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.observe(top, visible(index = 0, offset = 0), false)
+        reconciler.observe(top, listOf(TimelineVisibleScrollItem(2, -40, key = "mr_1_4_4")), false)
+
+        assertNull(reconciler.anchoredAssetIdForTests())
+        assertEquals(
+            TimelineScrollRestore(displayIndex = 2, scrollOffset = 40),
+            reconciler.observe(ready, visible(index = 0, offset = 0), false)
+        )
+    }
+
+    @Test
+    fun measuredLazyKeyWinsOverLaggingProjectionIndex() {
+        val before = projection(
+            row(bucket = 0, key = "x", assetId = "x"),
+            row(bucket = 0, key = "y", assetId = "y")
+        )
+        val after = projection(
+            row(bucket = 0, key = "inserted", assetId = "i"),
+            row(bucket = 0, key = "x", assetId = "x"),
+            row(bucket = 0, key = "y", assetId = "y")
+        )
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.observe(before, listOf(TimelineVisibleScrollItem(0, -6, key = "y")), false)
+
+        assertEquals(
+            TimelineScrollRestore(displayIndex = 2, scrollOffset = 6),
+            reconciler.observe(after, visible(index = 0, offset = 0), false)
+        )
+    }
+
     private data class Row(
         val bucket: Int,
         val key: String,

@@ -4,7 +4,9 @@ import com.udnahc.immichgallery.domain.model.TimelineDisplayIndex
 
 internal data class TimelineVisibleScrollItem(
     val displayIndex: Int,
-    val itemOffset: Int
+    val itemOffset: Int,
+    // Measured lazy-list key; avoids resolving an index against a projection the layout has not caught up with.
+    val key: String? = null
 )
 
 internal data class TimelineScrollRestore(
@@ -19,6 +21,11 @@ private data class TimelineAssetScrollAnchor(
     val fallbackItemKey: String?
 )
 
+private data class TimelineViewportScrollAnchor(
+    val gridKey: String,
+    val scrollOffset: Int
+)
+
 private data class TimelineBucketScrollAnchor(
     val bucketIndex: Int,
     val itemKey: String?,
@@ -28,6 +35,7 @@ private data class TimelineBucketScrollAnchor(
 internal class TimelineScrollAnchorReconciler {
     private var capturedProjection: TimelineDisplayIndex? = null
     private var assetAnchor: TimelineAssetScrollAnchor? = null
+    private var viewportAnchor: TimelineViewportScrollAnchor? = null
     private var bucketAnchor: TimelineBucketScrollAnchor? = null
     private var restoringProjection: TimelineDisplayIndex? = null
     private var requestedAssetId: String? = null
@@ -35,6 +43,7 @@ internal class TimelineScrollAnchorReconciler {
     fun cancelRequestedAnchor() {
         capturedProjection = null
         assetAnchor = null
+        viewportAnchor = null
         bucketAnchor = null
         restoringProjection = null
         requestedAssetId = null
@@ -48,6 +57,7 @@ internal class TimelineScrollAnchorReconciler {
     ) {
         capturedProjection = projection
         assetAnchor = TimelineAssetScrollAnchor(assetId, scrollOffset, bucketIndex, null)
+        viewportAnchor = null
         bucketAnchor = null
         restoringProjection = null
         requestedAssetId = assetId
@@ -61,6 +71,7 @@ internal class TimelineScrollAnchorReconciler {
     ) {
         capturedProjection = projection
         assetAnchor = null
+        viewportAnchor = null
         bucketAnchor = TimelineBucketScrollAnchor(bucketIndex, itemKey, scrollOffset)
         restoringProjection = null
         requestedAssetId = null
@@ -115,6 +126,14 @@ internal class TimelineScrollAnchorReconciler {
     internal fun isRestoringForTests(): Boolean = restoringProjection != null
 
     private fun resolveRestore(projection: TimelineDisplayIndex): TimelineScrollRestore {
+        val navigationPending = requestedAssetId != null || bucketAnchor != null
+        if (!navigationPending) {
+            viewportAnchor?.let { anchor ->
+                projection.displayIndexByGridKey[anchor.gridKey]?.let { index ->
+                    return TimelineScrollRestore(index, anchor.scrollOffset)
+                }
+            }
+        }
         assetAnchor?.let { anchor ->
             val exactIndex = projection.assetDisplayIndexById[anchor.assetId]
             if (exactIndex != null) {
@@ -144,6 +163,9 @@ internal class TimelineScrollAnchorReconciler {
         projection: TimelineDisplayIndex,
         visibleItems: List<TimelineVisibleScrollItem>
     ) {
+        val firstVisible = visibleItems.firstOrNull() ?: return
+        viewportAnchor = (firstVisible.key ?: projection.gridKeyByDisplayIndex.getOrNull(firstVisible.displayIndex))
+            ?.let { gridKey -> TimelineViewportScrollAnchor(gridKey, -firstVisible.itemOffset) }
         val visibleAsset = visibleItems.firstNotNullOfOrNull { visible ->
             projection.firstAssetIdByDisplayIndex.getOrNull(visible.displayIndex)
                 ?.let { assetId ->
@@ -160,8 +182,9 @@ internal class TimelineScrollAnchorReconciler {
                     )
                 }
         }
+        // A placeholder-only viewport must not keep an asset anchor captured further up the list.
+        assetAnchor = visibleAsset
         if (visibleAsset != null) {
-            assetAnchor = visibleAsset
             bucketAnchor = null
         }
     }

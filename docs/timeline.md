@@ -94,14 +94,15 @@ structure; it must not wait for every bucket's server refresh.
 4. Buckets with only metadata render headers and placeholders. They are not
    considered loaded until their assets are materialized into
    `bucketAssetsCache`.
-5. A unified geometry snapshot reads ordered assets once with aggregate and
-   per-section geometry for each bucket batch. Valid aggregate geometry provides
-   accurate placeholder heights for unloaded Mosaic buckets. Missing geometry
-   falls back to projected or count-based placeholders. Priority reads cover
-   visible/target buckets plus radius neighbors first. `timelineGeometryReady`
-   gates only that priority phase and opens even on read failure so visible
-   Mosaic work cannot stall; remaining cached bucket geometry hydrates afterward
-   in small offscreen chunks without loading assignments or display rows.
+5. With cache results enabled, one skeleton read loads every bucket's section
+   manifest and section geometry ranges for the active config in a single Room
+   read transaction, validated against `timeline_bucket_snapshots` without
+   reading assets. The Timeline state is held (last layout, or loading on cold
+   start) until that skeleton loads, then every bucket renders headers plus one
+   placeholder per final band with the band's own key and height, so
+   replacement does not move the list. Buckets without a valid skeleton are
+   genuine misses and fall back to aggregate or count placeholders.
+   `timelineGeometryReady` opens when the skeleton commits or fails.
 6. Under the current cache-only warm policy, no background server sync runs on
    warm launch. If warm server refresh is enabled, a background sync refreshes
    bucket metadata and records stale or removed buckets without fetching every
@@ -176,9 +177,12 @@ Timeline uses multiple cache layers, each with a different purpose.
   validation fields and stale rows are recomputed. Each row stores both the
   aggregate `placeholderHeight` for the section and `geometryRangesJson`.
   Geometry ranges store source range plus layout height for each final real
-  Mosaic band or completed fallback row. Timeline renders chunk-aligned exact
-  placeholders for pending materialized sections, capped at 32 pieces per
-  section; bucket aggregate geometry remains for unloaded bucket placeholders.
+  Mosaic band or completed fallback row. Cache-enabled Timeline renders one
+  placeholder per range keyed by source range; bucket aggregate geometry is
+  only a fallback when no valid skeleton exists.
+- Room `timeline_bucket_snapshots`: per-bucket asset count and hashed ordered
+  fingerprint, refreshed by every shared asset write and Timeline ref
+  replacement, used to validate the skeleton without loading assets.
 - Room `timeline_bucket_geometry`: width-keyed aggregate placeholder geometry
   for whole buckets. Unloaded buckets use this after cold sync and on warm
   launch, including day group mode where the aggregate includes day headers and

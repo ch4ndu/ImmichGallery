@@ -552,7 +552,8 @@ private fun TimelineScrollEffects(
                 visibleItems = listState.layoutInfo.visibleItemsInfo.map { item ->
                     TimelineVisibleScrollItem(
                         displayIndex = item.index,
-                        itemOffset = item.offset
+                        itemOffset = item.offset,
+                        key = item.key as? String
                     )
                 },
                 isScrollInProgress = listState.isScrollInProgress
@@ -580,7 +581,8 @@ private fun TimelineScrollEffects(
                         visibleItems = listState.layoutInfo.visibleItemsInfo.map { item ->
                             TimelineVisibleScrollItem(
                                 displayIndex = item.index,
-                                itemOffset = item.offset
+                                itemOffset = item.offset,
+                                key = item.key as? String
                             )
                         }
                     )
@@ -615,7 +617,7 @@ private fun TimelineScrollEffects(
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun TimelineLazyList(
+internal fun TimelineLazyList(
     state: LazyListState,
     displayItems: List<TimelineDisplayItem>,
     sectionLabelsByKey: Map<String, AssetGroupDisplayLabel>,

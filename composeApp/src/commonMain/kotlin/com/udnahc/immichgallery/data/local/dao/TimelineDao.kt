@@ -7,6 +7,7 @@ import androidx.room.Upsert
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketGeometryEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineBucketSnapshotEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicAssignmentEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicDisplayCacheEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
@@ -128,6 +129,95 @@ interface TimelineDao {
         availableWidthKey: Int,
         geometryVersion: Int
     ): List<TimelineBucketGeometryEntity>
+
+    @Query(
+        """
+        SELECT * FROM timeline_mosaic_geometry
+        WHERE groupMode = :groupMode
+            AND columnCount = :columnCount
+            AND familiesKey = :familiesKey
+            AND availableWidthKey = :availableWidthKey
+            AND geometryVersion = :geometryVersion
+        """
+    )
+    suspend fun getAllMosaicGeometryForConfig(
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String,
+        availableWidthKey: Int,
+        geometryVersion: Int
+    ): List<TimelineMosaicGeometryEntity>
+
+    @Query(
+        """
+        SELECT * FROM timeline_bucket_geometry
+        WHERE groupMode = :groupMode
+            AND columnCount = :columnCount
+            AND familiesKey = :familiesKey
+            AND availableWidthKey = :availableWidthKey
+            AND geometryVersion = :geometryVersion
+        """
+    )
+    suspend fun getAllBucketGeometryForConfig(
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String,
+        availableWidthKey: Int,
+        geometryVersion: Int
+    ): List<TimelineBucketGeometryEntity>
+
+    @Query("SELECT * FROM timeline_bucket_snapshots")
+    suspend fun getAllBucketSnapshots(): List<TimelineBucketSnapshotEntity>
+
+    @Query("SELECT * FROM timeline_bucket_snapshots WHERE timeBucket IN (:timeBuckets)")
+    suspend fun getBucketSnapshots(timeBuckets: List<String>): List<TimelineBucketSnapshotEntity>
+
+    @Upsert
+    suspend fun upsertBucketSnapshots(snapshots: List<TimelineBucketSnapshotEntity>)
+
+    @Query("DELETE FROM timeline_bucket_snapshots WHERE timeBucket = :timeBucket")
+    suspend fun deleteBucketSnapshot(timeBucket: String)
+
+    @Query("DELETE FROM timeline_bucket_snapshots")
+    suspend fun clearAllBucketSnapshots()
+
+    // One read transaction so a concurrent artifact replacement is seen whole or not at all.
+    @Transaction
+    suspend fun getTimelineSkeletonRows(
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String,
+        availableWidthKey: Int,
+        geometryVersion: Int
+    ): TimelineMosaicSkeletonRows =
+        TimelineMosaicSkeletonRows(
+            snapshots = getAllBucketSnapshots(),
+            bucketGeometry = getAllBucketGeometryForConfig(
+                groupMode, columnCount, familiesKey, availableWidthKey, geometryVersion
+            ),
+            sectionGeometry = getAllMosaicGeometryForConfig(
+                groupMode, columnCount, familiesKey, availableWidthKey, geometryVersion
+            )
+        )
+
+    @Transaction
+    suspend fun getTimelineSkeletonRowsForBuckets(
+        timeBuckets: List<String>,
+        groupMode: String,
+        columnCount: Int,
+        familiesKey: String,
+        availableWidthKey: Int,
+        geometryVersion: Int
+    ): TimelineMosaicSkeletonRows =
+        TimelineMosaicSkeletonRows(
+            snapshots = getBucketSnapshots(timeBuckets),
+            bucketGeometry = getBucketGeometry(
+                timeBuckets, groupMode, columnCount, familiesKey, availableWidthKey, geometryVersion
+            ),
+            sectionGeometry = getMosaicGeometry(
+                timeBuckets, groupMode, columnCount, familiesKey, availableWidthKey, geometryVersion
+            )
+        )
 
     @Query(
         """
@@ -261,3 +351,9 @@ interface TimelineDao {
         }
     }
 }
+
+data class TimelineMosaicSkeletonRows(
+    val snapshots: List<TimelineBucketSnapshotEntity>,
+    val bucketGeometry: List<TimelineBucketGeometryEntity>,
+    val sectionGeometry: List<TimelineMosaicGeometryEntity>
+)

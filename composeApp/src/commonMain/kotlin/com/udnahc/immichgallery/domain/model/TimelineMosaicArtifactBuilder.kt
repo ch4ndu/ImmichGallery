@@ -100,6 +100,10 @@ class TimelineMosaicArtifactBuilder {
                 groupSize = groupSize,
                 sectionGeometries = geometries
             ),
+            sectionManifest = sections.map { section ->
+                TimelineMosaicSectionManifestEntry(section.sectionKey, section.assets.size)
+            },
+            groupingZoneId = timelineMosaicGroupingZoneId(groupSize),
             updatedAt = updatedAt
         )
 

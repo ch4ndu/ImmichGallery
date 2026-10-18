@@ -1,6 +1,8 @@
 package com.udnahc.immichgallery.data.repository
 
+import com.udnahc.immichgallery.data.local.dao.TimelineMosaicSkeletonRows
 import com.udnahc.immichgallery.data.local.entity.AssetEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineBucketSnapshotEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketGeometryEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicAssignmentEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
@@ -16,18 +18,34 @@ import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.estimatePhotoGridDisplayItemsHeight
 import com.udnahc.immichgallery.domain.model.mosaicLayoutSpecForColumnCount
 import com.udnahc.immichgallery.domain.model.shouldRejectUnsyncedEmptyTimelineBucket
+import com.udnahc.immichgallery.domain.model.toDomain
 import com.udnahc.immichgallery.domain.model.toDto
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class TimelineMosaicGeometryTest {
     @Test
-    fun widthKeyRoundsToIntegerDp() {
-        assertEquals(401, timelineMosaicGeometryWidthKey(400.6f))
-        assertEquals(400, timelineMosaicGeometryWidthKey(400.4f))
+    fun widthKeyPreservesHundredthsOfDp() {
+        assertEquals(40060, timelineMosaicGeometryWidthKey(400.6f))
+        assertEquals(40040, timelineMosaicGeometryWidthKey(400.4f))
+        assertEquals(40000, timelineMosaicGeometryWidthKey(400.001f))
+    }
+
+    @Test
+    fun hashedFingerprintMatchesBetweenRoomRowsAndDomainAssetsAndTracksOrder() {
+        val entities = listOf(assetEntity("a"), assetEntity("b"))
+        val domainAssets = entities.map { it.toDomain("https://server") }
+
+        assertEquals(
+            orderedAssetsFingerprint(entities),
+            com.udnahc.immichgallery.domain.model.orderedTimelineAssetsFingerprint(domainAssets)
+        )
+        assertEquals(16, orderedAssetsFingerprint(entities).length)
+        assertTrue(orderedAssetsFingerprint(entities) != orderedAssetsFingerprint(entities.reversed()))
     }
 
     @Test
@@ -88,77 +106,128 @@ class TimelineMosaicGeometryTest {
     }
 
     @Test
-    fun sectionGeometryValidationOmitsMismatchedAssetFingerprint() {
-        val entities = listOf(assetEntity("a"), assetEntity("b"))
-        val staleRow = geometryEntity(
-            timeBucket = "2026-01",
-            sectionKey = "2026-01|month",
-            assetFingerprint = "stale"
-        )
-
-        val summaries = validatedTimelineMosaicGeometrySummaries(
-            rows = listOf(staleRow),
-            assetsByBucket = mapOf("2026-01" to entities),
-            requestedTimeBuckets = setOf("2026-01"),
+    fun skeletonRejectsBucketWhoseSnapshotFingerprintIsStale() {
+        val skeleton = validatedTimelineMosaicSkeleton(
+            rows = skeletonRows(snapshotFingerprint = "current", artifactFingerprint = "stale"),
             groupSize = TimelineGroupSize.MONTH,
-            maxRowHeightKey = 100000,
-            spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
-            baseUrl = "https://server"
+            geometryRequest = skeletonRequest,
+            groupingZoneId = ""
         )
 
-        assertEquals(emptyList(), summaries)
+        assertEquals(emptyMap(), skeleton)
     }
 
     @Test
-    fun sectionGeometryValidationPreservesMatchingGeometryRanges() {
-        val entities = listOf(assetEntity("a"), assetEntity("b"))
-        val row = geometryEntity(
-            timeBucket = "2026-01",
-            sectionKey = "2026-01|month",
-            assetFingerprint = orderedAssetsFingerprint(entities)
-        )
-
-        val summaries = validatedTimelineMosaicGeometrySummaries(
-            rows = listOf(row),
-            assetsByBucket = mapOf("2026-01" to entities),
-            requestedTimeBuckets = setOf("2026-01"),
+    fun skeletonPreservesMatchingRangesWithoutReadingAssets() {
+        val skeleton = validatedTimelineMosaicSkeleton(
+            rows = skeletonRows(),
             groupSize = TimelineGroupSize.MONTH,
-            maxRowHeightKey = 100000,
-            spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
-            baseUrl = "https://server"
+            geometryRequest = skeletonRequest,
+            groupingZoneId = ""
         )
 
-        assertEquals(1, summaries.size)
-        assertEquals(302f, summaries.first().placeholderHeight)
+        val bucket = skeleton.getValue("2026-01")
+        assertEquals(2, bucket.assetCount)
+        assertEquals(302f, bucket.placeholderHeight)
         assertEquals(
             listOf(
                 MosaicSectionGeometryRange(sourceStartIndex = 0, sourceCount = 1, height = 100f),
                 MosaicSectionGeometryRange(sourceStartIndex = 1, sourceCount = 1, height = 200f)
             ),
-            summaries.first().ranges
+            bucket.sections.single().ranges
         )
     }
 
     @Test
-    fun sectionGeometryValidationRejectsHeightThatOmitsRangeSpacing() {
-        val entities = listOf(assetEntity("a"), assetEntity("b"))
-        val row = geometryEntity(
-            timeBucket = "2026-01",
-            sectionKey = "2026-01|month",
-            assetFingerprint = orderedAssetsFingerprint(entities)
-        ).copy(placeholderHeight = 300f)
-
-        val summaries = validatedTimelineMosaicGeometrySummaries(
-            rows = listOf(row),
-            assetsByBucket = mapOf("2026-01" to entities),
-            requestedTimeBuckets = setOf("2026-01"),
+    fun skeletonRejectsHeightThatOmitsRangeSpacing() {
+        val rows = skeletonRows()
+        val skeleton = validatedTimelineMosaicSkeleton(
+            rows = rows.copy(sectionGeometry = rows.sectionGeometry.map { it.copy(placeholderHeight = 300f) }),
             groupSize = TimelineGroupSize.MONTH,
-            maxRowHeightKey = 100000,
-            spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
-            baseUrl = "https://server"
+            geometryRequest = skeletonRequest,
+            groupingZoneId = ""
         )
 
-        assertEquals(emptyList(), summaries)
+        assertEquals(emptyMap(), skeleton)
+    }
+
+    @Test
+    fun skeletonRejectsBucketWithMissingManifestSection() {
+        val skeleton = validatedTimelineMosaicSkeleton(
+            rows = skeletonRows().copy(sectionGeometry = emptyList()),
+            groupSize = TimelineGroupSize.MONTH,
+            geometryRequest = skeletonRequest,
+            groupingZoneId = ""
+        )
+
+        assertEquals(emptyMap(), skeleton)
+    }
+
+    @Test
+    fun skeletonRejectsMalformedManifestAndSnapshotCountMismatch() {
+        val rows = skeletonRows()
+        val malformed = rows.copy(bucketGeometry = rows.bucketGeometry.map { it.copy(sectionManifestJson = "{") })
+        val countMismatch = rows.copy(snapshots = rows.snapshots.map { it.copy(assetCount = 3) })
+
+        listOf(malformed, countMismatch).forEach { candidate ->
+            assertEquals(
+                emptyMap(),
+                validatedTimelineMosaicSkeleton(
+                    rows = candidate,
+                    groupSize = TimelineGroupSize.MONTH,
+                    geometryRequest = skeletonRequest,
+                    groupingZoneId = ""
+                )
+            )
+        }
+    }
+
+    @Test
+    fun skeletonAcceptsExplicitlyEmptyBucket() {
+        val rows = TimelineMosaicSkeletonRows(
+            snapshots = listOf(TimelineBucketSnapshotEntity("2026-02", 0, "empty", 1L)),
+            bucketGeometry = listOf(
+                bucketGeometryEntity("2026-02", "empty", manifestJson = "[]").copy(placeholderHeight = 0f)
+            ),
+            sectionGeometry = emptyList()
+        )
+
+        val skeleton = validatedTimelineMosaicSkeleton(
+            rows = rows,
+            groupSize = TimelineGroupSize.MONTH,
+            geometryRequest = skeletonRequest,
+            groupingZoneId = ""
+        )
+
+        assertEquals(emptyList(), skeleton.getValue("2026-02").sections)
+    }
+
+    @Test
+    fun daySkeletonRejectsRowsWrittenInAnotherTimeZone() {
+        val rows = skeletonRows()
+        val skeleton = validatedTimelineMosaicSkeleton(
+            rows = rows.copy(bucketGeometry = rows.bucketGeometry.map { it.copy(groupingZoneId = "Europe/Paris") }),
+            groupSize = TimelineGroupSize.MONTH,
+            geometryRequest = skeletonRequest,
+            groupingZoneId = "America/Chicago"
+        )
+
+        assertEquals(emptyMap(), skeleton)
+    }
+
+    @Test
+    fun displayRecordsMustMatchGeometryRangesOneToOne() {
+        val ranges = listOf(
+            MosaicSectionGeometryRange(sourceStartIndex = 0, sourceCount = 2, height = 100f),
+            MosaicSectionGeometryRange(sourceStartIndex = 2, sourceCount = 3, height = 150f)
+        )
+        val matching = listOf(record(0, 2, 100f), record(2, 3, 150.005f))
+        val shiftedBoundary = listOf(record(0, 3, 100f), record(3, 2, 150f))
+        val differentHeight = listOf(record(0, 2, 100f), record(2, 3, 151f))
+
+        assertTrue(displayRecordsMatchGeometryRanges(matching, ranges))
+        assertFalse(displayRecordsMatchGeometryRanges(shiftedBoundary, ranges))
+        assertFalse(displayRecordsMatchGeometryRanges(differentHeight, ranges))
     }
 
     @Test
@@ -373,9 +442,34 @@ class TimelineMosaicGeometryTest {
             updatedAt = 1L
         )
 
+    private val skeletonRequest = com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest(
+        availableWidth = 10f,
+        maxRowHeight = 1000f,
+        spacing = GRID_SPACING_DP
+    )
+
+    private fun skeletonRows(
+        snapshotFingerprint: String = "hash",
+        artifactFingerprint: String = snapshotFingerprint
+    ): TimelineMosaicSkeletonRows =
+        TimelineMosaicSkeletonRows(
+            snapshots = listOf(TimelineBucketSnapshotEntity("2026-01", 2, snapshotFingerprint, 1L)),
+            bucketGeometry = listOf(bucketGeometryEntity("2026-01", artifactFingerprint)),
+            sectionGeometry = listOf(geometryEntity("2026-01", "2026-01|month", artifactFingerprint))
+        )
+
+    private fun record(start: Int, count: Int, height: Float) =
+        com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecord(
+            kind = com.udnahc.immichgallery.domain.model.MosaicDisplayItemRecordKind.REAL_BAND,
+            sourceStartIndex = start,
+            sourceCount = count,
+            height = height
+        )
+
     private fun bucketGeometryEntity(
         timeBucket: String,
-        assetFingerprint: String
+        assetFingerprint: String,
+        manifestJson: String = """[{"sectionKey":"$timeBucket|month","assetCount":2}]"""
     ): TimelineBucketGeometryEntity =
         TimelineBucketGeometryEntity(
             timeBucket = timeBucket,
@@ -389,6 +483,8 @@ class TimelineMosaicGeometryTest {
             displayItemCount = 2,
             maxRowHeightKey = 100000,
             spacingKey = timelineMosaicGeometryDimensionKey(GRID_SPACING_DP),
+            sectionManifestJson = manifestJson,
+            groupingZoneId = "",
             updatedAt = 1L
         )
 

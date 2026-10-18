@@ -72,7 +72,7 @@ import com.udnahc.immichgallery.domain.usecase.timeline.GetAssetFileNameUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetBucketAssetsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineBucketsUseCase
 import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicCacheStatusUseCase
-import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicGeometrySnapshotUseCase
+import com.udnahc.immichgallery.domain.usecase.timeline.GetTimelineMosaicSkeletonUseCase
 import com.udnahc.immichgallery.ui.navigation.MainScreenViewModel
 import com.udnahc.immichgallery.ui.component.ViewerPreferencesViewModel
 import com.udnahc.immichgallery.ui.navigation.AppStartupViewModel
@@ -154,7 +154,7 @@ val sharedModule = module {
     factory { GetTimelineBucketsUseCase(get()) }
     factory { GetBucketAssetsUseCase(get()) }
     factory { GetAssetFileNameUseCase(get()) }
-    factory { GetTimelineMosaicGeometrySnapshotUseCase(get()) }
+    factory { GetTimelineMosaicSkeletonUseCase(get()) }
     factory { GetTimelineMosaicCacheStatusUseCase(get()) }
     factory { GetAssetDetailUseCase(get()) }
     factory { GetAssetStackUseCase(get()) }

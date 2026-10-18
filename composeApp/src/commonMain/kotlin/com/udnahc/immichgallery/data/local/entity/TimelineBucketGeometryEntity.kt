@@ -38,5 +38,7 @@ data class TimelineBucketGeometryEntity(
     val displayItemCount: Int,
     val maxRowHeightKey: Int,
     val spacingKey: Int,
+    val sectionManifestJson: String,
+    val groupingZoneId: String,
     val updatedAt: Long
 )

@@ -23,6 +23,7 @@ import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketGeometryEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineBucketSnapshotEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicAssignmentEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicDisplayCacheEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
@@ -41,12 +42,13 @@ import com.udnahc.immichgallery.data.local.entity.TimelineMosaicGeometryEntity
         TimelineMosaicDisplayCacheEntity::class,
         TimelineMosaicGeometryEntity::class,
         TimelineBucketGeometryEntity::class,
+        TimelineBucketSnapshotEntity::class,
         DetailMosaicAssignmentEntity::class,
         DetailMosaicDisplayCacheEntity::class,
         DetailMosaicSectionGeometryEntity::class,
         DetailMosaicAggregateGeometryEntity::class
     ],
-    version = 2
+    version = 3
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {

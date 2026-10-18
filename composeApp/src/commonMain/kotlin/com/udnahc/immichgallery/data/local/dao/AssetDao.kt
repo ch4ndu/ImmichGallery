@@ -5,12 +5,57 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
 import com.udnahc.immichgallery.data.local.entity.AssetEntity
+import com.udnahc.immichgallery.data.local.entity.TimelineBucketSnapshotEntity
+import com.udnahc.immichgallery.data.repository.orderedAssetFingerprintChanged
+import com.udnahc.immichgallery.data.repository.orderedAssetsFingerprint
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AssetDao {
     @Upsert
     suspend fun upsertAssets(assets: List<AssetEntity>)
+
+    @Query("SELECT DISTINCT timeBucket FROM timeline_asset_refs WHERE assetId IN (:assetIds)")
+    suspend fun getTimelineBucketsForAssetIds(assetIds: List<String>): List<String>
+
+    @Upsert
+    suspend fun upsertTimelineBucketSnapshots(snapshots: List<TimelineBucketSnapshotEntity>)
+
+    // Album, Person, and Timeline syncs share asset rows; every writer must refresh Timeline snapshots.
+    @Transaction
+    suspend fun upsertAssetsRefreshingTimelineSnapshots(assets: List<AssetEntity>) {
+        if (assets.isEmpty()) return
+        val changedIds = assets.map { it.id }
+            .chunked(ASSET_ID_QUERY_CHUNK_SIZE)
+            .flatMap { ids ->
+                val existing = getAssetsByIds(ids).associateBy { it.id }
+                assets.filter { it.id in ids && orderedAssetFingerprintChanged(existing[it.id], it) }
+                    .map { it.id }
+            }
+        upsertAssets(assets)
+        if (changedIds.isEmpty()) return
+        val affectedBuckets = changedIds.chunked(ASSET_ID_QUERY_CHUNK_SIZE)
+            .flatMap { ids -> getTimelineBucketsForAssetIds(ids) }
+            .distinct()
+        refreshTimelineBucketSnapshots(affectedBuckets)
+    }
+
+    @Transaction
+    suspend fun refreshTimelineBucketSnapshots(timeBuckets: List<String>) {
+        if (timeBuckets.isEmpty()) return
+        val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+        upsertTimelineBucketSnapshots(
+            timeBuckets.map { timeBucket ->
+                val assets = getTimelineAssets(timeBucket)
+                TimelineBucketSnapshotEntity(
+                    timeBucket = timeBucket,
+                    assetCount = assets.size,
+                    fingerprintHash = orderedAssetsFingerprint(assets),
+                    updatedAt = now
+                )
+            }
+        )
+    }
 
     @Transaction
     @Query(
@@ -58,3 +103,5 @@ interface AssetDao {
         aspectRatio: Float
     )
 }
+
+private const val ASSET_ID_QUERY_CHUNK_SIZE = 500

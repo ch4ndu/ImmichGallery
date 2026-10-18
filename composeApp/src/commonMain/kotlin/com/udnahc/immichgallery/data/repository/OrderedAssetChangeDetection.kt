@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.data.repository
 
 import com.udnahc.immichgallery.data.local.entity.AssetEntity
+import com.udnahc.immichgallery.domain.model.OrderedFingerprintHasher
 
 // Detail and Timeline syncs can write the same rows repeatedly. Layout
 // invalidation must follow ordered, grid-visible content instead of Room write
@@ -11,9 +12,11 @@ internal fun orderedAssetsChanged(
 ): Boolean =
     before.map { it.orderedFingerprint() } != after.map { it.orderedFingerprint() }
 
-internal fun orderedAssetsFingerprint(assets: List<AssetEntity>): String =
-    assets.joinToString(separator = "\n") { asset ->
-        asset.orderedFingerprint().let { fingerprint ->
+internal fun orderedAssetsFingerprint(assets: List<AssetEntity>): String {
+    val hasher = OrderedFingerprintHasher()
+    assets.forEach { asset ->
+        val fingerprint = asset.orderedFingerprint()
+        hasher.addAsset(
             listOf(
                 fingerprint.id,
                 fingerprint.type,
@@ -23,9 +26,14 @@ internal fun orderedAssetsFingerprint(assets: List<AssetEntity>): String =
                 fingerprint.stackCount.toString(),
                 fingerprint.aspectRatio.toString(),
                 fingerprint.isEdited.toString()
-            ).joinToString(separator = "\u001f")
-        }
+            )
+        )
     }
+    return hasher.result()
+}
+
+internal fun orderedAssetFingerprintChanged(before: AssetEntity?, after: AssetEntity): Boolean =
+    before == null || before.orderedFingerprint() != after.orderedFingerprint()
 
 private data class OrderedAssetFingerprint(
     val id: String,

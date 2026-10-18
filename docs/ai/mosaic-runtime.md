@@ -70,6 +70,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   - duplicate same-source requests collapse to one request.
 - Timeline runs one actor-started bucket worker at a time. The worker launches on `Dispatchers.IO`, while actual runtime assignment compute uses `TimelineMosaicDispatcherProvider`, a dedicated single-thread `TimelineMosaic` dispatcher.
 - Each `StartWork` effect carries a per-work token. ViewModel worker jobs are keyed by that token, `CancelWork` cancels the matching job, and cache/runtime publication must reject inactive tokens plus stale config/revision/geometry.
+- Sections in the repair-required set (per-range mismatch detected at render time or by repair preparation) are removed from cached `Ready` publication and added to the requested missing sections, so render-demand work recomputes them on the single Timeline worker. The key leaves the set when that recompute produces `Ready`.
 - If `cacheMosaicResults = true`, a queued bucket first attempts a current-config persisted artifact read. Matching assignments plus section and aggregate geometry are enough to publish assignment-backed ready state, even when mixed display records are missing. Missing assignments or geometry are true misses and may enqueue runtime compute only for render-demand requests.
 - If `cacheMosaicResults = false`, render-demand requests skip persisted Mosaic artifacts and compute runtime Mosaic for the requested config. Sync-precompute requests are dropped after logging.
 - Timeline does not fetch older Mosaic configs as substitutes for missing current-config artifacts.
@@ -92,8 +93,7 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   - filters deferred state/geometry to the final scrollbar target and settled visible buckets, then publishes those updates.
   - sends `ResumeAfterScroll(priorityBuckets)` with the final target first and settled visible loaded buckets next as render demand.
   - the actor appends only remaining deferred sync-precompute work; obsolete drag render demand is not resumed.
-  - requests exact-target persisted bucket geometry without cancelling a geometry read already in flight.
-  - starts radius-neighbor materialization and geometry warmup only after `250ms` of continued idle time.
+  - starts radius-neighbor materialization only after `250ms` of continued idle time. Cache-enabled skeleton geometry is already loaded for the whole library and is not scroll-gated.
   - flushes eligible progressive chunks immediately.
 - Visible-priority render demand may preempt a running offscreen bucket. It must not preempt a currently visible or explicitly targeted running bucket.
 

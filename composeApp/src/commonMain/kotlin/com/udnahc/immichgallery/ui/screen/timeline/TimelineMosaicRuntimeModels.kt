@@ -5,11 +5,22 @@ import com.udnahc.immichgallery.data.repository.SessionOperationStamp
 import com.udnahc.immichgallery.data.repository.StaleSessionOperationException
 import com.udnahc.immichgallery.domain.action.auth.SessionOperationRunner
 import com.udnahc.immichgallery.domain.model.Asset
+import com.udnahc.immichgallery.domain.model.AssetGroupDisplayLabel
+import com.udnahc.immichgallery.domain.model.GeometryAlignedRange
+import com.udnahc.immichgallery.domain.model.GeometryAlignedSection
+import com.udnahc.immichgallery.domain.model.HeaderItem
+import com.udnahc.immichgallery.domain.model.MosaicBandItem
+import com.udnahc.immichgallery.domain.model.PlaceholderItem
+import com.udnahc.immichgallery.domain.model.RowItem
+import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
+import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketSkeleton
+import com.udnahc.immichgallery.domain.model.timelineDaySectionDisplayLabel
 import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
 import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.ProgressChunk
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
+import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_WIDTH_QUANTUM
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
 import com.udnahc.immichgallery.domain.model.TimelineMosaicRepairSectionInput
 import kotlinx.coroutines.CancellationException
@@ -36,7 +47,133 @@ internal data class MosaicCacheKey(
 internal data class TimelineMosaicSectionGeometry(
     val placeholderHeight: Float,
     val ranges: List<MosaicSectionGeometryRange>
+) {
+    val contentToken: Int = ranges.hashCode() * 31 + placeholderHeight.hashCode()
+}
+
+internal data class TimelineSkeletonIdentity(
+    val groupSize: TimelineGroupSize,
+    val columnCount: Int,
+    val familiesKey: String,
+    val geometryRequest: TimelineMosaicGeometryRequest,
+    val groupingZoneId: String
 )
+
+internal enum class TimelineSkeletonLoadStatus {
+    Loading,
+    Loaded,
+    Failed
+}
+
+internal data class TimelineSkeletonState(
+    val identity: TimelineSkeletonIdentity? = null,
+    val status: TimelineSkeletonLoadStatus = TimelineSkeletonLoadStatus.Loading,
+    val buckets: Map<String, TimelineMosaicBucketSkeleton> = emptyMap(),
+    // Bumped whenever a bucket is invalidated or re-read, so an older in-flight read cannot overwrite it.
+    val bucketEpochs: Map<String, Long> = emptyMap()
+) {
+    fun startingLoad(next: TimelineSkeletonIdentity): TimelineSkeletonState =
+        if (identity == next) this else TimelineSkeletonState(identity = next, bucketEpochs = bucketEpochs)
+
+    fun withBumpedEpochs(timeBuckets: Set<String>): TimelineSkeletonState =
+        copy(bucketEpochs = bucketEpochs + timeBuckets.associateWith { (bucketEpochs[it] ?: 0L) + 1L })
+
+    fun withLoadedBuckets(
+        loadedIdentity: TimelineSkeletonIdentity,
+        loaded: Map<String, TimelineMosaicBucketSkeleton>,
+        requestedBuckets: Set<String>?,
+        originEpochs: Map<String, Long>
+    ): TimelineSkeletonState {
+        if (identity != loadedIdentity) return this
+        fun unchanged(timeBucket: String) = (bucketEpochs[timeBucket] ?: 0L) == (originEpochs[timeBucket] ?: 0L)
+        val nextBuckets = if (requestedBuckets == null) {
+            val fresh = loaded.filterKeys(::unchanged)
+            val retained = buckets.filterKeys { !unchanged(it) }
+            fresh + retained
+        } else {
+            val reloaded = requestedBuckets.filter(::unchanged)
+            (buckets - reloaded.toSet()) + reloaded.mapNotNull { bucket -> loaded[bucket]?.let { bucket to it } }
+        }
+        return copy(
+            status = if (requestedBuckets == null) TimelineSkeletonLoadStatus.Loaded else status,
+            buckets = nextBuckets
+        )
+    }
+}
+
+internal fun timelineSkeletonGateOpen(
+    state: TimelineSkeletonState,
+    required: TimelineSkeletonIdentity?
+): Boolean =
+    required == null || (state.identity == required && state.status != TimelineSkeletonLoadStatus.Loading)
+
+internal fun timelineMosaicRangeGridKey(
+    timeBucket: String,
+    sectionKey: String,
+    sourceStartIndex: Int,
+    sourceCount: Int
+): String = "mr_${timeBucket}_${sectionKey}_${sourceStartIndex}_$sourceCount"
+
+internal fun timelineDayHeaderGridKey(timeBucket: String, sectionKey: String): String =
+    "dh_${timeBucket}_$sectionKey"
+
+internal fun timelineGeometryAlignedItems(
+    timeBucket: String,
+    sectionKey: String,
+    bucketIndex: Int,
+    sectionLabel: String,
+    aligned: GeometryAlignedSection
+): List<TimelineDisplayItem> =
+    aligned.ranges.map { alignedRange ->
+        val range = alignedRange.range
+        val key = timelineMosaicRangeGridKey(timeBucket, sectionKey, range.sourceStartIndex, range.sourceCount)
+        when (val item = alignedRange.item) {
+            is MosaicBandItem -> item.copy(gridKey = key)
+            is RowItem -> item.copy(gridKey = key)
+            else -> PlaceholderItem(
+                gridKey = key,
+                bucketIndex = bucketIndex,
+                sectionLabel = sectionLabel,
+                estimatedHeight = range.height
+            )
+        }
+    }
+
+internal fun timelineSkeletonBucketItems(
+    timeBucket: String,
+    bucketIndex: Int,
+    groupSize: TimelineGroupSize,
+    skeleton: TimelineMosaicBucketSkeleton
+): List<TimelineDisplayItem> = buildList {
+    skeleton.sections.forEach { section ->
+        val sectionLabel = if (groupSize == TimelineGroupSize.DAY) {
+            add(
+                HeaderItem(
+                    gridKey = timelineDayHeaderGridKey(timeBucket, section.sectionKey),
+                    bucketIndex = bucketIndex,
+                    sectionLabel = section.sectionKey,
+                    label = section.sectionKey,
+                    assetGroupDisplayLabel = timelineDaySectionDisplayLabel(section.sectionKey)
+                        ?: AssetGroupDisplayLabel.UnknownDate
+                )
+            )
+            section.sectionKey
+        } else {
+            monthMosaicSectionKey(timeBucket)
+        }
+        addAll(
+            timelineGeometryAlignedItems(
+                timeBucket = timeBucket,
+                sectionKey = section.sectionKey,
+                bucketIndex = bucketIndex,
+                sectionLabel = sectionLabel,
+                aligned = GeometryAlignedSection(
+                    section.ranges.sortedBy { it.sourceStartIndex }.map { GeometryAlignedRange(it, null) }
+                )
+            )
+        )
+    }
+}
 
 internal data class TimelineMosaicPublishStamp(
     val globalGeneration: Long,
@@ -407,45 +544,6 @@ internal class TimelineMosaicRepairSignalBuffer {
 
     fun pendingWakeupCountForTests(): Int =
         buffer.pendingWakeupCountForTests()
-}
-
-internal data class TimelineGeometryBucketSelection(
-    val priorityBuckets: List<String>,
-    val backgroundChunks: List<List<String>>
-)
-
-internal fun selectTimelineGeometryBuckets(
-    orderedBuckets: List<String>,
-    cachedBuckets: Set<String>,
-    visibleBucketIndexes: List<Int>,
-    targetBucketIndex: Int?,
-    fallbackVisibleBucketIndexes: List<Int>,
-    radius: Int,
-    backgroundChunkSize: Int
-): TimelineGeometryBucketSelection {
-    if (orderedBuckets.isEmpty() || cachedBuckets.isEmpty()) {
-        return TimelineGeometryBucketSelection(emptyList(), emptyList())
-    }
-    val cachedOrderedBuckets = orderedBuckets.filter { it in cachedBuckets }
-    val priorityFromVisibility = orderedTimelineBucketIndexesForMosaic(
-        visibleBucketIndexes = visibleBucketIndexes,
-        targetBucketIndex = targetBucketIndex,
-        fallbackVisibleBucketIndexes = fallbackVisibleBucketIndexes,
-        bucketCount = orderedBuckets.size,
-        radius = radius
-    )
-        .mapNotNull { index -> orderedBuckets.getOrNull(index) }
-        .filter { it in cachedBuckets }
-        .distinct()
-    val fallbackPrioritySize = (1 + radius * 2).coerceAtLeast(1)
-    val priorityBuckets = priorityFromVisibility.ifEmpty {
-        cachedOrderedBuckets.take(fallbackPrioritySize)
-    }
-    val remaining = cachedOrderedBuckets.filter { it !in priorityBuckets }
-    return TimelineGeometryBucketSelection(
-        priorityBuckets = priorityBuckets,
-        backgroundChunks = remaining.chunked(backgroundChunkSize.coerceAtLeast(1))
-    )
 }
 
 internal data class ActiveMosaicConfig(
@@ -821,7 +919,7 @@ internal fun timelineBucketGeometrySectionKey(
     "$timeBucket|bucket|${groupSize.apiValue}|${timelineBucketGeometryRequestKey(geometryRequest)}"
 
 internal fun timelineBucketGeometryRequestKey(request: TimelineMosaicGeometryRequest): String =
-    "w=${request.availableWidth.roundToInt()}|" +
+    "w=${(request.availableWidth * TIMELINE_MOSAIC_WIDTH_QUANTUM).roundToInt()}|" +
             "h=${(request.maxRowHeight * 100f).roundToInt()}|" +
             "s=${(request.spacing * 100f).roundToInt()}"
 
@@ -843,3 +941,9 @@ internal fun timelineMosaicBandGridKey(
     sectionKey: String,
     tileAssetIds: List<String>
 ): String = "mosaic_${timeBucket}_${sectionKey}_${tileAssetIds.joinToString("_")}"
+
+internal data class TimelineGeometryInputs(
+    val sections: Map<MosaicCacheKey, TimelineMosaicSectionGeometry>,
+    val buckets: Map<MosaicCacheKey, Float>,
+    val skeleton: TimelineSkeletonState
+)

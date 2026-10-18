@@ -214,7 +214,7 @@ class AlbumRepository(
                             hasMore = hasMore
                         )
                         if (!skipAssetWrite) {
-                            assetDao.upsertAssets(assetEntities)
+                            assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             if (rawWindowChanged) {
                                 albumDao.replaceAlbumRefsFromSortOrder(
                                     albumId,
@@ -326,7 +326,7 @@ class AlbumRepository(
                             candidates = assetEntities
                         )
                         if (!skipAssetWrite) {
-                            assetDao.upsertAssets(assetEntities)
+                            assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             albumDao.replaceAlbumRefs(albumId, crossRefs)
                         }
                         val after = if (skipAssetWrite) before else albumDao.getAlbumAssets(albumId)

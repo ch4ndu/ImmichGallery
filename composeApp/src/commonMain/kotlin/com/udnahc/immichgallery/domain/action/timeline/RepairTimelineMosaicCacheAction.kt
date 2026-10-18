@@ -82,6 +82,7 @@ class RepairTimelineMosaicCacheAction(
         val layoutSpec = mosaicLayoutSpecForColumnCount(geometryRequest.availableWidth, columnCount)
             ?: return Result.failure(IllegalArgumentException("Invalid Timeline Mosaic repair layout"))
         val fingerprint = orderedTimelineAssetsFingerprint(snapshot.assets)
+        val repairRequiredSectionKeys = mutableSetOf<String>()
         val readySections = sections.map { section ->
             val input = sectionsByKey[section.sectionKey]
                 ?: return Result.failure(IllegalArgumentException("Missing Timeline Mosaic repair section"))
@@ -122,6 +123,9 @@ class RepairTimelineMosaicCacheAction(
             ) {
                 return Result.failure(IllegalArgumentException("Timeline Mosaic repair height mismatch"))
             }
+            if (!mosaicRenderEngine.alignToGeometryRanges(displayItems, input.geometry.ranges).allMatched) {
+                repairRequiredSectionKeys.add(section.sectionKey)
+            }
             SectionReady(
                 keyScope = keyScope,
                 assignments = input.assignments,
@@ -132,6 +136,11 @@ class RepairTimelineMosaicCacheAction(
                     displayItemCount = input.geometry.displayItemCount,
                     ranges = input.geometry.ranges
                 )
+            )
+        }
+        if (repairRequiredSectionKeys.isNotEmpty()) {
+            return Result.failure(
+                TimelineMosaicRepairRequiredException(timeBucket, repairRequiredSectionKeys.toSet())
             )
         }
         val artifacts = artifactBuilder.build(
@@ -153,3 +162,9 @@ class RepairTimelineMosaicCacheAction(
         Result.failure(e)
     }
 }
+
+// Supplied artifacts disagree per range; the caller must recompute these sections through its worker.
+class TimelineMosaicRepairRequiredException(
+    val timeBucket: String,
+    val sectionKeys: Set<String>
+) : IllegalStateException("Timeline Mosaic repair requires section recompute")
