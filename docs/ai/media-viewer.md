@@ -167,25 +167,33 @@ video playback, or desktop viewer shortcuts.
   fail closed when it is absent or invalid. A Gradle development run may use an
   installed VLC when no bundle is supplied. The viewer shows a resource-backed
   recovery message when VLC or the authenticated media URL is unavailable.
-- Android and JVM wrap the native player in a final-pass pointer observer. It
-  never consumes pointer changes and reports only a single-pointer gesture that
-  stays within touch slop, so drags and multi-touch remain player-owned. The
-  pinned Chaintech player consumes both its surface and control taps without
-  exposing which child handled them; consequently a native-control tap can also
-  toggle app chrome. Distinguishing those taps requires replacing or forking
-  the player controls and is not part of this remediation.
-- The video URL and original URL are server-derived edited variants. Video
-  controls are platform-player controls rather than custom domain state.
-- `StaticPhotoOverlay` and `TimelinePhotoOverlay` measure the rendered height of
-  the bottom footer (`PhotoPageIndicator`, `ViewerFilmstrip`,
-  `ViewerFilmstripControls`, and `DetailBottomHandle`, excluding navigation-bar
-  insets) and forward `bottomChromePadding` (`0.dp` when normal footer chrome is
-  hidden) through `AssetPage` to `PlatformVideoPlayer`. Android shifts
-  `seekBarBottomPadding` by `bottomChromePadding`, JVM pads the
-  `VideoPlayerComposable` container and `seekBarBottomPadding` by
-  `bottomChromePadding`, and iOS adds `bottomChromePadding` to the
-  `AVPlayerViewController` bottom inset so player controls and the thumbnail
-  strip never overlap.
+- Normal video uses app-owned play/pause, seeking, elapsed/duration and mute
+  controls over the existing platform playback backend. Native speed, route,
+  track/quality, volume and fit menus are not exposed; video remains FIT.
+  The video and original URLs remain server-derived edited variants.
+- `StaticPhotoOverlay` and `TimelinePhotoOverlay` share a viewer-owned chrome
+  state: normal video's top bar, playback controls, filmstrip and Info handle
+  show/hide together immediately after three seconds of inactivity. Surface
+  taps toggle this state; control actions, thumbnail selection/toggle and
+  footer wheel scrolling restart the interval. Pointer holds and open overflow
+  menus suspend hiding; release starts a fresh interval. Photos retain manual
+  tap-to-toggle visibility and existing transitions, including the current
+  visibility when paging from video to photo.
+- Info, slideshow dialogs, covered stacks, drag/shared transitions and inactive
+  apps hide normal-video chrome and suspend its timer. Regaining eligibility
+  reveals it for a fresh interval. Only the settled page renders playback
+  controls. Slideshow keeps its own controller/timing, and the Memories page
+  indicator remains independent of normal chrome visibility.
+- Android/JVM disable built-in normal controls and competing gestures. A
+  non-consuming surface-tap observer wraps only the video, with shared controls
+  as siblings. iOS uses a full-bounds `AVPlayerViewController` with native
+  playback controls disabled and shared Compose controls outside its tap
+  recognizer. Manual pause intent survives lifecycle pauses and source fallback.
+- Both viewers measure footer height excluding navigation insets and forward
+  `bottomChromePadding` through `AssetPage`. Only the shared controls are offset
+  above that footer. The video surface never receives footer-dependent padding;
+  its FIT viewport stays stable when chrome hides or the filmstrip expands.
+  The parent media layer supplies safe-area padding once.
 
 ## Expanded Information
 

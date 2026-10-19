@@ -2,6 +2,8 @@ package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
@@ -43,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -224,6 +227,9 @@ internal fun AssetPage(
     isDragging: Boolean = false,
     onZoomStateChanged: ((Boolean) -> Unit)? = null,
     bottomChromePadding: Dp = 0.dp,
+    normalVideoControlsVisible: Boolean = false,
+    onNormalVideoInteraction: () -> Unit = {},
+    onNormalVideoHoldChange: (Boolean) -> Unit = {},
     playback: SlideshowPlaybackState? = null,
     slideshowProgress: () -> Float = { 0f },
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit = { _, _ -> },
@@ -322,6 +328,9 @@ internal fun AssetPage(
                     effectiveCoverThumbnail = effectiveCoverThumbnail,
                     isTransitionActive = isTransitionActive,
                     bottomChromePadding = bottomChromePadding,
+                    normalVideoControlsVisible = normalVideoControlsVisible,
+                    onNormalVideoInteraction = onNormalVideoInteraction,
+                    onNormalVideoHoldChange = onNormalVideoHoldChange,
                     playback = playback,
                     slideshowProgress = slideshowProgress,
                     onSlideshowEvent = onSlideshowEvent
@@ -446,6 +455,9 @@ private fun VideoOrSlideshowAssetPage(
     effectiveCoverThumbnail: Boolean,
     isTransitionActive: Boolean,
     bottomChromePadding: Dp,
+    normalVideoControlsVisible: Boolean,
+    onNormalVideoInteraction: () -> Unit,
+    onNormalVideoHoldChange: (Boolean) -> Unit,
     playback: SlideshowPlaybackState?,
     slideshowProgress: () -> Float,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -488,7 +500,10 @@ private fun VideoOrSlideshowAssetPage(
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
             dragTransform = dragTransform,
-            bottomChromePadding = bottomChromePadding
+            bottomChromePadding = bottomChromePadding,
+            normalControlsVisible = normalVideoControlsVisible,
+            onNormalControlsInteraction = onNormalVideoInteraction,
+            onNormalControlsHoldChange = onNormalVideoHoldChange
         )
     }
 }
@@ -538,7 +553,10 @@ private fun VideoAssetPage(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     dragTransform: PhotoDragTransform,
-    bottomChromePadding: Dp
+    bottomChromePadding: Dp,
+    normalControlsVisible: Boolean,
+    onNormalControlsInteraction: () -> Unit,
+    onNormalControlsHoldChange: (Boolean) -> Unit
 ) {
     PaddedTransformableMediaLayer(
         asset = asset,
@@ -561,6 +579,9 @@ private fun VideoAssetPage(
                     isCurrentPage = isCurrentPage,
                     onTap = onTap,
                     bottomChromePadding = bottomChromePadding,
+                    normalControlsVisible = normalControlsVisible,
+                    onNormalControlsInteraction = onNormalControlsInteraction,
+                    onNormalControlsHoldChange = onNormalControlsHoldChange,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -766,12 +787,17 @@ internal fun DetailTopBarOverlay(
     onViewStack: (() -> Unit)? = null,
     onRetryStackCheck: (() -> Unit)? = null,
     onToggleFullscreen: (() -> Unit)? = null,
-    isFullscreen: Boolean = false
+    isFullscreen: Boolean = false,
+    animate: Boolean = true,
+    onMenuExpandedChange: ((Boolean) -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
+    val latestOnMenuExpandedChange by rememberUpdatedState(onMenuExpandedChange)
     AnimatedVisibility(
         visible = showTopBar,
-        enter = slideInVertically { -it },
-        exit = slideOutVertically { -it }
+        modifier = modifier,
+        enter = if (animate) slideInVertically { -it } else EnterTransition.None,
+        exit = if (animate) slideOutVertically { -it } else ExitTransition.None
     ) {
         Box(
             modifier = Modifier
@@ -808,6 +834,12 @@ internal fun DetailTopBarOverlay(
                 }
                 Box {
                     var menuExpanded by remember { mutableStateOf(false) }
+                    // Closing or disposing an open menu always reports the release.
+                    DisposableEffect(menuExpanded) {
+                        val expanded = menuExpanded
+                        if (expanded) latestOnMenuExpandedChange?.invoke(true)
+                        onDispose { if (expanded) latestOnMenuExpandedChange?.invoke(false) }
+                    }
                     IconButton(
                         onClick = {
                             onStackMenuOpened?.invoke()
@@ -920,13 +952,14 @@ internal fun DetailTopBarOverlay(
 @Composable
 internal fun DetailBottomHandle(
     visible: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    animate: Boolean = true
 ) {
     val description = stringResource(Res.string.show_photo_information)
     AnimatedVisibility(
         visible = visible,
-        enter = slideInVertically { it },
-        exit = slideOutVertically { it }
+        enter = if (animate) slideInVertically { it } else EnterTransition.None,
+        exit = if (animate) slideOutVertically { it } else ExitTransition.None
     ) {
         Box(
             modifier = Modifier
@@ -1021,7 +1054,10 @@ private fun VideoContent(
     apiKey: String,
     isCurrentPage: Boolean,
     onTap: () -> Unit,
-    bottomChromePadding: Dp = 0.dp,
+    bottomChromePadding: Dp,
+    normalControlsVisible: Boolean,
+    onNormalControlsInteraction: () -> Unit,
+    onNormalControlsHoldChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     log.d { "VideoContent: loading video from <redacted>" }
@@ -1040,6 +1076,9 @@ private fun VideoContent(
         isCurrentPage = isCurrentPage,
         onTap = onTap,
         bottomChromePadding = bottomChromePadding,
+        normalControlsVisible = normalControlsVisible,
+        onNormalControlsInteraction = onNormalControlsInteraction,
+        onNormalControlsHoldChange = onNormalControlsHoldChange,
         modifier = modifier.fillMaxSize()
     )
 }

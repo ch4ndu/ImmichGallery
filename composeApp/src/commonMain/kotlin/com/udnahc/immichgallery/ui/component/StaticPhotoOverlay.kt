@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.lerp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetDetail
 import com.udnahc.immichgallery.domain.model.AssetStackLookup
+import com.udnahc.immichgallery.domain.model.AssetType
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.LocalViewerFullscreen
 import com.udnahc.immichgallery.ui.util.LocalViewerFullscreenSession
@@ -156,7 +157,7 @@ fun StaticPhotoOverlay(
     val fullscreen = LocalViewerFullscreen.current
     val fullscreenSession = rememberViewerFullscreenSession()
     var filmstripExpanded by remember { mutableStateOf(false) }
-    var showTopBar by remember { mutableStateOf(true) }
+    val chrome = rememberViewerChromeState()
     var showSlideshowDialog by remember { mutableStateOf(false) }
     var showDetailSheet by remember { mutableStateOf(false) }
     val stackController = rememberStackSessionController(getAssetStack)
@@ -185,9 +186,9 @@ fun StaticPhotoOverlay(
 
 
     val onTap: () -> Unit = {
-        if (isSlideshow) slideshow.send { it.toggleControls() } else showTopBar = !showTopBar
+        if (isSlideshow) slideshow.send { it.toggleControls() } else chrome.toggle()
     }
-    LaunchedEffect(isSlideshow) { if (!isSlideshow) showTopBar = true }
+    LaunchedEffect(isSlideshow) { if (!isSlideshow) chrome.show() }
     LaunchedEffect(assets) { slideshow.source { staticSlideshowSource(assets) } }
 
     if (assets.isEmpty()) {
@@ -259,7 +260,7 @@ fun StaticPhotoOverlay(
             onConfirm = { config ->
                 showSlideshowDialog = false
                 slideshow.send { it.start(config, pagerState.settledPage) }
-                showTopBar = false
+                chrome.hide()
             },
             onDismiss = { showSlideshowDialog = false }
         )
@@ -288,6 +289,16 @@ fun StaticPhotoOverlay(
     val gestureEnabled = !showDetailSheet && !isSlideshow && !isCoveredByStack
     LaunchedEffect(gestureEnabled) {
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
+    }
+
+    val isNormalVideo = !isSlideshow && currentAsset?.type == AssetType.VIDEO
+    // Fullscreen changes are interactions: normal video reveals chrome with a fresh interval.
+    val toggleFullscreen: () -> Unit = {
+        fullscreenSession.toggle()
+        if (isNormalVideo) chrome.show()
+    }
+    val exitFullscreen: () -> Boolean = {
+        fullscreenSession.exitFullscreen().also { exited -> if (exited && isNormalVideo) chrome.show() }
     }
 
     Box(
@@ -321,14 +332,14 @@ fun StaticPhotoOverlay(
                     else if (!pagerState.isScrollInProgress) scope.launch { pagerState.animateScrollToPage((pagerState.currentPage + 1).coerceAtMost(assets.lastIndex)) }
                 },
                 onDismiss = {
-                    if (isSlideshow) slideshow.send { it.stop() } else if (!fullscreenSession.exitFullscreen()) dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
+                    if (isSlideshow) slideshow.send { it.stop() } else if (!exitFullscreen()) dismissBase(assets.getOrNull(pagerState.settledPage)?.id)
                 },
                 onToggleSlideshow = {
                     if (isSlideshow) slideshow.send { it.togglePause() }
                     else showSlideshowDialog = true
                 },
                 onInfo = { showDetailSheet = true },
-                onToggleFullscreen = if (fullscreen.isSupported) { { fullscreenSession.toggle() } } else null,
+                onToggleFullscreen = if (fullscreen.isSupported) toggleFullscreen else null,
             )
     ) {
         var bottomChromeHeightPx by remember { mutableIntStateOf(0) }
@@ -339,6 +350,13 @@ fun StaticPhotoOverlay(
         } else {
             0.dp
         }
+        val normalVideoChromeActive = isNormalVideo && normalFooterVisible && LocalAppActive.current
+        NormalVideoChromeTimeout(chrome, enabled = normalVideoChromeActive, assetKey = currentAsset?.id)
+        // Normal video: one eligible-and-visible signal drives top bar, footer chrome and controls.
+        // Photos keep their prior gates; the Memories indicator stays outside this signal.
+        val normalVideoChromeVisible = normalVideoChromeActive && chrome.visible
+        val topBarVisible = if (isNormalVideo) normalVideoChromeVisible else chrome.visible && !isSlideshow && !isCoveredByStack
+        val footerChromeVisible = if (isNormalVideo) normalVideoChromeVisible else chrome.visible
 
         HorizontalPager(
             state = pagerState,
@@ -379,6 +397,9 @@ fun StaticPhotoOverlay(
                         isDragging = isSettledPage && dragState.isActive,
                         onZoomStateChanged = { zoomed -> isCurrentPageZoomed = zoomed },
                         bottomChromePadding = bottomChromePadding,
+                        normalVideoControlsVisible = isSettledPage && normalVideoChromeVisible,
+                        onNormalVideoInteraction = chrome::registerInteraction,
+                        onNormalVideoHoldChange = { held -> chrome.setHold(ViewerChromeHold.VideoControls, held) },
                     )
                 }
             }
@@ -387,11 +408,14 @@ fun StaticPhotoOverlay(
         SlideshowFadeLayer(slideshowTransition)
 
         DetailTopBarOverlay(
-            showTopBar = showTopBar && !isSlideshow && !isCoveredByStack,
+            showTopBar = topBarVisible,
+            animate = !isNormalVideo,
+            onMenuExpandedChange = { expanded -> chrome.setHold(ViewerChromeHold.Menu, expanded) },
+            modifier = if (isNormalVideo) Modifier.viewerChromeHold(chrome, ViewerChromeHold.TopBar) else Modifier,
             title = currentAsset?.fileName.orEmpty(),
             onBack = { dismissBase(currentAsset?.id) },
             onInfo = { showDetailSheet = true },
-            onToggleFullscreen = if (fullscreen.isSupported) { { fullscreenSession.toggle() } } else null,
+            onToggleFullscreen = if (fullscreen.isSupported) toggleFullscreen else null,
             isFullscreen = fullscreen.isFullscreen,
             onSlideshow = if (assets.size > 1) {
                 { showSlideshowDialog = true }
@@ -411,7 +435,7 @@ fun StaticPhotoOverlay(
                 }
             } else null,
             onRetryStackCheck = if (stackBrowsingEnabled && currentAsset != null) {
-                { stackController.retryPreflight(currentAsset.id) }
+                { chrome.registerInteraction(); stackController.retryPreflight(currentAsset.id) }
             } else null
         )
 
@@ -427,17 +451,24 @@ fun StaticPhotoOverlay(
                     currentPageOffsetFraction = pagerState.currentPageOffsetFraction,
                     settledPage = pagerState.settledPage, totalPages = assets.size,
                     modifier = Modifier.padding(vertical = Dimens.smallSpacing))
-                if (showTopBar) {
-                    if (filmstripExpanded) ViewerFilmstrip(
-                        totalPages = assets.size, currentPage = pagerState.settledPage,
-                        pageKey = { page -> assets[page].id },
-                        assetForPage = { page -> assets.getOrNull(page) },
-                        onPageSelected = { page -> scope.launch { pagerState.scrollToPage(page) } },
-                    )
-                    ViewerFilmstripControls(totalPages = assets.size, currentPage = pagerState.settledPage,
-                        expanded = filmstripExpanded, onExpandedChange = { filmstripExpanded = it }, showPosition = !showPageIndicator)
+                // Holds cover the strip, its controls and the handle; the indicator stays outside.
+                Column(if (isNormalVideo) Modifier.viewerChromeHold(chrome, ViewerChromeHold.Footer) else Modifier) {
+                    if (footerChromeVisible) {
+                        if (filmstripExpanded) ViewerFilmstrip(
+                            totalPages = assets.size, currentPage = pagerState.settledPage,
+                            pageKey = { page -> assets[page].id },
+                            assetForPage = { page -> assets.getOrNull(page) },
+                            onPageSelected = { page ->
+                                chrome.registerInteraction()
+                                scope.launch { pagerState.scrollToPage(page) }
+                            },
+                        )
+                        ViewerFilmstripControls(totalPages = assets.size, currentPage = pagerState.settledPage,
+                            expanded = filmstripExpanded, showPosition = !showPageIndicator,
+                            onExpandedChange = { chrome.registerInteraction(); filmstripExpanded = it })
+                    }
+                    DetailBottomHandle(visible = footerChromeVisible, onClick = { showDetailSheet = true }, animate = !isNormalVideo)
                 }
-                DetailBottomHandle(visible = showTopBar, onClick = { showDetailSheet = true })
             }
         }
 

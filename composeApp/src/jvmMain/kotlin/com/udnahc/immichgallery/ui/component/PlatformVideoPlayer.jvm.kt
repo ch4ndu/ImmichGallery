@@ -1,12 +1,8 @@
 package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.Text
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -22,7 +18,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import chaintech.videoplayer.host.MediaPlayerHost
 import chaintech.videoplayer.model.ScreenResize
-import chaintech.videoplayer.model.VideoPlayerConfig
 import chaintech.videoplayer.ui.video.VideoPlayerComposable
 import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.JvmVlcBootstrap
@@ -40,6 +35,9 @@ actual fun PlatformVideoPlayer(
     onTap: () -> Unit,
     modifier: Modifier,
     bottomChromePadding: Dp,
+    normalControlsVisible: Boolean,
+    onNormalControlsInteraction: () -> Unit,
+    onNormalControlsHoldChange: (Boolean) -> Unit,
     slideshowRequest: SlideshowMediaRequest?,
     muted: Boolean,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -48,10 +46,10 @@ actual fun PlatformVideoPlayer(
         AuthenticatedMediaUrl.create(playbackUrl, apiKey)
     }
     val isVlcAvailable = remember { JvmVlcBootstrap.isAvailable() }
-    Box(modifier = modifier.observeNonConsumingTap(onTap)) {
+    Box(modifier = modifier) {
         if (!isVlcAvailable || authenticatedUrl == null) {
             LaunchedEffect(slideshowRequest) { slideshowRequest?.let { onSlideshowEvent(it, SlideshowMediaEvent.Failed) } }
-            DesktopVideoUnavailable(Modifier.fillMaxSize())
+            DesktopVideoUnavailable(Modifier.fillMaxSize().observeNonConsumingTap(onTap))
             return@Box
         }
 
@@ -63,47 +61,49 @@ actual fun PlatformVideoPlayer(
                 initialVideoFitMode = ScreenResize.FIT
             ).also { if (slideshowRequest != null) it.setLooping(false) }
         }
+        val normalState = remember(authenticatedUrl) { NormalVideoPlaybackState() }
 
         val latestEvent by rememberUpdatedState(onSlideshowEvent)
+        // One callback owner per host: slideshow requests feed the controller, normal video feeds its controls.
         DisposableEffect(host, slideshowRequest) {
             val captured = slideshowRequest
-            if (captured != null) {
-                host.onEvent = { event -> chaintechSlideshowEvent(event)?.let { latestEvent(captured, it) } }
-                host.onError = { latestEvent(captured, SlideshowMediaEvent.Failed) }
+            host.onEvent = { event ->
+                if (captured != null) chaintechSlideshowEvent(event)?.let { latestEvent(captured, it) }
+                else normalState.applyChaintechEvent(event)
             }
+            host.onError = { if (captured != null) latestEvent(captured, SlideshowMediaEvent.Failed) }
             onDispose { host.onEvent = {}; host.onError = {}; host.pause() }
         }
-        LaunchedEffect(host, isCurrentPage, muted) {
+        LaunchedEffect(host, isCurrentPage, muted, normalState.userPaused) {
             if (slideshowRequest != null) {
                 host.setLooping(false)
                 if (muted) host.mute() else host.unmute()
             }
-            if (isCurrentPage) host.play() else host.pause()
+            // Lifecycle eligibility never rewrites the user's pause intent.
+            if (isCurrentPage && (slideshowRequest != null || !normalState.userPaused)) host.play() else host.pause()
         }
 
-        val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-
-        VideoPlayerComposable(
-            modifier = Modifier.fillMaxSize().padding(bottom = bottomChromePadding),
-            playerHost = host,
-            playerConfig = VideoPlayerConfig(
-                showControlsOverride = if (slideshowRequest == null) null else false,
-                isPauseResumeEnabled = slideshowRequest == null,
-                isSeekBarVisible = slideshowRequest == null,
-                enableFullEdgeToEdge = false,
-                isScreenLockEnabled = false,
-                enablePIPControl = false,
-                isScreenResizeEnabled = slideshowRequest == null,
-                isFastForwardBackwardEnabled = slideshowRequest == null,
-                isGestureVolumeControlEnabled = slideshowRequest == null,
-                enableLongPressFastForward = slideshowRequest == null,
-                isFullScreenEnabled = false,
-                controlTopPadding = statusBarTop + Dimens.topBarHeight,
-                seekBarBottomPadding = navBarBottom + bottomChromePadding + Dimens.screenPadding,
-                topControlSize = Dimens.videoPlayerTopControlSizeDesktop
+        Box(modifier = Modifier.fillMaxSize().observeNonConsumingTap(onTap)) {
+            VideoPlayerComposable(
+                modifier = Modifier.fillMaxSize(),
+                playerHost = host,
+                playerConfig = remember(slideshowRequest == null) {
+                    chromelessChaintechConfig(normalPlayback = slideshowRequest == null)
+                }
             )
-        )
+        }
+        if (slideshowRequest == null) {
+            NormalVideoControls(
+                state = normalState,
+                visible = normalControlsVisible,
+                onPlayPause = { normalState.userPaused = !normalState.userPaused },
+                onMuteToggle = { if (normalState.muted) host.unmute() else host.mute() },
+                onSeek = { seconds -> host.seekTo(seconds) },
+                onInteraction = onNormalControlsInteraction,
+                onHoldChange = onNormalControlsHoldChange,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomChromePadding)
+            )
+        }
     }
 }
 

@@ -25,11 +25,11 @@ interface AssetDao {
     @Transaction
     suspend fun upsertAssetsRefreshingTimelineSnapshots(assets: List<AssetEntity>) {
         if (assets.isEmpty()) return
-        val changedIds = assets.map { it.id }
-            .chunked(ASSET_ID_QUERY_CHUNK_SIZE)
-            .flatMap { ids ->
-                val existing = getAssetsByIds(ids).associateBy { it.id }
-                assets.filter { it.id in ids && orderedAssetFingerprintChanged(existing[it.id], it) }
+        // Compare each chunk only against its own existing rows; never rescan the whole input per chunk.
+        val changedIds = assets.chunked(ASSET_ID_QUERY_CHUNK_SIZE)
+            .flatMap { chunk ->
+                val existing = getAssetsByIds(chunk.map { it.id }).associateBy { it.id }
+                chunk.filter { orderedAssetFingerprintChanged(existing[it.id], it) }
                     .map { it.id }
             }
         upsertAssets(assets)

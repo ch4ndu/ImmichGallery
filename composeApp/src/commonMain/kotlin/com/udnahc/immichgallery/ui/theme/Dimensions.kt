@@ -63,8 +63,6 @@ object Dimens {
     val pageIndicatorSegmentDividerWidth = 1.dp
     val pageIndicatorBottomPadding = 28.dp
     val viewerFilmstripHeight = 80.dp
-    val videoPlayerTopControlSizeMobile = 36.dp
-    val videoPlayerTopControlSizeDesktop = 48.dp
     val photoDismissThreshold = 150.dp
     val photoDismissFlickVelocity = 1200.dp
     val largeScreenMosaicColumnsMinWidth = 600.dp
