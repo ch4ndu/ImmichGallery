@@ -39,7 +39,11 @@ import platform.AVFoundation.play
 import platform.AVKit.AVPlayerViewController
 import platform.Foundation.NSSelectorFromString
 import platform.Foundation.NSURL
+import platform.UIKit.UIApplication
+import platform.UIKit.UIScreen
+import platform.UIKit.UISceneActivationStateForegroundActive
 import platform.UIKit.UITapGestureRecognizer
+import platform.UIKit.UIWindowScene
 import platform.darwin.NSObject
 import kotlinx.cinterop.ObjCAction
 
@@ -64,7 +68,7 @@ private class VideoTapHandler(var onTap: () -> Unit) : NSObject() {
 
 @OptIn(ExperimentalForeignApi::class)
 @Composable
-actual fun PlatformVideoPlayer(
+internal actual fun PlatformVideoPlayer(
     playbackUrl: String,
     originalUrl: String,
     apiKey: String,
@@ -74,7 +78,7 @@ actual fun PlatformVideoPlayer(
     bottomChromePadding: Dp,
     normalControlsVisible: Boolean,
     onNormalControlsInteraction: () -> Unit,
-    onNormalControlsHoldChange: (Boolean) -> Unit,
+    onNormalControlsHoldChange: (ViewerChromeHold, Boolean) -> Unit,
     slideshowRequest: SlideshowMediaRequest?,
     muted: Boolean,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -178,18 +182,35 @@ actual fun PlatformVideoPlayer(
         }
     }
 
-    LaunchedEffect(player, muted, normalState.muted) {
+    // Keyed on player so a source-fallback replacement inherits mute and the chosen volume.
+    LaunchedEffect(player, muted, normalState.muted, normalState.volume) {
         player.muted = if (slideshowRequest != null) muted else normalState.muted
+        if (slideshowRequest == null) player.volume = normalState.volume
     }
-    // Lifecycle eligibility never rewrites the user's pause intent.
-    LaunchedEffect(isCurrentPage, player, normalState.userPaused) {
+    // Lifecycle eligibility never rewrites the user's pause intent. Normal video plays at the
+    // selected rate only while active and user-playing, so a speed change cannot start a paused
+    // player; slideshow keeps its normal rate.
+    LaunchedEffect(isCurrentPage, player, normalState.userPaused, normalState.speed) {
         if (isCurrentPage && (slideshowRequest != null || !normalState.userPaused)) {
             log.d { "PlatformVideoPlayer(iOS): playing" }
-            player.play()
+            if (slideshowRequest != null) {
+                player.play()
+            } else {
+                player.rate = normalState.speed.rate
+            }
         } else {
             log.d { "PlatformVideoPlayer(iOS): pausing" }
             player.pause()
         }
+    }
+    val ownsBrightness = slideshowRequest == null && isCurrentPage
+    // Only the current normal player overrides screen brightness; leaving eligibility restores it,
+    // and regaining it reapplies the user's level after capturing a fresh pre-override value.
+    DisposableEffect(normalState, ownsBrightness) {
+        if (!ownsBrightness) return@DisposableEffect onDispose {}
+        VideoScreenBrightness.begin(normalState, activeScreen())
+        normalState.brightness?.let { VideoScreenBrightness.apply(normalState, it) }
+        onDispose { VideoScreenBrightness.end(normalState) }
     }
 
     val latestPlaying by rememberUpdatedState(isCurrentPage)
@@ -270,29 +291,46 @@ actual fun PlatformVideoPlayer(
     val tapHandler = remember { VideoTapHandler { latestOnTap() } }
 
     Box(modifier = modifier) {
-        UIKitViewController(
-            factory = {
-                AVPlayerViewController().apply {
-                    this.player = player
-                    this.showsPlaybackControls = false
-                    this.allowsPictureInPicturePlayback = false
-                    this.videoGravity = AVLayerVideoGravityResizeAspect
-                    val tap = UITapGestureRecognizer(
-                        target = tapHandler,
-                        action = NSSelectorFromString("handleTap")
-                    )
-                    tap.cancelsTouchesInView = false
-                    view.addGestureRecognizer(tap)
-                }
+        // Side-drag gestures sit on the Box wrapping the interop view; native touch delivery
+        // under cooperative interop needs device verification.
+        NormalVideoGestureSurface(
+            enabled = slideshowRequest == null && isCurrentPage,
+            brightnessLevel = { normalState.brightness ?: VideoScreenBrightness.currentLevel(activeScreen()) },
+            volumeLevel = { normalState.effectiveVolume },
+            onBrightnessChange = { level ->
+                normalState.brightness = level
+                VideoScreenBrightness.apply(normalState, level)
             },
-            update = { vc ->
-                vc.showsPlaybackControls = false
-                if (vc.player !== player) {
-                    vc.player = player
-                }
+            onVolumeChange = { level ->
+                normalState.adjustVolume(level, unmute = { normalState.muted = false }, setVolume = {})
             },
+            onHoldChange = onNormalControlsHoldChange,
             modifier = Modifier.fillMaxSize()
-        )
+        ) {
+            UIKitViewController(
+                factory = {
+                    AVPlayerViewController().apply {
+                        this.player = player
+                        this.showsPlaybackControls = false
+                        this.allowsPictureInPicturePlayback = false
+                        this.videoGravity = AVLayerVideoGravityResizeAspect
+                        val tap = UITapGestureRecognizer(
+                            target = tapHandler,
+                            action = NSSelectorFromString("handleTap")
+                        )
+                        tap.cancelsTouchesInView = false
+                        view.addGestureRecognizer(tap)
+                    }
+                },
+                update = { vc ->
+                    vc.showsPlaybackControls = false
+                    if (vc.player !== player) {
+                        vc.player = player
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         if (slideshowRequest == null) {
             NormalVideoControls(
                 state = normalState,
@@ -306,9 +344,13 @@ actual fun PlatformVideoPlayer(
                 },
                 onMuteToggle = { normalState.muted = !normalState.muted },
                 onSeek = { seconds ->
-                    ended = false
-                    normalState.positionSeconds = seconds
-                    player.seekToTime(CMTimeMakeWithSeconds(seconds.toDouble(), VIDEO_SEEK_TIMESCALE))
+                    // A seek that lands at a known end keeps the replay marker so the next Play
+                    // rewinds; any earlier target clears it. Pause intent is left unchanged.
+                    val duration = validVideoDuration(normalState.durationSeconds)
+                    val target = if (duration != null) seconds.coerceIn(0f, duration) else seconds.coerceAtLeast(0f)
+                    ended = duration != null && target >= duration
+                    normalState.positionSeconds = target
+                    player.seekToTime(CMTimeMakeWithSeconds(target.toDouble(), VIDEO_SEEK_TIMESCALE))
                 },
                 onInteraction = onNormalControlsInteraction,
                 onHoldChange = onNormalControlsHoldChange,
@@ -323,6 +365,56 @@ actual fun PlatformVideoPlayer(
 @Composable
 private fun FailedVideoSurface(slideshowRequest: SlideshowMediaRequest?, onTap: () -> Unit, modifier: Modifier) {
     if (slideshowRequest == null) Box(modifier.observeNonConsumingTap(onTap))
+}
+
+// Prefer the foreground scene's screen; fall back to the main screen.
+private fun activeScreen(): UIScreen =
+    UIApplication.sharedApplication.connectedScenes
+        .filterIsInstance<UIWindowScene>()
+        .firstOrNull { it.activationState == UISceneActivationStateForegroundActive }
+        ?.screen
+        ?: UIScreen.mainScreen
+
+/**
+ * One screen-brightness override at a time, owned by the current normal player's state. A newly
+ * active owner takes over the original pre-override value, so a late disposal from the previous
+ * page cannot restore over it, and only the owner that applied a level restores it.
+ */
+private object VideoScreenBrightness {
+    private var owner: Any? = null
+    private var screen: UIScreen? = null
+    private var prior = 1.0
+    private var overridden = false
+
+    fun currentLevel(target: UIScreen): Float = target.brightness.toFloat().coerceIn(0f, 1f)
+
+    fun begin(token: Any, target: UIScreen) {
+        val current = screen
+        if (owner != null && current != null) {
+            if (overridden) current.brightness = prior
+            if (current !== target) prior = target.brightness
+        } else {
+            prior = target.brightness
+        }
+        owner = token
+        screen = target
+        overridden = false
+    }
+
+    fun apply(token: Any, level: Float) {
+        val target = screen ?: return
+        if (owner !== token) return
+        target.brightness = level.coerceIn(0f, 1f).toDouble()
+        overridden = true
+    }
+
+    fun end(token: Any) {
+        if (owner !== token) return
+        if (overridden) screen?.brightness = prior
+        owner = null
+        screen = null
+        overridden = false
+    }
 }
 
 private const val VIDEO_SEEK_TIMESCALE = 600

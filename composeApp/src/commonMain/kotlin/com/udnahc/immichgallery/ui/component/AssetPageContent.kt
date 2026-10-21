@@ -229,7 +229,7 @@ internal fun AssetPage(
     bottomChromePadding: Dp = 0.dp,
     normalVideoControlsVisible: Boolean = false,
     onNormalVideoInteraction: () -> Unit = {},
-    onNormalVideoHoldChange: (Boolean) -> Unit = {},
+    onNormalVideoHoldChange: (ViewerChromeHold, Boolean) -> Unit = { _, _ -> },
     playback: SlideshowPlaybackState? = null,
     slideshowProgress: () -> Float = { 0f },
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit = { _, _ -> },
@@ -457,7 +457,7 @@ private fun VideoOrSlideshowAssetPage(
     bottomChromePadding: Dp,
     normalVideoControlsVisible: Boolean,
     onNormalVideoInteraction: () -> Unit,
-    onNormalVideoHoldChange: (Boolean) -> Unit,
+    onNormalVideoHoldChange: (ViewerChromeHold, Boolean) -> Unit,
     playback: SlideshowPlaybackState?,
     slideshowProgress: () -> Float,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -556,7 +556,7 @@ private fun VideoAssetPage(
     bottomChromePadding: Dp,
     normalControlsVisible: Boolean,
     onNormalControlsInteraction: () -> Unit,
-    onNormalControlsHoldChange: (Boolean) -> Unit
+    onNormalControlsHoldChange: (ViewerChromeHold, Boolean) -> Unit
 ) {
     PaddedTransformableMediaLayer(
         asset = asset,
@@ -1057,7 +1057,7 @@ private fun VideoContent(
     bottomChromePadding: Dp,
     normalControlsVisible: Boolean,
     onNormalControlsInteraction: () -> Unit,
-    onNormalControlsHoldChange: (Boolean) -> Unit,
+    onNormalControlsHoldChange: (ViewerChromeHold, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     log.d { "VideoContent: loading video from <redacted>" }

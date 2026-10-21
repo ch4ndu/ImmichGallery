@@ -63,9 +63,13 @@ on the server.
   grid-to-viewer transition.
 - Pinch and pan full-resolution still images.
 - Play authenticated video through the platform media player; only the settled
-  pager page plays. Shared play/pause, seek, time and mute controls hide together
-  with the top bar and thumbnail row after three seconds of inactivity. Photos
-  keep tap-to-toggle controls. Native speed, track and route menus are not exposed.
+  pager page plays. Shared play/pause, seek, time, mute, ten-second skip and
+  playback-speed controls hide with the top bar and thumbnail row after three
+  seconds of inactivity. Drag vertically on the video's right side for volume
+  or left side for brightness; indicators appear only during adjustment.
+  Android/iOS restore screen brightness on leaving active viewing; desktop
+  dims only the video. Photos keep tap-to-toggle controls. Track and route
+  menus are not exposed.
 - Swipe down to dismiss, swipe up (or use the bottom handle) for information,
   tap to show or hide viewer controls, and return to the currently viewed asset
   even after paging.

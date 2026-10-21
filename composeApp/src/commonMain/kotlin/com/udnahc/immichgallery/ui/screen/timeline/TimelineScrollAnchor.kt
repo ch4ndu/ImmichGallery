@@ -110,20 +110,23 @@ internal class TimelineScrollAnchorReconciler {
         }
 
         if (restoringProjection != null) return null
+        val resolved = projection.resolveVisible(visibleItems)
         requestedAssetId?.let { assetId ->
             val requestedIndex = projection.assetDisplayIndexById[assetId]
-            if (visibleItems.none { it.displayIndex == requestedIndex }) return null
+            if (resolved.none { (_, index) -> index == requestedIndex }) return null
             requestedAssetId = null
         }
         val pendingBucket = bucketAnchor
         if (pendingBucket != null) {
-            val firstBucket = visibleItems.firstOrNull()?.displayIndex
+            val firstBucket = resolved.firstOrNull()?.second
                 ?.let { projection.bucketByDisplayIndex.getOrNull(it) }
             if (firstBucket != pendingBucket.bucketIndex) return null
         }
         captureCurrentAnchor(projection, visibleItems, metrics)
         return null
     }
+
+    fun isRestoring(projection: TimelineDisplayIndex): Boolean = restoringProjection == projection
 
     fun commitRestore(
         projection: TimelineDisplayIndex,
@@ -198,14 +201,23 @@ internal class TimelineScrollAnchorReconciler {
         return TimelineScrollRestore(target, offset)
     }
 
+    // A supplied key the projection lacks belongs to an older lazy item provider; drop it rather than
+    // reinterpreting its numeric index against this projection. Keyless synthetic items keep their index.
+    private fun TimelineDisplayIndex.resolveVisible(
+        visibleItems: List<TimelineVisibleScrollItem>
+    ): List<Pair<TimelineVisibleScrollItem, Int>> =
+        visibleItems.mapNotNull { visible ->
+            val index = if (visible.key != null) displayIndexByGridKey[visible.key] else visible.displayIndex
+            index?.takeIf { it in gridKeyByDisplayIndex.indices }?.let { visible to it }
+        }
+
     private fun captureViewportAnchor(
         projection: TimelineDisplayIndex,
-        visibleItems: List<TimelineVisibleScrollItem>,
+        resolvedItems: List<Pair<TimelineVisibleScrollItem, Int>>,
         metrics: TimelineAnchorMetrics
     ): TimelineViewportScrollAnchor? {
-        val resolved = visibleItems.mapNotNull { visible ->
-            val index = visible.key?.let(projection.displayIndexByGridKey::get) ?: visible.displayIndex
-            projection.gridKeyByDisplayIndex.getOrNull(index)?.let { key -> Triple(visible, index, key) }
+        val resolved = resolvedItems.map { (visible, index) ->
+            Triple(visible, index, projection.gridKeyByDisplayIndex[index])
         }
         val topmostStable = resolved.firstOrNull { (_, index, _) -> projection.isStableAnchor(index) }
         if (topmostStable != null) {
@@ -250,18 +262,20 @@ internal class TimelineScrollAnchorReconciler {
         visibleItems: List<TimelineVisibleScrollItem>,
         metrics: TimelineAnchorMetrics
     ) {
-        if (visibleItems.isEmpty()) return
-        viewportAnchor = captureViewportAnchor(projection, visibleItems, metrics)
-        val visibleAsset = visibleItems.firstNotNullOfOrNull { visible ->
-            projection.firstAssetIdByDisplayIndex.getOrNull(visible.displayIndex)
+        val resolved = projection.resolveVisible(visibleItems)
+        // Keep the last valid anchor when nothing measured belongs to this projection.
+        if (resolved.isEmpty()) return
+        viewportAnchor = captureViewportAnchor(projection, resolved, metrics)
+        val visibleAsset = resolved.firstNotNullOfOrNull { (visible, index) ->
+            projection.firstAssetIdByDisplayIndex.getOrNull(index)
                 ?.let { assetId ->
                     TimelineAssetScrollAnchor(
                         assetId = assetId,
                         scrollOffset = -visible.itemOffset,
                         fallbackBucketIndex = projection.bucketByDisplayIndex
-                            .getOrNull(visible.displayIndex),
+                            .getOrNull(index),
                         fallbackItemKey = projection.bucketByDisplayIndex
-                            .getOrNull(visible.displayIndex)
+                            .getOrNull(index)
                             ?.let(projection.displayIndexesByBucket::get)
                             ?.firstOrNull()
                             ?.let(projection.gridKeyByDisplayIndex::getOrNull)

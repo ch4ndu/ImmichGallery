@@ -256,6 +256,48 @@ class TimelineScrollAnchorTest {
     }
 
     @Test
+    fun staleMeasuredLayoutCannotCaptureWrongPhotoAndCoherentProjectionRecovers() {
+        val before = projection(
+            row(bucket = 0, key = "a-row", assetId = "a"),
+            row(bucket = 0, key = "b-row", assetId = "b")
+        )
+        val after = projection(
+            row(bucket = 0, key = "inserted", assetId = "x"),
+            row(bucket = 0, key = "a-row", assetId = "a"),
+            row(bucket = 0, key = "b-row", assetId = "b")
+        )
+        val latest = projection(
+            row(bucket = 0, key = "y-row", assetId = "y"),
+            row(bucket = 0, key = "inserted", assetId = "x"),
+            row(bucket = 0, key = "a-row", assetId = "a"),
+            row(bucket = 0, key = "b-row", assetId = "b")
+        )
+        val reconciler = TimelineScrollAnchorReconciler()
+        reconciler.observe(before, listOf(TimelineVisibleScrollItem(1, -10, key = "b-row")), false)
+        assertEquals(
+            TimelineScrollRestore(displayIndex = 2, scrollOffset = 10),
+            reconciler.observe(after, listOf(TimelineVisibleScrollItem(1, -10, key = "b-row")), false)
+        )
+
+        // The lazy layout still measures the older provider: old indices plus a key `after` lacks.
+        reconciler.commitRestore(
+            after,
+            listOf(
+                TimelineVisibleScrollItem(0, -400, key = "stale-only"),
+                TimelineVisibleScrollItem(1, -10, key = "b-row")
+            )
+        )
+        assertEquals("b", reconciler.anchoredAssetIdForTests())
+        reconciler.observe(after, listOf(TimelineVisibleScrollItem(0, 0, key = "stale-only")), false)
+        assertEquals("b", reconciler.anchoredAssetIdForTests())
+
+        assertEquals(
+            TimelineScrollRestore(displayIndex = 3, scrollOffset = 10),
+            reconciler.observe(latest, listOf(TimelineVisibleScrollItem(2, -10, key = "b-row")), false)
+        )
+    }
+
+    @Test
     fun clippedEstimateAboveVisibleBandPinsTheVisibleBand() {
         val before = timelineProjection(header("h_b"), estimate("est", 500f, 0, 10), rangeBand("mr_b_0_4", 0, 4, 300f))
         val after = timelineProjection(header("h_b"), estimate("est2", 120f, 0, 10), rangeBand("mr_b_0_4", 0, 4, 300f))

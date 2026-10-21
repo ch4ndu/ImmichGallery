@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -102,8 +103,25 @@ import org.koin.compose.viewmodel.koinViewModel
 private data class TimelineScrollObservation(
     val projection: TimelineDisplayIndex,
     val visibleItems: List<TimelineVisibleScrollItem>,
+    // Part of identity so a count-only remeasure still re-emits and retries a pending restore.
+    val totalItemsCount: Int,
     val isScrollInProgress: Boolean
 )
+
+private data class TimelinePendingRestore(
+    val projection: TimelineDisplayIndex,
+    val gridKey: String?,
+    val scrollOffset: Int,
+    // A pre-measure requestScrollToItem was issued for this projection.
+    val requested: Boolean = false
+)
+
+// Written by the composition-applied restore request, then verified, retried, superseded, or cleared
+// by the post-layout observer.
+private class TimelineRestoreRequests {
+    var pending: TimelinePendingRestore? = null
+    var lastPreparedProjection: TimelineDisplayIndex? = null
+}
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -547,87 +565,164 @@ internal fun TimelineScrollEffects(
     val latestOnScrollInProgressChanged by rememberUpdatedState(onScrollInProgressChanged)
     val density = LocalDensity.current
     val latestDensity by rememberUpdatedState(density)
+    fun anchorMetrics(): TimelineAnchorMetrics {
+        val currentDensity = latestDensity
+        val layoutInfo = listState.layoutInfo
+        return TimelineAnchorMetrics(
+            heightPx = { heightDp -> with(currentDensity) { heightDp.dp.roundToPx() } },
+            spacingPx = with(currentDensity) { Dimens.gridSpacing.roundToPx() },
+            viewportPx = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+        )
+    }
+    // Retained across observations until a coherent layout lets it apply, or newer navigation replaces it.
+    val restoreRequests = remember(listState, scrollAnchorReconciler) { TimelineRestoreRequests() }
 
-    LaunchedEffect(listState, scrollAnchorReconciler) {
-        fun anchorMetrics(): TimelineAnchorMetrics {
-            val currentDensity = latestDensity
-            val layoutInfo = listState.layoutInfo
-            return TimelineAnchorMetrics(
-                heightPx = { heightDp -> with(currentDensity) { heightDp.dp.roundToPx() } },
-                spacingPx = with(currentDensity) { Dimens.gridSpacing.roundToPx() },
-                viewportPx = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+    // Runs once composition has installed this projection's items and before their next measure. The
+    // request makes that measure use the restored index instead of LazyColumn's nearest-key lookup,
+    // which falls back to the stale numeric index and shows the wrong month for a frame.
+    SideEffect {
+        if (displayIndex === restoreRequests.lastPreparedProjection) return@SideEffect
+        restoreRequests.lastPreparedProjection = displayIndex
+        // An active scroll keeps priority; the post-layout observer restores once it settles.
+        if (listState.isScrollInProgress) return@SideEffect
+        scrollAnchorReconciler.observe(
+            projection = displayIndex,
+            visibleItems = listState.layoutInfo.toVisibleScrollItems(),
+            isScrollInProgress = false,
+            metrics = anchorMetrics()
+        )?.let { restore ->
+            val targetIndex = restore.displayIndex
+            val gridKey = targetIndex?.let(displayIndex.gridKeyByDisplayIndex::getOrNull)
+            if (targetIndex != null && gridKey != null) {
+                listState.requestScrollToItem(targetIndex, restore.scrollOffset)
+            }
+            restoreRequests.pending = TimelinePendingRestore(
+                projection = displayIndex,
+                gridKey = gridKey,
+                scrollOffset = restore.scrollOffset,
+                requested = gridKey != null
             )
         }
+    }
+
+    LaunchedEffect(listState, scrollAnchorReconciler) {
         snapshotFlow {
+            val layoutInfo = listState.layoutInfo
             TimelineScrollObservation(
                 projection = latestDisplayIndex,
-                visibleItems = listState.layoutInfo.visibleItemsInfo.map { item ->
-                    TimelineVisibleScrollItem(
-                        displayIndex = item.index,
-                        itemOffset = item.offset,
-                        key = item.key as? String
-                    )
-                },
+                visibleItems = layoutInfo.toVisibleScrollItems(),
+                totalItemsCount = layoutInfo.totalItemsCount,
                 isScrollInProgress = listState.isScrollInProgress
             )
         }
             .distinctUntilChanged()
             .collect { observation ->
-                val restore = scrollAnchorReconciler.observe(
+                scrollAnchorReconciler.observe(
                     projection = observation.projection,
                     visibleItems = observation.visibleItems,
                     isScrollInProgress = observation.isScrollInProgress,
                     metrics = anchorMetrics()
-                ) ?: return@collect
-                restore.displayIndex?.let { targetIndex ->
-                    val targetVisible = listState.layoutInfo.visibleItemsInfo
-                        .firstOrNull { item -> item.index == targetIndex }
-                    if (targetVisible == null ||
-                        -targetVisible.offset != restore.scrollOffset
-                    ) {
-                        listState.scrollToItem(targetIndex, restore.scrollOffset)
-                    }
-                }
-                if (latestDisplayIndex == observation.projection) {
-                    scrollAnchorReconciler.commitRestore(
+                )?.let { restore ->
+                    // Identity travels with the restore; a newer projection's restore replaces older work.
+                    restoreRequests.pending = TimelinePendingRestore(
                         projection = observation.projection,
-                        visibleItems = listState.layoutInfo.visibleItemsInfo.map { item ->
-                            TimelineVisibleScrollItem(
-                                displayIndex = item.index,
-                                itemOffset = item.offset,
-                                key = item.key as? String
-                            )
-                        },
-                        metrics = anchorMetrics()
+                        gridKey = restore.displayIndex
+                            ?.let(observation.projection.gridKeyByDisplayIndex::getOrNull),
+                        scrollOffset = restore.scrollOffset
                     )
                 }
+                val pending = restoreRequests.pending ?: return@collect
+                // Scrollbar/date navigation or a newer restore took over.
+                if (!scrollAnchorReconciler.isRestoring(pending.projection)) {
+                    restoreRequests.pending = null
+                    return@collect
+                }
+                if (latestDisplayIndex != pending.projection || listState.isScrollInProgress) return@collect
+                val targetKey = pending.gridKey
+                if (targetKey == null) {
+                    restoreRequests.pending = null
+                    scrollAnchorReconciler.commitRestore(
+                        projection = pending.projection,
+                        visibleItems = listState.layoutInfo.toVisibleScrollItems(),
+                        metrics = anchorMetrics()
+                    )
+                    return@collect
+                }
+                // Applying a numeric index against an older lazy item provider shows the wrong photos;
+                // retry on a later observation once the measured layout matches this projection.
+                if (!listState.layoutInfo.isCoherentWith(pending.projection)) return@collect
+                val targetIndex = latestDisplayIndex.displayIndexByGridKey[targetKey] ?: return@collect
+                // On a coherent layout the first visible index identifies the target key, so an applied
+                // pre-measure request is accepted with its normalized/clamped offset.
+                val requestApplied = pending.requested && listState.firstVisibleItemIndex == targetIndex
+                val inPlace = requestApplied || listState.layoutInfo.visibleItemsInfo
+                    .firstOrNull { item -> item.key == targetKey }
+                    ?.let { item -> -item.offset == pending.scrollOffset } == true
+                if (!inPlace) {
+                    listState.scrollToItem(targetIndex, pending.scrollOffset)
+                    // A completed scroll on an unchanged, coherent projection is accepted even when
+                    // LazyColumn clamped or normalized the requested offset.
+                    if (latestDisplayIndex != pending.projection ||
+                        !scrollAnchorReconciler.isRestoring(pending.projection) ||
+                        !listState.layoutInfo.isCoherentWith(pending.projection)
+                    ) {
+                        return@collect
+                    }
+                }
+                restoreRequests.pending = null
+                scrollAnchorReconciler.commitRestore(
+                    projection = pending.projection,
+                    visibleItems = listState.layoutInfo.toVisibleScrollItems(),
+                    metrics = anchorMetrics()
+                )
             }
     }
     LaunchedEffect(listState) {
         snapshotFlow {
-            listState.isScrollInProgress to visibleBucketIndexesForDisplayIndexes(
-                displayIndex = latestDisplayIndex,
-                visibleItemIndexes = listState.layoutInfo.visibleItemsInfo.map { it.index }
-            )
+            val projection = latestDisplayIndex
+            val layoutInfo = listState.layoutInfo
+            // Incoherent layouts publish no buckets so stale bands cannot start loads, while scroll
+            // activity still reports so deferred work is released.
+            listState.isScrollInProgress to layoutInfo.takeIf { it.isCoherentWith(projection) }?.let { info ->
+                visibleBucketIndexesForDisplayIndexes(
+                    displayIndex = projection,
+                    visibleItemIndexes = info.visibleItemsInfo.map { it.index }
+                )
+            }
         }
             .distinctUntilChanged()
             .collectLatest { (isScrollInProgress, buckets) ->
                 if (isScrollInProgress) {
                     latestOnScrollInProgressChanged(true)
-                    latestOnVisibleBucketsChanged(
-                        buckets,
-                        TimelineBucketTargetReason.VisibleScroll
-                    )
+                    buckets?.let {
+                        latestOnVisibleBucketsChanged(it, TimelineBucketTargetReason.VisibleScroll)
+                    }
                 } else {
-                    latestOnVisibleBucketsChanged(
-                        buckets,
-                        TimelineBucketTargetReason.ScrollSettled
-                    )
+                    buckets?.let {
+                        latestOnVisibleBucketsChanged(it, TimelineBucketTargetReason.ScrollSettled)
+                    }
                     latestOnScrollInProgressChanged(false)
                 }
             }
     }
 }
+
+private fun LazyListLayoutInfo.toVisibleScrollItems(): List<TimelineVisibleScrollItem> =
+    visibleItemsInfo.map { item ->
+        TimelineVisibleScrollItem(
+            displayIndex = item.index,
+            itemOffset = item.offset,
+            key = item.key as? String
+        )
+    }
+
+// The measured layout belongs to a projection only when its item count matches and every measured
+// key sits at that key's projected index.
+private fun LazyListLayoutInfo.isCoherentWith(projection: TimelineDisplayIndex): Boolean =
+    totalItemsCount == projection.gridKeyByDisplayIndex.size &&
+        visibleItemsInfo.all { item ->
+            (item.key as? String)?.let(projection.displayIndexByGridKey::get) == item.index
+        }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable

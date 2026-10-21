@@ -505,7 +505,7 @@ fun TimelinePhotoOverlay(
                         bottomChromePadding = bottomChromePadding,
                         normalVideoControlsVisible = isSettledPage && normalVideoChromeVisible,
                         onNormalVideoInteraction = chrome::registerInteraction,
-                        onNormalVideoHoldChange = { held -> chrome.setHold(ViewerChromeHold.VideoControls, held) },
+                        onNormalVideoHoldChange = chrome::setHold,
                     )
                 } else {
                     CircularProgressIndicator(color = Color.White)

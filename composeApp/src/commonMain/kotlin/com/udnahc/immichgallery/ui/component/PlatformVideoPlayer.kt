@@ -10,10 +10,13 @@ import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
 /**
  * The native surface always fills [modifier]. Normal (non-slideshow) players draw
  * the shared [NormalVideoControls] as a sibling above [bottomChromePadding];
- * [normalControlsVisible] alone decides whether those controls are shown.
+ * [normalControlsVisible] alone decides whether those controls are shown. Normal
+ * side-drag brightness/volume gestures work on the current page even while the
+ * controls are hidden; brightness is owned only by the current normal player and
+ * restored when it loses eligibility.
  */
 @Composable
-expect fun PlatformVideoPlayer(
+internal expect fun PlatformVideoPlayer(
     playbackUrl: String,
     originalUrl: String,
     apiKey: String,
@@ -23,7 +26,7 @@ expect fun PlatformVideoPlayer(
     bottomChromePadding: Dp = 0.dp,
     normalControlsVisible: Boolean = false,
     onNormalControlsInteraction: () -> Unit = {},
-    onNormalControlsHoldChange: (Boolean) -> Unit = {},
+    onNormalControlsHoldChange: (ViewerChromeHold, Boolean) -> Unit = { _, _ -> },
     slideshowRequest: SlideshowMediaRequest? = null,
     muted: Boolean = false,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit = { _, _ -> }

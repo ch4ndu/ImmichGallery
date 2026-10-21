@@ -20,7 +20,7 @@ import kotlinx.coroutines.delay
 
 internal const val NORMAL_VIDEO_CHROME_TIMEOUT_MS = 3_000L
 
-internal enum class ViewerChromeHold { TopBar, Footer, Menu, VideoControls }
+internal enum class ViewerChromeHold { TopBar, Footer, Menu, VideoControls, VideoGesture, VideoSpeedMenu }
 
 /**
  * Normal (non-slideshow) viewer chrome visibility shared by the top bar, footer
@@ -58,12 +58,16 @@ internal class ViewerChromeState {
 
     fun setHold(owner: ViewerChromeHold, held: Boolean) {
         if (held) holds[owner] = Unit else holds.remove(owner)
+        // A claimed side-drag adjustment reveals hidden chrome for the duration of the drag.
+        if (held && owner == ViewerChromeHold.VideoGesture) visible = true
         interactions += 1
     }
 
-    /** Drops press holds; the menu hold tracks real menu state and releases on close/disposal. */
+    /** Drops press holds; menu holds track real menu state and release on close/disposal. */
     fun clearPointerHolds() {
-        ViewerChromeHold.entries.filter { it != ViewerChromeHold.Menu }.forEach { holds.remove(it) }
+        ViewerChromeHold.entries
+            .filter { it != ViewerChromeHold.Menu && it != ViewerChromeHold.VideoSpeedMenu }
+            .forEach { holds.remove(it) }
     }
 }
 

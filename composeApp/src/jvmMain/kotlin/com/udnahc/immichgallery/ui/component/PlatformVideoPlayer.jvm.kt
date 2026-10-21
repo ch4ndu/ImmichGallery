@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.component
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -27,7 +28,7 @@ import immichgallery.composeapp.generated.resources.video_desktop_unavailable
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-actual fun PlatformVideoPlayer(
+internal actual fun PlatformVideoPlayer(
     playbackUrl: String,
     originalUrl: String,
     apiKey: String,
@@ -37,7 +38,7 @@ actual fun PlatformVideoPlayer(
     bottomChromePadding: Dp,
     normalControlsVisible: Boolean,
     onNormalControlsInteraction: () -> Unit,
-    onNormalControlsHoldChange: (Boolean) -> Unit,
+    onNormalControlsHoldChange: (ViewerChromeHold, Boolean) -> Unit,
     slideshowRequest: SlideshowMediaRequest?,
     muted: Boolean,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
@@ -82,15 +83,39 @@ actual fun PlatformVideoPlayer(
             // Lifecycle eligibility never rewrites the user's pause intent.
             if (isCurrentPage && (slideshowRequest != null || !normalState.userPaused)) host.play() else host.pause()
         }
+        // Speed only changes the rate; play/pause stays with the effect above.
+        LaunchedEffect(host, normalState.speed) {
+            if (slideshowRequest == null) host.setSpeed(normalState.speed.playerSpeed)
+        }
 
-        Box(modifier = Modifier.fillMaxSize().observeNonConsumingTap(onTap)) {
-            VideoPlayerComposable(
-                modifier = Modifier.fillMaxSize(),
-                playerHost = host,
-                playerConfig = remember(slideshowRequest == null) {
-                    chromelessChaintechConfig(normalPlayback = slideshowRequest == null)
+        NormalVideoGestureSurface(
+            enabled = slideshowRequest == null && isCurrentPage,
+            brightnessLevel = { normalState.brightness ?: 1f },
+            volumeLevel = { normalState.effectiveVolume },
+            onBrightnessChange = { level -> normalState.brightness = level },
+            onVolumeChange = { level -> normalState.adjustVolume(level, host::unmute, host::setVolume) },
+            onHoldChange = onNormalControlsHoldChange,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(modifier = Modifier.fillMaxSize().observeNonConsumingTap(onTap)) {
+                VideoPlayerComposable(
+                    modifier = Modifier.fillMaxSize(),
+                    playerHost = host,
+                    playerConfig = remember(slideshowRequest == null) {
+                        chromelessChaintechConfig(normalPlayback = slideshowRequest == null)
+                    }
+                )
+                // Desktop "brightness" dims only this video layer, never controls or the monitor,
+                // and disappears whenever the page is not the current normal player.
+                val dimLevel = normalState.brightness?.takeIf { slideshowRequest == null && isCurrentPage }
+                if (dimLevel != null) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = (1f - dimLevel) * DESKTOP_VIDEO_MAX_DIM_ALPHA))
+                    )
                 }
-            )
+            }
         }
         if (slideshowRequest == null) {
             NormalVideoControls(
@@ -106,6 +131,9 @@ actual fun PlatformVideoPlayer(
         }
     }
 }
+
+// The minimum desktop level keeps the video faintly visible.
+private const val DESKTOP_VIDEO_MAX_DIM_ALPHA = 0.85f
 
 @Composable
 private fun DesktopVideoUnavailable(modifier: Modifier) {

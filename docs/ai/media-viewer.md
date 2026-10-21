@@ -167,16 +167,38 @@ video playback, or desktop viewer shortcuts.
   fail closed when it is absent or invalid. A Gradle development run may use an
   installed VLC when no bundle is supplied. The viewer shows a resource-backed
   recovery message when VLC or the authenticated media URL is unavailable.
-- Normal video uses app-owned play/pause, seeking, elapsed/duration and mute
-  controls over the existing platform playback backend. Native speed, route,
-  track/quality, volume and fit menus are not exposed; video remains FIT.
+- Normal video uses app-owned play/pause, seeking, elapsed/duration, mute,
+  ten-second backward/forward skip and a 0.5×/1×/1.5×/2× speed menu across
+  Android, iOS and JVM. Seek/time and playback actions occupy separate rows;
+  skip clamps to valid duration and is disabled while duration is unknown.
+  Speed selection preserves pause intent and survives iOS source fallback.
+  Settings are ephemeral per player, with no persisted playback preference.
+  Native route, track/quality and fit menus remain hidden; video remains FIT.
   The video and original URLs remain server-derived edited variants.
+- Vertical drags in the outer left/right 30% of an active normal video adjust
+  brightness/player volume. A full-height drag spans the level range; a
+  temporary indicator shows the adjustment. The child consumes movement on
+  crossing vertical slop; horizontal paging and central dismiss/Info gestures
+  retain ownership. Desktop uses primary-button drags. A second pointer or
+  cancellation ends adjustment. Controls and the filmstrip own their input.
+  Raising volume from mute unmutes before applying the new level; mute/unmute
+  retains the chosen volume. No permanent volume/brightness sliders appear.
+- Android adjusts the active window's brightness; iOS adjusts its screen.
+  Only the eligible normal video owns an override, restores the prior value
+  when covered, backgrounded, paged away or disposed, and reapplies a chosen
+  level when that same player regains eligibility. Entering a fresh video does
+  not override brightness until adjustment. Desktop instead dims only the
+  video layer, up to 85%, leaving chrome and thumbnails undimmed. Mobile
+  ownership prevents a late disposal from restoring over the newly active page.
 - `StaticPhotoOverlay` and `TimelinePhotoOverlay` share a viewer-owned chrome
   state: normal video's top bar, playback controls, filmstrip and Info handle
   show/hide together immediately after three seconds of inactivity. Surface
   taps toggle this state; control actions, thumbnail selection/toggle and
   footer wheel scrolling restart the interval. Pointer holds and open overflow
-  menus suspend hiding; release starts a fresh interval. Photos retain manual
+  menus suspend hiding; release starts a fresh interval. Side adjustments reveal
+  hidden chrome and hold it under `VideoGesture`; the speed popup owns
+  `VideoSpeedMenu`, separately from control presses and top-bar overflow.
+  Menu holds follow actual popup lifetime, including disposal. Photos retain manual
   tap-to-toggle visibility and existing transitions, including the current
   visibility when paging from video to photo.
 - Info, slideshow dialogs, covered stacks, drag/shared transitions and inactive
@@ -188,7 +210,10 @@ video playback, or desktop viewer shortcuts.
   non-consuming surface-tap observer wraps only the video, with shared controls
   as siblings. iOS uses a full-bounds `AVPlayerViewController` with native
   playback controls disabled and shared Compose controls outside its tap
-  recognizer. Manual pause intent survives lifecycle pauses and source fallback.
+  recognizer. The shared side-gesture surface wraps the iOS native view;
+  cooperative UIKit touch delivery requires native verification, not just a
+  successful Kotlin compile. Manual pause intent survives lifecycle pauses
+  and source fallback.
 - Both viewers measure footer height excluding navigation insets and forward
   `bottomChromePadding` through `AssetPage`. Only the shared controls are offset
   above that footer. The video surface never receives footer-dependent padding;

@@ -226,6 +226,16 @@
     <string name="video_position">Video position</string>
     <string name="video_time">%1$s / %2$s</string>
     <string name="video_duration_unknown">--:--</string>
+    <string name="video_skip_backward">Back 10 seconds</string>
+    <string name="video_skip_forward">Forward 10 seconds</string>
+    <string name="video_speed">Playback speed</string>
+    <string name="video_speed_0_5">0.5×</string>
+    <string name="video_speed_1">1×</string>
+    <string name="video_speed_1_5">1.5×</string>
+    <string name="video_speed_2">2×</string>
+    <string name="video_volume">Volume</string>
+    <string name="video_brightness">Brightness</string>
+    <string name="video_level_percent">%1$d%</string>
     <string name="stack_count">Stacked photos</string>
     <string name="scroll_drag">Drag to scroll</string>
     <string name="detail_download">Download</string>
