@@ -1,15 +1,18 @@
 package com.udnahc.immichgallery.ui.component
 
-import chaintech.videoplayer.host.MediaPlayerEvent
+import org.openani.mediamp.PlaybackEvent
 
-/** The installed Chaintech backend reports seconds, with whole-second JVM resolution. */
-internal fun observedVideoPosition(seconds: Float): Long? =
-    seconds.takeIf { it.isFinite() && it > 0f }?.let { (it.toDouble() * 1_000).toLong() }
+/**
+ * MediaMP positions are milliseconds. Only an observed positive position is slideshow progress;
+ * Ready, duration and play commands are not.
+ */
+internal fun mediaMpSlideshowProgress(positionMillis: Long): SlideshowMediaEvent? =
+    positionMillis.takeIf { it > 0 }?.let(SlideshowMediaEvent::Progress)
 
-internal fun chaintechSlideshowEvent(event: MediaPlayerEvent): SlideshowMediaEvent? = when (event) {
-    is MediaPlayerEvent.CurrentTimeChange -> observedVideoPosition(event.currentTime)?.let(SlideshowMediaEvent::Progress)
-    is MediaPlayerEvent.BufferChange -> SlideshowMediaEvent.Buffering(event.isBuffering)
-    MediaPlayerEvent.MediaEnd -> SlideshowMediaEvent.Completed
+/** Edge events of the request-bound player: natural end completes, a fatal error fails. */
+internal fun mediaMpSlideshowEvent(event: PlaybackEvent): SlideshowMediaEvent? = when (event) {
+    is PlaybackEvent.MediaEnded -> SlideshowMediaEvent.Completed
+    is PlaybackEvent.ErrorOccurred -> SlideshowMediaEvent.Failed
     else -> null
 }
 

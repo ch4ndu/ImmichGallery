@@ -10,20 +10,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
 import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
-import chaintech.videoplayer.host.MediaPlayerHost
-import chaintech.videoplayer.model.ScreenResize
-import chaintech.videoplayer.ui.video.VideoPlayerComposable
-import com.udnahc.immichgallery.ui.util.observeNonConsumingTap
+import androidx.media3.ui.PlayerView
+import kotlin.coroutines.EmptyCoroutineContext
+import org.openani.mediamp.exoplayer.ExoPlayerMediampPlayer
+import org.openani.mediamp.exoplayer.compose.ExoPlayerMediampPlayerSurface
 
 @Composable
 internal actual fun PlatformVideoPlayer(
@@ -41,42 +41,41 @@ internal actual fun PlatformVideoPlayer(
     muted: Boolean,
     onSlideshowEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
 ) {
-    val host = remember(playbackUrl, apiKey, slideshowRequest) {
-        MediaPlayerHost(
-            playbackUrl,
-            autoPlay = false,
-            isMuted = slideshowRequest != null && muted,
-            headers = mapOf(API_KEY_HEADER to apiKey),
-            initialVideoFitMode = ScreenResize.FIT
-        ).also { if (slideshowRequest != null) it.setLooping(false) }
+    val context = LocalContext.current
+    val applicationContext = context.applicationContext
+    val player = rememberMediaMpPlayer(playbackUrl, apiKey, slideshowRequest, applicationContext) {
+        ExoPlayerMediampPlayer(applicationContext, EmptyCoroutineContext)
     }
     val normalState = remember(playbackUrl, apiKey) { NormalVideoPlaybackState() }
+    // ExoPlayer has no MediaMP audio-level feature; app-owned mute applies volume 0.
+    MediaMpVideoBinding(
+        player = player,
+        url = playbackUrl,
+        headers = mapOf(API_KEY_HEADER to apiKey),
+        isCurrentPage = isCurrentPage,
+        normalState = normalState,
+        slideshowRequest = slideshowRequest,
+        muted = muted,
+        setVolume = { level -> player.impl.volume = level },
+        onSlideshowEvent = onSlideshowEvent,
+    )
 
-    val latestEvent by rememberUpdatedState(onSlideshowEvent)
-    // One callback owner per host: slideshow requests feed the controller, normal video feeds its controls.
-    DisposableEffect(host, slideshowRequest) {
-        val captured = slideshowRequest
-        host.onEvent = { event ->
-            if (captured != null) chaintechSlideshowEvent(event)?.let { latestEvent(captured, it) }
-            else normalState.applyChaintechEvent(event)
+    val zoom = remember(player, slideshowRequest) { slideshowRequest?.let { MediaMpVideoZoom() } }
+    val playerView = remember(player) { mutableStateOf<PlayerView?>(null) }
+    // The video SurfaceView follows View transforms of its hierarchy, so zoom scales the native
+    // PlayerView itself (about its center, like the shared Compose transform).
+    LaunchedEffect(playerView, zoom) {
+        if (zoom == null) return@LaunchedEffect
+        snapshotFlow { Triple(playerView.value, zoom.scale, zoom.offset) }.collect { (view, scale, offset) ->
+            view?.apply {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x
+                translationY = offset.y
+            }
         }
-        host.onError = { if (captured != null) latestEvent(captured, SlideshowMediaEvent.Failed) }
-        onDispose { host.onEvent = {}; host.onError = {}; host.pause() }
-    }
-    LaunchedEffect(host, isCurrentPage, muted, normalState.userPaused) {
-        if (slideshowRequest != null) {
-            host.setLooping(false)
-            if (muted) host.mute() else host.unmute()
-        }
-        // Lifecycle eligibility never rewrites the user's pause intent.
-        if (isCurrentPage && (slideshowRequest != null || !normalState.userPaused)) host.play() else host.pause()
-    }
-    // Speed only changes the rate; play/pause stays with the effect above.
-    LaunchedEffect(host, normalState.speed) {
-        if (slideshowRequest == null) host.setSpeed(normalState.speed.playerSpeed)
     }
 
-    val context = LocalContext.current
     val window = remember(context) { context.findActivity()?.window }
     val ownsBrightness = slideshowRequest == null && isCurrentPage && window != null
     // Only the current normal player overrides window brightness; leaving eligibility restores it,
@@ -97,18 +96,15 @@ internal actual fun PlatformVideoPlayer(
                 normalState.brightness = level
                 VideoWindowBrightness.apply(normalState, level)
             },
-            onVolumeChange = { level -> normalState.adjustVolume(level, host::unmute, host::setVolume) },
+            onVolumeChange = { level ->
+                normalState.adjustVolume(level, unmute = { normalState.muted = false }, setVolume = {})
+            },
             onHoldChange = onNormalControlsHoldChange,
             modifier = Modifier.fillMaxSize()
         ) {
-            Box(modifier = Modifier.fillMaxSize().observeNonConsumingTap(onTap)) {
-                VideoPlayerComposable(
-                    modifier = Modifier.fillMaxSize(),
-                    playerHost = host,
-                    playerConfig = remember(slideshowRequest == null) {
-                        chromelessChaintechConfig(normalPlayback = slideshowRequest == null)
-                    }
-                )
+            MediaMpVideoSurface(zoom = zoom, onTap = onTap, modifier = Modifier.fillMaxSize()) {
+                // The MediaMP surface disables PlayerView's controller and keeps FIT resizing.
+                ExoPlayerMediampPlayerSurface(player, Modifier.fillMaxSize()) { playerView.value = this }
             }
         }
         if (slideshowRequest == null) {
@@ -116,8 +112,8 @@ internal actual fun PlatformVideoPlayer(
                 state = normalState,
                 visible = normalControlsVisible,
                 onPlayPause = { normalState.userPaused = !normalState.userPaused },
-                onMuteToggle = { if (normalState.muted) host.unmute() else host.mute() },
-                onSeek = { seconds -> host.seekTo(seconds) },
+                onMuteToggle = { normalState.muted = !normalState.muted },
+                onSeek = { seconds -> player.seekTo((seconds * 1_000).toLong()) },
                 onInteraction = onNormalControlsInteraction,
                 onHoldChange = onNormalControlsHoldChange,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomChromePadding)

@@ -1,0 +1,26 @@
+MediaMP desktop playback dependency notice
+
+ImmichGallery uses org.openani.mediamp:mediamp-api and mediamp-mpv 0.5.1,
+and exactly one mediamp-mpv-runtime-<os>-<arch>:0.5.1 artifact for its build host.
+MediaMP project and source: https://github.com/open-ani/mediamp/tree/v0.5.1
+Runtime build definitions: buildSrc/src/main/kotlin/mpv/ in that source tree.
+Published artifacts: https://repo.maven.apache.org/maven2/org/openani/mediamp/
+
+MediaMP Kotlin/JNI code is Apache-2.0; see Apache-2.0.txt.
+The runtime publications declare these licenses:
+- macos-arm64, macos-x64, windows-arm64, windows-x64: Apache-2.0 and
+  GNU Lesser General Public License version 2.1 or later (LGPL-2.1.txt).
+- linux-x64: GNU General Public License version 3 only (GPL-3.0.txt).
+
+The native runtimes contain libmpv and its dependent libraries, including FFmpeg.
+Upstream projects: https://github.com/mpv-player/mpv and https://ffmpeg.org/
+The packaged runtime's mpv-natives-<os>-<arch>.txt lists its native payload.
+This directory preserves the license texts declared by the MediaMP publication;
+it does not change individual dependency licenses or represent a complete
+transitive attribution or corresponding-source distribution.
+
+All three license texts are included for reference on every desktop host;
+including a text does not mean the matching platform runtime is installed.
+The upstream runtime JAR supplies native binaries and a manifest, but does not
+include these texts. ImmichGallery supplies this directory in its application
+JAR so development and packaged desktop distributions carry the same material.

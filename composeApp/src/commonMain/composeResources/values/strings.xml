@@ -218,7 +218,7 @@
     <!-- Detail -->
     <string name="detail_failed_image">Failed to load image</string>
     <string name="detail_video">Video</string>
-    <string name="video_desktop_unavailable">Desktop video playback is unavailable. Verify the server address and API key. Install VLC for a development run, or rebuild with a VLC bundle configured through immichGallery.vlcBundleDir.</string>
+    <string name="video_desktop_unavailable">Desktop video playback is unavailable. Verify the server address and API key. If the problem continues, reinstall ImmichGallery for this operating system and architecture.</string>
     <string name="video_play">Play video</string>
     <string name="video_pause">Pause video</string>
     <string name="video_mute">Mute video</string>
@@ -229,6 +229,8 @@
     <string name="video_skip_backward">Back 10 seconds</string>
     <string name="video_skip_forward">Forward 10 seconds</string>
     <string name="video_speed">Playback speed</string>
+    <string name="video_speed_0_125">0.125×</string>
+    <string name="video_speed_0_25">0.25×</string>
     <string name="video_speed_0_5">0.5×</string>
     <string name="video_speed_1">1×</string>
     <string name="video_speed_1_5">1.5×</string>

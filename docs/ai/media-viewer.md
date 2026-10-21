@@ -152,9 +152,9 @@ video playback, or desktop viewer shortcuts.
 - JVM and iOS build media URLs through one fail-closed `AuthenticatedMediaUrl`
   boundary. It accepts only absolute HTTP(S) URLs, removes duplicate `apiKey`
   values, appends exactly one percent-encoded key, preserves other query and
-  fragment components, and redacts its diagnostic representation. JVM uses
-  query authentication because libVLC does not reliably forward custom
-  headers; iOS uses it instead of private AVFoundation header options.
+  fragment components, and redacts its diagnostic representation. JVM retains
+  the existing query-authentication contract with mpv; iOS uses it instead of
+  private AVFoundation header options.
 - iOS tries the authenticated original file first, then falls back to Immich's
   authenticated playback/transcode URL when AVPlayer fails or stalls. The
   bounded fallback observer exists only while that pager page is current;
@@ -162,13 +162,19 @@ video playback, or desktop viewer shortcuts.
   still selected.
 - iOS Picture in Picture is disabled. Enabling it requires a separate contract
   for AVAudioSession and host background-media capability.
-- Desktop startup probes a validated packaged libVLC bundle before any player
-  class initializes. Native packages require that builder-supplied bundle and
-  fail closed when it is absent or invalid. A Gradle development run may use an
-  installed VLC when no bundle is supplied. The viewer shows a resource-backed
-  recovery message when VLC or the authenticated media URL is unavailable.
+- Android uses MediaMP's ExoPlayer backend; desktop uses its mpv backend.
+  Both disable native controls and share a common binding with one player per
+  authenticated source and slideshow request, closed on disposal. Opening is
+  initially paused; current eligibility and user pause intent govern playback
+  after opening. Normal end-of-media loops only while current and user-playing.
+- Desktop startup prepares the host-specific published mpv runtime from the
+  classpath before player construction. Extraction/validation or native-load
+  failures show the resource-backed recovery message, as do invalid media URLs.
+  There is no system-player fallback. Supported runtime hosts and licenses are
+  documented in the README. Native runtime JNA dependencies use the app's JPMS
+  pair to avoid duplicate classes.
 - Normal video uses app-owned play/pause, seeking, elapsed/duration, mute,
-  ten-second backward/forward skip and a 0.5×/1×/1.5×/2× speed menu across
+  ten-second backward/forward skip and a 0.125×/0.25×/0.5×/1×/1.5×/2× speed menu across
   Android, iOS and JVM. Seek/time and playback actions occupy separate rows;
   skip clamps to valid duration and is disabled while duration is unknown.
   Speed selection preserves pause intent and survives iOS source fallback.
@@ -206,6 +212,8 @@ video playback, or desktop viewer shortcuts.
   reveals it for a fresh interval. Only the settled page renders playback
   controls. Slideshow keeps its own controller/timing, and the Memories page
   indicator remains independent of normal chrome visibility.
+- Android/JVM slideshow video retains pinch zoom up to 3× with one tap owner
+  for slideshow controls. Normal video keeps paging and side-level gestures.
 - Android/JVM disable built-in normal controls and competing gestures. A
   non-consuming surface-tap observer wraps only the video, with shared controls
   as siblings. iOS uses a full-bounds `AVPlayerViewController` with native
@@ -307,7 +315,7 @@ video playback, or desktop viewer shortcuts.
   controller. Offscreen/covered videos remain paused.
 - Play video starts while awaiting progress, disables looping, and uses a fresh
   player generation for each visit. Pause/resume retains the same visit and
-  playback position. Chaintech positive observed progress establishes readiness;
+  playback position. MediaMP positive observed position establishes readiness;
   duration, play commands, and initial nonbuffering do not. A valid short-video
   end can complete before the first positive progress event. Completion/cap
   events advance at most once, and the cap uses media position.

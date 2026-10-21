@@ -54,13 +54,13 @@ does not provide user/password login or administer an Immich server.
 | Area | Current technology |
 | --- | --- |
 | Language | Kotlin 2.4.10; Swift for the iOS host |
-| Shared UI | Compose Multiplatform 1.11.1 and Material 3 |
+| Shared UI | Compose Multiplatform 1.12.0 and Material 3 |
 | Targets | Android, iOS ARM64 device/simulator, JVM Desktop |
 | Navigation | JetBrains Navigation Compose with serializable typed routes |
 | Networking | Ktor 3.5.1 with OkHttp, Darwin, and Java engines |
 | Serialization | kotlinx.serialization 1.11.0 |
 | Images | Coil 3.5.0; authenticated OkHttp/Ktor fetchers |
-| Video | Platform `PlatformVideoPlayer` implementations; Compose media player on Android/JVM and AVPlayer on iOS |
+| Video | Platform `PlatformVideoPlayer` implementations; MediaMP (ExoPlayer on Android, mpv on JVM) on Android/JVM and AVPlayer on iOS |
 | Persistence | Room 2.8.4, bundled SQLite 2.7.0, KSP 2.3.10 |
 | Dependency injection | Koin 4.2.2 |
 | Settings | `multiplatform-settings` 1.3.0 |
@@ -487,8 +487,8 @@ Video authentication differs by platform:
 
 - Android supplies the API key as an HTTP header.
 - JVM and iOS use one fail-closed Ktor URL builder to replace duplicate
-  `apiKey` values with exactly one percent-encoded query value. JVM needs query
-  authentication because libVLC does not reliably forward custom headers.
+  `apiKey` values with exactly one percent-encoded query value. JVM preserves
+  this authentication contract when using MediaMP/mpv.
 - iOS uses ordinary public `AVURLAsset` URLs, tries authenticated original media
   first, and observes failure/stall only while the page is current before
   falling back to authenticated playback/transcode. Picture in Picture remains
@@ -557,14 +557,12 @@ removes partial/mixed file sets and starts fresh.
 ### JVM Desktop
 
 `main.kt` owns a single Compose Desktop window and maps window focus into the
-shared lifecycle. It initializes VLC discovery before media-player classes and
-closes the process-wide wake-inhibition owner on application exit. Development
-runs may use installed VLC. Native DMG, MSI, and DEB creation requires a
-builder-supplied, matching VLC bundle that is validated, staged into application
-resources, and selected through exact-directory discovery before native library
-loading. The bundle root comes from `immichGallery.vlcBundleDir` or
-`IMMICH_GALLERY_VLC_BUNDLE_DIR` and contains one `<os>-<arch>` directory; no VLC
-binaries are tracked or downloaded by normal builds.
+shared lifecycle. It prepares MediaMP's published host-specific mpv runtime
+before player construction and closes the process-wide wake-inhibition owner
+on exit. Development and packaged runs use the same classpath runtime with no
+system fallback. The loader extracts and validates the native resources;
+preparation or construction failures leave playback unavailable without
+preventing gallery use. See the README for supported hosts and runtime licenses.
 
 ## 16. Configuration, Versioning, And Security
 
@@ -609,7 +607,7 @@ The repository's current distribution posture is personal and source-built;
 it does not maintain a public binary-release, signing, notarization,
 reproducibility, dependency-locking, SBOM, scanner, or license/notice program.
 Builders remain responsible for their local toolchain, signing identity, and
-VLC input. This owner-accepted posture is a project-scope boundary, not a legal,
+native dependency distribution. This owner-accepted posture is a project-scope boundary, not a legal,
 security, provenance, or distribution-compliance claim.
 
 ## 17. Build And Packaging
@@ -634,24 +632,18 @@ Common development commands are:
 
 # Desktop development and packaging
 ./gradlew :composeApp:run
-./gradlew :composeApp:createDistributable \
-  -PimmichGallery.vlcBundleDir=/absolute/path/to/vlc-root
+./gradlew :composeApp:createDistributable
 ```
 
 iOS application builds use the `iosApp` Xcode scheme and its Kotlin framework
 build phase. The helper always invokes Gradle unless Xcode's Kotlin IDE override
-is active; Gradle owns input freshness. Desktop development may discover an
-installed VLC, while every native application-image/package task requires the
-validated builder input described in the README. Gradle daemons must be stopped
+is active; Gradle owns input freshness. Desktop packages include the published
+host-specific mpv runtime described in the README. Gradle daemons must be stopped
 with `./gradlew --stop` after command-line Gradle work.
 
 The current Android release build enables R8 minification but is not
 production-signed: it uses the debug signing configuration. Packaging or store
 release work must treat signing as an explicit unresolved release boundary.
-The app-level R8 rules suppress missing-type warnings for the absent WebView
-dependency referenced by Chaintech's retained optional YouTube path.
-ImmichGallery supports authenticated Immich media URLs only, so that optional
-path is unsupported and unreachable for app-generated playback URLs.
 
 ## 18. Testing And Verification Strategy
 
@@ -667,7 +659,7 @@ organized as:
 - `composeApp/src/androidDeviceTest`: the Room 1-to-2 migration test using the
   bundled SQLite driver;
 - `composeApp/src/jvmTest`: JVM settings namespace/migration, process-global
-  Coil singleton lifecycle, VLC bootstrap/layout, and wake-inhibition coverage.
+  Coil singleton lifecycle, desktop target aliases, and wake-inhibition coverage.
 
 There are currently no project test files under `iosTest`; shared `commonTest`
 tests execute through the platform test tasks. No code-coverage plugin or

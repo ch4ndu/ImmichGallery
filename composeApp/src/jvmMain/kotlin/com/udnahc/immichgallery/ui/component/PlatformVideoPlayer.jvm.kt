@@ -5,9 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
 import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,15 +14,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import chaintech.videoplayer.host.MediaPlayerHost
-import chaintech.videoplayer.model.ScreenResize
-import chaintech.videoplayer.ui.video.VideoPlayerComposable
 import com.udnahc.immichgallery.ui.theme.Dimens
-import com.udnahc.immichgallery.ui.util.JvmVlcBootstrap
+import com.udnahc.immichgallery.ui.util.JvmMpvBootstrap
 import com.udnahc.immichgallery.ui.util.observeNonConsumingTap
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.video_desktop_unavailable
 import org.jetbrains.compose.resources.stringResource
+import org.openani.mediamp.features.AudioLevelController
+import org.openani.mediamp.mpv.compose.MpvMediampPlayerSurface
 
 @Composable
 internal actual fun PlatformVideoPlayer(
@@ -46,65 +42,50 @@ internal actual fun PlatformVideoPlayer(
     val authenticatedUrl = remember(playbackUrl, apiKey) {
         AuthenticatedMediaUrl.create(playbackUrl, apiKey)
     }
-    val isVlcAvailable = remember { JvmVlcBootstrap.isAvailable() }
+    val player = rememberMediaMpPlayer(authenticatedUrl, slideshowRequest) {
+        authenticatedUrl?.let { JvmMpvBootstrap.createPlayer() }
+    }
     Box(modifier = modifier) {
-        if (!isVlcAvailable || authenticatedUrl == null) {
+        if (player == null || authenticatedUrl == null) {
             LaunchedEffect(slideshowRequest) { slideshowRequest?.let { onSlideshowEvent(it, SlideshowMediaEvent.Failed) } }
-            DesktopVideoUnavailable(Modifier.fillMaxSize().observeNonConsumingTap(onTap))
+            // The slideshow page dispatches its own taps; observing here too would toggle twice.
+            DesktopVideoUnavailable(
+                Modifier.fillMaxSize().then(if (slideshowRequest == null) Modifier.observeNonConsumingTap(onTap) else Modifier)
+            )
             return@Box
         }
 
-        val host = remember(authenticatedUrl, slideshowRequest) {
-            MediaPlayerHost(
-                authenticatedUrl.url,
-                autoPlay = false,
-                isMuted = slideshowRequest != null && muted,
-                initialVideoFitMode = ScreenResize.FIT
-            ).also { if (slideshowRequest != null) it.setLooping(false) }
-        }
         val normalState = remember(authenticatedUrl) { NormalVideoPlaybackState() }
+        // mpv can amplify up to 2x; the shared contract keeps player volume within 0..1.
+        val audio = player.features[AudioLevelController]
+        MediaMpVideoBinding(
+            player = player,
+            url = authenticatedUrl.url,
+            headers = emptyMap(),
+            isCurrentPage = isCurrentPage,
+            normalState = normalState,
+            slideshowRequest = slideshowRequest,
+            muted = muted,
+            setVolume = { level -> audio?.setVolume(level.coerceIn(0f, 1f)) },
+            onSlideshowEvent = onSlideshowEvent,
+        )
 
-        val latestEvent by rememberUpdatedState(onSlideshowEvent)
-        // One callback owner per host: slideshow requests feed the controller, normal video feeds its controls.
-        DisposableEffect(host, slideshowRequest) {
-            val captured = slideshowRequest
-            host.onEvent = { event ->
-                if (captured != null) chaintechSlideshowEvent(event)?.let { latestEvent(captured, it) }
-                else normalState.applyChaintechEvent(event)
-            }
-            host.onError = { if (captured != null) latestEvent(captured, SlideshowMediaEvent.Failed) }
-            onDispose { host.onEvent = {}; host.onError = {}; host.pause() }
-        }
-        LaunchedEffect(host, isCurrentPage, muted, normalState.userPaused) {
-            if (slideshowRequest != null) {
-                host.setLooping(false)
-                if (muted) host.mute() else host.unmute()
-            }
-            // Lifecycle eligibility never rewrites the user's pause intent.
-            if (isCurrentPage && (slideshowRequest != null || !normalState.userPaused)) host.play() else host.pause()
-        }
-        // Speed only changes the rate; play/pause stays with the effect above.
-        LaunchedEffect(host, normalState.speed) {
-            if (slideshowRequest == null) host.setSpeed(normalState.speed.playerSpeed)
-        }
-
+        val zoom = remember(player, slideshowRequest) { slideshowRequest?.let { MediaMpVideoZoom() } }
         NormalVideoGestureSurface(
             enabled = slideshowRequest == null && isCurrentPage,
             brightnessLevel = { normalState.brightness ?: 1f },
             volumeLevel = { normalState.effectiveVolume },
             onBrightnessChange = { level -> normalState.brightness = level },
-            onVolumeChange = { level -> normalState.adjustVolume(level, host::unmute, host::setVolume) },
+            onVolumeChange = { level ->
+                normalState.adjustVolume(level, unmute = { normalState.muted = false }, setVolume = {})
+            },
             onHoldChange = onNormalControlsHoldChange,
             modifier = Modifier.fillMaxSize()
         ) {
-            Box(modifier = Modifier.fillMaxSize().observeNonConsumingTap(onTap)) {
-                VideoPlayerComposable(
-                    modifier = Modifier.fillMaxSize(),
-                    playerHost = host,
-                    playerConfig = remember(slideshowRequest == null) {
-                        chromelessChaintechConfig(normalPlayback = slideshowRequest == null)
-                    }
-                )
+            MediaMpVideoSurface(zoom = zoom, onTap = onTap, modifier = Modifier.fillMaxSize()) {
+                // Composed with the player so Linux/Windows opens can await its render context;
+                // the surface letterboxes frames (FIT). Slideshow zoom transforms only this layer.
+                MpvMediampPlayerSurface(player, Modifier.fillMaxSize().mediaMpVideoZoom(zoom))
                 // Desktop "brightness" dims only this video layer, never controls or the monitor,
                 // and disappears whenever the page is not the current normal player.
                 val dimLevel = normalState.brightness?.takeIf { slideshowRequest == null && isCurrentPage }
@@ -122,8 +103,8 @@ internal actual fun PlatformVideoPlayer(
                 state = normalState,
                 visible = normalControlsVisible,
                 onPlayPause = { normalState.userPaused = !normalState.userPaused },
-                onMuteToggle = { if (normalState.muted) host.unmute() else host.mute() },
-                onSeek = { seconds -> host.seekTo(seconds) },
+                onMuteToggle = { normalState.muted = !normalState.muted },
+                onSeek = { seconds -> player.seekTo((seconds * 1_000).toLong()) },
                 onInteraction = onNormalControlsInteraction,
                 onHoldChange = onNormalControlsHoldChange,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomChromePadding)

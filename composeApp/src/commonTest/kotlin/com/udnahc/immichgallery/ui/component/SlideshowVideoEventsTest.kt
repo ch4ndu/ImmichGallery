@@ -1,18 +1,26 @@
 package com.udnahc.immichgallery.ui.component
 
-import chaintech.videoplayer.host.MediaPlayerEvent
+import org.openani.mediamp.PlaybackErrorCode
+import org.openani.mediamp.PlaybackEvent
+import org.openani.mediamp.PlaybackException
+import org.openani.mediamp.source.MediaExtraFiles
+import org.openani.mediamp.source.UriMediaData
 import kotlin.test.*
 
 class SlideshowVideoEventsTest {
     @Test fun onlyObservedPositiveMediaTimeProducesReadiness() {
-        for (time in listOf(0f, -1f, Float.NaN, Float.POSITIVE_INFINITY)) {
-            assertNull(chaintechSlideshowEvent(MediaPlayerEvent.CurrentTimeChange(time)))
+        for (position in listOf(0L, -1L, Long.MIN_VALUE)) {
+            assertNull(mediaMpSlideshowProgress(position))
         }
-        assertEquals(SlideshowMediaEvent.Progress(1_250), chaintechSlideshowEvent(MediaPlayerEvent.CurrentTimeChange(1.25f)))
-        assertNull(chaintechSlideshowEvent(MediaPlayerEvent.PauseChange(false)))
-        assertNull(chaintechSlideshowEvent(MediaPlayerEvent.TotalTimeChange(120f)))
-        assertEquals(SlideshowMediaEvent.Buffering(false), chaintechSlideshowEvent(MediaPlayerEvent.BufferChange(false)))
-        assertEquals(SlideshowMediaEvent.Completed, chaintechSlideshowEvent(MediaPlayerEvent.MediaEnd))
+        assertEquals(SlideshowMediaEvent.Progress(1_250), mediaMpSlideshowProgress(1_250))
+        assertNull(mediaMpSlideshowEvent(PlaybackEvent.ExternalPlayWhenReadyChanged(true)))
+        assertNull(mediaMpSlideshowEvent(PlaybackEvent.SeekCompleted(120_000)))
+        val media = UriMediaData("https://example.invalid/video.mp4", emptyMap(), MediaExtraFiles.EMPTY)
+        assertEquals(SlideshowMediaEvent.Completed, mediaMpSlideshowEvent(PlaybackEvent.MediaEnded(media, 1_000, 1_000)))
+        assertEquals(
+            SlideshowMediaEvent.Failed,
+            mediaMpSlideshowEvent(PlaybackEvent.ErrorOccurred(PlaybackException(PlaybackErrorCode.IO, "unreachable")))
+        )
     }
 
     @Test fun originalStallFallsBackOnceAndFallbackHasBoundedStall() {

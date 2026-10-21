@@ -34,8 +34,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import chaintech.videoplayer.host.MediaPlayerEvent
-import chaintech.videoplayer.model.PlayerSpeed
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.ic_pause
@@ -52,6 +50,8 @@ import immichgallery.composeapp.generated.resources.video_position
 import immichgallery.composeapp.generated.resources.video_skip_backward
 import immichgallery.composeapp.generated.resources.video_skip_forward
 import immichgallery.composeapp.generated.resources.video_speed
+import immichgallery.composeapp.generated.resources.video_speed_0_125
+import immichgallery.composeapp.generated.resources.video_speed_0_25
 import immichgallery.composeapp.generated.resources.video_speed_0_5
 import immichgallery.composeapp.generated.resources.video_speed_1
 import immichgallery.composeapp.generated.resources.video_speed_1_5
@@ -66,11 +66,13 @@ private const val SLIDER_INACTIVE_TRACK_ALPHA = 0.4f
 private const val DISABLED_CONTROL_ALPHA = 0.4f
 private const val VIDEO_SKIP_SECONDS = 10f
 
-internal enum class NormalVideoSpeed(val rate: Float, val playerSpeed: PlayerSpeed, val label: StringResource) {
-    Half(0.5f, PlayerSpeed.X0_5, Res.string.video_speed_0_5),
-    Normal(1f, PlayerSpeed.X1, Res.string.video_speed_1),
-    OneAndHalf(1.5f, PlayerSpeed.X1_5, Res.string.video_speed_1_5),
-    Twice(2f, PlayerSpeed.X2, Res.string.video_speed_2),
+internal enum class NormalVideoSpeed(val rate: Float, val label: StringResource) {
+    Eighth(0.125f, Res.string.video_speed_0_125),
+    Quarter(0.25f, Res.string.video_speed_0_25),
+    Half(0.5f, Res.string.video_speed_0_5),
+    Normal(1f, Res.string.video_speed_1),
+    OneAndHalf(1.5f, Res.string.video_speed_1_5),
+    Twice(2f, Res.string.video_speed_2),
 }
 
 /**
@@ -90,16 +92,6 @@ internal class NormalVideoPlaybackState {
 
     /** Null until the first brightness gesture, so entering a video follows the screen's current level. */
     var brightness by mutableStateOf<Float?>(null)
-}
-
-/** PauseChange is ignored: it only echoes app commands, including lifecycle pauses. */
-internal fun NormalVideoPlaybackState.applyChaintechEvent(event: MediaPlayerEvent) {
-    when (event) {
-        is MediaPlayerEvent.CurrentTimeChange -> positionSeconds = event.currentTime
-        is MediaPlayerEvent.TotalTimeChange -> durationSeconds = event.totalTime
-        is MediaPlayerEvent.MuteChange -> muted = event.isMuted
-        else -> Unit
-    }
 }
 
 internal val NormalVideoPlaybackState.effectiveVolume: Float get() = if (muted) 0f else volume

@@ -12,7 +12,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.udnahc.immichgallery.di.platformModule
 import com.udnahc.immichgallery.di.sharedModule
-import com.udnahc.immichgallery.ui.util.JvmVlcBootstrap
+import com.udnahc.immichgallery.ui.util.JvmMpvBootstrap
 import com.udnahc.immichgallery.ui.util.LocalViewerFullscreen
 import com.udnahc.immichgallery.ui.util.ViewerFullscreenController
 import com.udnahc.immichgallery.ui.util.ViewerWindowPlacement
@@ -30,7 +30,7 @@ import org.koin.mp.KoinPlatform
 
 fun main() {
     disableApplicationLogging()
-    JvmVlcBootstrap.initialize()
+    JvmMpvBootstrap.initialize()
     installJvmWakeInhibitionShutdownHook()
     if (KoinPlatform.getKoinOrNull() == null) {
         startKoin {

@@ -72,7 +72,7 @@ After command-line Gradle work, stop daemons with:
   requires a refactor larger than the feature, record the gap in
   `docs/4-unit-tests/COVERAGE-DEBT.md` using `path | why hard | escape plan`.
 - Never claim Android service/permission, iOS AVPlayer/local-network, Desktop
-  libVLC/input, or packaged-runtime behavior from a common host test alone.
+  native mpv/input, or packaged-runtime behavior from a common host test alone.
 
 ## Verification By Change Type
 

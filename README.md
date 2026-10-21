@@ -177,46 +177,26 @@ Run directly with Gradle:
 ./gradlew :composeApp:run
 ```
 
-Development runs use a staged VLC bundle when one is supplied and otherwise
-may use an installed VLC. Native application images and DMG, MSI, or DEB
-packages require a builder-supplied VLC bundle through either
-`-PimmichGallery.vlcBundleDir=/absolute/path/to/vlc-root` or the
-`IMMICH_GALLERY_VLC_BUNDLE_DIR` environment variable. The root contains a
-directory matching the build host (`macos-arm64`, `macos-x64`,
-`windows-arm64`, `windows-x64`, `linux-arm64`, or `linux-x64`):
+Desktop playback uses MediaMP 0.5.1 with the published mpv runtime for the build
+host: macOS arm64/x64, Windows arm64/x64, or Linux x64. Gradle downloads only
+that host's runtime; development and packaged runs use the same classpath
+loader, with no installed-player fallback. Linux arm64 has no published runtime
+and native packaging is rejected on unsupported hosts.
 
-```text
-<vlc-root>/
-  macos-arm64/
-    lib/
-      libvlc.dylib
-      libvlccore.dylib
-    plugins/
-      .../*.dylib
-
-  windows-x64/
-    libvlc.dll
-    libvlccore.dll
-    plugins/
-      .../*.dll
-
-  linux-x64/
-    libvlc.so*
-    libvlccore.so*
-    plugins/                 # vlc/plugins/ is also accepted
-      .../*.so*
-```
-
-For example, create a self-contained application image on the current host:
+Create a self-contained application image on the current host:
 
 ```shell
-./gradlew :composeApp:createDistributable \
-  -PimmichGallery.vlcBundleDir=/absolute/path/to/vlc-root
+./gradlew :composeApp:createDistributable
 ```
 
-The build validates the current target's core libraries and plugin layout and
-copies only that target into generated application resources. VLC binaries are
-not tracked by this repository and the build never downloads them.
+The runtime loader extracts and validates the native libraries on startup.
+If preparation or player construction fails, the viewer displays an unavailable
+message. The application JAR includes dependency information and the publication's
+Apache-2.0, LGPL-2.1, and GPL-3.0 license texts under
+`META-INF/licenses/mediamp/`. Linux x64 declares GPL-3.0-only; macOS and Windows
+declare Apache-2.0 and LGPL-2.1-or-later. These files accompany the upstream
+runtime JAR, which contains binaries and a manifest but omits license texts.
+No custom native build or external VLC installation is required.
 
 ### iOS
 
@@ -297,6 +277,6 @@ Canonical architecture references:
 
 ## Technology
 
-Kotlin 2.4.10 · Compose Multiplatform 1.11.1 · Material 3 · Ktor 3.5.1 ·
+Kotlin 2.4.10 · Compose Multiplatform 1.12.0 · Material 3 · Ktor 3.5.1 ·
 Coil 3.5.0 · Room 2.8.4 / SQLite 2.7.0 · Koin 4.2.2 ·
 kotlinx-datetime 0.8.0

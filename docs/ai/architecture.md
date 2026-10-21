@@ -207,10 +207,11 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 - `KenBurnsImage` powers slideshow animation. `ScreenWakeLock` is expect/actual
   for keeping the screen on. JVM implements that contract with balanced OS
   inhibition and closes its owned native thread/process on application exit.
-  Desktop native packages require a validated builder-supplied VLC resource
-  bundle from the current `<os>-<arch>` directory; development runs may fall
-  back to an installed VLC. Native package launchers fail closed without the
-  bundle, while normal compile/test tasks neither require nor download it.
+  Android and JVM use MediaMP with ExoPlayer and mpv respectively; iOS retains
+  AVPlayer. A common binding owns Android/JVM player disposal, observed progress
+  and page/pause eligibility. Desktop development and native packages use the
+  host-specific published mpv runtime, with fail-closed startup preparation and
+  no system fallback. See the README for supported hosts and runtime licenses.
 
 ## Pagination And Scrollbar
 
@@ -230,7 +231,7 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
 
 ## Key Tech Stack
 
-- Kotlin 2.4.10, Compose Multiplatform 1.11.1.
+- Kotlin 2.4.10, Compose Multiplatform 1.12.0.
 - Material3 for theming.
 - Room 2.8.4, SQLite Bundled 2.7.0.
 - KSP 2.3.10.
