@@ -15,8 +15,11 @@ import com.udnahc.immichgallery.domain.model.MosaicBandItem
 import com.udnahc.immichgallery.domain.model.PlaceholderItem
 import com.udnahc.immichgallery.domain.model.RowItem
 import com.udnahc.immichgallery.domain.model.TimelineDisplayItem
+import com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketSkeleton
+import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary
 import com.udnahc.immichgallery.domain.model.timelineDaySectionDisplayLabel
+import com.udnahc.immichgallery.domain.model.timelineMosaicGroupingZoneId
 import com.udnahc.immichgallery.domain.model.MosaicAssignmentCheckpoint
 import com.udnahc.immichgallery.domain.model.MosaicSectionGeometryRange
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
@@ -105,9 +108,789 @@ internal data class TimelineSkeletonState(
 
 internal fun timelineSkeletonGateOpen(
     state: TimelineSkeletonState,
-    required: TimelineSkeletonIdentity?
+    required: TimelineSkeletonIdentity?,
+    requiredBuckets: Set<String> = emptySet()
 ): Boolean =
-    required == null || (state.identity == required && state.status != TimelineSkeletonLoadStatus.Loading)
+    required == null || (
+        state.identity == required &&
+            state.status == TimelineSkeletonLoadStatus.Loaded &&
+            requiredBuckets.all { it in state.buckets }
+    )
+
+internal fun shouldRepairTimelineSkeletonAfterSync(
+    skeletonIdentity: TimelineSkeletonIdentity?,
+    skeletonState: TimelineSkeletonState,
+    timelineGeometryReady: Boolean,
+    requiredBuckets: Set<String>
+): Boolean =
+    skeletonIdentity != null && (
+        !timelineGeometryReady ||
+            !timelineSkeletonGateOpen(skeletonState, skeletonIdentity, requiredBuckets)
+    )
+
+internal data class PreparedTimelineBucketGeometry(
+    val skeleton: TimelineMosaicBucketSkeleton,
+    val assetRevision: Int
+)
+
+internal data class TimelineSkeletonReadOrigin(
+    val identity: TimelineSkeletonIdentity,
+    val siblingIdentity: TimelineSkeletonIdentity,
+    val globalGeneration: Long,
+    val bucketGenerations: Map<String, Long>,
+    val assetRevisions: Map<String, Int>,
+    val bucketEpochs: Map<String, Long>,
+    val requestedBuckets: Set<String>? = null
+) {
+    fun acceptsBucket(
+        timeBucket: String,
+        currentGlobalGeneration: Long,
+        currentBucketGenerations: Map<String, Long>,
+        currentAssetRevisions: Map<String, Int>,
+        currentBucketEpochs: Map<String, Long>
+    ): Boolean {
+        if (currentGlobalGeneration != globalGeneration) return false
+        if (requestedBuckets != null && timeBucket !in requestedBuckets) return false
+        return (currentBucketGenerations[timeBucket] ?: 0L) == (bucketGenerations[timeBucket] ?: 0L) &&
+            (currentAssetRevisions[timeBucket] ?: 0) == (assetRevisions[timeBucket] ?: 0) &&
+            (currentBucketEpochs[timeBucket] ?: 0L) == (bucketEpochs[timeBucket] ?: 0L)
+    }
+}
+
+internal fun siblingTimelineSkeletonIdentity(
+    identity: TimelineSkeletonIdentity,
+    groupingZoneIdResolver: (TimelineGroupSize) -> String = ::timelineMosaicGroupingZoneId
+): TimelineSkeletonIdentity {
+    val siblingGroupSize = if (identity.groupSize == TimelineGroupSize.MONTH) {
+        TimelineGroupSize.DAY
+    } else {
+        TimelineGroupSize.MONTH
+    }
+    return TimelineSkeletonIdentity(
+        groupSize = siblingGroupSize,
+        columnCount = identity.columnCount,
+        familiesKey = identity.familiesKey,
+        geometryRequest = identity.geometryRequest,
+        groupingZoneId = groupingZoneIdResolver(siblingGroupSize)
+    )
+}
+
+internal fun timelineMosaicSectionKeyMatchesGroup(
+    timeBucket: String,
+    sectionKey: String,
+    groupSize: TimelineGroupSize
+): Boolean = when (groupSize) {
+    TimelineGroupSize.MONTH -> sectionKey == monthMosaicSectionKey(timeBucket)
+    TimelineGroupSize.DAY -> sectionKey.startsWith("$timeBucket|day|")
+}
+
+internal class TimelinePreparedGeometryCoordinator(
+    private val skeletonState: MutableStateFlow<TimelineSkeletonState>,
+    private val bucketGeometryStates: MutableStateFlow<Map<MosaicCacheKey, Float>>,
+    private val mosaicGeometryStates: MutableStateFlow<Map<MosaicCacheKey, TimelineMosaicSectionGeometry>>,
+    private val timelineGeometryReady: MutableStateFlow<Boolean>,
+    private val updateGeometryReadyBuckets: ((Set<MosaicCacheKey>) -> Set<MosaicCacheKey>) -> Unit,
+    private val groupingZoneIdResolver: (TimelineGroupSize) -> String = ::timelineMosaicGroupingZoneId
+) {
+    private val preparedSkeletonsByIdentity =
+        mutableMapOf<TimelineSkeletonIdentity, Map<String, PreparedTimelineBucketGeometry>>()
+
+    fun currentPreparedSkeletonsForIdentity(
+        identity: TimelineSkeletonIdentity,
+        assetRevisions: Map<String, Int>
+    ): Map<String, TimelineMosaicBucketSkeleton>? {
+        val preparedByBucket = preparedSkeletonsByIdentity[identity] ?: return null
+        val currentSkeletons = LinkedHashMap<String, TimelineMosaicBucketSkeleton>(preparedByBucket.size)
+        for ((timeBucket, entry) in preparedByBucket) {
+            if ((assetRevisions[timeBucket] ?: 0) == entry.assetRevision) {
+                currentSkeletons[timeBucket] = entry.skeleton
+            }
+        }
+        return currentSkeletons
+    }
+
+    fun hasPreparedCoverage(
+        identity: TimelineSkeletonIdentity,
+        requiredBuckets: Set<String>,
+        isSourceReady: Boolean,
+        assetRevisions: Map<String, Int>
+    ): Boolean {
+        val currentSkeletons = currentPreparedSkeletonsForIdentity(identity, assetRevisions) ?: return false
+        if (currentSkeletons.isEmpty() && (!isSourceReady || requiredBuckets.isNotEmpty())) {
+            return false
+        }
+        return requiredBuckets.all { it in currentSkeletons }
+    }
+
+    fun hasDualGroupPreparedCoverage(
+        identity: TimelineSkeletonIdentity,
+        requiredBuckets: Set<String>,
+        isSourceReady: Boolean,
+        assetRevisions: Map<String, Int>
+    ): Boolean {
+        val siblingIdentity = siblingTimelineSkeletonIdentity(identity, groupingZoneIdResolver)
+        return hasPreparedCoverage(identity, requiredBuckets, isSourceReady, assetRevisions) &&
+            hasPreparedCoverage(siblingIdentity, requiredBuckets, isSourceReady, assetRevisions)
+    }
+
+    fun restorePreparedForIdentity(
+        identity: TimelineSkeletonIdentity?,
+        requiredBuckets: Set<String>,
+        isSourceReady: Boolean,
+        assetRevisions: Map<String, Int>
+    ): Boolean {
+        if (identity == null) {
+            timelineGeometryReady.value = true
+            return true
+        }
+        if (!hasDualGroupPreparedCoverage(identity, requiredBuckets, isSourceReady, assetRevisions)) {
+            if (skeletonState.value.identity == identity &&
+                skeletonState.value.status == TimelineSkeletonLoadStatus.Loaded
+            ) {
+                skeletonState.value = skeletonState.value.copy(
+                    status = TimelineSkeletonLoadStatus.Loading
+                )
+            }
+            timelineGeometryReady.value = false
+            return false
+        }
+        val siblingIdentity = siblingTimelineSkeletonIdentity(identity, groupingZoneIdResolver)
+        val primarySkeletons = currentPreparedSkeletonsForIdentity(identity, assetRevisions) ?: return false
+        val siblingSkeletons = currentPreparedSkeletonsForIdentity(siblingIdentity, assetRevisions) ?: return false
+        hydrateRuntimeGeometryFromSkeletons(
+            identity = identity,
+            skeletons = primarySkeletons,
+            assetRevisions = assetRevisions,
+            updateActiveSkeleton = true
+        )
+        hydrateRuntimeGeometryFromSkeletons(
+            identity = siblingIdentity,
+            skeletons = siblingSkeletons,
+            assetRevisions = assetRevisions,
+            updateActiveSkeleton = false
+        )
+        timelineGeometryReady.value = true
+        return true
+    }
+
+    fun invalidateBuckets(
+        timeBuckets: Set<String>,
+        requiredBuckets: Set<String> = skeletonState.value.buckets.keys + timeBuckets,
+        isSourceReady: Boolean = true,
+        assetRevisions: Map<String, Int> = emptyMap()
+    ) {
+        if (timeBuckets.isEmpty()) return
+        if (preparedSkeletonsByIdentity.isNotEmpty()) {
+            val iterator = preparedSkeletonsByIdentity.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                val filtered = entry.value.filterKeys { it !in timeBuckets }
+                if (filtered.isEmpty()) {
+                    iterator.remove()
+                } else if (filtered.size != entry.value.size) {
+                    entry.setValue(filtered)
+                }
+            }
+        }
+        val currentSkeleton = skeletonState.value
+        val bumped = currentSkeleton.withBumpedEpochs(timeBuckets)
+        val nextBuckets = bumped.buckets - timeBuckets
+        val activeIdentity = bumped.identity
+        val stillComplete = activeIdentity != null &&
+            requiredBuckets.all { it in nextBuckets } &&
+            hasDualGroupPreparedCoverage(
+                identity = activeIdentity,
+                requiredBuckets = requiredBuckets,
+                isSourceReady = isSourceReady,
+                assetRevisions = assetRevisions
+            )
+        val nextStatus = if (!stillComplete && bumped.status == TimelineSkeletonLoadStatus.Loaded) {
+            TimelineSkeletonLoadStatus.Loading
+        } else {
+            bumped.status
+        }
+        skeletonState.value = bumped.copy(
+            status = nextStatus,
+            buckets = nextBuckets
+        )
+        if (activeIdentity != null && !stillComplete) {
+            timelineGeometryReady.value = false
+        }
+        bucketGeometryStates.value = bucketGeometryStates.value.filterKeys { it.timeBucket !in timeBuckets }
+        mosaicGeometryStates.value = mosaicGeometryStates.value.filterKeys { it.timeBucket !in timeBuckets }
+        updateGeometryReadyBuckets { keys -> keys.filterNot { it.timeBucket in timeBuckets }.toSet() }
+    }
+
+    fun beginFullLoad(
+        identity: TimelineSkeletonIdentity,
+        requiredBuckets: Set<String>,
+        isSourceReady: Boolean,
+        assetRevisions: Map<String, Int>,
+        generationSnapshot: TimelineRuntimeGenerationSnapshot
+    ): TimelineSkeletonReadOrigin? {
+        if (restorePreparedForIdentity(identity, requiredBuckets, isSourceReady, assetRevisions)) {
+            return null
+        }
+        val nextSkeleton = skeletonState.value
+            .startingLoad(identity)
+            .copy(status = TimelineSkeletonLoadStatus.Loading)
+        skeletonState.value = nextSkeleton
+        timelineGeometryReady.value = false
+        return TimelineSkeletonReadOrigin(
+            identity = identity,
+            siblingIdentity = siblingTimelineSkeletonIdentity(identity, groupingZoneIdResolver),
+            globalGeneration = generationSnapshot.globalGeneration,
+            bucketGenerations = generationSnapshot.bucketGenerations,
+            assetRevisions = assetRevisions,
+            bucketEpochs = nextSkeleton.bucketEpochs,
+            requestedBuckets = null
+        )
+    }
+
+    fun beginBucketReload(
+        identity: TimelineSkeletonIdentity,
+        timeBuckets: Set<String>,
+        assetRevisions: Map<String, Int>,
+        generationSnapshot: TimelineRuntimeGenerationSnapshot
+    ): TimelineSkeletonReadOrigin? {
+        if (timeBuckets.isEmpty() || skeletonState.value.identity != identity) return null
+        val nextSkeleton = skeletonState.value.withBumpedEpochs(timeBuckets)
+        skeletonState.value = nextSkeleton
+        return TimelineSkeletonReadOrigin(
+            identity = identity,
+            siblingIdentity = siblingTimelineSkeletonIdentity(identity, groupingZoneIdResolver),
+            globalGeneration = generationSnapshot.globalGeneration,
+            bucketGenerations = generationSnapshot.bucketGenerations,
+            assetRevisions = assetRevisions,
+            bucketEpochs = nextSkeleton.bucketEpochs,
+            requestedBuckets = timeBuckets
+        )
+    }
+
+    fun captureRepairOrigin(
+        readOrigin: TimelineSkeletonReadOrigin,
+        missingBuckets: Set<String>,
+        activeIdentity: TimelineSkeletonIdentity?,
+        assetRevisions: Map<String, Int>,
+        generationSnapshot: TimelineRuntimeGenerationSnapshot
+    ): TimelineSkeletonReadOrigin? {
+        if (missingBuckets.isEmpty() ||
+            activeIdentity != readOrigin.identity ||
+            generationSnapshot.globalGeneration != readOrigin.globalGeneration
+        ) {
+            return null
+        }
+        return TimelineSkeletonReadOrigin(
+            identity = readOrigin.identity,
+            siblingIdentity = readOrigin.siblingIdentity,
+            globalGeneration = generationSnapshot.globalGeneration,
+            bucketGenerations = generationSnapshot.bucketGenerations,
+            assetRevisions = assetRevisions,
+            bucketEpochs = skeletonState.value.bucketEpochs,
+            requestedBuckets = missingBuckets
+        )
+    }
+
+    fun applyAuthoritativeSkeletonRead(
+        targetIdentity: TimelineSkeletonIdentity,
+        loadedSkeletons: Map<String, TimelineMosaicBucketSkeleton>,
+        origin: TimelineSkeletonReadOrigin,
+        currentGenerationSnapshot: TimelineRuntimeGenerationSnapshot,
+        currentAssetRevisions: Map<String, Int>,
+        knownBuckets: Set<String>,
+        updateActiveSkeleton: Boolean
+    ) {
+        if (currentGenerationSnapshot.globalGeneration != origin.globalGeneration) return
+        val currentEpochs = skeletonState.value.bucketEpochs
+        fun isUnchanged(bucket: String): Boolean =
+            origin.acceptsBucket(
+                timeBucket = bucket,
+                currentGlobalGeneration = currentGenerationSnapshot.globalGeneration,
+                currentBucketGenerations = currentGenerationSnapshot.bucketGenerations,
+                currentAssetRevisions = currentAssetRevisions,
+                currentBucketEpochs = currentEpochs
+            )
+
+        val candidateBuckets = origin.requestedBuckets ?: buildSet {
+            addAll(knownBuckets)
+            addAll(loadedSkeletons.keys)
+            preparedSkeletonsByIdentity[targetIdentity]?.keys?.let(::addAll)
+            if (skeletonState.value.identity == targetIdentity) {
+                addAll(skeletonState.value.buckets.keys)
+            }
+        }
+        val evaluatedBuckets = candidateBuckets.filterTo(linkedSetOf(), ::isUnchanged)
+        val acceptedSkeletons = LinkedHashMap<String, TimelineMosaicBucketSkeleton>()
+        for (bucket in evaluatedBuckets) {
+            loadedSkeletons[bucket]?.let { acceptedSkeletons[bucket] = it }
+        }
+        val rejectedBuckets = evaluatedBuckets - acceptedSkeletons.keys
+
+        val updatedPrepared = LinkedHashMap<String, PreparedTimelineBucketGeometry>()
+        preparedSkeletonsByIdentity[targetIdentity]?.forEach { (bucket, entry) ->
+            if (bucket !in evaluatedBuckets && (currentAssetRevisions[bucket] ?: 0) == entry.assetRevision) {
+                updatedPrepared[bucket] = entry
+            }
+        }
+        acceptedSkeletons.forEach { (bucket, skeleton) ->
+            updatedPrepared[bucket] = PreparedTimelineBucketGeometry(
+                skeleton = skeleton,
+                assetRevision = origin.assetRevisions[bucket] ?: 0
+            )
+        }
+        preparedSkeletonsByIdentity[targetIdentity] = updatedPrepared
+
+        if (rejectedBuckets.isNotEmpty()) {
+            fun matchesBucketGeometryKey(key: MosaicCacheKey): Boolean =
+                key.timeBucket in rejectedBuckets &&
+                    key.columnCount == targetIdentity.columnCount &&
+                    key.familiesKey == targetIdentity.familiesKey &&
+                    key.sectionKey == timelineBucketGeometrySectionKey(
+                        key.timeBucket,
+                        targetIdentity.groupSize,
+                        targetIdentity.geometryRequest
+                    )
+
+            bucketGeometryStates.value = bucketGeometryStates.value.filterKeys { !matchesBucketGeometryKey(it) }
+            updateGeometryReadyBuckets { keys -> keys.filterNot(::matchesBucketGeometryKey).toSet() }
+            mosaicGeometryStates.value = mosaicGeometryStates.value.filterKeys { key ->
+                !(key.timeBucket in rejectedBuckets &&
+                    key.columnCount == targetIdentity.columnCount &&
+                    key.familiesKey == targetIdentity.familiesKey &&
+                    timelineMosaicSectionKeyMatchesGroup(key.timeBucket, key.sectionKey, targetIdentity.groupSize))
+            }
+        }
+
+        hydrateRuntimeGeometryFromSkeletons(
+            identity = targetIdentity,
+            skeletons = acceptedSkeletons,
+            assetRevisions = origin.assetRevisions,
+            updateActiveSkeleton = false
+        )
+
+        if (updateActiveSkeleton && skeletonState.value.identity == targetIdentity) {
+            val currentActiveBuckets = skeletonState.value.buckets
+            val nextActiveBuckets = (currentActiveBuckets - evaluatedBuckets) + acceptedSkeletons
+            skeletonState.value = skeletonState.value.copy(buckets = nextActiveBuckets)
+        }
+    }
+
+    fun completeFullLoad(
+        readOrigin: TimelineSkeletonReadOrigin,
+        primaryReadSkeletons: Map<String, TimelineMosaicBucketSkeleton>?,
+        siblingReadSkeletons: Map<String, TimelineMosaicBucketSkeleton>?,
+        repairOrigin: TimelineSkeletonReadOrigin? = null,
+        repairedPrimarySkeletons: Map<String, TimelineMosaicBucketSkeleton>? = null,
+        repairedSiblingSkeletons: Map<String, TimelineMosaicBucketSkeleton>? = null,
+        activeIdentity: TimelineSkeletonIdentity?,
+        requiredBuckets: Set<String>,
+        isSourceReady: Boolean,
+        currentGenerationSnapshot: TimelineRuntimeGenerationSnapshot,
+        currentAssetRevisions: Map<String, Int>
+    ): Boolean {
+        if (activeIdentity != readOrigin.identity ||
+            currentGenerationSnapshot.globalGeneration != readOrigin.globalGeneration
+        ) {
+            return false
+        }
+        if (primaryReadSkeletons != null) {
+            applyAuthoritativeSkeletonRead(
+                targetIdentity = readOrigin.identity,
+                loadedSkeletons = primaryReadSkeletons,
+                origin = readOrigin,
+                currentGenerationSnapshot = currentGenerationSnapshot,
+                currentAssetRevisions = currentAssetRevisions,
+                knownBuckets = requiredBuckets,
+                updateActiveSkeleton = true
+            )
+        }
+        if (siblingReadSkeletons != null) {
+            applyAuthoritativeSkeletonRead(
+                targetIdentity = readOrigin.siblingIdentity,
+                loadedSkeletons = siblingReadSkeletons,
+                origin = readOrigin,
+                currentGenerationSnapshot = currentGenerationSnapshot,
+                currentAssetRevisions = currentAssetRevisions,
+                knownBuckets = requiredBuckets,
+                updateActiveSkeleton = false
+            )
+        }
+        if (repairOrigin != null) {
+            if (repairedPrimarySkeletons != null) {
+                applyAuthoritativeSkeletonRead(
+                    targetIdentity = repairOrigin.identity,
+                    loadedSkeletons = repairedPrimarySkeletons,
+                    origin = repairOrigin,
+                    currentGenerationSnapshot = currentGenerationSnapshot,
+                    currentAssetRevisions = currentAssetRevisions,
+                    knownBuckets = requiredBuckets,
+                    updateActiveSkeleton = true
+                )
+            }
+            if (repairedSiblingSkeletons != null) {
+                applyAuthoritativeSkeletonRead(
+                    targetIdentity = repairOrigin.siblingIdentity,
+                    loadedSkeletons = repairedSiblingSkeletons,
+                    origin = repairOrigin,
+                    currentGenerationSnapshot = currentGenerationSnapshot,
+                    currentAssetRevisions = currentAssetRevisions,
+                    knownBuckets = requiredBuckets,
+                    updateActiveSkeleton = false
+                )
+            }
+        }
+        val dualGroupComplete = hasDualGroupPreparedCoverage(
+            identity = readOrigin.identity,
+            requiredBuckets = requiredBuckets,
+            isSourceReady = isSourceReady,
+            assetRevisions = currentAssetRevisions
+        )
+        val activePreparedBuckets =
+            currentPreparedSkeletonsForIdentity(readOrigin.identity, currentAssetRevisions).orEmpty()
+        val mergedActiveBuckets = (skeletonState.value.buckets.takeIf {
+            skeletonState.value.identity == readOrigin.identity
+        }.orEmpty() + activePreparedBuckets).filterKeys { bucket ->
+            bucket in activePreparedBuckets
+        }
+        return if (dualGroupComplete && requiredBuckets.all { it in mergedActiveBuckets }) {
+            skeletonState.value = skeletonState.value.copy(
+                identity = readOrigin.identity,
+                status = TimelineSkeletonLoadStatus.Loaded,
+                buckets = mergedActiveBuckets
+            )
+            timelineGeometryReady.value = true
+            true
+        } else {
+            skeletonState.value = skeletonState.value.copy(
+                identity = readOrigin.identity,
+                status = TimelineSkeletonLoadStatus.Failed,
+                buckets = mergedActiveBuckets
+            )
+            timelineGeometryReady.value = false
+            false
+        }
+    }
+
+    fun failFullLoad(
+        identity: TimelineSkeletonIdentity,
+        expectedGlobalGeneration: Long? = null,
+        currentGlobalGeneration: Long? = null
+    ): Boolean {
+        if (expectedGlobalGeneration != null &&
+            currentGlobalGeneration != null &&
+            expectedGlobalGeneration != currentGlobalGeneration
+        ) {
+            return false
+        }
+        if (skeletonState.value.identity != identity) return false
+        if (skeletonState.value.status == TimelineSkeletonLoadStatus.Loaded && timelineGeometryReady.value) {
+            return false
+        }
+        skeletonState.value = skeletonState.value.copy(
+            identity = identity,
+            status = TimelineSkeletonLoadStatus.Failed
+        )
+        timelineGeometryReady.value = false
+        return true
+    }
+
+    fun completeBucketReload(
+        reloadOrigin: TimelineSkeletonReadOrigin,
+        primaryReloadSkeletons: Map<String, TimelineMosaicBucketSkeleton>?,
+        siblingReloadSkeletons: Map<String, TimelineMosaicBucketSkeleton>?,
+        activeIdentity: TimelineSkeletonIdentity?,
+        requiredBuckets: Set<String>,
+        isSourceReady: Boolean,
+        currentGenerationSnapshot: TimelineRuntimeGenerationSnapshot,
+        currentAssetRevisions: Map<String, Int>
+    ): Boolean {
+        if (activeIdentity != reloadOrigin.identity ||
+            currentGenerationSnapshot.globalGeneration != reloadOrigin.globalGeneration
+        ) {
+            return false
+        }
+        if (primaryReloadSkeletons != null) {
+            applyAuthoritativeSkeletonRead(
+                targetIdentity = reloadOrigin.identity,
+                loadedSkeletons = primaryReloadSkeletons,
+                origin = reloadOrigin,
+                currentGenerationSnapshot = currentGenerationSnapshot,
+                currentAssetRevisions = currentAssetRevisions,
+                knownBuckets = requiredBuckets,
+                updateActiveSkeleton = true
+            )
+        }
+        if (siblingReloadSkeletons != null) {
+            applyAuthoritativeSkeletonRead(
+                targetIdentity = reloadOrigin.siblingIdentity,
+                loadedSkeletons = siblingReloadSkeletons,
+                origin = reloadOrigin,
+                currentGenerationSnapshot = currentGenerationSnapshot,
+                currentAssetRevisions = currentAssetRevisions,
+                knownBuckets = requiredBuckets,
+                updateActiveSkeleton = false
+            )
+        }
+        val dualGroupComplete = hasDualGroupPreparedCoverage(
+            identity = reloadOrigin.identity,
+            requiredBuckets = requiredBuckets,
+            isSourceReady = isSourceReady,
+            assetRevisions = currentAssetRevisions
+        )
+        val activePreparedBuckets =
+            currentPreparedSkeletonsForIdentity(reloadOrigin.identity, currentAssetRevisions).orEmpty()
+        val mergedActiveBuckets = (skeletonState.value.buckets.takeIf {
+            skeletonState.value.identity == reloadOrigin.identity
+        }.orEmpty() + activePreparedBuckets).filterKeys { bucket ->
+            bucket in activePreparedBuckets
+        }
+        return if (dualGroupComplete && requiredBuckets.all { it in mergedActiveBuckets }) {
+            skeletonState.value = skeletonState.value.copy(
+                identity = reloadOrigin.identity,
+                status = TimelineSkeletonLoadStatus.Loaded,
+                buckets = mergedActiveBuckets
+            )
+            timelineGeometryReady.value = true
+            true
+        } else {
+            skeletonState.value = skeletonState.value.copy(
+                identity = reloadOrigin.identity,
+                status = TimelineSkeletonLoadStatus.Loading,
+                buckets = mergedActiveBuckets
+            )
+            timelineGeometryReady.value = false
+            false
+        }
+    }
+
+    fun publishPrecomputedResult(
+        summariesByGroup: Map<TimelineGroupSize, List<TimelineBucketGeometrySummary>>,
+        sectionSummariesByGroup: Map<TimelineGroupSize, List<TimelineMosaicGeometrySummary>>,
+        skeletonsByGroup: Map<TimelineGroupSize, Map<String, TimelineMosaicBucketSkeleton>>,
+        columnCount: Int,
+        families: Set<MosaicTemplateFamily>,
+        geometryRequest: TimelineMosaicGeometryRequest,
+        assetRevisions: Map<String, Int>,
+        activeIdentity: TimelineSkeletonIdentity?,
+        requiredBuckets: Set<String>,
+        isSourceReady: Boolean
+    ): Set<String> {
+        val publishedBuckets = buildSet {
+            summariesByGroup.values.forEach { list -> list.forEach { add(it.timeBucket) } }
+            sectionSummariesByGroup.values.forEach { list -> list.forEach { add(it.timeBucket) } }
+            skeletonsByGroup.values.forEach { map -> addAll(map.keys) }
+        }
+        if (publishedBuckets.isNotEmpty()) {
+            skeletonState.value = skeletonState.value.withBumpedEpochs(publishedBuckets)
+        }
+
+        val familiesKey = mosaicFamiliesKey(families)
+        val groupSizes = (summariesByGroup.keys + sectionSummariesByGroup.keys + skeletonsByGroup.keys)
+        var missingSkeletonBucketsForActive: Set<String> = emptySet()
+
+        for (group in groupSizes) {
+            val groupIdentity = TimelineSkeletonIdentity(
+                groupSize = group,
+                columnCount = columnCount,
+                familiesKey = familiesKey,
+                geometryRequest = geometryRequest,
+                groupingZoneId = groupingZoneIdResolver(group)
+            )
+            val groupSkeletons = skeletonsByGroup[group].orEmpty()
+            if (groupSkeletons.isNotEmpty() || (requiredBuckets.isEmpty() && isSourceReady)) {
+                storePreparedSkeletons(
+                    identity = groupIdentity,
+                    skeletons = groupSkeletons,
+                    assetRevisions = assetRevisions
+                )
+            }
+            val matchesActive = activeIdentity != null &&
+                activeIdentity.columnCount == columnCount &&
+                activeIdentity.familiesKey == familiesKey &&
+                activeIdentity.geometryRequest == geometryRequest
+            if (!matchesActive) continue
+
+            val groupSummaries = summariesByGroup[group].orEmpty()
+            if (groupSummaries.isNotEmpty()) {
+                val bucketUpdates = groupSummaries.associate { geometry ->
+                    MosaicCacheKey(
+                        timeBucket = geometry.timeBucket,
+                        sectionKey = timelineBucketGeometrySectionKey(geometry.timeBucket, group, geometryRequest),
+                        columnCount = columnCount,
+                        assetRevision = assetRevisions[geometry.timeBucket] ?: 0,
+                        familiesKey = familiesKey
+                    ) to geometry.placeholderHeight
+                }
+                bucketGeometryStates.value = bucketGeometryStates.value + bucketUpdates
+                val readyBuckets = bucketUpdates.keys
+                updateGeometryReadyBuckets { existing -> existing + readyBuckets }
+            }
+
+            val groupSections = sectionSummariesByGroup[group].orEmpty()
+            val sectionUpdates = LinkedHashMap<MosaicCacheKey, TimelineMosaicSectionGeometry>()
+            groupSections.forEach { section ->
+                sectionUpdates[
+                    MosaicCacheKey(
+                        timeBucket = section.timeBucket,
+                        sectionKey = section.sectionKey,
+                        columnCount = columnCount,
+                        assetRevision = assetRevisions[section.timeBucket] ?: 0,
+                        familiesKey = familiesKey
+                    )
+                ] = TimelineMosaicSectionGeometry(
+                    placeholderHeight = section.placeholderHeight,
+                    ranges = section.ranges
+                )
+            }
+            groupSkeletons.values.forEach { skeleton ->
+                skeleton.sections.forEach { section ->
+                    val key = MosaicCacheKey(
+                        timeBucket = skeleton.timeBucket,
+                        sectionKey = section.sectionKey,
+                        columnCount = columnCount,
+                        assetRevision = assetRevisions[skeleton.timeBucket] ?: 0,
+                        familiesKey = familiesKey
+                    )
+                    if (key !in sectionUpdates) {
+                        sectionUpdates[key] = TimelineMosaicSectionGeometry(
+                            placeholderHeight = section.placeholderHeight,
+                            ranges = section.ranges
+                        )
+                    }
+                }
+            }
+            if (sectionUpdates.isNotEmpty()) {
+                mosaicGeometryStates.value = mosaicGeometryStates.value + sectionUpdates
+            }
+
+            if (groupIdentity == activeIdentity && groupSkeletons.isNotEmpty()) {
+                val nextBuckets = if (skeletonState.value.identity == groupIdentity) {
+                    skeletonState.value.buckets + groupSkeletons
+                } else {
+                    groupSkeletons
+                }
+                skeletonState.value = skeletonState.value.copy(
+                    identity = groupIdentity,
+                    buckets = nextBuckets
+                )
+            }
+        }
+
+        if (activeIdentity != null &&
+            activeIdentity.columnCount == columnCount &&
+            activeIdentity.familiesKey == familiesKey &&
+            activeIdentity.geometryRequest == geometryRequest
+        ) {
+            val siblingIdentity = siblingTimelineSkeletonIdentity(activeIdentity, groupingZoneIdResolver)
+            val activePrepared = currentPreparedSkeletonsForIdentity(activeIdentity, assetRevisions).orEmpty()
+            val siblingPrepared = currentPreparedSkeletonsForIdentity(siblingIdentity, assetRevisions).orEmpty()
+            missingSkeletonBucketsForActive = publishedBuckets
+                .filter { it !in activePrepared || it !in siblingPrepared }
+                .toSet()
+            val dualGroupComplete = hasDualGroupPreparedCoverage(
+                identity = activeIdentity,
+                requiredBuckets = requiredBuckets,
+                isSourceReady = isSourceReady,
+                assetRevisions = assetRevisions
+            )
+            val currentBuckets = (skeletonState.value.buckets.takeIf {
+                skeletonState.value.identity == activeIdentity
+            }.orEmpty() + activePrepared).filterKeys { bucket ->
+                bucket in activePrepared
+            }
+            if (dualGroupComplete && requiredBuckets.all { it in currentBuckets }) {
+                skeletonState.value = skeletonState.value.copy(
+                    identity = activeIdentity,
+                    status = TimelineSkeletonLoadStatus.Loaded,
+                    buckets = currentBuckets
+                )
+                timelineGeometryReady.value = true
+            } else {
+                skeletonState.value = skeletonState.value.copy(
+                    identity = activeIdentity,
+                    status = TimelineSkeletonLoadStatus.Loading,
+                    buckets = currentBuckets
+                )
+                timelineGeometryReady.value = false
+            }
+        }
+
+        return missingSkeletonBucketsForActive
+    }
+
+    private fun storePreparedSkeletons(
+        identity: TimelineSkeletonIdentity,
+        skeletons: Map<String, TimelineMosaicBucketSkeleton>,
+        assetRevisions: Map<String, Int>
+    ) {
+        val updated = LinkedHashMap<String, PreparedTimelineBucketGeometry>()
+        preparedSkeletonsByIdentity[identity]?.forEach { (bucket, entry) ->
+            if ((assetRevisions[bucket] ?: 0) == entry.assetRevision) {
+                updated[bucket] = entry
+            }
+        }
+        skeletons.forEach { (bucket, skeleton) ->
+            updated[bucket] = PreparedTimelineBucketGeometry(
+                skeleton = skeleton,
+                assetRevision = assetRevisions[bucket] ?: 0
+            )
+        }
+        preparedSkeletonsByIdentity[identity] = updated
+    }
+
+    private fun hydrateRuntimeGeometryFromSkeletons(
+        identity: TimelineSkeletonIdentity,
+        skeletons: Map<String, TimelineMosaicBucketSkeleton>,
+        assetRevisions: Map<String, Int>,
+        updateActiveSkeleton: Boolean
+    ) {
+        if (skeletons.isNotEmpty()) {
+            val bucketUpdates = LinkedHashMap<MosaicCacheKey, Float>(skeletons.size)
+            val sectionUpdates = LinkedHashMap<MosaicCacheKey, TimelineMosaicSectionGeometry>()
+            skeletons.forEach { (timeBucket, skeleton) ->
+                val assetRevision = assetRevisions[timeBucket] ?: 0
+                bucketUpdates[
+                    MosaicCacheKey(
+                        timeBucket = timeBucket,
+                        sectionKey = timelineBucketGeometrySectionKey(
+                            timeBucket,
+                            identity.groupSize,
+                            identity.geometryRequest
+                        ),
+                        columnCount = identity.columnCount,
+                        assetRevision = assetRevision,
+                        familiesKey = identity.familiesKey
+                    )
+                ] = skeleton.placeholderHeight
+                skeleton.sections.forEach { section ->
+                    sectionUpdates[
+                        MosaicCacheKey(
+                            timeBucket = timeBucket,
+                            sectionKey = section.sectionKey,
+                            columnCount = identity.columnCount,
+                            assetRevision = assetRevision,
+                            familiesKey = identity.familiesKey
+                        )
+                    ] = TimelineMosaicSectionGeometry(
+                        placeholderHeight = section.placeholderHeight,
+                        ranges = section.ranges
+                    )
+                }
+            }
+            bucketGeometryStates.value = bucketGeometryStates.value + bucketUpdates
+            mosaicGeometryStates.value = mosaicGeometryStates.value + sectionUpdates
+            val readyBuckets = bucketUpdates.keys
+            updateGeometryReadyBuckets { existing -> existing + readyBuckets }
+        }
+        if (updateActiveSkeleton) {
+            skeletonState.value = skeletonState.value.copy(
+                identity = identity,
+                status = TimelineSkeletonLoadStatus.Loaded,
+                buckets = skeletons
+            )
+        }
+    }
+}
 
 internal fun timelineMosaicRangeGridKey(
     timeBucket: String,
@@ -130,8 +913,8 @@ internal fun timelineGeometryAlignedItems(
         val range = alignedRange.range
         val key = timelineMosaicRangeGridKey(timeBucket, sectionKey, range.sourceStartIndex, range.sourceCount)
         when (val item = alignedRange.item) {
-            is MosaicBandItem -> item.copy(gridKey = key)
-            is RowItem -> item.copy(gridKey = key)
+            is MosaicBandItem -> item.copy(gridKey = key, bandHeight = range.height)
+            is RowItem -> item.copy(gridKey = key, rowHeight = range.height)
             else -> PlaceholderItem(
                 gridKey = key,
                 bucketIndex = bucketIndex,

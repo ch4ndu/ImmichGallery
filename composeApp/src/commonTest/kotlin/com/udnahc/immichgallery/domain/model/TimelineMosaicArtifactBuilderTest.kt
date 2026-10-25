@@ -2,6 +2,8 @@ package com.udnahc.immichgallery.domain.model
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class TimelineMosaicArtifactBuilderTest {
@@ -181,6 +183,100 @@ class TimelineMosaicArtifactBuilderTest {
         assertEquals(1, sections.size)
         assertTrue(sections.single().sectionKey.endsWith(TIMELINE_UNKNOWN_DATE_SECTION_ID))
         assertEquals(listOf("first", "second"), sections.single().assets.map { it.id })
+    }
+
+    @Test
+    fun artifactsToSkeletonProducesValidatedMonthAndDaySkeletons() {
+        val firstAssets = sampleAssets(1, prefix = "a")
+        val secondAssets = sampleAssets(2, prefix = "b")
+        val first = TimelineMosaicSection("2026-01|day|2026-01-02", "2026-01|day|2026-01-02", firstAssets)
+        val second = TimelineMosaicSection("2026-01|day|2026-01-01", "2026-01|day|2026-01-01", secondAssets)
+        val dayArtifacts = builder.build(
+            snapshot = TimelineBucketSnapshot("2026-01", firstAssets + secondAssets, expectedCount = 3),
+            groupSize = TimelineGroupSize.DAY,
+            groupMode = TimelineGroupSize.DAY.apiValue,
+            columnCount = 5,
+            familiesKey = "FOUR_TILE",
+            geometryRequest = request,
+            sections = listOf(first, second),
+            readySections = listOf(
+                readySection(first, height = 120f),
+                readySection(second, height = 150f)
+            ),
+            cacheDisplayResults = true,
+            updatedAt = 1L
+        )
+        requireNotNull(dayArtifacts)
+        val daySkeleton = assertNotNull(dayArtifacts.toSkeleton(TimelineGroupSize.DAY, assetCount = 3))
+        assertEquals("2026-01", daySkeleton.timeBucket)
+        assertEquals(3, daySkeleton.assetCount)
+        assertEquals(listOf(first.sectionKey, second.sectionKey), daySkeleton.sections.map { it.sectionKey })
+        assertEquals(listOf(120f, 150f), daySkeleton.sections.map { it.placeholderHeight })
+    }
+
+    @Test
+    fun precomputeResultIsCompleteRequiresBothMonthAndDaySummariesAndSkeletons() {
+        val monthSummary = TimelineBucketGeometrySummary("2026-01", 200f, 1)
+        val daySummary = TimelineBucketGeometrySummary("2026-01", 260f, 2)
+        val monthSkeleton = TimelineMosaicBucketSkeleton(
+            timeBucket = "2026-01",
+            assetCount = 2,
+            placeholderHeight = 200f,
+            sections = listOf(
+                TimelineMosaicGeometrySummary(
+                    timeBucket = "2026-01",
+                    sectionKey = "2026-01|month",
+                    placeholderHeight = 200f,
+                    displayItemCount = 1,
+                    ranges = listOf(MosaicSectionGeometryRange(0, 2, 200f))
+                )
+            )
+        )
+        val daySkeleton = TimelineMosaicBucketSkeleton(
+            timeBucket = "2026-01",
+            assetCount = 2,
+            placeholderHeight = 260f,
+            sections = listOf(
+                TimelineMosaicGeometrySummary(
+                    timeBucket = "2026-01",
+                    sectionKey = "2026-01|day|2026-01-01",
+                    placeholderHeight = 200f,
+                    displayItemCount = 1,
+                    ranges = listOf(MosaicSectionGeometryRange(0, 2, 200f))
+                )
+            )
+        )
+
+        val complete = TimelineMosaicPrecomputeResult(
+            successfulBucketIds = setOf("2026-01"),
+            failedBucketIds = emptySet(),
+            bucketGeometrySummaries = listOf(monthSummary),
+            bucketGeometrySummariesByGroup = mapOf(
+                TimelineGroupSize.MONTH to listOf(monthSummary),
+                TimelineGroupSize.DAY to listOf(daySummary)
+            ),
+            bucketSkeletons = mapOf("2026-01" to monthSkeleton),
+            bucketSkeletonsByGroup = mapOf(
+                TimelineGroupSize.MONTH to mapOf("2026-01" to monthSkeleton),
+                TimelineGroupSize.DAY to mapOf("2026-01" to daySkeleton)
+            )
+        )
+        assertTrue(complete.isCompleteFor(setOf("2026-01")))
+
+        val missingDaySkeleton = complete.copy(
+            bucketSkeletonsByGroup = mapOf(
+                TimelineGroupSize.MONTH to mapOf("2026-01" to monthSkeleton)
+            )
+        )
+        assertFalse(missingDaySkeleton.isCompleteFor(setOf("2026-01")))
+
+        val failedDayGroup = complete.copy(
+            failedBucketIdsByGroup = mapOf(
+                TimelineGroupSize.MONTH to emptySet(),
+                TimelineGroupSize.DAY to setOf("2026-01")
+            )
+        )
+        assertFalse(failedDayGroup.isCompleteFor(setOf("2026-01")))
     }
 
     private fun readySection(section: TimelineMosaicSection, height: Float): SectionReady =

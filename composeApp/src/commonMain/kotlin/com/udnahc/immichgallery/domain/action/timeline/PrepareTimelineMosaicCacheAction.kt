@@ -11,11 +11,14 @@ import com.udnahc.immichgallery.domain.model.MosaicSectionRequest
 import com.udnahc.immichgallery.domain.model.MosaicSectionResult
 import com.udnahc.immichgallery.domain.model.MosaicTemplateFamily
 import com.udnahc.immichgallery.domain.model.SectionReady
+import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES
 import com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineBucketSnapshot
 import com.udnahc.immichgallery.domain.model.TimelineGroupSize
 import com.udnahc.immichgallery.domain.model.TimelineMosaicArtifactBuilder
+import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketSkeleton
 import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometryRequest
+import com.udnahc.immichgallery.domain.model.TimelineMosaicGeometrySummary
 import com.udnahc.immichgallery.domain.model.TimelineMosaicPrecomputeResult
 import com.udnahc.immichgallery.domain.model.TimelineMosaicProgressChunk
 import com.udnahc.immichgallery.domain.model.TimelineMosaicSection
@@ -27,6 +30,8 @@ import com.udnahc.immichgallery.domain.model.orderedTimelineAssetsFingerprint
 import com.udnahc.immichgallery.domain.model.shouldRejectUnsyncedEmptyTimelineBucket
 import com.udnahc.immichgallery.domain.model.timelineMosaicFamiliesKey
 import com.udnahc.immichgallery.domain.model.timelineMosaicSections
+import com.udnahc.immichgallery.domain.model.toSkeleton
+import com.udnahc.immichgallery.domain.model.toSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -60,11 +65,13 @@ class PrepareTimelineMosaicCacheAction(
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest? = null,
         cacheDisplayResults: Boolean = true,
+        groupSizes: Set<TimelineGroupSize> = TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES,
         onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit = {}
     ): Result<TimelineMosaicPrecomputeResult> = sessionStateRepository.withOperation {
         prepare(
             timeBuckets = timeBuckets,
             groupSize = groupSize,
+            groupSizes = groupSizes,
             columnCount = columnCount,
             families = families,
             geometryRequest = geometryRequest,
@@ -76,6 +83,7 @@ class PrepareTimelineMosaicCacheAction(
     private suspend fun prepare(
         timeBuckets: Set<String>,
         groupSize: TimelineGroupSize,
+        groupSizes: Set<TimelineGroupSize>,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest?,
@@ -85,16 +93,38 @@ class PrepareTimelineMosaicCacheAction(
         if (timeBuckets.isEmpty()) {
             return Result.success(TimelineMosaicPrecomputeResult(emptySet(), emptySet()))
         }
+        val orderedGroupSizes = (listOf(groupSize).filter { it in groupSizes } + (groupSizes - groupSize)).distinct()
+        if (orderedGroupSizes.isEmpty()) {
+            return Result.success(TimelineMosaicPrecomputeResult(emptySet(), timeBuckets))
+        }
+        val failedByAllGroups = orderedGroupSizes.associateWith { timeBuckets }
         val assignmentLayoutSpec = mosaicAssignmentLayoutSpec(columnCount)
-            ?: return Result.success(TimelineMosaicPrecomputeResult(emptySet(), timeBuckets))
+            ?: return Result.success(
+                TimelineMosaicPrecomputeResult(
+                    successfulBucketIds = emptySet(),
+                    failedBucketIds = timeBuckets,
+                    failedBucketIdsByGroup = failedByAllGroups
+                )
+            )
         val request = geometryRequest
-            ?: return Result.success(TimelineMosaicPrecomputeResult(emptySet(), timeBuckets))
+            ?: return Result.success(
+                TimelineMosaicPrecomputeResult(
+                    successfulBucketIds = emptySet(),
+                    failedBucketIds = timeBuckets,
+                    failedBucketIdsByGroup = failedByAllGroups
+                )
+            )
         val displayLayoutSpec = mosaicLayoutSpecForColumnCount(request.availableWidth, columnCount)
-            ?: return Result.success(TimelineMosaicPrecomputeResult(emptySet(), timeBuckets))
+            ?: return Result.success(
+                TimelineMosaicPrecomputeResult(
+                    successfulBucketIds = emptySet(),
+                    failedBucketIds = timeBuckets,
+                    failedBucketIdsByGroup = failedByAllGroups
+                )
+            )
         return try {
             val normalizedFamilies = families.normalizedMosaicFamilies()
             val familiesKey = timelineMosaicFamiliesKey(normalizedFamilies)
-            val groupMode = groupSize.apiValue
             log.d {
                 "Timeline Mosaic precompute started buckets=<redacted> " +
                         "group=<redacted> columns=<redacted> families=<redacted> geometry=true"
@@ -107,12 +137,12 @@ class PrepareTimelineMosaicCacheAction(
             val results = coroutineScope {
                 timeBuckets.map { timeBucket ->
                     async(Dispatchers.IO) {
-                        val bucketGeometry = semaphore.withPermit {
+                        val bucketOutcome = semaphore.withPermit {
                             try {
                                 precomputeBucketMosaic(
                                     timeBucket = timeBucket,
-                                    groupSize = groupSize,
-                                    groupMode = groupMode,
+                                    primaryGroupSize = groupSize,
+                                    orderedGroupSizes = orderedGroupSizes,
                                     columnCount = columnCount,
                                     families = normalizedFamilies,
                                     familiesKey = familiesKey,
@@ -126,28 +156,61 @@ class PrepareTimelineMosaicCacheAction(
                                 throw e
                             } catch (e: Exception) {
                                 log.e { "Failed to precompute Timeline Mosaic for <redacted>" }
-                                null
+                                BucketPrecomputeOutcome(
+                                    outputsByGroup = emptyMap(),
+                                    failedGroupSizes = orderedGroupSizes.toSet()
+                                )
                             }
                         }
+                        val isBucketSuccess = bucketOutcome.isCompleteFor(orderedGroupSizes)
                         progressMutex.withLock {
                             completed++
-                            if (bucketGeometry != null) successful++ else failed++
+                            if (isBucketSuccess) successful++ else failed++
                             log.d {
                                 "Timeline Mosaic precompute progress <redacted>/<redacted>: " +
                                         "bucket=<redacted> success=<redacted> " +
                                         "successful=<redacted> failed=<redacted>"
                             }
                         }
-                        timeBucket to bucketGeometry
+                        timeBucket to bucketOutcome
                     }
                 }.awaitAll()
             }
+            val successfulOutcomes = results.filter { it.second.isCompleteFor(orderedGroupSizes) }
+            val failedOutcomes = results.filterNot { it.second.isCompleteFor(orderedGroupSizes) }
+            val bucketGeometrySummariesByGroup = orderedGroupSizes.associateWith { targetGroupSize ->
+                successfulOutcomes.mapNotNull { (_, outcome) ->
+                    outcome.outputsByGroup[targetGroupSize]?.bucketSummary
+                }
+            }
+            val sectionGeometrySummariesByGroup = orderedGroupSizes.associateWith { targetGroupSize ->
+                successfulOutcomes.flatMap { (_, outcome) ->
+                    outcome.outputsByGroup[targetGroupSize]?.sectionSummaries.orEmpty()
+                }
+            }
+            val bucketSkeletonsByGroup = orderedGroupSizes.associateWith { targetGroupSize ->
+                successfulOutcomes.mapNotNull { (timeBucket, outcome) ->
+                    outcome.outputsByGroup[targetGroupSize]?.bucketSkeleton?.let { timeBucket to it }
+                }.toMap()
+            }
+            val failedBucketIdsByGroup = orderedGroupSizes.associateWith { targetGroupSize ->
+                results
+                    .filter { (_, outcome) -> targetGroupSize in outcome.failedGroupSizes }
+                    .map { (timeBucket, _) -> timeBucket }
+                    .toSet()
+            }.filterValues { it.isNotEmpty() }
+            val primaryGroupSize = orderedGroupSizes.first()
             Result.success(
                 TimelineMosaicPrecomputeResult(
-                    successfulBucketIds = results.filter { it.second != null }.map { it.first }
-                        .toSet(),
-                    failedBucketIds = results.filter { it.second == null }.map { it.first }.toSet(),
-                    bucketGeometrySummaries = results.mapNotNull { it.second }
+                    successfulBucketIds = successfulOutcomes.map { it.first }.toSet(),
+                    failedBucketIds = failedOutcomes.map { it.first }.toSet(),
+                    bucketGeometrySummaries = bucketGeometrySummariesByGroup[primaryGroupSize].orEmpty(),
+                    bucketGeometrySummariesByGroup = bucketGeometrySummariesByGroup,
+                    sectionGeometrySummaries = sectionGeometrySummariesByGroup[primaryGroupSize].orEmpty(),
+                    sectionGeometrySummariesByGroup = sectionGeometrySummariesByGroup,
+                    bucketSkeletons = bucketSkeletonsByGroup[primaryGroupSize].orEmpty(),
+                    bucketSkeletonsByGroup = bucketSkeletonsByGroup,
+                    failedBucketIdsByGroup = failedBucketIdsByGroup
                 )
             )
         } catch (e: CancellationException) {
@@ -159,8 +222,8 @@ class PrepareTimelineMosaicCacheAction(
 
     private suspend fun precomputeBucketMosaic(
         timeBucket: String,
-        groupSize: TimelineGroupSize,
-        groupMode: String,
+        primaryGroupSize: TimelineGroupSize,
+        orderedGroupSizes: List<TimelineGroupSize>,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
         familiesKey: String,
@@ -169,44 +232,74 @@ class PrepareTimelineMosaicCacheAction(
         geometryRequest: TimelineMosaicGeometryRequest,
         cacheDisplayResults: Boolean,
         onProgressChunk: suspend (TimelineMosaicProgressChunk) -> Unit
-    ): TimelineBucketGeometrySummary {
+    ): BucketPrecomputeOutcome {
         val snapshot = snapshotReader(timeBucket)
         if (shouldRejectUnsyncedEmptyTimelineBucket(snapshot.assets.size, snapshot.expectedCount)) {
             throw IllegalStateException(
                 "Timeline Mosaic precompute requires synchronized bucket assets"
             )
         }
-        val sections = timelineMosaicSections(timeBucket, groupSize, snapshot.assets)
         val now = currentEpochMillis()
         val fingerprint = orderedTimelineAssetsFingerprint(snapshot.assets)
-        val readySections = computeReadySections(
-            snapshot = snapshot,
-            sections = sections,
-            columnCount = columnCount,
-            familiesKey = familiesKey,
-            fingerprint = fingerprint,
-            generation = now,
-            assignmentLayoutSpec = assignmentLayoutSpec,
-            displayLayoutSpec = displayLayoutSpec,
-            geometryRequest = geometryRequest,
-            families = families,
-            onProgressChunk = onProgressChunk
+        val outputsByGroup = linkedMapOf<TimelineGroupSize, BucketGroupPrecomputeOutput>()
+        val failedGroups = linkedSetOf<TimelineGroupSize>()
+        for (targetGroupSize in orderedGroupSizes) {
+            try {
+                val targetGroupMode = targetGroupSize.apiValue
+                val sections = timelineMosaicSections(timeBucket, targetGroupSize, snapshot.assets)
+                val readySections = computeReadySections(
+                    snapshot = snapshot,
+                    sections = sections,
+                    columnCount = columnCount,
+                    familiesKey = familiesKey,
+                    fingerprint = fingerprint,
+                    generation = now,
+                    assignmentLayoutSpec = assignmentLayoutSpec,
+                    displayLayoutSpec = displayLayoutSpec,
+                    geometryRequest = geometryRequest,
+                    families = families,
+                    onProgressChunk = if (targetGroupSize == primaryGroupSize) {
+                        onProgressChunk
+                    } else {
+                        { _ -> }
+                    }
+                )
+                val artifacts = withContext(computeDispatcher) {
+                    artifactBuilder.build(
+                        snapshot = snapshot,
+                        groupSize = targetGroupSize,
+                        groupMode = targetGroupMode,
+                        columnCount = columnCount,
+                        familiesKey = familiesKey,
+                        geometryRequest = geometryRequest,
+                        sections = sections,
+                        readySections = readySections,
+                        cacheDisplayResults = cacheDisplayResults,
+                        updatedAt = now
+                    )
+                } ?: throw IllegalStateException("Timeline Mosaic artifact build failed")
+                val skeleton = artifacts.toSkeleton(
+                    groupSize = targetGroupSize,
+                    assetCount = snapshot.assets.size
+                ) ?: throw IllegalStateException("Timeline Mosaic skeleton validation failed")
+                val bucketSummary =
+                    repository.replaceTimelineMosaicArtifactsForBucketConfig(artifacts).getOrThrow()
+                outputsByGroup[targetGroupSize] = BucketGroupPrecomputeOutput(
+                    bucketSummary = bucketSummary,
+                    sectionSummaries = artifacts.sectionGeometry.map { it.toSummary() },
+                    bucketSkeleton = skeleton
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.e { "Failed to precompute Timeline Mosaic group for <redacted>" }
+                failedGroups.add(targetGroupSize)
+            }
+        }
+        return BucketPrecomputeOutcome(
+            outputsByGroup = outputsByGroup,
+            failedGroupSizes = failedGroups
         )
-        val artifacts = withContext(computeDispatcher) {
-            artifactBuilder.build(
-                snapshot = snapshot,
-                groupSize = groupSize,
-                groupMode = groupMode,
-                columnCount = columnCount,
-                familiesKey = familiesKey,
-                geometryRequest = geometryRequest,
-                sections = sections,
-                readySections = readySections,
-                cacheDisplayResults = cacheDisplayResults,
-                updatedAt = now
-            )
-        } ?: throw IllegalStateException("Timeline Mosaic artifact build failed")
-        return repository.replaceTimelineMosaicArtifactsForBucketConfig(artifacts).getOrThrow()
     }
 
     private suspend fun computeReadySections(
@@ -287,6 +380,20 @@ class PrepareTimelineMosaicCacheAction(
             is MosaicSectionResult.Failed -> throw result.value.cause
         }
     }
+}
+
+private data class BucketGroupPrecomputeOutput(
+    val bucketSummary: TimelineBucketGeometrySummary,
+    val sectionSummaries: List<TimelineMosaicGeometrySummary>,
+    val bucketSkeleton: TimelineMosaicBucketSkeleton
+)
+
+private data class BucketPrecomputeOutcome(
+    val outputsByGroup: Map<TimelineGroupSize, BucketGroupPrecomputeOutput>,
+    val failedGroupSizes: Set<TimelineGroupSize>
+) {
+    fun isCompleteFor(requiredGroups: List<TimelineGroupSize>): Boolean =
+        failedGroupSizes.isEmpty() && requiredGroups.all { it in outputsByGroup }
 }
 
 private fun currentEpochMillis(): Long =

@@ -73,8 +73,8 @@ while sourceIndex <= assets.size - 4:
 
 ## Candidate Scoring
 
-- Assignment scoring runs in normalized coordinates, not real screen pixels.
-- The normalized width is `columnCount * MOSAIC_CANONICAL_CELL_SIZE`; the canonical cell size is currently `100f`.
+- Assignment scoring runs in normalized coordinates, not real screen pixels, so persisted assignment rows remain width-independent.
+- The normalized width is `columnCount * MOSAIC_CANONICAL_CELL_SIZE`; the canonical cell size is currently `100f`. Progressive chunk stability checks (`isStableProgressChunk`) use `displayLayoutSpec` so progressive chunks validate against the measured display geometry before emission.
 - A candidate is rejected before scoring when:
   - computed band height is non-positive or exceeds the assignment band-height limit.
   - any tile is below the minimum tile size.

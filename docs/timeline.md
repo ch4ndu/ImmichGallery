@@ -94,15 +94,21 @@ structure; it must not wait for every bucket's server refresh.
 4. Buckets with only metadata render headers and placeholders. They are not
    considered loaded until their assets are materialized into
    `bucketAssetsCache`.
-5. With cache results enabled, one skeleton read loads every bucket's section
-   manifest and section geometry ranges for the active config in a single Room
-   read transaction, validated against `timeline_bucket_snapshots` without
-   reading assets. The Timeline state is held (last layout, or loading on cold
-   start) until that skeleton loads, then every bucket renders headers plus one
-   placeholder per final band with the band's own key and height, so
-   replacement does not move the list. Buckets without a valid skeleton are
-   genuine misses and fall back to aggregate or count placeholders.
-   `timelineGeometryReady` opens when the skeleton commits or fails.
+5. With cache results enabled, skeleton reads load every bucket's section
+   manifest and section geometry ranges for both `MONTH` and `DAY` groupings,
+   validated against `timeline_bucket_snapshots` without reading assets. Missing
+   expected positive-count cached/loaded buckets are repaired via
+   `PrepareTimelineMosaicCacheAction` before opening the skeleton gate. The
+   Timeline state is held (last layout, or loading on cold start) until all
+   expected positive-count cached/loaded buckets have valid skeletons for both
+   `MONTH` and `DAY`, then every bucket renders headers plus one placeholder
+   per final band with the band's own key and height, so replacement does not
+   move the list. Prepared skeletons for both `MONTH` and `DAY` are retained in
+   memory by `TimelineSkeletonIdentity` and restored under `timelineRuntimePublicationMutex`
+   when switching `MONTH` ↔ `DAY` or applying a prepared `ViewConfig`.
+   `timelineGeometryReady` opens only when dual-group skeleton coverage is
+   complete; if load/repair fails, the skeleton status is marked `Failed` and
+   the gate stays closed so estimated placeholders are not exposed.
 6. Under the current cache-only warm policy, no background server sync runs on
    warm launch. If warm server refresh is enabled, a background sync refreshes
    bucket metadata and records stale or removed buckets without fetching every
@@ -285,10 +291,13 @@ Mosaic-enabled photo content must not render standard justified-row fallback.
 ### How Persisted Mosaic Is Built
 
 `PrepareTimelineMosaicCacheAction` owns persisted Timeline Mosaic preparation.
-It limits bucket work to four concurrent buckets, reads each bucket through
-`TimelineBucketSnapshotReader`, runs assignment/projection/artifact derivation
-on `Dispatchers.Default`, and sends complete bucket artifacts to
-`TimelineMosaicCacheRepository` for one transactional replace. The repository
+It limits bucket work to four concurrent buckets, reads each bucket once through
+`TimelineBucketSnapshotReader`, computes both `MONTH` and `DAY` groupings
+(`TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES`) on `Dispatchers.Default`, validates
+and returns inline `TimelineMosaicBucketSkeleton`s plus bucket and section
+geometry summaries for both groupings, and sends complete bucket artifacts to
+`TimelineMosaicCacheRepository` for atomic replacement. A bucket is marked
+successful only when all requested groupings succeed. The repository
 does not compute Mosaic assignments, display records, fallback rows, or
 geometry; it persists, reads, clears, and validates rows only. This standalone
 precompute path only operates on materialized Room refs. If bucket metadata says

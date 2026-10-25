@@ -10,6 +10,8 @@ import kotlinx.serialization.Serializable
 const val TIMELINE_MOSAIC_COMPACT_COLUMN_COUNT = 4
 const val TIMELINE_MOSAIC_LARGE_COLUMN_COUNT = 5
 const val TIMELINE_MOSAIC_PROGRESS_BAND_BATCH_SIZE = 8
+val TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES: Set<TimelineGroupSize> =
+    setOf(TimelineGroupSize.MONTH, TimelineGroupSize.DAY)
 
 @Serializable
 data class MosaicTileAssignmentDto(
@@ -117,8 +119,65 @@ fun List<TimelineMosaicDisplayItemRecord>.toTimelinePhotoGridDisplayItems(
 data class TimelineMosaicPrecomputeResult(
     val successfulBucketIds: Set<String>,
     val failedBucketIds: Set<String>,
-    val bucketGeometrySummaries: List<TimelineBucketGeometrySummary> = emptyList()
-)
+    val bucketGeometrySummaries: List<TimelineBucketGeometrySummary> = emptyList(),
+    val bucketGeometrySummariesByGroup: Map<TimelineGroupSize, List<TimelineBucketGeometrySummary>> = emptyMap(),
+    val sectionGeometrySummaries: List<TimelineMosaicGeometrySummary> = emptyList(),
+    val sectionGeometrySummariesByGroup: Map<TimelineGroupSize, List<TimelineMosaicGeometrySummary>> = emptyMap(),
+    val bucketSkeletons: Map<String, TimelineMosaicBucketSkeleton> = emptyMap(),
+    val bucketSkeletonsByGroup: Map<TimelineGroupSize, Map<String, TimelineMosaicBucketSkeleton>> = emptyMap(),
+    val failedBucketIdsByGroup: Map<TimelineGroupSize, Set<String>> = emptyMap()
+) {
+    fun resolvedBucketGeometrySummariesByGroup(
+        primaryGroupSize: TimelineGroupSize
+    ): Map<TimelineGroupSize, List<TimelineBucketGeometrySummary>> =
+        if (bucketGeometrySummariesByGroup.isNotEmpty()) {
+            bucketGeometrySummariesByGroup
+        } else if (bucketGeometrySummaries.isNotEmpty()) {
+            mapOf(primaryGroupSize to bucketGeometrySummaries)
+        } else {
+            emptyMap()
+        }
+
+    fun resolvedSectionGeometrySummariesByGroup(
+        primaryGroupSize: TimelineGroupSize
+    ): Map<TimelineGroupSize, List<TimelineMosaicGeometrySummary>> =
+        if (sectionGeometrySummariesByGroup.isNotEmpty()) {
+            sectionGeometrySummariesByGroup
+        } else if (sectionGeometrySummaries.isNotEmpty()) {
+            mapOf(primaryGroupSize to sectionGeometrySummaries)
+        } else {
+            emptyMap()
+        }
+
+    fun resolvedBucketSkeletonsByGroup(
+        primaryGroupSize: TimelineGroupSize
+    ): Map<TimelineGroupSize, Map<String, TimelineMosaicBucketSkeleton>> =
+        if (bucketSkeletonsByGroup.isNotEmpty()) {
+            bucketSkeletonsByGroup
+        } else if (bucketSkeletons.isNotEmpty()) {
+            mapOf(primaryGroupSize to bucketSkeletons)
+        } else {
+            emptyMap()
+        }
+
+    fun isCompleteFor(
+        expectedBucketIds: Set<String>,
+        requiredGroupSizes: Set<TimelineGroupSize> = TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES
+    ): Boolean {
+        if (failedBucketIds.isNotEmpty()) return false
+        if (failedBucketIdsByGroup.values.any { it.isNotEmpty() }) return false
+        if (!successfulBucketIds.containsAll(expectedBucketIds)) return false
+        val primaryGroupSize = requiredGroupSizes.firstOrNull() ?: TimelineGroupSize.MONTH
+        val summariesByGroup = resolvedBucketGeometrySummariesByGroup(primaryGroupSize)
+        val skeletonsByGroup = resolvedBucketSkeletonsByGroup(primaryGroupSize)
+        return requiredGroupSizes.all { group ->
+            val summaryBuckets = summariesByGroup[group]?.map { it.timeBucket }?.toSet().orEmpty()
+            val skeletonBuckets = skeletonsByGroup[group]?.keys.orEmpty()
+            summaryBuckets.containsAll(expectedBucketIds) &&
+                skeletonBuckets.containsAll(expectedBucketIds)
+        }
+    }
+}
 
 data class TimelineMosaicSectionPrecomputeRequest(
     val timeBucket: String,
@@ -221,6 +280,64 @@ data class TimelineMosaicBucketArtifacts(
     val sectionGeometry: List<TimelineMosaicSectionGeometryArtifact> = emptyList(),
     val bucketGeometry: TimelineMosaicBucketGeometryArtifact? = null
 )
+
+fun TimelineMosaicSectionGeometryArtifact.toSummary(): TimelineMosaicGeometrySummary =
+    TimelineMosaicGeometrySummary(
+        timeBucket = timeBucket,
+        sectionKey = sectionKey,
+        placeholderHeight = placeholderHeight,
+        displayItemCount = displayItemCount,
+        ranges = ranges
+    )
+
+fun TimelineMosaicBucketArtifacts.toSkeleton(
+    groupSize: TimelineGroupSize,
+    assetCount: Int
+): TimelineMosaicBucketSkeleton? {
+    val bucket = bucketGeometry ?: return null
+    val manifest = bucket.sectionManifest
+    if (manifest.sumOf { it.assetCount } != assetCount) return null
+    if (manifest.map { it.sectionKey }.toSet().size != manifest.size) return null
+    val sectionsByKey = sectionGeometry.associateBy { it.sectionKey }
+    if (sectionsByKey.keys != manifest.map { it.sectionKey }.toSet()) return null
+    val sections = manifest.map { entry ->
+        val section = sectionsByKey[entry.sectionKey]?.toSummary() ?: return null
+        if (!validateMosaicSectionGeometry(
+                ranges = section.ranges,
+                assetCount = entry.assetCount,
+                placeholderHeight = section.placeholderHeight,
+                spacing = bucket.geometryRequest.spacing
+            )
+        ) return null
+        section
+    }
+    val expectedHeight = timelineBucketGeometryHeight(
+        groupSize = groupSize,
+        sectionGeometries = sections.map { summary ->
+            SectionGeometry(
+                keyScope = MosaicKeyScope(
+                    owner = MosaicOwnerKey(MosaicOwnerScope.TIMELINE_BUCKET, timeBucket),
+                    sectionKey = summary.sectionKey,
+                    columnCount = columnCount,
+                    familiesKey = familiesKey,
+                    contentFingerprint = bucket.assetFingerprint,
+                    generation = bucket.updatedAt
+                ),
+                placeholderHeight = summary.placeholderHeight,
+                displayItemCount = summary.displayItemCount,
+                ranges = summary.ranges
+            )
+        },
+        spacing = bucket.geometryRequest.spacing
+    )
+    if (kotlin.math.abs(bucket.placeholderHeight - expectedHeight) > 0.5f) return null
+    return TimelineMosaicBucketSkeleton(
+        timeBucket = timeBucket,
+        assetCount = assetCount,
+        placeholderHeight = bucket.placeholderHeight,
+        sections = sections
+    )
+}
 
 fun MosaicBandAssignment.toDto(): MosaicBandAssignmentDto =
     MosaicBandAssignmentDto(

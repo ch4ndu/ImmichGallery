@@ -95,9 +95,9 @@ Cold sync is the only blocking Timeline sync path. It runs when there is no warm
    - request visible render-demand Mosaic after the UI can report visibility.
 11. If Mosaic is enabled and `cacheMosaicResults = true`:
    - build a full-screen `TimelineMosaicGeometryRequest`;
-   - call `PrepareTimelineMosaicCacheAction` for successful buckets;
-   - require every successful bucket to produce aggregate geometry;
-   - publish cached and geometry-ready buckets;
+   - call `PrepareTimelineMosaicCacheAction` for successful buckets across both `TimelineGroupSize.MONTH` and `TimelineGroupSize.DAY` (`TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES`);
+   - require every positive-count successful bucket to produce validated bucket geometry and skeletons for both `MONTH` and `DAY` (`isCompleteFor`);
+   - publish cached buckets plus in-memory skeletons, bucket geometry, and section geometry for both groupings;
    - mark every successful bucket server-refreshed;
    - mark cold sync complete;
    - clear the blocking state.
@@ -138,12 +138,18 @@ The returned `changed` value is a layout/content invalidation signal, not merely
 ## Warm Launch Sync
 
 Warm launch is cached-first and non-blocking. After the cached bucket metadata
-observation, `TimelineViewModel` runs a visible-first geometry phase:
-bucket-aggregate and per-section geometry rows are read together for the
-visible/target buckets plus radius neighbors. `timelineGeometryReady` gates only
-that priority read, and opens even if the read fails so visible Mosaic work
-cannot stall indefinitely. Remaining cached bucket geometry hydrates afterward
-in small offscreen chunks.
+observation, `TimelineViewModel` loads persisted skeletons for both `MONTH` and
+`DAY` groupings (`getTimelineMosaicSkeletonUseCase`), repairs any missing
+expected positive-count cached/loaded buckets via
+`PrepareTimelineMosaicCacheAction` while keeping the skeleton gate closed, and
+hydrates in-memory skeletons, bucket geometry, and section geometry for both
+groupings under `timelineRuntimePublicationMutex` before marking the skeleton
+`Loaded` and opening `timelineGeometryReady` (if either `MONTH` or `DAY` remains
+incomplete after repair, the skeleton load is marked `Failed`, `timelineGeometryReady`
+stays `false`, the skeleton gate remains closed so estimated placeholders are
+never exposed, a retryable error is surfaced via `_buildError` when no prior
+layout exists or `bannerError` when holding a prior layout, and manual refresh /
+retry re-runs dual-group skeleton repair even when zero server buckets changed).
 
 ### Startup Shape
 

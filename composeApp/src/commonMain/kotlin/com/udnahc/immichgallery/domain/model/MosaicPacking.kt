@@ -284,6 +284,7 @@ suspend fun buildMosaicAssignmentsWithProgress(
     spacing: Float,
     enabledFamilies: Set<MosaicTemplateFamily> = MosaicTemplateFamily.defaultSet(),
     bandHeightLimit: Float = MOSAIC_CANONICAL_CELL_SIZE * MOSAIC_MAX_BAND_HEIGHT_TARGET_MULTIPLIER,
+    displayLayoutSpec: MosaicLayoutSpec = layoutSpec,
     progressBandBatchSize: Int = TIMELINE_MOSAIC_PROGRESS_BAND_BATCH_SIZE,
     maxRowHeight: Float,
     resumeCheckpoint: MosaicAssignmentCheckpoint? = null,
@@ -338,7 +339,7 @@ suspend fun buildMosaicAssignmentsWithProgress(
                             sourceStartIndex = chunkStartIndex,
                             sourceEndExclusive = chunkEndIndex,
                             assignments = chunkAssignments,
-                            layoutSpec = layoutSpec,
+                            layoutSpec = displayLayoutSpec,
                             spacing = spacing,
                             maxRowHeight = maxRowHeight
                         )
@@ -748,7 +749,9 @@ private fun MosaicBandAssignment.toDisplayItem(
     spacing: Float
 ): MosaicBandItem? {
     val template = MOSAIC_TEMPLATES_BY_ID[templateId] ?: return null
-    val assetsById = assets.associateBy { it.id }
+    val endExclusive = sourceStartIndex + sourceCount
+    if (sourceStartIndex < 0 || endExclusive > assets.size) return null
+    val assetsById = assets.subList(sourceStartIndex, endExclusive).associateBy { it.id }
     val orderedTiles = tiles.sortedBy { it.visualOrder }
     if (orderedTiles.size != template.slotCount) return null
     val tileAssets =

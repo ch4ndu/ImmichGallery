@@ -118,6 +118,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
@@ -147,8 +148,11 @@ import org.lighthousegames.logging.logging
 import kotlin.time.TimeSource
 import com.udnahc.immichgallery.domain.model.MosaicSectionState as RuntimeMosaicState
 import com.udnahc.immichgallery.domain.action.timeline.TimelineMosaicRepairRequiredException
+import com.udnahc.immichgallery.domain.model.TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES
 import com.udnahc.immichgallery.domain.model.TimelineMosaicBucketSkeleton
+import com.udnahc.immichgallery.domain.model.TimelineMosaicPrecomputeResult
 import com.udnahc.immichgallery.domain.model.RowItemKind
+import com.udnahc.immichgallery.domain.model.mosaicAssignmentLayoutSpec
 import com.udnahc.immichgallery.domain.model.timelineMosaicCacheWidth
 import com.udnahc.immichgallery.domain.model.timelineMosaicGroupingZoneId
 import com.udnahc.immichgallery.domain.model.timelineDaySectionDisplayLabel
@@ -841,6 +845,17 @@ class TimelineViewModel(
     // for the current cached buckets. The mosaic queue's first request waits on
     // this gate so placeholders use exact per-band heights before bands arrive.
     private val timelineGeometryReady = MutableStateFlow(false)
+    private val preparedGeometryCoordinator = TimelinePreparedGeometryCoordinator(
+        skeletonState = _timelineSkeleton,
+        bucketGeometryStates = _bucketGeometryStates,
+        mosaicGeometryStates = _mosaicGeometryStates,
+        timelineGeometryReady = timelineGeometryReady,
+        updateGeometryReadyBuckets = { transform ->
+            _bucketData.update { data ->
+                data.copy(geometryReadyBuckets = transform(data.geometryReadyBuckets))
+            }
+        }
+    )
     private var manualRefreshActive = false
     private var activeManualSyncRequestId: Long? = null
     private var activeManualMosaicRuntimeOrigin: TimelineManualMosaicRuntimeOrigin? = null
@@ -1028,13 +1043,37 @@ class TimelineViewModel(
             getTimelineBucketsUseCase.observe().collect { buckets ->
                 log.d { "Room emitted <redacted> buckets" }
                 if (!timelineBucketsChanged(_bucketData.value.buckets, buckets)) {
+                    val becameSourceReady = !_bucketData.value.isSourceReady
                     _bucketData.update { data ->
                         if (data.isSourceReady) data else data.copy(isSourceReady = true)
+                    }
+                    if (becameSourceReady ||
+                        (shouldRepairTimelineSkeletonAfterSync(
+                            skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                            skeletonState = _timelineSkeleton.value,
+                            timelineGeometryReady = timelineGeometryReady.value,
+                            requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+                        ) && skeletonLoadJob?.isActive != true)
+                    ) {
+                        requestPersistedBucketGeometryForCachedBuckets()
+                        requestVisibleTimelineMosaicCacheRead()
                     }
                     log.d { "Timeline bucket emission ignored because metadata is unchanged" }
                     return@collect
                 }
                 val bucketIds = buckets.map { it.timeBucket }.toSet()
+                val removedBucketIds = _bucketData.value.buckets
+                    .map { it.timeBucket }
+                    .filter { it !in bucketIds }
+                    .toSet()
+                if (removedBucketIds.isNotEmpty()) {
+                    mutateTimelineRuntime {
+                        invalidatePreparedSkeletonBucketsLocked(
+                            timeBuckets = removedBucketIds,
+                            removedBuckets = removedBucketIds
+                        )
+                    }
+                }
                 _bucketData.update { data ->
                     data.copy(
                         buckets = buckets,
@@ -1051,8 +1090,8 @@ class TimelineViewModel(
                         assetRevisions = data.assetRevisions.filterKeys { it in bucketIds }
                     )
                 }
-                requestVisibleTimelineMosaicCacheRead()
                 requestPersistedBucketGeometryForCachedBuckets()
+                requestVisibleTimelineMosaicCacheRead()
             }
         }
 
@@ -1078,7 +1117,9 @@ class TimelineViewModel(
         val requestId = timelineManualSyncCoordinator.nextRequestId()
         syncJob?.cancel()
         syncJob = viewModelScope.launch(Dispatchers.IO) {
-            val start = captureManualSyncStart(requestId)
+            val hadBuildError = _buildError.value != null
+            _buildError.value = null
+            val start = captureManualSyncStart(requestId, hadBuildError = hadBuildError)
             val request = start.request
             beginManualRefresh(request.requestId, start.mosaicRuntimeOrigin)
             _uiConfig.update {
@@ -1556,7 +1597,9 @@ class TimelineViewModel(
             _bucketData.update { data ->
                 data.copy(geometryReadyBuckets = emptySet())
             }
-            timelineGeometryReady.value = timelineSkeletonIdentity(next) == null
+            if (!restorePreparedSkeletonForActiveConfigLocked()) {
+                timelineGeometryReady.value = timelineSkeletonIdentity(next) == null
+            }
             true
         }
         if (invalidated) {
@@ -1614,6 +1657,7 @@ class TimelineViewModel(
                         _bucketData.update { data ->
                             data.copy(geometryReadyBuckets = emptySet())
                         }
+                        restorePreparedSkeletonForActiveConfigLocked()
                     }
                 }
             }
@@ -1778,7 +1822,10 @@ class TimelineViewModel(
 
     // --- Private ---
 
-    private suspend fun captureManualSyncStart(requestId: Long): TimelineManualSyncStart =
+    private suspend fun captureManualSyncStart(
+        requestId: Long,
+        hadBuildError: Boolean = false
+    ): TimelineManualSyncStart =
         mutateTimelineRuntime {
             val snapshot = _uiConfig.value
             val geometryRequest =
@@ -1797,7 +1844,7 @@ class TimelineViewModel(
                     mosaicEnabled = snapshot.viewConfig.mosaicEnabled,
                     cacheMosaicResults = snapshot.viewConfig.cacheMosaicResults,
                     geometryRequest = geometryRequest,
-                    hadBannerError = snapshot.bannerError != null
+                    hadBannerError = snapshot.bannerError != null || hadBuildError
                 ),
                 mosaicRuntimeOrigin = TimelineManualMosaicRuntimeOrigin(
                     requestId = requestId,
@@ -1839,7 +1886,19 @@ class TimelineViewModel(
                         bannerError = event.cause.timelineMessageOr(ConnectionUiMessage.CannotConnectToServer)
                     )
                 }
-                if (completed) enqueueCurrentVisibleBucketRefreshes()
+                if (completed) {
+                    if (shouldRepairTimelineSkeletonAfterSync(
+                            skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                            skeletonState = _timelineSkeleton.value,
+                            timelineGeometryReady = timelineGeometryReady.value,
+                            requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+                        )
+                    ) {
+                        requestPersistedBucketGeometryForCachedBuckets(event.sessionStamp)
+                        requestVisibleTimelineMosaicCacheRead(event.sessionStamp)
+                    }
+                    enqueueCurrentVisibleBucketRefreshes()
+                }
             }
 
             is TimelineManualSyncEvent.SessionCancelled -> {
@@ -1887,9 +1946,9 @@ class TimelineViewModel(
                     sessionStamp = result.request.sessionStamp
                 )
             } else {
-                publishBucketGeometrySummaries(
-                    summaries = mosaicResult.bucketGeometrySummaries,
-                    groupSize = result.request.groupSize,
+                publishPrecomputedMosaicResult(
+                    result = mosaicResult,
+                    primaryGroupSize = result.request.groupSize,
                     columnCount = result.request.columnCount,
                     families = result.request.families,
                     geometryRequest = result.request.geometryRequest,
@@ -1923,7 +1982,24 @@ class TimelineViewModel(
                 )?.let { markTimelineMosaicFailedForBuckets(it) }
             }
         }
-        val failed = assetResult.failedBucketIds.isNotEmpty()
+        if (shouldRepairTimelineSkeletonAfterSync(
+                skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                skeletonState = _timelineSkeleton.value,
+                timelineGeometryReady = timelineGeometryReady.value,
+                requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+            )
+        ) {
+            requestPersistedBucketGeometryForCachedBuckets(result.request.sessionStamp)
+            skeletonLoadJob?.join()
+            requestVisibleTimelineMosaicCacheRead(result.request.sessionStamp)
+        }
+        val skeletonFailed = shouldRepairTimelineSkeletonAfterSync(
+            skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+            skeletonState = _timelineSkeleton.value,
+            timelineGeometryReady = timelineGeometryReady.value,
+            requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+        )
+        val failed = assetResult.failedBucketIds.isNotEmpty() || skeletonFailed
         val completed = completeActiveManualSyncRequest(result.request.requestId) {
             it.copy(
                 isSyncing = false,
@@ -1936,6 +2012,9 @@ class TimelineViewModel(
             )
         }
         if (!completed) return
+        if (skeletonFailed && lastBuiltTimelineState == null) {
+            _buildError.value = ConnectionUiMessage.CannotConnectToServer
+        }
         log.d {
             "Timeline manual refresh finished successful=<redacted> " +
                     "failed=<redacted> changed=<redacted>"
@@ -1989,15 +2068,24 @@ class TimelineViewModel(
             }
             val changedSuccessfulBucketIds =
                 assetResult.changedBucketIds intersect assetResult.successfulBucketIds
+            val positiveCountBuckets = buckets.asSequence()
+                .filter { it.timeBucket in assetResult.successfulBucketIds && it.count > 0 }
+                .mapTo(linkedSetOf()) { it.timeBucket }
             val precomputeResult = prepareTimelineMosaicCacheAction(
                 timeBuckets = assetResult.successfulBucketIds,
                 groupSize = snapshot.groupSize,
+                groupSizes = TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES,
                 columnCount = normalized.mosaicColumnCount,
                 families = normalized.mosaicFamilies,
                 geometryRequest = geometryRequest,
                 cacheDisplayResults = true
             ).getOrElse { return Result.failure(it) }
-            if (precomputeResult.failedBucketIds.isNotEmpty()) {
+            if (precomputeResult.failedBucketIds.isNotEmpty() ||
+                !precomputeResult.isCompleteFor(
+                    expectedBucketIds = positiveCountBuckets,
+                    requiredGroupSizes = TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES
+                )
+            ) {
                 return Result.failure(
                     IllegalStateException(
                         "Failed to prepare Timeline Mosaic buckets=${precomputeResult.failedBucketIds.size}"
@@ -2005,10 +2093,9 @@ class TimelineViewModel(
                 )
             }
             publishBlockingMosaicPrepareResult(
-                successfulBucketIds = precomputeResult.successfulBucketIds,
+                result = precomputeResult,
                 changedBucketIds = changedSuccessfulBucketIds,
-                bucketGeometrySummaries = precomputeResult.bucketGeometrySummaries,
-                groupSize = snapshot.groupSize,
+                primaryGroupSize = snapshot.groupSize,
                 columnCount = normalized.mosaicColumnCount,
                 families = normalized.mosaicFamilies,
                 geometryRequest = geometryRequest
@@ -2080,11 +2167,36 @@ class TimelineViewModel(
                 if (startupMode == TimelineStartupMode.CachedLaunch &&
                     !allowTimelineServerRefresh(TimelineServerRefreshSource.CachedLaunch)
                 ) {
+                    if (shouldRepairTimelineSkeletonAfterSync(
+                            skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                            skeletonState = _timelineSkeleton.value,
+                            timelineGeometryReady = timelineGeometryReady.value,
+                            requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+                        )
+                    ) {
+                        requestPersistedBucketGeometryForCachedBuckets(sessionStamp)
+                        skeletonLoadJob?.join()
+                        requestVisibleTimelineMosaicCacheRead(sessionStamp)
+                    }
+                    val skeletonFailed = shouldRepairTimelineSkeletonAfterSync(
+                        skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                        skeletonState = _timelineSkeleton.value,
+                        timelineGeometryReady = timelineGeometryReady.value,
+                        requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+                    )
                     _uiConfig.update {
                         it.copy(
                             isSyncing = false,
-                            bannerSuccess = if (hadBannerError) ConnectionUiMessage.ConnectedToServer else null
+                            bannerError = if (skeletonFailed) ConnectionUiMessage.CannotConnectToServer else null,
+                            bannerSuccess = if (!skeletonFailed && hadBannerError) {
+                                ConnectionUiMessage.ConnectedToServer
+                            } else {
+                                null
+                            }
                         )
+                    }
+                    if (skeletonFailed && lastBuiltTimelineState == null) {
+                        _buildError.value = ConnectionUiMessage.CannotConnectToServer
                     }
                     log.d { "Timeline cached launch server sync skipped by cache-only warm launch experiment" }
                     return@sessionOperation
@@ -2193,18 +2305,25 @@ class TimelineViewModel(
                                                 prepareTimelineMosaicCacheAction(
                                                     timeBuckets = assetResult.successfulBucketIds,
                                                     groupSize = coldConfig.groupSize,
+                                                    groupSizes = TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES,
                                                     columnCount = coldConfig.mosaicColumnCount,
                                                     families = coldConfig.viewConfig.mosaicFamilies,
                                                     geometryRequest = requiredGeometryRequest,
                                                     cacheDisplayResults = coldConfig.viewConfig.cacheMosaicResults
                                                 ).fold(
                                                     onSuccess = { mosaicResult ->
-                                                        val geometryReadyIds =
-                                                            mosaicResult.bucketGeometrySummaries.map { it.timeBucket }
-                                                                .toSet()
-                                                        val missingGeometryCount =
-                                                            mosaicResult.successfulBucketIds.count { it !in geometryReadyIds }
-                                                        if (mosaicResult.failedBucketIds.isNotEmpty() || missingGeometryCount > 0) {
+                                                        val positiveCountBuckets = buckets.asSequence()
+                                                            .filter {
+                                                                it.timeBucket in assetResult.successfulBucketIds &&
+                                                                        it.count > 0
+                                                            }
+                                                            .mapTo(linkedSetOf()) { it.timeBucket }
+                                                        val isComplete = mosaicResult.failedBucketIds.isEmpty() &&
+                                                            mosaicResult.isCompleteFor(
+                                                                expectedBucketIds = positiveCountBuckets,
+                                                                requiredGroupSizes = TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES
+                                                            )
+                                                        if (!isComplete) {
                                                             _isBuilding.value = false
                                                             _buildError.value =
                                                                 ConnectionUiMessage.NoConnectionToServer
@@ -2216,9 +2335,8 @@ class TimelineViewModel(
                                                             return@fold
                                                         }
                                                         publishColdSyncResult(
-                                                            successfulBucketIds = mosaicResult.successfulBucketIds,
-                                                            bucketGeometrySummaries = mosaicResult.bucketGeometrySummaries,
-                                                            groupSize = coldConfig.groupSize,
+                                                            result = mosaicResult,
+                                                            primaryGroupSize = coldConfig.groupSize,
                                                             columnCount = coldConfig.mosaicColumnCount,
                                                             families = coldConfig.viewConfig.mosaicFamilies,
                                                             geometryRequest = requiredGeometryRequest
@@ -2267,11 +2385,21 @@ class TimelineViewModel(
                                 }
                             } else if (isFullRefresh) {
                                 log.d { "Timeline manual refresh asset sync starting buckets=<redacted>" }
-                                syncCachedBucketsManually(buckets, hadBannerError)
+                                syncCachedBucketsManually(buckets, hadBannerError, sessionStamp)
                             } else {
                                 // Cached launch only refreshes bucket metadata. Asset
                                 // requests are deferred to the visible-bucket queue
                                 // so launch sync does not compete with scrolling.
+                                if (shouldRepairTimelineSkeletonAfterSync(
+                                        skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                                        skeletonState = _timelineSkeleton.value,
+                                        timelineGeometryReady = timelineGeometryReady.value,
+                                        requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+                                    ) && skeletonLoadJob?.isActive != true
+                                ) {
+                                    requestPersistedBucketGeometryForCachedBuckets(sessionStamp)
+                                    requestVisibleTimelineMosaicCacheRead(sessionStamp)
+                                }
                                 _uiConfig.update {
                                     it.copy(
                                         isSyncing = false,
@@ -2426,6 +2554,10 @@ class TimelineViewModel(
         val invalidGeometryBuckets = staleBuckets + removedBuckets
         if (invalidGeometryBuckets.isNotEmpty()) {
             mutateTimelineRuntime {
+                invalidatePreparedSkeletonBucketsLocked(
+                    timeBuckets = invalidGeometryBuckets,
+                    removedBuckets = removedBuckets
+                )
                 _bucketData.update { data ->
                     data.copy(
                         geometryReadyBuckets = data.geometryReadyBuckets
@@ -3062,6 +3194,15 @@ class TimelineViewModel(
                         )
                     }
                     failedMosaicPublish?.let { markTimelineMosaicFailedForBuckets(it) }
+                    if (shouldRepairTimelineSkeletonAfterSync(
+                            skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                            skeletonState = _timelineSkeleton.value,
+                            timelineGeometryReady = timelineGeometryReady.value,
+                            requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+                        ) && skeletonLoadJob?.isActive != true
+                    ) {
+                        requestPersistedBucketGeometryForCachedBuckets(sessionStamp)
+                    }
                     markBucketServerRefreshed(timeBucket)
                     true
                 },
@@ -3180,19 +3321,39 @@ class TimelineViewModel(
         requestVisibleTimelineMosaicCacheRead(sessionStamp)
     }
 
+    private fun expectedSkeletonBuckets(data: BucketData): Set<String> {
+        val knownBuckets = data.cachedBuckets + data.loadedBuckets
+        return data.buckets.asSequence()
+            .filter { bucket ->
+                bucket.timeBucket in knownBuckets &&
+                        bucket.timeBucket !in data.failedBuckets &&
+                        (assetsForRender(bucket.timeBucket)?.size ?: bucket.count) > 0
+            }
+            .mapTo(linkedSetOf()) { it.timeBucket }
+    }
+
     private fun buildTimelineState(
         data: BucketData,
         config: UiConfig,
         mosaicStates: Map<MosaicCacheKey, RuntimeMosaicState>,
         geometry: TimelineGeometryInputs
     ): TimelineState {
-        if (!timelineSkeletonGateOpen(geometry.skeleton, timelineSkeletonIdentity(config))) {
-            return heldTimelineState(data, config)
+        val skeletonIdentity = timelineSkeletonIdentity(config)
+        val requiredSkeletonBuckets = expectedSkeletonBuckets(data)
+        if (!timelineSkeletonGateOpen(geometry.skeleton, skeletonIdentity, requiredSkeletonBuckets)) {
+            if (skeletonIdentity != null &&
+                geometry.skeleton.identity == skeletonIdentity &&
+                geometry.skeleton.status == TimelineSkeletonLoadStatus.Loaded &&
+                skeletonLoadJob?.isActive != true
+            ) {
+                requestPersistedBucketGeometryForCachedBuckets()
+            }
+            return heldTimelineState(data, config, geometry.skeleton)
         }
         val mark = TimeSource.Monotonic.markNow()
         val mosaicLayoutSpec = timelineMosaicLayoutSpec(config)
         val skeletonBuckets = geometry.skeleton.buckets.takeIf {
-            geometry.skeleton.identity == timelineSkeletonIdentity(config)
+            geometry.skeleton.identity == skeletonIdentity
         }.orEmpty()
         val displayItems = buildDisplayItems(
             data,
@@ -3251,7 +3412,11 @@ class TimelineViewModel(
     }
 
     // Never expose an estimated cached layout: keep the last layout until the exact skeleton loads.
-    private fun heldTimelineState(data: BucketData, config: UiConfig): TimelineState =
+    private fun heldTimelineState(
+        data: BucketData,
+        config: UiConfig,
+        skeleton: TimelineSkeletonState
+    ): TimelineState =
         lastBuiltTimelineState?.copy(
             isLoading = config.isLoading,
             isSourceReady = data.isSourceReady,
@@ -3264,7 +3429,7 @@ class TimelineViewModel(
             groupSize = config.groupSize,
             targetRowHeight = config.targetRowHeight,
             rowHeightBounds = config.rowHeightBounds,
-            isLoading = true,
+            isLoading = skeleton.status != TimelineSkeletonLoadStatus.Failed && _buildError.value == null,
             isSourceReady = data.isSourceReady,
             error = config.error,
             buckets = data.buckets,
@@ -4594,7 +4759,8 @@ class TimelineViewModel(
 
     private suspend fun syncCachedBucketsManually(
         buckets: List<TimelineBucket>,
-        hadBannerError: Boolean
+        hadBannerError: Boolean,
+        sessionStamp: SessionOperationStamp = sessionOperationRunner.stampForOwner(ownerSessionEpoch)
     ) {
         var failed = false
         for (bucket in buckets) {
@@ -4606,6 +4772,24 @@ class TimelineViewModel(
             )
             if (!success) failed = true
         }
+        if (shouldRepairTimelineSkeletonAfterSync(
+                skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                skeletonState = _timelineSkeleton.value,
+                timelineGeometryReady = timelineGeometryReady.value,
+                requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+            )
+        ) {
+            requestPersistedBucketGeometryForCachedBuckets(sessionStamp)
+            skeletonLoadJob?.join()
+            requestVisibleTimelineMosaicCacheRead(sessionStamp)
+        }
+        val skeletonFailed = shouldRepairTimelineSkeletonAfterSync(
+            skeletonIdentity = timelineSkeletonIdentity(_uiConfig.value),
+            skeletonState = _timelineSkeleton.value,
+            timelineGeometryReady = timelineGeometryReady.value,
+            requiredBuckets = expectedSkeletonBuckets(_bucketData.value)
+        )
+        if (skeletonFailed) failed = true
         _uiConfig.update {
             it.copy(
                 isSyncing = false,
@@ -4613,26 +4797,30 @@ class TimelineViewModel(
                 bannerSuccess = if (!failed && hadBannerError) ConnectionUiMessage.ConnectedToServer else null
             )
         }
+        if (skeletonFailed && lastBuiltTimelineState == null) {
+            _buildError.value = ConnectionUiMessage.CannotConnectToServer
+        }
     }
 
     private suspend fun publishColdSyncResult(
-        successfulBucketIds: Set<String>,
-        bucketGeometrySummaries: List<com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary>,
-        groupSize: TimelineGroupSize,
+        result: TimelineMosaicPrecomputeResult,
+        primaryGroupSize: TimelineGroupSize,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest
     ) {
+        val successfulBucketIds = result.successfulBucketIds
         _bucketData.update { data ->
             data.copy(
+                isSourceReady = true,
                 cachedBuckets = data.cachedBuckets + successfulBucketIds,
                 loadingBuckets = data.loadingBuckets - successfulBucketIds,
                 failedBuckets = data.failedBuckets - successfulBucketIds
             )
         }
-        publishBucketGeometrySummaries(
-            summaries = bucketGeometrySummaries,
-            groupSize = groupSize,
+        publishPrecomputedMosaicResult(
+            result = result,
+            primaryGroupSize = primaryGroupSize,
             columnCount = columnCount,
             families = families,
             geometryRequest = geometryRequest
@@ -4642,6 +4830,7 @@ class TimelineViewModel(
     private suspend fun publishColdSyncAssetsOnly(successfulBucketIds: Set<String>) {
         _bucketData.update { data ->
             data.copy(
+                isSourceReady = true,
                 cachedBuckets = data.cachedBuckets + successfulBucketIds,
                 loadingBuckets = data.loadingBuckets - successfulBucketIds,
                 failedBuckets = data.failedBuckets - successfulBucketIds
@@ -4678,14 +4867,14 @@ class TimelineViewModel(
     }
 
     private suspend fun publishBlockingMosaicPrepareResult(
-        successfulBucketIds: Set<String>,
+        result: TimelineMosaicPrecomputeResult,
         changedBucketIds: Set<String>,
-        bucketGeometrySummaries: List<com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary>,
-        groupSize: TimelineGroupSize,
+        primaryGroupSize: TimelineGroupSize,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest
     ) {
+        val successfulBucketIds = result.successfulBucketIds
         val changedSuccessfulBucketIds = changedBucketIds intersect successfulBucketIds
         changedSuccessfulBucketIds.forEach { timeBucket ->
             invalidateRuntimeMosaicAssignments(timeBucket)
@@ -4700,9 +4889,9 @@ class TimelineViewModel(
                 assetRevisions = data.assetRevisions.incrementRevisions(changedSuccessfulBucketIds)
             )
         }
-        publishBucketGeometrySummaries(
-            summaries = bucketGeometrySummaries,
-            groupSize = groupSize,
+        publishPrecomputedMosaicResult(
+            result = result,
+            primaryGroupSize = primaryGroupSize,
             columnCount = columnCount,
             families = families,
             geometryRequest = geometryRequest
@@ -4758,11 +4947,26 @@ class TimelineViewModel(
         }
     }
 
+    private fun invalidatePreparedSkeletonBucketsLocked(
+        timeBuckets: Set<String>,
+        removedBuckets: Set<String> = emptySet()
+    ) {
+        val data = _bucketData.value
+        val activeRequired = (expectedSkeletonBuckets(data) + (timeBuckets - removedBuckets)) - removedBuckets
+        preparedGeometryCoordinator.invalidateBuckets(
+            timeBuckets = timeBuckets,
+            requiredBuckets = activeRequired,
+            isSourceReady = data.isSourceReady,
+            assetRevisions = data.assetRevisions
+        )
+    }
+
     private suspend fun invalidateRuntimeMosaicAssignmentsLocked(timeBucket: String) {
         advanceTimelineMosaicBucketGeneration(timeBucket, "bucket-invalidate")
         removeBucketAssetsCache(timeBucket)
         timelineMosaicQueue.send(TimelineMosaicQueueCommand.InvalidateBucket(timeBucket))
         progressiveMosaicBuffer.clearBuckets(setOf(timeBucket))
+        invalidatePreparedSkeletonBucketsLocked(setOf(timeBucket))
         _mosaicStates.update { states ->
             states.filterKeys { it.timeBucket != timeBucket }
         }
@@ -4772,9 +4976,15 @@ class TimelineViewModel(
         _bucketGeometryStates.update { states ->
             states.filterKeys { it.timeBucket != timeBucket }
         }
+        _bucketData.update { data ->
+            data.copy(
+                geometryReadyBuckets = data.geometryReadyBuckets
+                    .filterNot { it.timeBucket == timeBucket }
+                    .toSet()
+            )
+        }
         repairRequiredMosaicKeys.update { keys -> keys.filterNot { it.timeBucket == timeBucket }.toSet() }
         recomputedRepairMosaicKeys.update { keys -> keys.filterNot { it.timeBucket == timeBucket }.toSet() }
-        requestTimelineSkeletonBucketReload(setOf(timeBucket))
     }
 
     private suspend fun markTimelineMosaicRepairRequired(keys: Set<MosaicCacheKey>) {
@@ -4841,70 +5051,256 @@ class TimelineViewModel(
             .distinct()
     }
 
+    private fun restorePreparedSkeletonForActiveConfigLocked(): Boolean {
+        val config = _uiConfig.value
+        val identity = timelineSkeletonIdentity(config)
+        val data = _bucketData.value
+        val restored = preparedGeometryCoordinator.restorePreparedForIdentity(
+            identity = identity,
+            requiredBuckets = expectedSkeletonBuckets(data),
+            isSourceReady = data.isSourceReady,
+            assetRevisions = data.assetRevisions
+        )
+        if (restored) {
+            _buildError.value = null
+        }
+        return restored
+    }
+
     private fun requestPersistedBucketGeometryForCachedBuckets(
         sessionStamp: SessionOperationStamp =
             sessionOperationRunner.stampForOwner(ownerSessionEpoch)
     ) {
-        val config = _uiConfig.value
-        val identity = timelineSkeletonIdentity(config)
-        if (identity == null) {
-            timelineGeometryReady.value = true
-            return
-        }
-        var originEpochs: Map<String, Long> = emptyMap()
-        _timelineSkeleton.update { skeleton ->
-            skeleton.startingLoad(identity).also { originEpochs = it.bucketEpochs }
-        }
-        if (_timelineSkeleton.value.status == TimelineSkeletonLoadStatus.Loading) {
-            timelineGeometryReady.value = false
-        }
         val generation = ++skeletonLoadGeneration
         skeletonLoadJob?.cancel()
-        skeletonLoadJob = viewModelScope.launch(Dispatchers.IO) {
+        skeletonLoadJob = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
+            var identityForFinally: TimelineSkeletonIdentity? = null
+            var originGlobalGenerationForFinally: Long? = null
+            var handledCompletionLocked = false
             try {
                 runTimelineMosaicSessionSink(
                     sessionOperationRunner = sessionOperationRunner,
                     sessionStamp = sessionStamp
                 ) {
-                    val mark = TimeSource.Monotonic.markNow()
-                    val result = getTimelineMosaicSkeletonUseCase(
-                        groupSize = identity.groupSize,
-                        columnCount = identity.columnCount,
-                        families = config.viewConfig.mosaicFamilies,
-                        geometryRequest = identity.geometryRequest
-                    )
-                    mutateTimelineRuntime {
-                        if (timelineSkeletonIdentity(_uiConfig.value) != identity) return@mutateTimelineRuntime
-                        result.onSuccess { skeleton ->
-                            _timelineSkeleton.update { current ->
-                                current.withLoadedBuckets(identity, skeleton.buckets, null, originEpochs)
+                    val (config, readOrigin) = mutateTimelineRuntime {
+                        val activeConfig = _uiConfig.value
+                        val identity = timelineSkeletonIdentity(activeConfig) ?: run {
+                            timelineGeometryReady.value = true
+                            _buildError.value = null
+                            handledCompletionLocked = true
+                            return@mutateTimelineRuntime activeConfig to null
+                        }
+                        val currentGenerationSnapshot = runtimeStateStore.generationSnapshot()
+                        identityForFinally = identity
+                        originGlobalGenerationForFinally = currentGenerationSnapshot.globalGeneration
+                        val data = _bucketData.value
+                        val origin = preparedGeometryCoordinator.beginFullLoad(
+                            identity = identity,
+                            requiredBuckets = expectedSkeletonBuckets(data),
+                            isSourceReady = data.isSourceReady,
+                            assetRevisions = data.assetRevisions,
+                            generationSnapshot = currentGenerationSnapshot
+                        )
+                        if (origin == null) {
+                            _buildError.value = null
+                            handledCompletionLocked = true
+                        }
+                        activeConfig to origin
+                    }
+                    val origin = readOrigin ?: return@runTimelineMosaicSessionSink
+                    val identity = origin.identity
+                    val siblingIdentity = origin.siblingIdentity
+                    val families = config.viewConfig.mosaicFamilies
+                    val primaryResult = withContext(Dispatchers.IO) {
+                        getTimelineMosaicSkeletonUseCase(
+                            groupSize = identity.groupSize,
+                            columnCount = identity.columnCount,
+                            families = families,
+                            geometryRequest = identity.geometryRequest
+                        )
+                    }
+                    val siblingResult = withContext(Dispatchers.IO) {
+                        getTimelineMosaicSkeletonUseCase(
+                            groupSize = siblingIdentity.groupSize,
+                            columnCount = siblingIdentity.columnCount,
+                            families = families,
+                            geometryRequest = siblingIdentity.geometryRequest
+                        )
+                    }
+                    primaryResult.onFailure { error ->
+                        if (error is CancellationException) throw error
+                        log.e { "Failed to load primary Timeline Mosaic skeleton" }
+                    }
+                    siblingResult.onFailure { error ->
+                        if (error is CancellationException) throw error
+                        log.e { "Failed to load sibling Timeline Mosaic skeleton" }
+                    }
+                    val primaryReadSkeletons = primaryResult.getOrNull()?.buckets
+                    val siblingReadSkeletons = siblingResult.getOrNull()?.buckets
+
+                    val repairOrigin = mutateTimelineRuntime {
+                        val data = _bucketData.value
+                        val expectedBuckets = expectedSkeletonBuckets(data)
+                        val missingBuckets = expectedBuckets.filterTo(linkedSetOf()) { bucket ->
+                            primaryReadSkeletons?.containsKey(bucket) != true ||
+                                siblingReadSkeletons?.containsKey(bucket) != true
+                        }
+                        preparedGeometryCoordinator.captureRepairOrigin(
+                            readOrigin = origin,
+                            missingBuckets = missingBuckets,
+                            activeIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                            assetRevisions = data.assetRevisions,
+                            generationSnapshot = runtimeStateStore.generationSnapshot()
+                        )
+                    }
+
+                    var repairedPrimarySkeletons: Map<String, TimelineMosaicBucketSkeleton>? = null
+                    var repairedSiblingSkeletons: Map<String, TimelineMosaicBucketSkeleton>? = null
+                    if (repairOrigin != null) {
+                        val repairBuckets = repairOrigin.requestedBuckets.orEmpty()
+                        withContext(Dispatchers.IO) {
+                            prepareTimelineMosaicCacheAction(
+                                timeBuckets = repairBuckets,
+                                groupSize = identity.groupSize,
+                                groupSizes = TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES,
+                                columnCount = identity.columnCount,
+                                families = families,
+                                geometryRequest = identity.geometryRequest,
+                                cacheDisplayResults = config.viewConfig.cacheMosaicResults
+                            )
+                        }.onSuccess { repairResult ->
+                            val repairedByGroup =
+                                repairResult.resolvedBucketSkeletonsByGroup(identity.groupSize)
+                            val primaryMap = LinkedHashMap<String, TimelineMosaicBucketSkeleton>()
+                            val siblingMap = LinkedHashMap<String, TimelineMosaicBucketSkeleton>()
+                            repairedByGroup[identity.groupSize]?.let { primaryMap.putAll(it) }
+                            repairedByGroup[siblingIdentity.groupSize]?.let { siblingMap.putAll(it) }
+                            val remainingPrimary = repairBuckets.filterTo(linkedSetOf()) {
+                                it in repairResult.successfulBucketIds && it !in primaryMap
                             }
+                            if (remainingPrimary.isNotEmpty()) {
+                                withContext(Dispatchers.IO) {
+                                    getTimelineMosaicSkeletonUseCase(
+                                        groupSize = identity.groupSize,
+                                        columnCount = identity.columnCount,
+                                        families = families,
+                                        geometryRequest = identity.geometryRequest,
+                                        timeBuckets = remainingPrimary
+                                    )
+                                }.onSuccess { reloaded ->
+                                    primaryMap.putAll(reloaded.buckets)
+                                }
+                            }
+                            val remainingSibling = repairBuckets.filterTo(linkedSetOf()) {
+                                it in repairResult.successfulBucketIds && it !in siblingMap
+                            }
+                            if (remainingSibling.isNotEmpty()) {
+                                withContext(Dispatchers.IO) {
+                                    getTimelineMosaicSkeletonUseCase(
+                                        groupSize = siblingIdentity.groupSize,
+                                        columnCount = siblingIdentity.columnCount,
+                                        families = families,
+                                        geometryRequest = siblingIdentity.geometryRequest,
+                                        timeBuckets = remainingSibling
+                                    )
+                                }.onSuccess { reloaded ->
+                                    siblingMap.putAll(reloaded.buckets)
+                                }
+                            }
+                            repairedPrimarySkeletons = primaryMap
+                            repairedSiblingSkeletons = siblingMap
                         }.onFailure { error ->
                             if (error is CancellationException) throw error
-                            log.e { "Failed to load Timeline Mosaic skeleton" }
-                            failTimelineSkeletonLoad(identity)
+                            log.e { "Failed to repair missing Timeline Mosaic skeleton buckets=<redacted>" }
                         }
-                        timelineGeometryReady.value = true
+                    }
+
+                    mutateTimelineRuntime {
+                        val data = _bucketData.value
+                        val currentGenerationSnapshot = runtimeStateStore.generationSnapshot()
+                        val activeIdentity = timelineSkeletonIdentity(_uiConfig.value)
+                        val completed = preparedGeometryCoordinator.completeFullLoad(
+                            readOrigin = origin,
+                            primaryReadSkeletons = primaryReadSkeletons,
+                            siblingReadSkeletons = siblingReadSkeletons,
+                            repairOrigin = repairOrigin,
+                            repairedPrimarySkeletons = repairedPrimarySkeletons,
+                            repairedSiblingSkeletons = repairedSiblingSkeletons,
+                            activeIdentity = activeIdentity,
+                            requiredBuckets = expectedSkeletonBuckets(data),
+                            isSourceReady = data.isSourceReady,
+                            currentGenerationSnapshot = currentGenerationSnapshot,
+                            currentAssetRevisions = data.assetRevisions
+                        )
+                        handledCompletionLocked = true
+                        if (completed) {
+                            _buildError.value = null
+                        } else if (activeIdentity == identity &&
+                            currentGenerationSnapshot.globalGeneration == origin.globalGeneration
+                        ) {
+                            failTimelineSkeletonLoadLocked(
+                                identity = identity,
+                                expectedGlobalGeneration = origin.globalGeneration,
+                                currentGlobalGeneration = currentGenerationSnapshot.globalGeneration
+                            )
+                        }
                     }
                     log.d { "Timeline Mosaic skeleton load completed buckets=<redacted> elapsed=<redacted>" }
                 }
             } finally {
-                if (generation == skeletonLoadGeneration && !timelineGeometryReady.value &&
-                    timelineSkeletonIdentity(_uiConfig.value) == identity
-                ) {
-                    failTimelineSkeletonLoad(identity)
-                    timelineGeometryReady.value = true
+                val failedIdentity = identityForFinally
+                if (!handledCompletionLocked && failedIdentity != null) {
+                    withContext(NonCancellable) {
+                        runTimelineMosaicSessionSink(
+                            sessionOperationRunner = sessionOperationRunner,
+                            sessionStamp = sessionStamp
+                        ) {
+                            mutateTimelineRuntime {
+                                if (!handledCompletionLocked &&
+                                    generation == skeletonLoadGeneration &&
+                                    !timelineGeometryReady.value &&
+                                    timelineSkeletonIdentity(_uiConfig.value) == failedIdentity
+                                ) {
+                                    failTimelineSkeletonLoadLocked(
+                                        identity = failedIdentity,
+                                        expectedGlobalGeneration = originGlobalGenerationForFinally,
+                                        currentGlobalGeneration = runtimeStateStore.generationSnapshot().globalGeneration
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    private fun failTimelineSkeletonLoad(identity: TimelineSkeletonIdentity) {
-        _timelineSkeleton.update { current ->
-            if (current.identity == identity && current.status == TimelineSkeletonLoadStatus.Loading) {
-                current.copy(status = TimelineSkeletonLoadStatus.Failed)
-            } else {
-                current
+    private fun failTimelineSkeletonLoadLocked(
+        identity: TimelineSkeletonIdentity,
+        expectedGlobalGeneration: Long? = null,
+        currentGlobalGeneration: Long? = null
+    ) {
+        if (timelineSkeletonIdentity(_uiConfig.value) != identity) return
+        val markedFailed = preparedGeometryCoordinator.failFullLoad(
+            identity = identity,
+            expectedGlobalGeneration = expectedGlobalGeneration,
+            currentGlobalGeneration = currentGlobalGeneration
+        )
+        if (!markedFailed) {
+            return
+        }
+        if (lastBuiltTimelineState == null) {
+            _buildError.value = ConnectionUiMessage.CannotConnectToServer
+        } else {
+            _uiConfig.update { config ->
+                if (config.bannerError != null) {
+                    config
+                } else {
+                    config.copy(
+                        bannerError = ConnectionUiMessage.CannotConnectToServer,
+                        bannerSuccess = null
+                    )
+                }
             }
         }
     }
@@ -4915,35 +5311,77 @@ class TimelineViewModel(
             sessionOperationRunner.stampForOwner(ownerSessionEpoch)
     ) {
         if (timeBuckets.isEmpty()) return
-        val config = _uiConfig.value
-        val identity = timelineSkeletonIdentity(config) ?: return
-        if (_timelineSkeleton.value.identity != identity) return
-        var originEpochs: Map<String, Long> = emptyMap()
-        _timelineSkeleton.update { skeleton ->
-            skeleton.withBumpedEpochs(timeBuckets).also { originEpochs = it.bucketEpochs }
-        }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
             runTimelineMosaicSessionSink(
                 sessionOperationRunner = sessionOperationRunner,
                 sessionStamp = sessionStamp
             ) {
-                val result = getTimelineMosaicSkeletonUseCase(
-                    groupSize = identity.groupSize,
-                    columnCount = identity.columnCount,
-                    families = config.viewConfig.mosaicFamilies,
-                    geometryRequest = identity.geometryRequest,
-                    timeBuckets = timeBuckets
-                )
-                result.onFailure { error ->
+                val (config, reloadOrigin) = mutateTimelineRuntime {
+                    val activeConfig = _uiConfig.value
+                    val identity = timelineSkeletonIdentity(activeConfig)
+                        ?: return@mutateTimelineRuntime activeConfig to null
+                    val data = _bucketData.value
+                    val origin = preparedGeometryCoordinator.beginBucketReload(
+                        identity = identity,
+                        timeBuckets = timeBuckets,
+                        assetRevisions = data.assetRevisions,
+                        generationSnapshot = runtimeStateStore.generationSnapshot()
+                    )
+                    activeConfig to origin
+                }
+                val origin = reloadOrigin ?: return@runTimelineMosaicSessionSink
+                val identity = origin.identity
+                val siblingIdentity = origin.siblingIdentity
+                val families = config.viewConfig.mosaicFamilies
+                val primaryResult = withContext(Dispatchers.IO) {
+                    getTimelineMosaicSkeletonUseCase(
+                        groupSize = identity.groupSize,
+                        columnCount = identity.columnCount,
+                        families = families,
+                        geometryRequest = identity.geometryRequest,
+                        timeBuckets = timeBuckets
+                    )
+                }
+                val siblingResult = withContext(Dispatchers.IO) {
+                    getTimelineMosaicSkeletonUseCase(
+                        groupSize = siblingIdentity.groupSize,
+                        columnCount = siblingIdentity.columnCount,
+                        families = families,
+                        geometryRequest = siblingIdentity.geometryRequest,
+                        timeBuckets = timeBuckets
+                    )
+                }
+                primaryResult.onFailure { error ->
                     if (error is CancellationException) throw error
                     log.e { "Failed to reload Timeline Mosaic skeleton buckets=<redacted>" }
-                }.onSuccess { skeleton ->
-                    mutateTimelineRuntime {
-                        if (timelineSkeletonIdentity(_uiConfig.value) != identity) return@mutateTimelineRuntime
-                        _timelineSkeleton.update { current ->
-                            current.withLoadedBuckets(identity, skeleton.buckets, timeBuckets, originEpochs)
-                        }
+                }
+                siblingResult.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    log.e { "Failed to reload sibling Timeline Mosaic skeleton buckets=<redacted>" }
+                }
+                val primarySkeletons = primaryResult.getOrNull()?.buckets
+                val siblingSkeletons = siblingResult.getOrNull()?.buckets
+                val needsFullRepair = mutateTimelineRuntime {
+                    val data = _bucketData.value
+                    val completed = preparedGeometryCoordinator.completeBucketReload(
+                        reloadOrigin = origin,
+                        primaryReloadSkeletons = primarySkeletons,
+                        siblingReloadSkeletons = siblingSkeletons,
+                        activeIdentity = timelineSkeletonIdentity(_uiConfig.value),
+                        requiredBuckets = expectedSkeletonBuckets(data),
+                        isSourceReady = data.isSourceReady,
+                        currentGenerationSnapshot = runtimeStateStore.generationSnapshot(),
+                        currentAssetRevisions = data.assetRevisions
+                    )
+                    if (completed) {
+                        _buildError.value = null
                     }
+                    timelineSkeletonIdentity(_uiConfig.value) == identity &&
+                        !timelineGeometryReady.value &&
+                        skeletonLoadJob?.isActive != true
+                }
+                if (needsFullRepair) {
+                    requestPersistedBucketGeometryForCachedBuckets(sessionStamp)
                 }
             }
         }
@@ -4961,9 +5399,9 @@ class TimelineViewModel(
         )
     }
 
-    private suspend fun publishBucketGeometrySummaries(
-        summaries: List<com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary>,
-        groupSize: TimelineGroupSize,
+    private suspend fun publishPrecomputedMosaicResult(
+        result: TimelineMosaicPrecomputeResult,
+        primaryGroupSize: TimelineGroupSize,
         columnCount: Int,
         families: Set<MosaicTemplateFamily>,
         geometryRequest: TimelineMosaicGeometryRequest,
@@ -4973,31 +5411,67 @@ class TimelineViewModel(
         originAssetRevisions: Map<String, Int> = assetRevisions,
         sessionStamp: SessionOperationStamp? = null
     ) {
-        if (summaries.isEmpty()) return
+        val summariesByGroup = result.resolvedBucketGeometrySummariesByGroup(primaryGroupSize)
+        val sectionSummariesByGroup = result.resolvedSectionGeometrySummariesByGroup(primaryGroupSize)
+        val skeletonsByGroup = result.resolvedBucketSkeletonsByGroup(primaryGroupSize)
+        if (summariesByGroup.isEmpty() && sectionSummariesByGroup.isEmpty() && skeletonsByGroup.isEmpty()) return
         val publishBlock: suspend () -> Unit = {
-            mutateTimelineRuntime {
+            val missingSkeletonBuckets = mutateTimelineRuntime {
                 if (originStamp != null) {
-                    val buckets = summaries.map { it.timeBucket }.toSet()
-                    if (!runtimeStateStore.isCurrent(originStamp)) return@mutateTimelineRuntime
-                    if (buckets.any { _bucketData.value.assetRevisions[it] != originAssetRevisions[it] }) {
-                        return@mutateTimelineRuntime
+                    val buckets = buildSet {
+                        summariesByGroup.values.forEach { list -> list.forEach { add(it.timeBucket) } }
+                        sectionSummariesByGroup.values.forEach { list -> list.forEach { add(it.timeBucket) } }
+                        skeletonsByGroup.values.forEach { map -> addAll(map.keys) }
+                    }
+                    if (!runtimeStateStore.isCurrent(originStamp)) return@mutateTimelineRuntime emptySet()
+                    if (buckets.any { _bucketData.value.assetRevisionFor(it) != (originAssetRevisions[it] ?: 0) }) {
+                        return@mutateTimelineRuntime emptySet()
                     }
                     val currentConfig = _uiConfig.value
-                    val expectedConfig = originConfig ?: return@mutateTimelineRuntime
+                    val expectedConfig = originConfig ?: return@mutateTimelineRuntime emptySet()
                     if (activeMosaicConfigFor(currentConfig) != expectedConfig ||
                         timelineMosaicGeometryRequest(currentConfig, columnCount) != geometryRequest
                     ) {
-                        return@mutateTimelineRuntime
+                        return@mutateTimelineRuntime emptySet()
                     }
                 }
-                publishBucketGeometrySummariesLocked(
-                    summaries = summaries,
-                    groupSize = groupSize,
+                val data = _bucketData.value
+                val currentRevisions = data.assetRevisions + assetRevisions
+                val activeIdentity = timelineSkeletonIdentity(_uiConfig.value)
+                val missing = preparedGeometryCoordinator.publishPrecomputedResult(
+                    summariesByGroup = summariesByGroup,
+                    sectionSummariesByGroup = sectionSummariesByGroup,
+                    skeletonsByGroup = skeletonsByGroup,
                     columnCount = columnCount,
                     families = families,
                     geometryRequest = geometryRequest,
-                    assetRevisions = assetRevisions
+                    assetRevisions = currentRevisions,
+                    activeIdentity = activeIdentity,
+                    requiredBuckets = expectedSkeletonBuckets(data),
+                    isSourceReady = data.isSourceReady
                 )
+                if (timelineGeometryReady.value) {
+                    _buildError.value = null
+                }
+                if (activeIdentity != null &&
+                    activeIdentity.columnCount == columnCount &&
+                    activeIdentity.familiesKey == mosaicFamiliesKey(families) &&
+                    activeIdentity.geometryRequest == geometryRequest &&
+                    _mosaicGeometryStates.value.isNotEmpty()
+                ) {
+                    scheduleProgressiveMosaicFlush(immediate = true)
+                }
+                log.d {
+                    "Timeline precomputed Mosaic geometry published groups=<redacted> columns=<redacted>"
+                }
+                missing
+            }
+            if (missingSkeletonBuckets.isNotEmpty()) {
+                if (sessionStamp != null) {
+                    requestTimelineSkeletonBucketReload(missingSkeletonBuckets, sessionStamp)
+                } else {
+                    requestTimelineSkeletonBucketReload(missingSkeletonBuckets)
+                }
             }
         }
         if (sessionStamp == null) {
@@ -5008,36 +5482,6 @@ class TimelineViewModel(
                 sessionStamp = sessionStamp,
                 block = publishBlock
             )
-        }
-    }
-
-    private fun publishBucketGeometrySummariesLocked(
-        summaries: List<com.udnahc.immichgallery.domain.model.TimelineBucketGeometrySummary>,
-        groupSize: TimelineGroupSize,
-        columnCount: Int,
-        families: Set<MosaicTemplateFamily>,
-        geometryRequest: TimelineMosaicGeometryRequest,
-        assetRevisions: Map<String, Int>
-    ) {
-        val updates = summaries.associate { geometry ->
-            bucketGeometryCacheKey(
-                timeBucket = geometry.timeBucket,
-                groupSize = groupSize,
-                columnCount = columnCount,
-                assetRevision = assetRevisions[geometry.timeBucket] ?: 0,
-                families = families,
-                geometryRequest = geometryRequest
-            ) to geometry.placeholderHeight
-        }
-        _bucketGeometryStates.update { states -> states + updates }
-        requestTimelineSkeletonBucketReload(summaries.map { it.timeBucket }.toSet())
-        val readyBuckets = updates.keys
-        _bucketData.update { data ->
-            data.copy(geometryReadyBuckets = data.geometryReadyBuckets + readyBuckets)
-        }
-        log.d {
-            "Timeline bucket geometry published group=<redacted> columns=<redacted> " +
-                    "summaries=<redacted>"
         }
     }
 
@@ -5241,6 +5685,7 @@ class TimelineViewModel(
             prepareTimelineMosaicCacheAction(
                 timeBuckets = timeBuckets,
                 groupSize = config.groupSize,
+                groupSizes = TIMELINE_MOSAIC_PRECOMPUTE_GROUP_SIZES,
                 columnCount = config.mosaicColumnCount,
                 families = config.viewConfig.mosaicFamilies,
                 geometryRequest = geometryRequest,
@@ -5260,6 +5705,20 @@ class TimelineViewModel(
             onSuccess = { result ->
                 if (result.failedBucketIds.isNotEmpty()) {
                     log.e { "Failed to precompute Timeline Mosaic buckets=<redacted>" }
+                }
+                if (geometryRequest != null) {
+                    publishPrecomputedMosaicResult(
+                        result = result,
+                        primaryGroupSize = config.groupSize,
+                        columnCount = config.mosaicColumnCount,
+                        families = config.viewConfig.mosaicFamilies,
+                        geometryRequest = geometryRequest,
+                        assetRevisions = expectedRevisions,
+                        originStamp = originPublishStamp,
+                        originConfig = activeMosaicConfigFor(config),
+                        originAssetRevisions = expectedRevisions,
+                        sessionStamp = sessionStamp
+                    )
                 }
                 log.d {
                     "Timeline Mosaic precompute completed requested=<redacted> " +
@@ -5571,6 +6030,7 @@ class TimelineViewModel(
             mosaicLayoutSpecForColumnCount(timelineMosaicLayoutWidth(config), config.mosaicColumnCount)
                 ?: return emptySet()
         val columnCount = config.mosaicColumnCount
+        val assignmentLayoutSpec = mosaicAssignmentLayoutSpec(columnCount) ?: layoutSpec
         val families = config.viewConfig.mosaicFamilies
         val revisions = _bucketData.value.assetRevisions
         val bucketIndexes =
@@ -5636,7 +6096,7 @@ class TimelineViewModel(
                     assets = section.assets,
                     bucketIndex = bucketIndex,
                     sectionLabel = section.sectionLabel,
-                    assignmentLayoutSpec = layoutSpec,
+                    assignmentLayoutSpec = assignmentLayoutSpec,
                     displayLayoutSpec = layoutSpec,
                     spacing = GRID_SPACING_DP,
                     maxRowHeight = config.rowHeightBounds.max,

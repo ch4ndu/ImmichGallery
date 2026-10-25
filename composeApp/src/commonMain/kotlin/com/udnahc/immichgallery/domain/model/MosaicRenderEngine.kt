@@ -252,6 +252,7 @@ class MosaicRenderEngine : MosaicSectionComputer {
                     layoutSpec = request.assignmentLayoutSpec,
                     spacing = request.spacing,
                     enabledFamilies = request.enabledFamilies,
+                    displayLayoutSpec = request.displayLayoutSpec,
                     progressBandBatchSize = request.progressBandBatchSize,
                     maxRowHeight = request.maxRowHeight,
                     resumeCheckpoint = resumeCheckpoint,
