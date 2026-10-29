@@ -97,7 +97,8 @@ internal actual fun PlatformVideoPlayer(
     }
     // Outlives source fallback so manual pause/mute survive the player swap.
     val normalState = remember(originalUrl, playbackUrl, apiKey) { NormalVideoPlaybackState() }
-    var currentSource by remember(originalUrl, playbackUrl, apiKey, slideshowRequest) {
+    val attempt = normalState.retryAttempt
+    var currentSource by remember(originalUrl, playbackUrl, apiKey, slideshowRequest, attempt) {
         mutableStateOf(
             if (authenticatedOriginal != null) {
                 IosVideoSource.ORIGINAL
@@ -111,14 +112,17 @@ internal actual fun PlatformVideoPlayer(
         IosVideoSource.PLAYBACK -> authenticatedPlayback
     }
     if (currentMediaUrl == null) {
-        LaunchedEffect(slideshowRequest) { slideshowRequest?.let { onSlideshowEvent(it, SlideshowMediaEvent.Failed) } }
-        FailedVideoSurface(slideshowRequest, onTap, modifier)
+        LaunchedEffect(slideshowRequest, attempt) {
+            if (slideshowRequest != null) onSlideshowEvent(slideshowRequest, SlideshowMediaEvent.Failed)
+            else normalState.failed(attempt)
+        }
+        FailedVideoSurface(slideshowRequest, onTap, modifier, normalState, isCurrentPage, onNormalControlsInteraction)
         return
     }
 
     log.d { "PlatformVideoPlayer(iOS): loading <redacted>" }
 
-    val player = remember(currentMediaUrl.url, slideshowRequest) {
+    val player = remember(currentMediaUrl.url, slideshowRequest, attempt) {
         NSURL.URLWithString(currentMediaUrl.url)?.let { url ->
             val asset = AVURLAsset(uRL = url, options = null)
             val playerItem = AVPlayerItem(asset = asset)
@@ -126,59 +130,47 @@ internal actual fun PlatformVideoPlayer(
         }
     }
     if (player == null) {
-        FailedVideoSurface(slideshowRequest, onTap, modifier)
+        LaunchedEffect(slideshowRequest, attempt) {
+            if (slideshowRequest != null) onSlideshowEvent(slideshowRequest, SlideshowMediaEvent.Failed)
+            else normalState.failed(attempt)
+        }
+        FailedVideoSurface(slideshowRequest, onTap, modifier, normalState, isCurrentPage, onNormalControlsInteraction)
         return
     }
 
-    // Watch for playback failures on the original URL and fall back to the
-    // transcoded playback URL if the original format isn't AVPlayer-compatible.
-    // isCurrentPage is part of the effect key: leaving the page cancels this
-    // bounded window, and returning starts a fresh one without consuming the
-    // fallback while the page was inactive.
+    LaunchedEffect(player, slideshowRequest) {
+        if (slideshowRequest == null) normalState.opening(attempt)
+    }
+    // Keep observing terminal failures while this normal page is active. Each source
+    // gets a bounded readiness window; the original falls back before Retry is offered.
     LaunchedEffect(isCurrentPage, player, currentSource, authenticatedPlayback) {
-        if (
-            slideshowRequest != null || !isCurrentPage ||
-            currentSource != IosVideoSource.ORIGINAL ||
-            authenticatedPlayback == null
-        ) {
-            return@LaunchedEffect
-        }
-
-        repeat(FAILURE_OBSERVATION_POLLS) {
-            delay(FAILURE_OBSERVATION_INTERVAL_MILLIS)
-            val item = player.currentItem() ?: return@LaunchedEffect
-            val errorCount = item.errorLog()?.events?.size ?: 0
-            if (errorCount > 0) {
-                log.w {
-                    "PlatformVideoPlayer(iOS): errorLog has <redacted> entries on original URL; falling back to transcode"
-                }
-                currentSource = IosVideoSource.PLAYBACK
+        if (slideshowRequest != null || !isCurrentPage) return@LaunchedEffect
+        var readinessPolls = 0
+        var initialObservationPolls = 0
+        while (true) {
+            if (normalState.retryAttempt != attempt) return@LaunchedEffect
+            val item = player.currentItem()
+            val ready = item?.status == AVPlayerItemStatusReadyToPlay
+            val canFallback = currentSource == IosVideoSource.ORIGINAL && authenticatedPlayback != null
+            // Preserve the original bounded decode-error fallback window; later
+            // historical log entries are not proof that current playback failed.
+            val originalDecodeError = canFallback && initialObservationPolls < FAILURE_OBSERVATION_POLLS &&
+                (item?.errorLog()?.events?.size ?: 0) > 0
+            if (initialObservationPolls < FAILURE_OBSERVATION_POLLS) initialObservationPolls++
+            if (item?.status == AVPlayerItemStatusFailed || originalDecodeError) {
+                if (canFallback) currentSource = IosVideoSource.PLAYBACK
+                else normalState.failed(attempt)
                 return@LaunchedEffect
             }
-            when (item.status) {
-                AVPlayerItemStatusFailed -> {
-                    log.w {
-                        "AVPlayerItem failed on original URL: domain=<redacted> " +
-                            "code=<redacted> desc=<redacted>"
-                    }
-                    log.d { "PlatformVideoPlayer(iOS): falling back to transcode <redacted>" }
-                    currentSource = IosVideoSource.PLAYBACK
-                    return@LaunchedEffect
-                }
-                AVPlayerItemStatusReadyToPlay -> {
-                    // Continue polling so late decode errors still trigger fallback.
-                }
-                else -> {}
+            if (ready) {
+                readinessPolls = 0
+                normalState.ready(attempt)
+            } else if (++readinessPolls >= FAILURE_OBSERVATION_POLLS) {
+                if (canFallback) currentSource = IosVideoSource.PLAYBACK
+                else normalState.failed(attempt)
+                return@LaunchedEffect
             }
-        }
-        val item = player.currentItem()
-        if (item?.status != AVPlayerItemStatusReadyToPlay) {
-            log.w {
-                "PlatformVideoPlayer(iOS): original URL stalled (status=<redacted>); falling back to transcode"
-            }
-            currentSource = IosVideoSource.PLAYBACK
-        } else {
-            log.d { "PlatformVideoPlayer(iOS): original URL playing cleanly" }
+            delay(FAILURE_OBSERVATION_INTERVAL_MILLIS)
         }
     }
 
@@ -190,8 +182,9 @@ internal actual fun PlatformVideoPlayer(
     // Lifecycle eligibility never rewrites the user's pause intent. Normal video plays at the
     // selected rate only while active and user-playing, so a speed change cannot start a paused
     // player; slideshow keeps its normal rate.
-    LaunchedEffect(isCurrentPage, player, normalState.userPaused, normalState.speed) {
-        if (isCurrentPage && (slideshowRequest != null || !normalState.userPaused)) {
+    LaunchedEffect(isCurrentPage, player, normalState.userPaused, normalState.speed, normalState.loadStatus) {
+        if (isCurrentPage && (slideshowRequest != null ||
+                (!normalState.userPaused && normalState.loadStatus != NormalVideoLoadStatus.Failed))) {
             log.d { "PlatformVideoPlayer(iOS): playing" }
             if (slideshowRequest != null) {
                 player.play()
@@ -226,7 +219,8 @@ internal actual fun PlatformVideoPlayer(
         val observer = if (item != null) center.addObserverForName(
             AVPlayerItemDidPlayToEndTimeNotification, item, NSOperationQueue.mainQueue
         ) {
-            if (installed && currentSource == capturedSource && player.currentItem() == item) {
+            if (installed && normalState.retryAttempt == attempt &&
+                currentSource == capturedSource && player.currentItem() == item) {
                 ended = true
                 // Normal video stops at its end; show Play so the next press replays from the start.
                 if (captured != null) latestSlideshowEvent(captured, SlideshowMediaEvent.Completed)
@@ -239,6 +233,7 @@ internal actual fun PlatformVideoPlayer(
     LaunchedEffect(player, isCurrentPage, normalControlsVisible) {
         if (slideshowRequest != null || !isCurrentPage || !normalControlsVisible) return@LaunchedEffect
         while (true) {
+            if (normalState.retryAttempt != attempt) return@LaunchedEffect
             normalState.positionSeconds = CMTimeGetSeconds(player.currentTime()).toFloat()
             normalState.durationSeconds = player.currentItem()?.let { CMTimeGetSeconds(it.duration).toFloat() } ?: 0f
             delay(FAILURE_OBSERVATION_INTERVAL_MILLIS)
@@ -332,6 +327,12 @@ internal actual fun PlatformVideoPlayer(
             )
         }
         if (slideshowRequest == null) {
+            NormalVideoRecovery(
+                state = normalState,
+                visible = isCurrentPage,
+                onInteraction = onNormalControlsInteraction,
+                modifier = Modifier.align(Alignment.Center)
+            )
             NormalVideoControls(
                 state = normalState,
                 visible = normalControlsVisible,
@@ -363,8 +364,19 @@ internal actual fun PlatformVideoPlayer(
 // Unplayable sources keep a full-bounds surface tap so hidden normal chrome can be
 // revealed; slideshow pages already route surface taps through their parent.
 @Composable
-private fun FailedVideoSurface(slideshowRequest: SlideshowMediaRequest?, onTap: () -> Unit, modifier: Modifier) {
-    if (slideshowRequest == null) Box(modifier.observeNonConsumingTap(onTap))
+private fun FailedVideoSurface(
+    slideshowRequest: SlideshowMediaRequest?,
+    onTap: () -> Unit,
+    modifier: Modifier,
+    normalState: NormalVideoPlaybackState,
+    isCurrentPage: Boolean,
+    onInteraction: () -> Unit
+) {
+    if (slideshowRequest == null) {
+        Box(modifier.observeNonConsumingTap(onTap)) {
+            NormalVideoRecovery(normalState, isCurrentPage, onInteraction, Modifier.align(Alignment.Center))
+        }
+    }
 }
 
 // Prefer the foreground scene's screen; fall back to the main screen.

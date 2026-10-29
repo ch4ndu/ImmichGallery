@@ -175,6 +175,9 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   prevents an old owner from reading pre-mutation state and later registering
   the resulting artifact under a new session.
 - `MosaicWorkScheduler` uses `DEFAULT_PARALLELISM = 1`, active owner priority, visible-group priority, and pending-work reprioritization guarded by a monotonic per-owner visibility revision (applying the latest visible request set on submission so out-of-order visibility updates or newly submitted work cannot invert priority).
+- New visibility may preempt running foreground work that left the visible set,
+  even if it began as visible work. Still-visible work and running Background
+  work are retained; detail checkpoints allow interrupted work to resume.
 - Cancelling a scheduler waiter cancels its independent execution job and waits
   for that job's completion in non-cancellable cleanup. Session mutation cannot
   proceed merely because the waiter stopped while a late progress callback is
@@ -186,13 +189,22 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
   runtime-state transaction: old runtime/deferred state is cleared, the Mosaic
   layout generation is advanced, and replacement layout work is scheduled before
   another invalidation can clear or schedule against a newer generation. Cache
-  reads and Mosaic assignment compute remain outside that short transaction.
+  reads and Mosaic assignment compute remain outside that transaction. Setter
+  admission preserves call order, but grouping/fingerprint invalidation work
+  explicitly switches to the background dispatcher after taking the lock.
+  A scheduled layout waits behind already-admitted invalidations before session
+  admission and persistent reads; obsolete candidates are cancelled while queued,
+  and the surviving layout captures its snapshot after session admission.
 - Runtime states are `InFlight`, `Partial`, and `RetryableFailure`; incomplete states render placeholders or strict partial output, never row-packing fallback.
 - Cache-enabled Mosaic settings preparation broadcasts cancellation through `MosaicConfigPreparationCoordinator` before expensive preparation work starts. Live Timeline/detail owners cancel pending geometry calculations, layout runners, deferred flush/resume jobs, and scheduler work that belongs to obsolete configs while preserving ready display caches and persisted artifacts.
 
 ## Detail Pause, Resume, And Retry
 
 - Detail scroll start cancels deferred publish flushes but keeps checkpoints/chunks.
+- Screen deactivation closes foreground admission before cancelling scheduler,
+  layout, and resume jobs. Checkpoints are retained and cancellation cannot
+  automatically resubmit inactive-owner work; activation explicitly restarts
+  current layout work.
 - Detail scroll settle schedules deferred group flush and incomplete Mosaic resume.
 - Resume snapshots runtime state before iterating, filters to current keyed groups without final cache, and runs only the visible-plus-neighbor window with visible targets first.
 - Retryable failures resume only inside that same visible-plus-neighbor window and use exponential backoff capped at `5000ms`.
@@ -201,5 +213,13 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 
 - Progress chunks update group state to `Partial` only for resumability. Visible partial output must use geometry-backed projection; `projectPartialSectionWithPlaceholders(...)` is not a Timeline/detail UI display path.
 - Visible partial/ready groups may publish immediately; offscreen output may defer until scroll settles.
+- Immediate and deferred group publications carry the originating asset snapshot,
+  layout generation, and asset revision. Validation and state publication run in
+  the same invalidation transaction, including after deferred batch extraction.
+  Asset revision changes discard deferred entries and missing groups are never
+  appended by stale replacements.
+- Progress with no exact section geometry updates checkpoints without rebuilding
+  identical placeholders. Deferred replacements use one display-list pass;
+  logically unchanged output reuses the current list and avoids index rebuilding.
 - `groupDisplayCache` is written only for final ready group output.
 - Full in-memory `displayCache` is written only when every current group has final ready output, no runtime/deferred state remains, and the display contains no placeholders.

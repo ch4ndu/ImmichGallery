@@ -103,6 +103,44 @@ internal data class CachedDisplayItems(
     val items: List<PhotoGridDisplayItem>
 )
 
+internal data class DetailMosaicPublicationIdentity(
+    val assets: List<Asset>,
+    val generation: Long,
+    val assetRevision: Int
+)
+
+internal data class DetailMosaicGroupUpdate(
+    val identity: DetailMosaicPublicationIdentity,
+    val items: List<PhotoGridDisplayItem>
+)
+
+/** Replaces current groups in one pass and never appends obsolete group output. */
+internal fun replaceDetailGroupItems(
+    current: List<PhotoGridDisplayItem>,
+    updates: Map<Int, List<PhotoGridDisplayItem>>
+): List<PhotoGridDisplayItem> {
+    if (updates.isEmpty()) return current
+    var result: MutableList<PhotoGridDisplayItem>? = null
+    var index = 0
+    while (index < current.size) {
+        val start = index
+        val groupIndex = current[start].bucketIndex
+        while (index < current.size && current[index].bucketIndex == groupIndex) index++
+        val existing = current.subList(start, index)
+        val replacement = updates[groupIndex]
+        if (replacement == null || replacement == existing) {
+            result?.addAll(existing)
+        } else {
+            val output = result ?: ArrayList<PhotoGridDisplayItem>(current.size).also {
+                it.addAll(current.subList(0, start))
+                result = it
+            }
+            output.addAll(replacement)
+        }
+    }
+    return result ?: current
+}
+
 internal data class DetailGroupDisplayCacheKey(
     val bucketIndex: Int,
     val sectionLabel: String,

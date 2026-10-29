@@ -85,9 +85,17 @@ For a new persisted cache entity or schema change:
 - Android Koin startup must be process-level when a service needs shared actions/coordinators. Compose should reuse the existing Koin context on Android instead of owning the only startup path.
 - Android API-37 permissions that need an Activity Result launcher must bind from each `MainActivity` instance; do not route them through the process-wide weak activity reference used by unrelated utility helpers. Keep the platform controller behind a domain Action so ViewModels never access Android APIs directly.
 - Local developer login defaults come from gitignored root `local.properties` keys `immichGallery.loginServerUrl` and `immichGallery.loginApiKey`; Gradle generates blank-fallback common constants for builds where those keys are absent.
+- Distribution gates reject a generated nonblank API-key default on Android
+  release, release Apple framework, Xcode archive, and desktop package paths.
+  `-PimmichGallery.includeLocalLoginDefaults=false` generates blank defaults
+  without editing local credentials. The gate reads only a generated presence
+  marker and never logs the key; ordinary development builds retain prefill.
 - The iOS Kotlin-framework build phase intentionally invokes
   `:composeApp:embedAndSignAppleFrameworkForXcode` on every Xcode build unless
-  the existing Kotlin IDE override is active. Do not add a second timestamp or
+  the existing Kotlin IDE override is active for a non-distribution build.
+  Archives and Release builds always verify and rebuild/embed even with that
+  override, avoiding reuse of a previously credential-bearing framework.
+  Do not add a second timestamp or
   environment freshness heuristic in the shell helper; Gradle task inputs and
   up-to-date checks own that decision.
 

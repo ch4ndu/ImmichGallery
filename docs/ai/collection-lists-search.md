@@ -44,6 +44,9 @@ Album/Person detail is documented separately in
 - Empty-cache and cached-refresh error behavior matches Albums.
 - Name filtering is local, case-insensitive, and derived from the Room-emitted
   list on `Dispatchers.Default`; editing the filter does not call the server.
+- People scroll resets only after a changed query's matching filtered result
+  publishes. Room refreshes for the same query preserve the keyed scroll anchor,
+  and initial/restored composition does not force the grid back to the top.
 - `PeopleScreen` uses a fixed three-column collection grid with circular
   authenticated face thumbnails. Selecting a person navigates to
   `PersonDetailRoute(personId, personName)`.
@@ -105,7 +108,9 @@ Album/Person detail is documented separately in
   consumed even when they contain no supported assets; repeated, backward, or
   already-consumed server tokens terminate pagination.
 - Initial request failure shows the Search error state. Load-more failure keeps
-  existing results and makes the server token manually retryable.
+  existing results and makes the server token manually retryable. The footer
+  shows a resource-backed failure message and Retry; a new attempt or criteria
+  change clears that feedback without discarding the retained results on retry.
 
 ## Advanced Search Controls And Editors
 

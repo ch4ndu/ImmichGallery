@@ -88,6 +88,23 @@ interface AssetDao {
     @Query("DELETE FROM assets")
     suspend fun clearAll()
 
+    @Query(
+        """
+        DELETE FROM assets WHERE id IN (:ids)
+        AND NOT EXISTS (SELECT 1 FROM timeline_asset_refs WHERE assetId = assets.id)
+        AND NOT EXISTS (SELECT 1 FROM album_asset_refs WHERE assetId = assets.id)
+        AND NOT EXISTS (SELECT 1 FROM person_asset_refs WHERE assetId = assets.id)
+        """
+    )
+    suspend fun deleteUnreferencedAssetCandidates(ids: List<String>)
+
+    // Call inside the ref-removal writer transaction, after all replacement refs are installed.
+    suspend fun pruneRemovedAssetCandidates(ids: List<String>) {
+        ids.distinct().chunked(ASSET_ID_QUERY_CHUNK_SIZE).forEach { chunk ->
+            deleteUnreferencedAssetCandidates(chunk)
+        }
+    }
+
     /** Returns asset ids that still need an `/edits` fetch to fix their aspect. */
     @Query("SELECT id FROM assets WHERE id IN (:ids) AND isEdited = 1 AND editsResolved = 0")
     suspend fun getUnresolvedEditedAssetIds(ids: List<String>): List<String>
@@ -104,4 +121,4 @@ interface AssetDao {
     )
 }
 
-private const val ASSET_ID_QUERY_CHUNK_SIZE = 500
+internal const val ASSET_ID_QUERY_CHUNK_SIZE = 500

@@ -1,5 +1,6 @@
 package com.udnahc.immichgallery.ui.component
 
+import com.udnahc.immichgallery.ui.util.PhotoOverlayReturnTarget
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -67,6 +68,14 @@ class PhotoOverlayHostTest {
                 requestedAssetId = "origin"
             )
         )
+    }
+
+    @Test
+    fun establishedViewerResolvesTheSettledAssetWhileOpeningStillResolvesOrigin() {
+        assertEquals("origin", photoOverlayResolutionAssetId("origin", "current", hasOpened = false, returnTarget = PhotoOverlayReturnTarget.CURRENT_ASSET))
+        assertEquals("current", photoOverlayResolutionAssetId("origin", "current", hasOpened = true, returnTarget = PhotoOverlayReturnTarget.CURRENT_ASSET))
+        assertEquals("origin", photoOverlayResolutionAssetId("origin", null, hasOpened = true, returnTarget = PhotoOverlayReturnTarget.CURRENT_ASSET))
+        assertEquals("origin", photoOverlayResolutionAssetId("origin", "current", hasOpened = true, returnTarget = PhotoOverlayReturnTarget.ORIGIN_ASSET))
     }
 
     @Test

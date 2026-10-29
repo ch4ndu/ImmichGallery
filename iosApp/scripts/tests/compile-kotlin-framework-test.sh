@@ -33,8 +33,10 @@ new_fixture() {
 
   printf '%s\n' \
     '#!/bin/sh' \
-    '[ "$#" -eq 1 ] && [ "$1" = ":composeApp:embedAndSignAppleFrameworkForXcode" ] || exit 91' \
-    'printf "%s\n" "$PWD|$1|${IMMICH_GALLERY_LOGIN_SERVER_URL:-}|${IMMICH_GALLERY_LOGIN_API_KEY:-}" > "$IMMICH_GALLERY_GRADLE_MARKER"' \
+    '[ "$#" -eq 1 ] || exit 91' \
+    'case "$1" in :composeApp:embedAndSignAppleFrameworkForXcode|:composeApp:verifyDistributionLoginDefaults) ;; *) exit 91 ;; esac' \
+    'printf "%s\n" "$PWD|$1|${IMMICH_GALLERY_LOGIN_SERVER_URL:-}|${IMMICH_GALLERY_LOGIN_API_KEY:-}" >> "$IMMICH_GALLERY_GRADLE_MARKER"' \
+    'if [ "$1" = ":composeApp:verifyDistributionLoginDefaults" ] && [ "${TEST_BLOCK_DISTRIBUTION:-}" = YES ]; then exit 92; fi' \
     > "$TEST_ROOT/gradlew"
   chmod +x "$TEST_ROOT/gradlew"
 }
@@ -107,6 +109,41 @@ if [ -e "$MARKER" ]; then
   echo "FAIL: IDE override invoked Gradle"
   exit 1
 fi
+PASSED=$((PASSED + 1))
+
+for configuration in Release Debug; do
+  new_fixture "archive_$configuration"
+  CONFIGURATION="$configuration" ACTION=install OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES \
+    IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
+    "$HELPER" >/dev/null
+  expected=$(printf '%s\n' \
+    "$TEST_ROOT|:composeApp:verifyDistributionLoginDefaults||" \
+    "$TEST_ROOT|:composeApp:embedAndSignAppleFrameworkForXcode||")
+  [ "$(cat "$MARKER")" = "$expected" ] || { echo "FAIL: archive guard ordering"; exit 1; }
+  PASSED=$((PASSED + 1))
+done
+
+new_fixture release_override
+CONFIGURATION=Release OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES \
+  IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
+  "$HELPER" >/dev/null
+expected=$(printf '%s\n' \
+  "$TEST_ROOT|:composeApp:verifyDistributionLoginDefaults||" \
+  "$TEST_ROOT|:composeApp:embedAndSignAppleFrameworkForXcode||")
+[ "$(cat "$MARKER")" = "$expected" ] || {
+  echo "FAIL: IDE override bypassed verified distribution rebuild"; exit 1;
+}
+PASSED=$((PASSED + 1))
+
+new_fixture blocked_archive
+if ACTION=install TEST_BLOCK_DISTRIBUTION=YES \
+  IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
+  "$HELPER" >/dev/null; then
+  echo "FAIL: blocked archive succeeded"; exit 1
+fi
+[ "$(cat "$MARKER")" = "$TEST_ROOT|:composeApp:verifyDistributionLoginDefaults||" ] || {
+  echo "FAIL: blocked archive invoked embedding"; exit 1;
+}
 PASSED=$((PASSED + 1))
 
 echo "Passed $PASSED Kotlin framework invocation checks"

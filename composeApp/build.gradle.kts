@@ -8,6 +8,7 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -46,17 +47,25 @@ abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
     @get:org.gradle.api.tasks.Input
     abstract val loginApiKey: Property<String>
 
+    @get:org.gradle.api.tasks.Input
+    abstract val includeLocalDefaults: Property<Boolean>
+
+    @get:OutputFile
+    abstract val credentialStatus: RegularFileProperty
+
     @TaskAction
     fun generate() {
         val props = Properties()
         val localPropertiesFile = localProperties.asFile.get()
-        if (localPropertiesFile.isFile) {
+        if (includeLocalDefaults.get() && localPropertiesFile.isFile) {
             localPropertiesFile.inputStream().use(props::load)
         }
-        val serverUrl = props.getProperty("immichGallery.loginServerUrl")
-            ?: loginServerUrl.get()
-        val apiKey = props.getProperty("immichGallery.loginApiKey")
-            ?: loginApiKey.get()
+        val serverUrl = if (includeLocalDefaults.get()) {
+            props.getProperty("immichGallery.loginServerUrl") ?: loginServerUrl.get()
+        } else ""
+        val apiKey = if (includeLocalDefaults.get()) {
+            props.getProperty("immichGallery.loginApiKey") ?: loginApiKey.get()
+        } else ""
         val packageDir = outputDir.file("com/udnahc/immichgallery").get().asFile
         packageDir.mkdirs()
         packageDir.resolve("LocalLoginDefaults.kt").writeText(
@@ -69,6 +78,10 @@ abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
             }
             """.trimIndent()
         )
+        credentialStatus.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(if (apiKey.isBlank()) "absent" else "present")
+        }
     }
 
     private fun String.kotlinLiteral(): String =
@@ -88,6 +101,22 @@ abstract class GenerateLocalLoginDefaultsTask : DefaultTask() {
         }
 }
 
+abstract class VerifyDistributionLoginDefaultsTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val credentialStatus: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        if (credentialStatus.get().asFile.readText() != "absent") {
+            throw GradleException(
+                "Distribution blocked: a development API-key default is embedded. " +
+                    "Build with -PimmichGallery.includeLocalLoginDefaults=false to omit local defaults."
+            )
+        }
+    }
+}
+
 val generateLocalLoginDefaults = tasks.register<GenerateLocalLoginDefaultsTask>("generateLocalLoginDefaults") {
     localProperties.set(rootProject.layout.projectDirectory.file("local.properties"))
     loginServerUrl.set(
@@ -101,6 +130,16 @@ val generateLocalLoginDefaults = tasks.register<GenerateLocalLoginDefaultsTask>(
             .orElse("")
     )
     outputDir.set(layout.buildDirectory.dir("generated/source/localLoginDefaults/commonMain/kotlin"))
+    includeLocalDefaults.set(
+        providers.gradleProperty("immichGallery.includeLocalLoginDefaults")
+            .map(String::toBooleanStrict)
+            .orElse(true)
+    )
+    credentialStatus.set(layout.buildDirectory.file("generated/localLoginDefaults/credential-status.txt"))
+}
+
+val verifyDistributionLoginDefaults = tasks.register<VerifyDistributionLoginDefaultsTask>("verifyDistributionLoginDefaults") {
+    credentialStatus.set(generateLocalLoginDefaults.flatMap { it.credentialStatus })
 }
 
 plugins {
@@ -154,7 +193,7 @@ kotlin {
 
     sourceSets {
         commonMain {
-            kotlin.srcDir(generateLocalLoginDefaults)
+            kotlin.srcDir(generateLocalLoginDefaults.flatMap { it.outputDir })
         }
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
@@ -279,6 +318,7 @@ room {
 
 // Native distributions must contain this host's mpv runtime; fail instead of packaging without video.
 tasks.withType<AbstractJPackageTask>().configureEach {
+    dependsOn(verifyDistributionLoginDefaults)
     val runtimeId = desktopMpvRuntimeId
     doFirst {
         if (runtimeId == null) {
@@ -288,6 +328,11 @@ tasks.withType<AbstractJPackageTask>().configureEach {
             )
         }
     }
+}
+
+// Release Apple frameworks can leave this checkout without going through Xcode packaging.
+tasks.matching { it.name.startsWith("linkReleaseFramework") }.configureEach {
+    dependsOn(verifyDistributionLoginDefaults)
 }
 
 compose.desktop {

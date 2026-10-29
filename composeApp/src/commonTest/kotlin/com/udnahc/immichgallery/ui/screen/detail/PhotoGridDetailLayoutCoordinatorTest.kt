@@ -49,6 +49,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -61,9 +62,150 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class PhotoGridDetailLayoutCoordinatorTest {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun groupingInvalidationDispatchesBeforeChangingStateAndPreservesCallOrder() = runTest {
+        var state = coordinatorState(assets = multiMonthAssets())
+        val coordinator = coordinator(this, testScheduler, { state }, { state = it(state) })
+        coordinator.setGroupSize(GroupSize.DAY)
+        coordinator.setGroupSize(GroupSize.NONE)
+
+        assertEquals(GroupSize.MONTH, state.groupSize)
+        advanceUntilIdle()
+        assertEquals(GroupSize.NONE, state.groupSize)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun deactivatedOwnerStopsWorkAndResumesItsCheckpointOnlyAfterActivation() = runTest {
+        val computer = PausingMosaicSectionComputer()
+        var state = coordinatorState(
+            assets = List(12) { asset("a$it") },
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            this, testScheduler, { state }, { state = it(state) }, mosaicEngine = computer
+        )
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        runCurrent()
+        computer.started.await()
+
+        coordinator.deactivateForegroundMosaic()
+        runCurrent()
+        coordinator.setScrollInProgress(true)
+        coordinator.setScrollInProgress(false)
+        advanceUntilIdle()
+        assertEquals(1, computer.calls)
+
+        coordinator.activateForegroundMosaic()
+        advanceUntilIdle()
+        assertEquals(2, computer.calls)
+        assertEquals(computer.pausedCheckpoint, computer.resumedCheckpoint)
+        assertTrue(state.displayItems.any { it is MosaicBandItem || it is RowItem })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun contentRevisionCannotFlushDeferredOutputFromRemovedDateGroup() = runTest {
+        var state = coordinatorState(
+            assets = multiMonthAssets(),
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        var changed = false
+        val publishedAfterChange = mutableListOf<List<PhotoGridDisplayItem>>()
+        lateinit var coordinator: PhotoGridDetailLayoutCoordinator<TestDetailState>
+        val computer = CallbackMosaicSectionComputer { request ->
+            if (!changed && request.bucketIndex == 0) {
+                coordinator.setScrollInProgress(true)
+                coordinator.setVisibleBucketIndexes(listOf(2))
+            }
+        }
+        coordinator = this@PhotoGridDetailLayoutCoordinatorTest.coordinator(
+            this, testScheduler, { state }, { transform ->
+                state = transform(state)
+                if (changed) publishedAfterChange += state.displayItems
+            }, mosaicEngine = computer
+        )
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        runCurrent()
+        assertTrue(state.displayIndex.assetDisplayIndexById.keys.none { it.startsWith("mar_") })
+
+        changed = true
+        state = state.copy(assets = state.assets.filterNot { it.id.startsWith("mar_") })
+        coordinator.handleSyncedContentChange(true)
+        coordinator.setScrollInProgress(false)
+        advanceUntilIdle()
+
+        assertTrue(publishedAfterChange.isNotEmpty())
+        assertTrue(publishedAfterChange.all { items ->
+            buildPhotoGridDisplayIndex(items).assetDisplayIndexById.keys.none { it.startsWith("mar_") }
+        })
+    }
+
+    @Test
+    fun batchedGroupReplacementRetainsEqualListAndRejectsAbsentGroups() {
+        val first = PlaceholderItem("first", 0, "first", 100f)
+        val second = PlaceholderItem("second", 1, "second", 100f)
+        val current = listOf(first, second)
+        assertSame(current, replaceDetailGroupItems(current, mapOf(0 to listOf(first))))
+        assertSame(current, replaceDetailGroupItems(current, mapOf(3 to listOf(first))))
+        val replacements = mapOf(0 to listOf(first.copy(estimatedHeight = 120f)), 1 to listOf(second.copy(estimatedHeight = 130f)))
+        assertEquals(replacements.values.flatten(), replaceDetailGroupItems(current, replacements))
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun progressWithoutExactGeometryDoesNotRepublishIdenticalPlaceholders() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val emitProgress = CompletableDeferred<Unit>()
+        val emitted = CompletableDeferred<Unit>()
+        val computer = object : DelegatingTestMosaicSectionComputer() {
+            override suspend fun computeSection(
+                request: MosaicSectionRequest,
+                resumeCheckpoint: MosaicAssignmentCheckpoint?,
+                onProgressChunk: suspend (ProgressChunk) -> Unit,
+                onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+                shouldContinue: () -> Unit
+            ): MosaicSectionResult {
+                started.complete(Unit)
+                emitProgress.await()
+                repeat(3) { emitPartial(request, onCheckpoint, onProgressChunk) }
+                emitted.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        var state = coordinatorState(
+            List(12) { asset("a$it") }, ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        var publications = 0
+        val coordinator = coordinator(this, testScheduler, { state }, { transform ->
+            val next = transform(state)
+            if (next !== state) publications++
+            state = next
+        }, mosaicEngine = computer)
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        runCurrent()
+        started.await()
+        val initialPublications = publications
+        emitProgress.complete(Unit)
+        runCurrent()
+        emitted.await()
+
+        assertEquals(initialPublications, publications)
+        coordinator.deactivateForegroundMosaic()
+        advanceUntilIdle()
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun unchangedSyncDoesNotRebuildDisplayItems() = runTest {
@@ -883,7 +1025,7 @@ class PhotoGridDetailLayoutCoordinatorTest {
             sessionOperationRunner = sessionOperationRunner
                 ?: com.udnahc.immichgallery.domain.action.auth.DirectSessionOperationRunner,
             mosaicRuntimeStateMutex = mosaicRuntimeStateMutex
-        )
+        ).also { it.activateForegroundMosaic() }
 
     private fun TestDetailState.asCoordinatorSnapshot(): PhotoGridDetailLayoutSnapshot =
         PhotoGridDetailLayoutSnapshot(
@@ -1082,6 +1224,46 @@ private data class TestDetailState(
     val displayItems: List<PhotoGridDisplayItem> = emptyList(),
     val displayIndex: TimelineDisplayIndex = TimelineDisplayIndex()
 )
+
+private class CallbackMosaicSectionComputer(
+    private val onReady: (MosaicSectionRequest) -> Unit
+) : DelegatingTestMosaicSectionComputer() {
+    override suspend fun computeSection(
+        request: MosaicSectionRequest,
+        resumeCheckpoint: MosaicAssignmentCheckpoint?,
+        onProgressChunk: suspend (ProgressChunk) -> Unit,
+        onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+        shouldContinue: () -> Unit
+    ): MosaicSectionResult =
+        super.computeSection(request, resumeCheckpoint, onProgressChunk, onCheckpoint, shouldContinue)
+            .also { onReady(request) }
+}
+
+private class PausingMosaicSectionComputer : DelegatingTestMosaicSectionComputer() {
+    val started = CompletableDeferred<Unit>()
+    var calls = 0
+    var pausedCheckpoint: MosaicAssignmentCheckpoint? = null
+    var resumedCheckpoint: MosaicAssignmentCheckpoint? = null
+
+    override suspend fun computeSection(
+        request: MosaicSectionRequest,
+        resumeCheckpoint: MosaicAssignmentCheckpoint?,
+        onProgressChunk: suspend (ProgressChunk) -> Unit,
+        onCheckpoint: suspend (MosaicAssignmentCheckpoint) -> Unit,
+        shouldContinue: () -> Unit
+    ): MosaicSectionResult {
+        calls++
+        if (calls > 1) resumedCheckpoint = resumeCheckpoint
+        return super.computeSection(request, resumeCheckpoint, onProgressChunk, { checkpoint ->
+            onCheckpoint(checkpoint)
+            if (calls == 1) {
+                pausedCheckpoint = checkpoint
+                started.complete(Unit)
+                awaitCancellation()
+            }
+        }, shouldContinue)
+    }
+}
 
 private class CancelOnceMosaicSectionComputer : DelegatingTestMosaicSectionComputer() {
     var computeCalls = 0

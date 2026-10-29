@@ -112,7 +112,11 @@ class AlbumRepository(
                         val removedAlbumIds = albumDao.getAlbumIds().toSet() - entities.map { it.id }.toSet()
                         if (removedAlbumIds.isNotEmpty()) {
                             val removedIds = removedAlbumIds.toList()
+                            val removedAssetIds = removedIds.flatMap { id ->
+                                albumDao.getAlbumAssetRefOrders(id).map { it.assetId }
+                            }
                             albumDao.clearAlbumRefsForAlbums(removedIds)
+                            assetDao.pruneRemovedAssetCandidates(removedAssetIds)
                             detailMosaicCacheDao.clearOwnerCaches(
                                 DetailMosaicCacheOwnerType.ALBUM.name,
                                 removedIds
@@ -213,6 +217,16 @@ class AlbumRepository(
                             candidates = assetEntities,
                             hasMore = hasMore
                         )
+                        val removedAssetCandidates = if (rawWindowChanged) {
+                            albumDao.getAlbumAssetRefOrdersFromSortOrder(albumId, baseRawOffset)
+                                .map { it.assetId }
+                        } else {
+                            existingWindowRefs.map { it.assetId } + skippedRawRange?.let { range ->
+                                albumDao.getAlbumAssetRefOrdersInSortRange(
+                                    albumId, range.startSortOrder, range.endSortOrder
+                                ).map { it.assetId }
+                            }.orEmpty()
+                        }
                         if (!skipAssetWrite) {
                             assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             if (rawWindowChanged) {
@@ -239,6 +253,7 @@ class AlbumRepository(
                             )
                         }
                         val touchedRefs = !skipAssetWrite || rangeToClear != null
+                        if (touchedRefs) assetDao.pruneRemovedAssetCandidates(removedAssetCandidates)
                         val after = if (touchedRefs) albumDao.getAlbumAssets(albumId) else before
                         changed = touchedRefs && orderedAssetsChanged(before, after)
                         if (changed) {
@@ -326,8 +341,11 @@ class AlbumRepository(
                             candidates = assetEntities
                         )
                         if (!skipAssetWrite) {
+                            val removedAssetCandidates = albumDao.getAlbumAssetRefOrders(albumId)
+                                .map { it.assetId }
                             assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             albumDao.replaceAlbumRefs(albumId, crossRefs)
+                            assetDao.pruneRemovedAssetCandidates(removedAssetCandidates)
                         }
                         val after = if (skipAssetWrite) before else albumDao.getAlbumAssets(albumId)
                         changed = !skipAssetWrite && orderedAssetsChanged(before, after)

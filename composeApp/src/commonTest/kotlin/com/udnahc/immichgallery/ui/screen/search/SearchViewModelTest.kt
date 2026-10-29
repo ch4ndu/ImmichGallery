@@ -209,12 +209,16 @@ class SearchViewModelTest {
 
         assertEquals(4, viewModel.state.value.nextPage)
         assertFalse(viewModel.state.value.isLoadingMore)
+        assertEquals(SearchUiMessage.SearchFailed, viewModel.state.value.loadMoreError)
+        assertEquals(listOf("first"), viewModel.state.value.results.map(Asset::id))
         viewModel.loadMore()
+        assertEquals(null, viewModel.state.value.loadMoreError)
         advanceUntilIdle()
 
         assertEquals(listOf(1, 4, 4), submitted.map { it.second })
         assertEquals(listOf(frozen, frozen, frozen), submitted.map { it.first })
         assertEquals(listOf("first", "second"), viewModel.state.value.results.map(Asset::id))
+        assertEquals(null, viewModel.state.value.loadMoreError)
     }
 
     @Test

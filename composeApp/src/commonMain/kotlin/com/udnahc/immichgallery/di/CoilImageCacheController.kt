@@ -1,6 +1,5 @@
 package com.udnahc.immichgallery.di
 
-import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.annotation.DelicateCoilApi
 import com.udnahc.immichgallery.domain.action.auth.ServerScopedImageCache
@@ -45,20 +44,37 @@ class CoilImageCacheController<T : Any> internal constructor(
         lifecycleMutex.withLock {
             val oldRegistration = checkNotNull(registration.value)
             val oldLoader = oldRegistration.current
+            // A failed shutdown cannot establish that the disk cache is closed.
+            // Keep configuration untouched and do not open a competing cache.
             shutdown(oldLoader)
-            deleteClosedCache(oldLoader)
-            val replacement = oldRegistration.createReplacement()
+            var replacement: T? = null
             var blockFailure: Throwable? = null
             try {
+                deleteClosedCache(oldLoader)
+                replacement = oldRegistration.createReplacement()
                 block()
             } catch (error: Throwable) {
                 blockFailure = error
             }
+            // Deletion or initial creation can fail before the session block.
+            // Recover only after shutdown and without mutating configuration;
+            // failure to create the recovery loader remains explicitly failed.
+            val nextLoader = replacement ?: try {
+                oldRegistration.createReplacement()
+            } catch (recoveryFailure: Throwable) {
+                val failure = blockFailure ?: throw recoveryFailure
+                failure.addSuppressed(recoveryFailure)
+                throw failure
+            }
             try {
-                install(replacement)
-                registration.value = oldRegistration.copy(current = replacement)
+                install(nextLoader)
+                registration.value = oldRegistration.copy(current = nextLoader)
             } catch (installFailure: Throwable) {
-                shutdown(replacement)
+                try {
+                    shutdown(nextLoader)
+                } catch (shutdownFailure: Throwable) {
+                    installFailure.addSuppressed(shutdownFailure)
+                }
                 blockFailure?.let { failure ->
                     failure.addSuppressed(installFailure)
                     throw failure

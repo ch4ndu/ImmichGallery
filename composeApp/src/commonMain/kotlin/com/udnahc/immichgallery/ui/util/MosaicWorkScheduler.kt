@@ -121,7 +121,7 @@ class MosaicWorkScheduler(
                 running
                     .filter { work ->
                         work.ownerKey == ownerKey &&
-                                work.priority == MosaicWorkPriority.ForegroundPrefetch &&
+                                work.priority != MosaicWorkPriority.Background &&
                                 work.requestKey !in visibleRequestKeys
                     }
                     .forEach { it.cancel() }

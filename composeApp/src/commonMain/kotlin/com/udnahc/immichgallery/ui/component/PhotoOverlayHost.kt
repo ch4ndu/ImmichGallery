@@ -50,6 +50,17 @@ internal data class StaticPhotoOverlaySourceIdentity(
     val isPending: Boolean
 )
 
+internal fun photoOverlayResolutionAssetId(
+    originAssetId: String,
+    currentAssetId: String?,
+    hasOpened: Boolean,
+    returnTarget: PhotoOverlayReturnTarget
+): String = if (hasOpened && returnTarget == PhotoOverlayReturnTarget.CURRENT_ASSET) {
+    currentAssetId ?: originAssetId
+} else {
+    originAssetId
+}
+
 internal fun retainedCurrentViewedAssetId(
     currentAssetId: String?,
     requestedAssetId: String
@@ -153,6 +164,7 @@ fun PhotoOverlayHost(
     // not reuse stale shared-element bounds from the previous transition.
     var selectionEpoch by rememberSaveable { mutableStateOf(0) }
 
+    var hasOpenedSelection by remember(selectionEpoch) { mutableStateOf(false) }
     var currentViewedAssetId by remember { mutableStateOf<String?>(null) }
     var overlayInitialIndex by remember { mutableStateOf<Int?>(null) }
     var lastOverlayInitialIndex by remember { mutableStateOf<Int?>(null) }
@@ -162,13 +174,22 @@ fun PhotoOverlayHost(
     LaunchedEffect(selectedAssetId, initialIndexKey) {
         val id = selectedAssetId
         if (id != null) {
+            // The origin remains the return target for Memories, but an established
+            // viewer follows its settled asset when a refreshed source removes the origin.
+            val resolutionId = photoOverlayResolutionAssetId(
+                originAssetId = id,
+                currentAssetId = currentViewedAssetId,
+                hasOpened = hasOpenedSelection,
+                returnTarget = returnTarget
+            )
             when (
-                val resolution = resolveInitialIndexState?.invoke(id)
-                    ?: resolveInitialIndex(id)
+                val resolution = resolveInitialIndexState?.invoke(resolutionId)
+                    ?: resolveInitialIndex(resolutionId)
                         ?.let(PhotoOverlayInitialIndexResolution::Found)
                     ?: PhotoOverlayInitialIndexResolution.Pending
             ) {
                 is PhotoOverlayInitialIndexResolution.Found -> {
+                    hasOpenedSelection = true
                     val resolved = resolvePhotoOverlaySelection(id, resolution)
                     selectedAssetId = resolved.selectedAssetId
                     overlayInitialIndex = resolved.initialIndex
@@ -199,6 +220,7 @@ fun PhotoOverlayHost(
                 }
             }
         } else {
+            hasOpenedSelection = false
             currentViewedAssetId = null
             overlayInitialIndex = null
         }
@@ -290,6 +312,7 @@ fun PhotoOverlayHost(
                                     selectionEpoch++
                                 }
                                 lastSelectedAssetId = id
+                                hasOpenedSelection = false
                                 overlayInitialIndex = null
                                 overlayAnimActive = true
                                 transitionAssetIdForGrid = id

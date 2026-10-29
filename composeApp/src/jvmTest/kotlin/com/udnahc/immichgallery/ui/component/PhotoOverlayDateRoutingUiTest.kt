@@ -35,6 +35,8 @@ class PhotoOverlayDateRoutingUiTest {
     @get:Rule
     val compose = createComposeRule()
 
+    private var assetIds by mutableStateOf(listOf("cover", "non-cover", "replacement"))
+    private var sourcePending by mutableStateOf(false)
     private var mounted by mutableStateOf(true)
     private var currentAssetId by mutableStateOf("cover")
     private val clickedDate = LocalDate(2020, 4, 17)
@@ -156,6 +158,57 @@ class PhotoOverlayDateRoutingUiTest {
         compose.onNodeWithTag(VIEWER_TAG).assertDoesNotExist()
     }
 
+    @Test
+    fun removingOriginAfterPagingKeepsTheEstablishedViewerOpen() {
+        show()
+        openCover()
+        compose.onNodeWithText("View non-cover").performClick()
+        compose.waitForIdle()
+        compose.runOnIdle { assetIds = listOf("non-cover", "replacement") }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Viewing non-cover").assertIsDisplayed()
+        compose.onNodeWithText("Hidden non-cover").assertExists()
+        compose.runOnIdle { assertTrue(dismissedIds.isEmpty()) }
+    }
+
+    @Test
+    fun originReturnRevalidatesItsCoverAfterPagingAndSourceRefresh() {
+        show(returnTarget = PhotoOverlayReturnTarget.ORIGIN_ASSET)
+        openCover()
+        compose.onNodeWithText("View non-cover").performClick()
+        compose.waitForIdle()
+        compose.runOnIdle { assetIds = listOf("cover", "replacement", "non-cover") }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Viewing non-cover").assertIsDisplayed()
+        compose.onNodeWithText("Hidden cover").assertExists()
+        compose.onNodeWithText("Show date in Timeline").performClick()
+        finishExit()
+        compose.runOnIdle { assertEquals(listOf<String?>("cover"), preparedIds) }
+    }
+
+    @Test
+    fun pendingRefreshRecoversCurrentAssetEvenAfterOriginDisappears() {
+        show()
+        openCover()
+        compose.onNodeWithText("View non-cover").performClick()
+        compose.waitForIdle()
+        compose.runOnIdle {
+            sourcePending = true
+            assetIds = emptyList()
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assetIds = listOf("non-cover")
+            sourcePending = false
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Viewing non-cover").assertIsDisplayed()
+        compose.onNodeWithText("Hidden non-cover").assertExists()
+    }
+
     private fun openCover() {
         compose.onNodeWithText("Open cover").performClick()
         compose.onNodeWithTag(VIEWER_TAG).assertIsDisplayed()
@@ -172,7 +225,13 @@ class PhotoOverlayDateRoutingUiTest {
             MaterialTheme {
                 Box(Modifier.size(480.dp)) {
                     if (mounted) {
+                        val source = StaticPhotoOverlaySourceIdentity(
+                            "test",
+                            if (returnTarget == PhotoOverlayReturnTarget.ORIGIN_ASSET) assetIds.filter { it == "cover" } else assetIds,
+                            isPending = sourcePending
+                        )
                         PhotoOverlayHost(
+                            initialIndexKey = source to assetIds,
                             returnTarget = returnTarget,
                             onPrepareOverlayDismiss = { assetId ->
                                 preparedIds.add(assetId)
@@ -183,7 +242,8 @@ class PhotoOverlayDateRoutingUiTest {
                                 dismissedIds.add(assetId)
                                 events.add("dismiss:$assetId")
                             },
-                            resolveInitialIndex = { 0 },
+                            resolveInitialIndex = { id -> assetIds.indexOf(id).takeIf { it >= 0 } },
+                            resolveInitialIndexState = { id -> resolveStaticPhotoOverlayInitialIndex(source, id) },
                             content = { _, _, hiddenAssetId, onPhotoClick ->
                                 Box(Modifier.fillMaxSize()) {
                                     Text("Hidden $hiddenAssetId", Modifier.align(Alignment.Center))

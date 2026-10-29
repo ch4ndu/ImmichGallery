@@ -25,6 +25,7 @@ data class PeopleState(
     val people: List<Person> = emptyList(),
     val filteredPeople: List<Person> = emptyList(),
     val query: String = "",
+    val appliedQuery: String? = null,
     val isLoading: Boolean = false,
     val error: ConnectionUiMessage? = null,
     val bannerError: ConnectionUiMessage? = null,
@@ -47,15 +48,17 @@ class PeopleViewModel(
     init {
         viewModelScope.launch(Dispatchers.Default) {
             combine(getPeopleUseCase.observe(), query) { people, query ->
-                people to people.filterByQuery(query)
+                Triple(people, people.filterByQuery(query), query)
             }
                 .flowOn(Dispatchers.Default)
-                .collect { (people, filteredPeople) ->
+                .collect { (people, filteredPeople, appliedQuery) ->
                     log.d { "Room emitted <redacted> people" }
                     _state.update {
+                        if (it.query != appliedQuery) return@update it
                         it.copy(
                             people = people,
-                            filteredPeople = filteredPeople
+                            filteredPeople = filteredPeople,
+                            appliedQuery = appliedQuery
                         )
                     }
                 }

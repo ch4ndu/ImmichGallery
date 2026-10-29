@@ -33,6 +33,9 @@ interface TimelineDao {
     @Query("DELETE FROM timeline_asset_refs WHERE timeBucket = :timeBucket")
     suspend fun clearTimelineRefsForBucket(timeBucket: String)
 
+    @Query("SELECT assetId FROM timeline_asset_refs WHERE timeBucket = :timeBucket")
+    suspend fun getTimelineAssetIds(timeBucket: String): List<String>
+
     @Query("SELECT COUNT(*) FROM timeline_buckets")
     suspend fun getBucketCount(): Int
 

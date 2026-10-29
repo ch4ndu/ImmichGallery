@@ -72,6 +72,7 @@ data class SearchState(
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: SearchUiMessage? = null,
+    val loadMoreError: SearchUiMessage? = null,
     val hasSearched: Boolean = false,
     val serverCapabilities: SearchLoadState<SearchCapabilities> = SearchLoadState.Idle,
     val preferenceCapabilities: SearchLoadState<SearchPreferenceCapabilities> = SearchLoadState.Idle,
@@ -400,6 +401,7 @@ class SearchViewModel internal constructor(
                 isLoading = true,
                 isLoadingMore = false,
                 error = null,
+                loadMoreError = null,
                 hasSearched = true,
                 results = emptyList(),
                 resultIds = emptyList(),
@@ -435,7 +437,7 @@ class SearchViewModel internal constructor(
             )
             return
         }
-        if (!_state.compareAndSet(previous, previous.copy(isLoadingMore = true))) return
+        if (!_state.compareAndSet(previous, previous.copy(isLoadingMore = true, loadMoreError = null))) return
 
         loadMoreJob = viewModelScope.launch(searchDispatcher) {
             log.d { "Search load more endpoint=<redacted> page=<redacted>" }
@@ -443,7 +445,9 @@ class SearchViewModel internal constructor(
                 onSuccess = { result -> publishNextPage(session, page, result) },
                 onFailure = { error ->
                     log.e { "Search load more failed endpoint=<redacted> page=<redacted>" }
-                    updateForSession(session) { it.copy(isLoadingMore = false) }
+                    updateForSession(session) {
+                        it.copy(isLoadingMore = false, loadMoreError = SearchUiMessage.SearchFailed)
+                    }
                 }
             )
         }
@@ -718,6 +722,7 @@ private fun SearchState.clearedExecution(): SearchState = copy(
     isLoading = false,
     isLoadingMore = false,
     error = null,
+    loadMoreError = null,
     hasSearched = false
 )
 

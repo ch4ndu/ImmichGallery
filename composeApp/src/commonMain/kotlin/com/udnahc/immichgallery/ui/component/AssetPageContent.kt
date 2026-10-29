@@ -42,6 +42,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -358,9 +359,12 @@ private fun StillAssetPage(
     var imageLoadState by remember(asset.originalUrl) {
         mutableStateOf(StillImageLoadState(url = asset.originalUrl))
     }
-    val userTransform = zoomState.zoomable.userTransform
-    val isZoomed = userTransform.scaleX > 1.01f ||
-            userTransform.offsetX != 0f || userTransform.offsetY != 0f
+    val isZoomed by remember(zoomState) {
+        derivedStateOf {
+            val transform = zoomState.zoomable.userTransform
+            transform.scaleX > 1.01f || transform.offsetX != 0f || transform.offsetY != 0f
+        }
+    }
     LaunchedEffect(isZoomed, isCurrentPage) {
         if (isCurrentPage) onZoomStateChanged?.invoke(isZoomed)
     }

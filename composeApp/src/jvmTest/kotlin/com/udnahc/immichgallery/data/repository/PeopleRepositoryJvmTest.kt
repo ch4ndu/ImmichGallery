@@ -28,6 +28,22 @@ import kotlin.test.assertTrue
 
 class PeopleRepositoryJvmTest {
     @Test
+    fun removedPersonPrunesItsUnreferencedMetadata() = runTest {
+        val engine = MockEngine {
+            respond(peoplePage(ids = emptyList(), total = 0, hidden = 0, hasNextPage = false), headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedPeople("old-person")
+            seedPersonRefs("old-person", listOf("old-asset" to 0))
+
+            repository.syncPeople().getOrThrow()
+
+            assertTrue(database.personDao().getPersonAssetRefOrders("old-person").isEmpty())
+            assertTrue(database.assetDao().getAssetsByIds(listOf("old-asset")).isEmpty())
+        }
+    }
+
+    @Test
     fun peopleSyncFollowsOmittedFlagUntilTotalAndKeepsHiddenRows() = runTest {
         val requestedPages = mutableListOf<Int>()
         val engine = MockEngine { request ->
@@ -226,6 +242,8 @@ class PeopleRepositoryJvmTest {
                 listOf("image-1" to 0, "image-2" to 1, "page-3" to 4),
                 database.personDao().getPersonAssetRefOrders("person-1").map { it.assetId to it.sortOrder }
             )
+            assertTrue(database.assetDao().getAssetsByIds(listOf("skipped-first", "skipped-last")).isEmpty())
+            assertEquals(1, database.assetDao().getAssetsByIds(listOf("page-3")).size)
         }
     }
 
@@ -269,6 +287,7 @@ class PeopleRepositoryJvmTest {
                 listOf("image-1" to 0, "video-1" to 500),
                 database.personDao().getPersonAssetRefOrders("person-1").map { it.assetId to it.sortOrder }
             )
+            assertTrue(database.assetDao().getAssetsByIds(listOf("old-asset")).isEmpty())
         }
     }
 

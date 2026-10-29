@@ -17,10 +17,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -32,8 +29,11 @@ import com.udnahc.immichgallery.ui.model.MainUiMessage
 @androidx.compose.runtime.Immutable
 data class MainScreenState(
     val isLoggingOut: Boolean = false,
+    val logoutCompleted: Boolean = false,
     val message: MainUiMessage? = null
-)
+) {
+    val acceptsNavigation: Boolean get() = !isLoggingOut && !logoutCompleted
+}
 
 class MainScreenViewModel(
     getServerStatusUseCase: GetServerStatusUseCase,
@@ -49,8 +49,6 @@ class MainScreenViewModel(
 
     private val _screenState = MutableStateFlow(MainScreenState())
     val screenState: StateFlow<MainScreenState> = _screenState.asStateFlow()
-    private val _logoutCompleted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val logoutCompleted: SharedFlow<Unit> = _logoutCompleted.asSharedFlow()
 
     val isServerOnline: StateFlow<Boolean> = getServerStatusUseCase()
     val timelineGroupSize: StateFlow<TimelineGroupSize> =
@@ -85,13 +83,17 @@ class MainScreenViewModel(
     }
 
     fun logout() {
-        if (_screenState.value.isLoggingOut) return
-        _screenState.update { it.copy(isLoggingOut = true, message = null) }
+        while (true) {
+            val current = _screenState.value
+            if (!current.acceptsNavigation) return
+            if (_screenState.compareAndSet(current, current.copy(isLoggingOut = true, message = null))) break
+        }
         viewModelScope.launch(workerDispatcher) {
             clearServerConfigAction().fold(
                 onSuccess = {
-                    _screenState.update { it.copy(isLoggingOut = false) }
-                    _logoutCompleted.emit(Unit)
+                    // Keep completion until navigation removes this Main owner, including
+                    // collector gaps during host recreation or an outgoing transition.
+                    _screenState.update { it.copy(isLoggingOut = false, logoutCompleted = true) }
                 },
                 onFailure = {
                     _screenState.update {

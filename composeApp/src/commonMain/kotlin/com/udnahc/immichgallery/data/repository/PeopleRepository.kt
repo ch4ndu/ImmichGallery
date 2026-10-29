@@ -130,7 +130,11 @@ class PeopleRepository(
                         val removedPersonIds = personDao.getPersonIds().toSet() - entities.map { it.id }.toSet()
                         if (removedPersonIds.isNotEmpty()) {
                             val removedIds = removedPersonIds.toList()
+                            val removedAssetIds = removedIds.flatMap { id ->
+                                personDao.getPersonAssetRefOrders(id).map { it.assetId }
+                            }
                             personDao.clearPersonRefsForPeople(removedIds)
+                            assetDao.pruneRemovedAssetCandidates(removedAssetIds)
                             detailMosaicCacheDao.clearOwnerCaches(
                                 DetailMosaicCacheOwnerType.PERSON.name,
                                 removedIds
@@ -229,6 +233,9 @@ class PeopleRepository(
                                 )
                             }
                             .orEmpty()
+                        val removedAssetCandidates = existingWindowRefs.map { it.assetId } +
+                            (if (rawWindowChanged) tailRefsAfterWindow.map { it.assetId } else emptyList()) +
+                            skippedRefs.map { it.assetId }
                         if (!skipAssetWrite) {
                             assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             if (rawWindowChanged) {
@@ -265,6 +272,9 @@ class PeopleRepository(
                             before
                         } else {
                             personDao.getPersonAssets(personId)
+                        }
+                        if (!skipAssetWrite || skippedRefs.isNotEmpty()) {
+                            assetDao.pruneRemovedAssetCandidates(removedAssetCandidates)
                         }
                         changed = orderedAssetsChanged(before, after)
                         if (changed) {
@@ -349,8 +359,11 @@ class PeopleRepository(
                             candidates = assetEntities
                         )
                         if (!skipAssetWrite) {
+                            val removedAssetCandidates = personDao.getPersonAssetRefOrders(personId)
+                                .map { it.assetId }
                             assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             personDao.replacePersonRefs(personId, crossRefs)
+                            assetDao.pruneRemovedAssetCandidates(removedAssetCandidates)
                         }
                         val after = if (skipAssetWrite) before else personDao.getPersonAssets(personId)
                         changed = !skipAssetWrite && orderedAssetsChanged(before, after)

@@ -2,6 +2,8 @@ package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
@@ -42,7 +44,8 @@ internal actual fun PlatformVideoPlayer(
     val authenticatedUrl = remember(playbackUrl, apiKey) {
         AuthenticatedMediaUrl.create(playbackUrl, apiKey)
     }
-    val player = rememberMediaMpPlayer(authenticatedUrl, slideshowRequest) {
+    val normalState = remember(authenticatedUrl) { NormalVideoPlaybackState() }
+    val player = rememberMediaMpPlayer(authenticatedUrl, slideshowRequest, normalState.retryAttempt) {
         authenticatedUrl?.let { JvmMpvBootstrap.createPlayer() }
     }
     Box(modifier = modifier) {
@@ -50,12 +53,16 @@ internal actual fun PlatformVideoPlayer(
             LaunchedEffect(slideshowRequest) { slideshowRequest?.let { onSlideshowEvent(it, SlideshowMediaEvent.Failed) } }
             // The slideshow page dispatches its own taps; observing here too would toggle twice.
             DesktopVideoUnavailable(
-                Modifier.fillMaxSize().then(if (slideshowRequest == null) Modifier.observeNonConsumingTap(onTap) else Modifier)
+                modifier = Modifier.fillMaxSize().then(
+                    if (slideshowRequest == null) Modifier.observeNonConsumingTap(onTap) else Modifier
+                ),
+                normalState = normalState.takeIf { slideshowRequest == null },
+                isCurrentPage = isCurrentPage,
+                onInteraction = onNormalControlsInteraction
             )
             return@Box
         }
 
-        val normalState = remember(authenticatedUrl) { NormalVideoPlaybackState() }
         // mpv can amplify up to 2x; the shared contract keeps player volume within 0..1.
         val audio = player.features[AudioLevelController]
         MediaMpVideoBinding(
@@ -99,6 +106,12 @@ internal actual fun PlatformVideoPlayer(
             }
         }
         if (slideshowRequest == null) {
+            NormalVideoRecovery(
+                state = normalState,
+                visible = isCurrentPage,
+                onInteraction = onNormalControlsInteraction,
+                modifier = Modifier.align(Alignment.Center)
+            )
             NormalVideoControls(
                 state = normalState,
                 visible = normalControlsVisible,
@@ -117,15 +130,34 @@ internal actual fun PlatformVideoPlayer(
 private const val DESKTOP_VIDEO_MAX_DIM_ALPHA = 0.85f
 
 @Composable
-private fun DesktopVideoUnavailable(modifier: Modifier) {
+internal fun DesktopVideoUnavailable(
+    modifier: Modifier,
+    normalState: NormalVideoPlaybackState?,
+    isCurrentPage: Boolean,
+    onInteraction: () -> Unit
+) {
+    val attempt = normalState?.retryAttempt
+    // A null construction result belongs to this attempt too. Retrying changes the
+    // remembered player key; another null result must become retryable again.
+    LaunchedEffect(normalState, attempt) {
+        if (normalState != null && attempt != null) normalState.failed(attempt)
+    }
     Box(
         modifier = modifier.fillMaxSize().padding(Dimens.screenPadding),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = stringResource(Res.string.video_desktop_unavailable),
-            color = Color.White,
-            textAlign = TextAlign.Center,
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
+        ) {
+            Text(
+                text = stringResource(Res.string.video_desktop_unavailable),
+                color = Color.White,
+                textAlign = TextAlign.Center,
+            )
+            normalState?.let { state ->
+                NormalVideoRecovery(state, isCurrentPage, onInteraction)
+            }
+        }
     }
 }

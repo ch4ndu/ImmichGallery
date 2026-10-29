@@ -97,6 +97,7 @@ fun LoginContent(
         OutlinedTextField(
             value = state.serverUrl,
             onValueChange = onServerUrlChange,
+            enabled = !state.isLoading && !state.isLoggedIn,
             label = { Text(stringResource(Res.string.login_server_url_label)) },
             placeholder = { Text(stringResource(Res.string.login_server_url_placeholder)) },
             singleLine = true,
@@ -109,6 +110,7 @@ fun LoginContent(
         OutlinedTextField(
             value = state.apiKey,
             onValueChange = onApiKeyChange,
+            enabled = !state.isLoading && !state.isLoggedIn,
             label = { Text(stringResource(Res.string.login_api_key_label)) },
             placeholder = { Text(stringResource(Res.string.login_api_key_placeholder)) },
             singleLine = true,
@@ -136,7 +138,7 @@ fun LoginContent(
 
         Button(
             onClick = onLoginClick,
-            enabled = !state.isLoading,
+            enabled = !state.isLoading && !state.isLoggedIn,
             modifier = Modifier.fillMaxWidth()
         ) {
             if (state.isLoading) {

@@ -80,13 +80,17 @@ internal fun MediaMpVideoBinding(
 
     LaunchedEffect(player) {
         val request = slideshowRequest
+        val attempt = normalState.retryAttempt
+        if (request == null) normalState.opening(attempt)
         // Events have no replay, so subscribe before opening.
         launch(start = CoroutineStart.UNDISPATCHED) {
             player.events.collect { event ->
                 if (request != null) {
                     mediaMpSlideshowEvent(event)?.let { latestEvent(request, it) }
-                } else if (event is PlaybackEvent.MediaEnded && latestShouldPlay) {
-                    player.play()
+                } else when (event) {
+                    is PlaybackEvent.ErrorOccurred -> normalState.failed(attempt)
+                    is PlaybackEvent.MediaEnded -> if (latestShouldPlay) player.play()
+                    else -> Unit
                 }
             }
         }
@@ -102,18 +106,26 @@ internal fun MediaMpVideoBinding(
                 }
             }
         } else {
-            launch { player.currentPositionMillis.collect { normalState.positionSeconds = it / 1_000f } }
+            launch {
+                player.currentPositionMillis.collect { position ->
+                    if (normalState.retryAttempt == attempt) normalState.positionSeconds = position / 1_000f
+                }
+            }
             launch {
                 player.mediaProperties.collect { properties ->
-                    normalState.durationSeconds = properties?.durationMillis?.let { it / 1_000f } ?: 0f
+                    if (normalState.retryAttempt == attempt) {
+                        normalState.durationSeconds = properties?.durationMillis?.let { it / 1_000f } ?: 0f
+                    }
                 }
             }
         }
         try {
             player.setMediaData(UriMediaData(url, headers, MediaExtraFiles.EMPTY), playWhenReady = false)
             opened = true
+            if (request == null) normalState.ready(attempt)
         } catch (_: PlaybackException) {
-            // The same failure is emitted as ErrorOccurred, which reports a slideshow failure.
+            // Slideshow receives ErrorOccurred; normal playback exposes an explicit reopen action.
+            if (request == null) normalState.failed(attempt)
         }
     }
     LaunchedEffect(player) {
@@ -125,10 +137,10 @@ internal fun MediaMpVideoBinding(
             }
         }.collect { latestSetVolume(it) }
     }
-    LaunchedEffect(player, opened, shouldPlay) {
+    LaunchedEffect(player, opened, shouldPlay, normalState.loadStatus) {
         if (!opened) return@LaunchedEffect
         when {
-            !shouldPlay -> player.pause()
+            !shouldPlay || (slideshowRequest == null && normalState.loadStatus == NormalVideoLoadStatus.Failed) -> player.pause()
             slideshowRequest != null && player.state.value.mediaStatus == MediaStatus.Ended -> Unit
             else -> player.play()
         }

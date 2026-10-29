@@ -145,8 +145,8 @@ fun MainScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val logoutMessage = screenState.message.asTextOrNull()
 
-    LaunchedEffect(viewModel) {
-        viewModel.logoutCompleted.collect { onLogout() }
+    LaunchedEffect(viewModel, screenState.logoutCompleted) {
+        if (screenState.logoutCompleted) onLogout()
     }
     LaunchedEffect(screenState.message) {
         val message = logoutMessage ?: return@LaunchedEffect
@@ -234,7 +234,7 @@ fun MainScreen(
         request = viewerDateRequest,
         timelineSelected = isTimelineTab,
         viewerActive = overlayActive,
-        loggingOut = screenState.isLoggingOut,
+        loggingOut = !screenState.acceptsNavigation,
         actions = timelineDateNavigationActions,
         isCurrent = isViewerDateRequestCurrent,
         onHandled = onViewerDateRequestHandled
@@ -246,16 +246,26 @@ fun MainScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         MainTabNavHost(
             navController = tabNavController,
-            onAlbumClick = onAlbumClick,
-            onPersonClick = onPersonClick,
-            onFavoritesClick = onFavoritesClick,
-            onMemoriesClick = onMemoriesClick,
+            onAlbumClick = { id ->
+                if (viewModel.screenState.value.acceptsNavigation) onAlbumClick(id)
+            },
+            onPersonClick = { id, name ->
+                if (viewModel.screenState.value.acceptsNavigation) onPersonClick(id, name)
+            },
+            onFavoritesClick = {
+                if (viewModel.screenState.value.acceptsNavigation) onFavoritesClick()
+            },
+            onMemoriesClick = {
+                if (viewModel.screenState.value.acceptsNavigation) onMemoriesClick()
+            },
             onRefreshCallback = onTabRefreshCallback,
             onSyncingState = onTabSyncingState,
             onColdSyncBlockingState = onTimelineColdSyncBlockingState,
             onMosaicPrepareCallback = onTimelineMosaicPrepareCallback,
             onDateNavigationActions = onTimelineDateNavigationActions,
-            onShowInTimeline = onShowInTimeline,
+            onShowInTimeline = onShowInTimeline?.let { showDate ->
+                { date -> if (viewModel.screenState.value.acceptsNavigation) showDate(date) }
+            },
             onOverlayActiveChange = onOverlayActiveChange
         )
 
@@ -275,7 +285,7 @@ fun MainScreen(
                 onLogoutStarted()
                 viewModel.logout()
             },
-            logoutEnabled = !screenState.isLoggingOut,
+            logoutEnabled = screenState.acceptsNavigation,
             mosaicViewConfig = timelineViewConfig,
             onMosaicViewConfigChanged = viewModel::setViewConfig,
             onPrepareMosaicViewConfig = { config ->

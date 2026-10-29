@@ -7,7 +7,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -22,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -43,6 +47,8 @@ import immichgallery.composeapp.generated.resources.ic_skip_forward
 import immichgallery.composeapp.generated.resources.ic_volume_off
 import immichgallery.composeapp.generated.resources.ic_volume_on
 import immichgallery.composeapp.generated.resources.video_duration_unknown
+import immichgallery.composeapp.generated.resources.video_playback_failed
+import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.video_mute
 import immichgallery.composeapp.generated.resources.video_pause
 import immichgallery.composeapp.generated.resources.video_play
@@ -75,12 +81,42 @@ internal enum class NormalVideoSpeed(val rate: Float, val label: StringResource)
     Twice(2f, Res.string.video_speed_2),
 }
 
+internal enum class NormalVideoLoadStatus { Opening, Ready, Failed }
+
 /**
- * Ephemeral per-player UI state for normal video. [userPaused] is the user's
- * intent and is never written by lifecycle/offscreen pauses.
+ * Ephemeral per-page UI state for normal video. [userPaused] is the user's
+ * intent and is never written by lifecycle/offscreen pauses or explicit retry.
  */
 @Stable
 internal class NormalVideoPlaybackState {
+    var loadStatus by mutableStateOf(NormalVideoLoadStatus.Opening)
+        private set
+    var retryAttempt by mutableIntStateOf(0)
+        private set
+
+    fun opening(attempt: Int) {
+        if (attempt != retryAttempt) return
+        loadStatus = NormalVideoLoadStatus.Opening
+        positionSeconds = 0f
+        durationSeconds = 0f
+    }
+
+    fun ready(attempt: Int) {
+        if (attempt == retryAttempt && loadStatus == NormalVideoLoadStatus.Opening) {
+            loadStatus = NormalVideoLoadStatus.Ready
+        }
+    }
+
+    fun failed(attempt: Int) {
+        if (attempt == retryAttempt) loadStatus = NormalVideoLoadStatus.Failed
+    }
+
+    fun retry() {
+        if (loadStatus != NormalVideoLoadStatus.Failed) return
+        retryAttempt += 1
+        opening(retryAttempt)
+    }
+
     var userPaused by mutableStateOf(false)
     var muted by mutableStateOf(false)
     var positionSeconds by mutableFloatStateOf(0f)
@@ -130,7 +166,7 @@ internal fun NormalVideoControls(
     onHoldChange: (ViewerChromeHold, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (!visible) return
+    if (!visible || state.loadStatus != NormalVideoLoadStatus.Ready) return
     val latestOnHoldChange by rememberUpdatedState(onHoldChange)
     // Hiding, paging away or disposal must never leave the chrome pinned.
     DisposableEffect(Unit) { onDispose { latestOnHoldChange(ViewerChromeHold.VideoControls, false) } }
@@ -263,6 +299,36 @@ internal fun NormalVideoControls(
                     contentDescription = stringResource(if (state.muted) Res.string.video_unmute else Res.string.video_mute),
                     tint = Color.White
                 )
+            }
+        }
+    }
+}
+
+/** Loading and retry stay reachable even when ordinary viewer chrome is hidden. */
+@Composable
+internal fun NormalVideoRecovery(
+    state: NormalVideoPlaybackState,
+    visible: Boolean,
+    onInteraction: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (!visible || state.loadStatus == NormalVideoLoadStatus.Ready) return
+    Column(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = DETAIL_BAR_ALPHA))
+            .padding(Dimens.screenPadding),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
+    ) {
+        if (state.loadStatus == NormalVideoLoadStatus.Opening) {
+            CircularProgressIndicator(modifier = Modifier.size(Dimens.iconSize), color = Color.White)
+        } else {
+            Text(stringResource(Res.string.video_playback_failed), color = Color.White)
+            TextButton(
+                onClick = { state.retry(); onInteraction() },
+                colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+            ) {
+                Text(stringResource(Res.string.retry))
             }
         }
     }

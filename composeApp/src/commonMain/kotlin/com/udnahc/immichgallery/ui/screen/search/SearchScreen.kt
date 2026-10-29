@@ -77,6 +77,8 @@ import immichgallery.composeapp.generated.resources.ic_favorite
 import immichgallery.composeapp.generated.resources.ic_memories
 import immichgallery.composeapp.generated.resources.load_more
 import immichgallery.composeapp.generated.resources.memories
+import immichgallery.composeapp.generated.resources.retry
+import immichgallery.composeapp.generated.resources.search_load_more_failed
 import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -566,14 +568,21 @@ private fun SearchResultsList(
             }
         } else if (state.nextPage != null) {
             item(key = "load_more") {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = Dimens.mediumSpacing),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
                 ) {
+                    if (state.loadMoreError != null) {
+                        Text(
+                            text = stringResource(Res.string.search_load_more_failed),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                     Button(onClick = onLoadMore) {
-                        Text(stringResource(Res.string.load_more))
+                        Text(stringResource(if (state.loadMoreError != null) Res.string.retry else Res.string.load_more))
                     }
                 }
             }

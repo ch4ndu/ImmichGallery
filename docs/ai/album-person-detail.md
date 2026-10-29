@@ -468,13 +468,18 @@ Album and Person Detail use `MosaicWorkScheduler`, not the Timeline queue actor.
 
 Scheduler ownership:
 
-- the screen activates its owner key on composition and clears/cancels it on disposal;
+- the screen activates its owner key on composition and closes foreground-work
+  admission synchronously on disposal; retained ViewModels cancel layout/resume
+  jobs and scheduler work without restarting it, preserve assignment checkpoints,
+  and rebuild/resume against current state on explicit reactivation;
 - work is keyed by `ownerKey` and `group_$index`;
 - `ForegroundVisible` is used for visible groups;
 - `ForegroundPrefetch` is used for non-visible groups in the active owner;
 - pending work is reprioritized whenever visible group indexes change;
 - initial construction, resumed work, and retry eligibility use the visible group plus one neighboring group window;
-- running prefetch can be cancelled when visible work exists.
+- running foreground work outside the newest visible set can be preempted,
+  including work that started visible; work still visible and running Background
+  work remain nonpreemptive. Interrupted detail groups retain checkpoints.
 
 ```mermaid
 stateDiagram-v2
@@ -499,6 +504,19 @@ Scroll behavior:
 - Resume snapshots `runtimeGroupStates` before iterating so mutation during resume cannot crash iteration.
 - Retryable failures resume only when the group is in the visible-plus-neighbor window.
 - Offscreen resume yields after each group so visible work can regain control.
+- Deferred output retains its source assets, layout generation, and asset
+  revision. Content invalidation discards deferred entries, and flush validation
+  plus publication share the runtime-state transaction. A removed group is never
+  appended by a delayed replacement.
+- Group replacements are applied in one pass. Identical output keeps the existing
+  display-list instance and avoids rebuilding the display index; progress without
+  exact section geometry only updates resumable runtime state.
+- Setter invalidations enter their serialization boundary in call order, then
+  dispatch grouping and fingerprint computation to the background dispatcher.
+  Scheduled layouts wait behind already-admitted invalidations before entering
+  the session gate or reading persistent artifacts, so a burst of setters keeps
+  only the latest layout candidate. Snapshots remain captured after session
+  admission.
 
 Retry behavior:
 

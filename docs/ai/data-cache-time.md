@@ -21,10 +21,32 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
   not a Room schema migration.
 - Cache replacement should be transactional where multiple tables or relationship rows must stay in sync.
 - Stale relationship data should be replaced atomically: delete or replace refs for the scoped owner, then insert current refs. Timeline bucket metadata is the exception: count-changed buckets keep old refs until that bucket's asset refresh succeeds so cached launch rows do not collapse during background work; removed buckets still clear refs immediately.
+- Relationship-removing writes capture their old asset IDs inside the writer
+  transaction and prune those candidates only after replacement refs exist.
+  Pruning uses bounded ID batches and deletes a shared asset row only when no
+  Timeline, Album, or Person reference remains. This covers removed owners,
+  full replacements, changed-page tail truncation, and skipped raw page ranges.
+  It is candidate-only cleanup, not a global orphan sweep or a retention timer;
+  unrelated historical orphans remain until session cache reset. Session
+  admission plus the shared commit boundary serializes repository writers;
+  each later writer upserts metadata before installing its references.
 - Timeline Mosaic cache rows are split by purpose: assignments are width-independent, while section geometry, aggregate bucket geometry, and mixed display-record cache rows are width/key/version dependent. `PrepareTimelineMosaicCacheAction` and `TimelineMosaicArtifactBuilder` derive Timeline Mosaic artifacts through `MosaicRenderEngine`; `TimelineMosaicCacheRepository` persists, reads, clears, and validates these rows only. `TimelineRepository` stays bucket/asset-sync focused but may expose a bucket snapshot read of ordered assets plus metadata count for precompute. `ViewConfig.cacheMosaicResults = false` disables sync-time Timeline Mosaic artifact preparation and disk reads for rendering; materialized Timeline buckets compute runtime Mosaic state for the requested config only from render-demand work after active scrolling settles instead of fetching old rows from disk.
 - Album and Person detail Mosaic cache uses owner-scoped assignment, mixed display-record, section-geometry, and aggregate-geometry artifacts. Cache keys must include owner identity, group/section identity when section-scoped, Mosaic column count for every artifact type, normalized Mosaic families, ordered asset fingerprint, rounded geometry keys, and artifact version. Both detail screens must only persist/read owner Mosaic cache after the full asset set is known (`hasMore == false`).
 - Album and Person detail asset sync resolves edited-asset dimensions before its Room writer transaction. That transaction writes final asset rows and owner refs, detects the resulting ordered owner content, and clears all four artifact families for that owner only when it changed. A no-op page must not rewrite rows or invalidate artifacts. Detail edit resolution may reuse an exact resolved aspect only while the API-visible asset fields used by the cache match; otherwise it must resolve `/edits` again before writing. Because Room has no edit-revision or edit-dimensions fingerprint, an edit changed remotely without any of those visible fields remains cached until a later visible asset change or a cache reset.
 - Detail invalidation is deliberately current-owner scoped: an Album or Person sync does not immediately invalidate Timeline or another owner that happens to reference the same `AssetEntity`. Those scopes refresh on their own next sync or recreation. Removing an Album or Person clears that owner's refs, detail artifacts, and sync metadata together.
+- Columnar Timeline responses omit filename and edit state. Preserve cached
+  filenames using bounded lookups across the shared asset table, including
+  assets learned only through Album/Person. For cached known-edited assets,
+  fetch full asset info and fresh edit actions before the writer transaction;
+  full info with `isEdited = false` clears obsolete edit state/aspect, while
+  `true` requires successful fresh edit-dimension resolution. One
+  repository-wide eight-permit gate bounds these additional requests across
+  all concurrent buckets. Any failed revalidation preserves the whole cached
+  bucket. Before mutation, compare current incoming shared rows with the cache
+  snapshot used for preparation; a concurrent change fails the bucket so a
+  later retry can use the newer metadata. No automatic retry loop is added.
+  New assets and assets never known to be edited use Timeline's ratio until
+  a full detail response learns their edit state; no per-asset cold scan occurs.
 - Mosaic cache lookup tables should have composite indices matching their config lookup paths, not only owner or bucket indices. Cached Mosaic config apply treats matching persisted rows as readiness; it should skip already prepared rows and compute only missing rows. Timeline manual sync with `ViewConfig.cacheMosaicResults = false` must not clear Timeline or Detail Mosaic artifacts before it knows content changed; no-op refreshes preserve runtime Mosaic state and Detail artifacts, while changed Timeline buckets use normal per-bucket invalidation and later runtime Mosaic rebuilds come only from visible/target render demand.
 - Mosaic cache readiness requires source-slice-valid assignments, contiguous positive section geometry ranges, and fingerprint/current-section-valid aggregate geometry. Assignment gaps are legal completed fallback ranges; overlap, wrong-slice ids, duplicate ids, bad visual order, unknown templates, malformed JSON, and height mismatches are cache misses. Mixed display rows are optional for renderability and must independently cover current ordered assets and match the section geometry ranges one-to-one by source slice and height. Timeline skeleton hydration does not read assets: it validates bucket and section geometry against `timeline_bucket_snapshots` in one Room read transaction; assignments/display rows remain visible-demand reads. Repositories only persist, read, clear, and validate artifacts produced through the domain engine/builder.
 - Runtime exact geometry may be kept in memory for render safety even when `ViewConfig.cacheMosaicResults = false`; this is not a disk-cache read or readiness signal. Disk cache remains disabled in cache-off mode, but render paths still require in-memory exact geometry before publishing partial or ready Mosaic replacements.
@@ -41,6 +63,9 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
 - Network fetches that update cached data write through Room before exposing refreshed state where the feature depends on cached reads.
 - DB and network writes use `Dispatchers.IO`.
 - Imperative DB reads also use `Dispatchers.IO`; only pure entity-to-domain mapping may move to `Dispatchers.Default`.
+- Asset-ID lookups for full-owner detail preparation use the shared bounded
+  query chunk size. Network pagination does not bound the accumulated owner
+  list; never pass that entire list to one SQLite `IN` query.
 - Flow transforms that map entity lists to domain projections use `.flowOn(Dispatchers.Default)` where appropriate.
 - Reconstruct URLs from current server config and asset IDs where possible so cached rows do not retain stale server URLs.
 - Every logical cache-producing operation registers with the shared session

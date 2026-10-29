@@ -116,22 +116,38 @@ For each bucket:
 1. Read ordered Room assets before the fetch.
 2. Fetch `/api/timeline/bucket?timeBucket=...`.
 3. Filter hidden assets before writing or presenting.
-4. Map responses to candidate `AssetEntity` rows and ordered `TimelineAssetCrossRef` rows.
-5. Skip the write path only when:
+4. Read incoming IDs from the shared asset table in bounded chunks, including
+   Album/Person-only rows. Preserve filenames omitted by the columnar response.
+   For previously known-edited assets, fetch full asset info and freshly resolve
+   its edit actions. An authoritative `isEdited = false` removes obsolete edit
+   metadata and restores the full response's aspect. Any required fetch or edit
+   resolution failure fails this bucket before writing. One repository-wide
+   semaphore bounds these requests to eight across all concurrent buckets.
+   Unknown edits remain undiscovered until a full detail response learns them;
+   Timeline does not fetch detail for every cold asset.
+5. Map the final enriched responses to candidate `AssetEntity` rows and ordered
+   `TimelineAssetCrossRef` rows. Skip the write path only when:
    - ordered visible `AssetEntity` fingerprints match;
    - ordered asset ids match;
-   - every edited asset with dimensions is already `editsResolved = true` in Room.
+   - every known-edited asset is already `editsResolved = true` in Room.
 6. If the skip predicate passes:
    - do not upsert assets;
    - do not replace refs;
-   - do not run edit enrichment;
    - return `changed = false`.
 7. Otherwise:
-   - upsert assets;
-   - replace refs atomically for that bucket;
-   - run edit enrichment for eligible edited assets;
-   - read ordered Room assets again;
-   - return `changed = orderedAssetsChanged(before, after)`.
+   - verify inside the writer transaction that incoming shared metadata still
+     matches the preparation snapshot; if another writer changed it, fail the
+     bucket without mutation and allow a later retry to reprepare;
+   - capture the bucket's current referenced asset IDs and upsert final assets;
+   - replace refs atomically, then prune captured IDs that no longer have any
+     Timeline, Album, or Person reference;
+   - refresh the bucket fingerprint and invalidate its Mosaic artifacts only
+     when the final ordered visible content changed;
+   - return `changed = orderedAssetsChanged(before, finalCandidates)`.
+
+Removed-bucket metadata writes use the same candidate-only pruning inside their
+transaction. Count-changed buckets retain their cached references and metadata
+until successful asset refresh; no global orphan sweep is performed.
 
 The returned `changed` value is a layout/content invalidation signal, not merely a network success signal.
 

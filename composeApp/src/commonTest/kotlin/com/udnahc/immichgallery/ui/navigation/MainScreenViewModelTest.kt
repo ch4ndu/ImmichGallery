@@ -20,8 +20,7 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -46,37 +45,44 @@ class MainScreenViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun logoutWaitsForSuspendClearAndEmitsCompletionOnlyAfterSuccess() =
+    fun logoutWaitsForSuspendClearAndRetainsCompletionWithoutACollector() =
         runTest(dispatcher.scheduler) {
             val clearGate = CompletableDeferred<Unit>()
-            val events = mutableListOf<Unit>()
+            var clearCount = 0
             val viewModel = viewModel(
                 ClearServerConfigAction(
                     mutate = { block -> block() },
                     rotateImageCache = { block -> block() },
-                    clearServerState = { clearGate.await() },
+                    clearServerState = {
+                        clearCount++
+                        clearGate.await()
+                    },
                     clearConfiguration = {}
                 )
             )
-            backgroundScope.launch { viewModel.logoutCompleted.collect { events += it } }
-
             viewModel.logout()
+            viewModel.logout()
+            assertFalse(viewModel.screenState.value.acceptsNavigation)
             runCurrent()
 
             assertTrue(viewModel.screenState.value.isLoggingOut)
-            assertEquals(emptyList(), events)
+            assertFalse(viewModel.screenState.value.logoutCompleted)
 
             clearGate.complete(Unit)
             advanceUntilIdle()
 
             assertFalse(viewModel.screenState.value.isLoggingOut)
-            assertEquals(listOf(Unit), events)
+            // Completion is still observable when Main starts collecting later.
+            assertTrue(viewModel.screenState.first().logoutCompleted)
+            assertFalse(viewModel.screenState.value.acceptsNavigation)
+            viewModel.logout()
+            advanceUntilIdle()
+            assertEquals(1, clearCount)
         }
 
     @Test
     fun logoutFailureKeepsNavigationInPlaceAndPublishesExistingError() =
         runTest(dispatcher.scheduler) {
-            val events = mutableListOf<Unit>()
             val viewModel = viewModel(
                 ClearServerConfigAction(
                     mutate = { block -> block() },
@@ -85,15 +91,37 @@ class MainScreenViewModelTest {
                     clearConfiguration = {}
                 )
             )
-            backgroundScope.launch { viewModel.logoutCompleted.collect { events += it } }
-
             viewModel.logout()
             advanceUntilIdle()
 
             assertFalse(viewModel.screenState.value.isLoggingOut)
             assertEquals(MainUiMessage.LogoutFailed, viewModel.screenState.value.message)
-            assertEquals(emptyList(), events)
+            assertFalse(viewModel.screenState.value.logoutCompleted)
+            assertTrue(viewModel.screenState.value.acceptsNavigation)
         }
+
+    @Test
+    fun failedLogoutCanBeRetriedUntilCompletion() = runTest(dispatcher.scheduler) {
+        var clearCount = 0
+        val viewModel = viewModel(
+            ClearServerConfigAction(
+                mutate = { block -> block() },
+                rotateImageCache = { block -> block() },
+                clearServerState = { if (++clearCount == 1) error("clear failed") },
+                clearConfiguration = {}
+            )
+        )
+
+        viewModel.logout()
+        advanceUntilIdle()
+        assertEquals(MainUiMessage.LogoutFailed, viewModel.screenState.value.message)
+        viewModel.logout()
+        advanceUntilIdle()
+
+        assertEquals(2, clearCount)
+        assertTrue(viewModel.screenState.value.logoutCompleted)
+        assertEquals(null, viewModel.screenState.value.message)
+    }
 
     private fun viewModel(clearAction: ClearServerConfigAction): MainScreenViewModel {
         val configuration = ServerConfigRepository(TestSettings())

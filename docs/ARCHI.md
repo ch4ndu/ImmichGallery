@@ -198,6 +198,9 @@ HTTP through ATS. JVM has no platform permission gate.
 
 `MainScreenViewModel` owns server reachability monitoring and logout. Monitoring
 runs only while Main is composed and the platform lifecycle is active. Logout
+completion remains in Main's state until navigation removes that owner, so
+temporary collector absence cannot lose the transition. Root navigation is
+blocked during cleanup and after completion. Logout
 and changed-identity login share one exclusive mutation boundary. It closes
 operation admission, advances the generation, cancels and joins registered old
 work, rotates and clears the installed Coil loader, clears server-scoped Room,
@@ -585,6 +588,12 @@ credentials must never be committed or logged. Ktor logging and application
 logging are disabled on every target/build. The app allows cleartext Android
 traffic and local-network iOS HTTP for trusted self-hosted LAN servers; HTTPS is
 the expected transport outside a trusted network.
+
+Distribution tasks reject nonblank generated API-key defaults: Android release,
+release Apple frameworks, Xcode archives (including Debug archives), and desktop
+packages. Builders can explicitly generate blank defaults with
+`-PimmichGallery.includeLocalLoginDefaults=false`; ordinary development prefill
+remains available. The verification marker records presence only, never a key.
 
 The API key is application configuration stored by `multiplatform-settings`,
 not a Room row and not a server session token managed by a platform secure

@@ -43,10 +43,10 @@ internal actual fun PlatformVideoPlayer(
 ) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
-    val player = rememberMediaMpPlayer(playbackUrl, apiKey, slideshowRequest, applicationContext) {
+    val normalState = remember(playbackUrl, apiKey) { NormalVideoPlaybackState() }
+    val player = rememberMediaMpPlayer(playbackUrl, apiKey, slideshowRequest, applicationContext, normalState.retryAttempt) {
         ExoPlayerMediampPlayer(applicationContext, EmptyCoroutineContext)
     }
-    val normalState = remember(playbackUrl, apiKey) { NormalVideoPlaybackState() }
     // ExoPlayer has no MediaMP audio-level feature; app-owned mute applies volume 0.
     MediaMpVideoBinding(
         player = player,
@@ -108,6 +108,12 @@ internal actual fun PlatformVideoPlayer(
             }
         }
         if (slideshowRequest == null) {
+            NormalVideoRecovery(
+                state = normalState,
+                visible = isCurrentPage,
+                onInteraction = onNormalControlsInteraction,
+                modifier = Modifier.align(Alignment.Center)
+            )
             NormalVideoControls(
                 state = normalState,
                 visible = normalControlsVisible,

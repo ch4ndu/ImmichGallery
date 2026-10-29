@@ -32,6 +32,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -111,6 +114,7 @@ fun PeopleContent(
         val navBarPadding =
             WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val gridState = rememberLazyGridState()
+        var lastAppliedQuery by rememberSaveable { mutableStateOf<String?>(null) }
         val topContentPadding = statusBarPadding + Dimens.topBarHeight + Dimens.screenPadding
 
         val focusManager = LocalFocusManager.current
@@ -151,11 +155,14 @@ fun PeopleContent(
                         )
                 )
 
-                // Scroll back to the top when the filtered list changes, but
-                // only when the user isn't mid-scroll — otherwise re-firing
-                // the animation from a running scroll causes jank.
-                LaunchedEffect(state.filteredPeople) {
-                    if (!gridState.isScrollInProgress) gridState.scrollToItem(0)
+                // Reset only after a changed filter has produced its matching rows.
+                // Room refreshes retain the user's keyed scroll position.
+                LaunchedEffect(state.appliedQuery) {
+                    val appliedQuery = state.appliedQuery ?: return@LaunchedEffect
+                    if (lastAppliedQuery != null && lastAppliedQuery != appliedQuery) {
+                        gridState.requestScrollToItem(0)
+                    }
+                    lastAppliedQuery = appliedQuery
                 }
                 ScrollbarOverlay(
                     gridState = gridState,

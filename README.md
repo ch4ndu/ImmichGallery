@@ -157,6 +157,14 @@ immichGallery.loginApiKey=your-api-key
 These values are build inputs and do not bypass connection validation. Do not
 commit real credentials.
 
+Android release builds, release Apple frameworks, Xcode archives, and desktop
+packages reject embedded nonblank API-key defaults. For distributable builds,
+pass `-PimmichGallery.includeLocalLoginDefaults=false` to Gradle, or set
+`immichGallery.includeLocalLoginDefaults=false` in your user Gradle properties
+when building through Xcode. Development builds keep the existing prefill
+behavior unless you disable it explicitly. Server URL defaults alone do not
+block packaging.
+
 ## Build and run
 
 ### Android

@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.data.repository
 
 import com.udnahc.immichgallery.data.local.dao.AssetDao
+import com.udnahc.immichgallery.data.local.dao.ASSET_ID_QUERY_CHUNK_SIZE
 import com.udnahc.immichgallery.data.local.entity.AssetEntity
 import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.model.ImmichPaginationCompatibilityException
@@ -40,7 +41,9 @@ internal suspend fun prepareDetailAssetEntities(
     if (candidates.isEmpty()) return emptyList()
 
     val cachedById = withContext(Dispatchers.IO) {
-        assetDao.getAssetsByIds(candidates.map { (_, entity) -> entity.id })
+        // Full-owner refreshes can exceed SQLite's bind limit even though network pages are bounded.
+        candidates.chunked(ASSET_ID_QUERY_CHUNK_SIZE)
+            .flatMap { chunk -> assetDao.getAssetsByIds(chunk.map { (_, entity) -> entity.id }) }
             .associateBy { it.id }
     }
     val aspectsById = editsEnricher.resolve(

@@ -41,3 +41,7 @@ android {
 dependencies {
     implementation(projects.composeApp)
 }
+
+tasks.matching { it.name == "preReleaseBuild" }.configureEach {
+    dependsOn(":composeApp:verifyDistributionLoginDefaults")
+}

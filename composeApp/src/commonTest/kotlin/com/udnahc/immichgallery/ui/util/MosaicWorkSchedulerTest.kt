@@ -142,6 +142,51 @@ class MosaicWorkSchedulerTest {
     }
 
     @Test
+    fun formerlyVisibleRunningGroupYieldsToNewVisibleGroup() = runTest {
+        val scheduler = MosaicWorkScheduler(StandardTestDispatcher(testScheduler), this)
+        val order = mutableListOf<String>()
+        scheduler.setActiveForegroundOwner("album")
+        scheduler.reprioritizePending("album", setOf("group_0"))
+        val oldVisible = async {
+            scheduler.run("album", "group_0", 0, MosaicWorkPriority.ForegroundVisible) {
+                order += "old_start"
+                delay(100)
+                order += "old_end"
+            }
+        }
+        runCurrent()
+        val newVisible = async {
+            scheduler.run("album", "group_2", 0, MosaicWorkPriority.ForegroundVisible) {
+                order += "new_visible"
+            }
+        }
+        scheduler.reprioritizePending("album", setOf("group_2"))
+        runCurrent()
+
+        assertFailsWith<MosaicWorkCancelledException> { oldVisible.await() }
+        newVisible.await()
+        assertEquals(listOf("old_start", "new_visible"), order)
+    }
+
+    @Test
+    fun stillVisibleRunningGroupSurvivesNewVisibilityRevision() = runTest {
+        val scheduler = MosaicWorkScheduler(StandardTestDispatcher(testScheduler), this)
+        scheduler.setActiveForegroundOwner("album")
+        val visible = async {
+            scheduler.run("album", "group_0", 0, MosaicWorkPriority.ForegroundVisible) {
+                delay(100)
+                "finished"
+            }
+        }
+        runCurrent()
+        scheduler.reprioritizePending("album", setOf("group_0", "group_1"))
+        testScheduler.advanceTimeBy(100)
+        runCurrent()
+
+        assertEquals("finished", visible.await())
+    }
+
+    @Test
     fun activeForegroundOwnerOutranksOldForegroundOwner() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val scheduler = MosaicWorkScheduler(dispatcher, this)

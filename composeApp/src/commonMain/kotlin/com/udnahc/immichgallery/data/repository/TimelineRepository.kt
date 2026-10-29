@@ -3,6 +3,7 @@ package com.udnahc.immichgallery.data.repository
 import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
 import com.udnahc.immichgallery.data.local.AppDatabase
+import com.udnahc.immichgallery.data.local.dao.ASSET_ID_QUERY_CHUNK_SIZE
 import com.udnahc.immichgallery.data.local.dao.AssetDao
 import com.udnahc.immichgallery.data.local.dao.SyncMetadataDao
 import com.udnahc.immichgallery.data.local.dao.TimelineDao
@@ -10,6 +11,7 @@ import com.udnahc.immichgallery.data.local.entity.AssetEntity
 import com.udnahc.immichgallery.data.local.entity.SyncMetadataEntity
 import com.udnahc.immichgallery.data.local.entity.TimelineAssetCrossRef
 import com.udnahc.immichgallery.data.local.entity.TimelineBucketEntity
+import com.udnahc.immichgallery.data.model.AssetResponse
 import com.udnahc.immichgallery.data.remote.ImmichApiService
 import com.udnahc.immichgallery.data.remote.TimelineApiCompatibilityException
 import com.udnahc.immichgallery.domain.model.Asset
@@ -50,6 +52,8 @@ class TimelineRepository(
     private val sessionStateRepository: SessionStateRepository
 ) {
     private val log = logging("TimelineRepository")
+    // Shared by all bucket syncs on this repository, rather than multiplied per concurrent bucket.
+    private val editedAssetRefreshPermits = Semaphore(EDITED_ASSET_REFRESH_PARALLELISM)
 
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -149,8 +153,10 @@ class TimelineRepository(
                             // succeeds. Removed buckets are the only metadata-sync case
                             // that can safely clear relationship rows immediately.
                             removedBucketIds.forEach { timeBucket ->
+                                val removedAssetIds = timelineDao.getTimelineAssetIds(timeBucket)
                                 timelineDao.clearTimelineRefsForBucket(timeBucket)
                                 timelineDao.deleteBucketSnapshot(timeBucket)
+                                assetDao.pruneRemovedAssetCandidates(removedAssetIds)
                             }
                             timelineDao.replaceBuckets(entities)
                         }
@@ -199,18 +205,18 @@ class TimelineRepository(
                 "Timeline bucket asset sync fetched bucket=<redacted> fetched=<redacted> " +
                         "visible=<redacted> hidden=<redacted>"
             }
-            val initialAssetEntities = filtered.map { it.toAssetEntity() }
-            val assetEntities = resolveTimelineEditAspects(
-                responses = filtered,
-                candidateAssets = initialAssetEntities,
-                cachedAssets = before,
-                editsEnricher = editsEnricher
-            )
+            // A newly materialized bucket can contain rows already learned through Album/Person.
+            val cachedById = withContext(Dispatchers.IO) {
+                filtered.chunked(ASSET_ID_QUERY_CHUNK_SIZE)
+                    .flatMap { chunk -> assetDao.getAssetsByIds(chunk.map { it.id }) }
+                    .associateBy { it.id }
+            }
+            val assetEntities = prepareTimelineAssets(filtered, cachedById)
             val crossRefs = filtered.mapIndexed { index, response ->
                 TimelineAssetCrossRef(timeBucket, response.id, index)
             }
-            val editedAssetIdsWithDimensions = filtered
-                .filter { it.isEdited && it.width != null && it.height != null }
+            val editedAssetIdsWithDimensions = assetEntities
+                .filter { it.isEdited }
                 .map { it.id }
                 .toSet()
             if (shouldSkipTimelineBucketAssetWrite(
@@ -234,8 +240,16 @@ class TimelineRepository(
                 withContext(Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
                         transactor.immediateTransaction {
+                            val currentById = filtered.chunked(ASSET_ID_QUERY_CHUNK_SIZE)
+                                .flatMap { chunk -> assetDao.getAssetsByIds(chunk.map { it.id }) }
+                                .associateBy { it.id }
+                            // Another owner may have learned richer metadata while these requests
+                            // were in flight. Retry from that state instead of overwriting it.
+                            check(currentById == cachedById) { "Shared asset metadata changed during Timeline preparation" }
+                            val removedAssetCandidates = timelineDao.getTimelineAssetIds(timeBucket)
                             assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             timelineDao.replaceBucketRefs(timeBucket, crossRefs)
+                            assetDao.pruneRemovedAssetCandidates(removedAssetCandidates)
                             assetDao.refreshTimelineBucketSnapshots(listOf(timeBucket))
                             if (changed) {
                                 clearTimelineMosaicArtifactsForBucket(timeBucket)
@@ -260,6 +274,47 @@ class TimelineRepository(
             log.e { "Timeline bucket asset sync failed bucket=<redacted>" }
             Result.failure(e)
         } }
+    }
+
+    private suspend fun prepareTimelineAssets(
+        responses: List<AssetResponse>,
+        cachedById: Map<String, AssetEntity>
+    ): List<AssetEntity> {
+        val knownEdited = responses.filter { cachedById[it.id]?.isEdited == true }
+        val refreshedEdits = knownEdited.chunked(EDITED_ASSET_REFRESH_PARALLELISM).flatMap { chunk ->
+            coroutineScope {
+                chunk.map { response ->
+                    async(Dispatchers.IO) {
+                        editedAssetRefreshPermits.withPermit {
+                            // Columnar Timeline data omits edit state. Revalidate known edits rather
+                            // than overwriting them with false or retaining an obsolete crop forever.
+                            val detail = apiService.getAssetInfo(response.id)
+                            require(detail.id == response.id) { "Asset detail identity mismatch" }
+                            val detailEntity = detail.toAssetEntity()
+                            val aspect = if (detail.isEdited) {
+                                editsEnricher.resolve(listOf(detail))[detail.id]
+                                    ?: error("Known edited asset dimensions could not be refreshed")
+                            } else {
+                                detailEntity.aspectRatio
+                            }
+                            detailEntity.copy(aspectRatio = aspect, editsResolved = detail.isEdited)
+                        }
+                    }
+                }.awaitAll()
+            }
+        }.associateBy { it.id }
+        return responses.map { response ->
+            val candidate = response.toAssetEntity().copy(
+                fileName = response.originalFileName.ifEmpty { cachedById[response.id]?.fileName.orEmpty() }
+            )
+            val refreshed = refreshedEdits[response.id]
+            if (refreshed == null) candidate else candidate.copy(
+                fileName = refreshed.fileName,
+                isEdited = refreshed.isEdited,
+                aspectRatio = refreshed.aspectRatio,
+                editsResolved = refreshed.editsResolved
+            )
+        }
     }
 
     private suspend fun clearTimelineMosaicArtifactsForBucket(timeBucket: String) {
@@ -335,6 +390,7 @@ class TimelineRepository(
         const val SYNC_SCOPE_TIMELINE_BUCKETS = "timeline_buckets"
         const val SYNC_SCOPE_TIMELINE_COLD_COMPLETE = "timeline_cold_complete"
         private const val FULL_SYNC_BUCKET_PARALLELISM = 4
+        private const val EDITED_ASSET_REFRESH_PARALLELISM = 8
     }
 }
 
@@ -385,54 +441,6 @@ internal suspend fun syncTimelineBucketAssetsConcurrently(
     }
     return Result.success(partialResult)
 }
-
-private suspend fun resolveTimelineEditAspects(
-    responses: List<com.udnahc.immichgallery.data.model.AssetResponse>,
-    candidateAssets: List<AssetEntity>,
-    cachedAssets: List<AssetEntity>,
-    editsEnricher: AssetEditsEnricher
-): List<AssetEntity> {
-    val cachedById = cachedAssets.associateBy { it.id }
-    val candidatesByResponse = responses.zip(candidateAssets)
-    val aspectsById = editsEnricher.resolve(
-        candidatesByResponse
-            .filterNot { (_, candidate) -> canReuseResolvedTimelineEdit(candidate, cachedById[candidate.id]) }
-            .map { (response) -> response }
-    )
-    return candidatesByResponse.map { (_, candidate) ->
-        val cached = cachedById[candidate.id]
-        val reusableAspect = cached
-            ?.takeIf { canReuseResolvedTimelineEdit(candidate, it) }
-            ?.aspectRatio
-        when {
-            reusableAspect != null -> candidate.copy(
-                aspectRatio = reusableAspect,
-                editsResolved = true
-            )
-
-            aspectsById[candidate.id] != null -> candidate.copy(
-                aspectRatio = aspectsById.getValue(candidate.id),
-                editsResolved = true
-            )
-
-            else -> candidate
-        }
-    }
-}
-
-private fun canReuseResolvedTimelineEdit(
-    candidate: AssetEntity,
-    cached: AssetEntity?
-): Boolean =
-    candidate.isEdited &&
-        cached?.isEdited == true &&
-        cached.editsResolved &&
-        candidate.id == cached.id &&
-        candidate.type == cached.type &&
-        candidate.fileName == cached.fileName &&
-        candidate.createdAt == cached.createdAt &&
-        candidate.isFavorite == cached.isFavorite &&
-        candidate.stackCount == cached.stackCount
 
 internal data class TimelineBucketMetadataChanges(
     val metadataChanged: Boolean,

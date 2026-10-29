@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 
 class CoilImageCacheControllerTest {
     @Test
@@ -103,6 +104,107 @@ class CoilImageCacheControllerTest {
             ),
             events
         )
+    }
+
+    @Test
+    fun failedDeletionRecoversCurrentIdentityAndLaterRetryCanClear() = runTest {
+        val events = mutableListOf<String>()
+        val deletionFailure = IllegalStateException("delete failed")
+        var shouldFailDeletion = true
+        var replacementCount = 0
+        val controller = CoilImageCacheController<String>(
+            shutdown = { events += "shutdown:$it" },
+            deleteClosedCache = {
+                events += "delete:$it"
+                if (shouldFailDeletion) throw deletionFailure
+            },
+            install = { events += "install:$it" }
+        )
+        controller.registerInitial({ "old" }) { "new-${++replacementCount}" }
+
+        val failure = assertFailsWith<IllegalStateException> {
+            controller.rotateAndClearAround { events += "clear-state-and-config" }
+        }
+
+        assertSame(deletionFailure, failure)
+        assertEquals("new-1", controller.currentImageLoader())
+        assertEquals(listOf("install:old", "shutdown:old", "delete:old", "install:new-1"), events)
+
+        shouldFailDeletion = false
+        controller.rotateAndClearAround { events += "clear-state-and-config" }
+        assertEquals("new-2", controller.currentImageLoader())
+        assertEquals("install:new-2", events.last())
+        assertEquals(1, events.count { it == "clear-state-and-config" })
+    }
+
+    @Test
+    fun failedInitialReplacementCreationRecoversWithoutRunningSessionMutation() = runTest {
+        val creationFailure = IllegalStateException("create failed")
+        val events = mutableListOf<String>()
+        var createCount = 0
+        val controller = CoilImageCacheController<String>(
+            shutdown = { events += "shutdown:$it" },
+            deleteClosedCache = { events += "delete:$it" },
+            install = { events += "install:$it" }
+        )
+        controller.registerInitial({ "old" }) {
+            if (++createCount == 1) throw creationFailure
+            "recovered"
+        }
+
+        val failure = assertFailsWith<IllegalStateException> {
+            controller.rotateAndClearAround { events += "clear-state-and-config" }
+        }
+
+        assertSame(creationFailure, failure)
+        assertEquals(2, createCount)
+        assertEquals("recovered", controller.currentImageLoader())
+        assertEquals(listOf("install:old", "shutdown:old", "delete:old", "install:recovered"), events)
+    }
+
+    @Test
+    fun failedRecoveryKeepsOriginalFailureAndDoesNotChangeConfiguration() = runTest {
+        val deletionFailure = IllegalStateException("delete failed")
+        val recoveryFailure = IllegalArgumentException("create failed")
+        val installed = mutableListOf<String>()
+        var mutated = false
+        val controller = CoilImageCacheController<String>(
+            shutdown = {},
+            deleteClosedCache = { throw deletionFailure },
+            install = installed::add
+        )
+        controller.registerInitial({ "old" }) { throw recoveryFailure }
+
+        val failure = assertFailsWith<IllegalStateException> {
+            controller.rotateAndClearAround { mutated = true }
+        }
+
+        assertSame(deletionFailure, failure)
+        assertEquals(listOf(recoveryFailure), failure.suppressedExceptions)
+        assertEquals(listOf("old"), installed)
+        assertFalse(mutated)
+    }
+
+    @Test
+    fun unconfirmedShutdownDoesNotOpenACompetingCacheOrMutateSession() = runTest {
+        val shutdownFailure = IllegalStateException("shutdown failed")
+        val events = mutableListOf<String>()
+        val controller = CoilImageCacheController<String>(
+            shutdown = { throw shutdownFailure },
+            deleteClosedCache = { events += "delete" },
+            install = { events += "install:$it" }
+        )
+        controller.registerInitial({ "old" }) {
+            events += "create"
+            "new"
+        }
+
+        val failure = assertFailsWith<IllegalStateException> {
+            controller.rotateAndClearAround { events += "mutate" }
+        }
+
+        assertSame(shutdownFailure, failure)
+        assertEquals(listOf("install:old"), events)
     }
 
     @Test

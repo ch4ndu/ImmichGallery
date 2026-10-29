@@ -16,9 +16,12 @@ video playback, or desktop viewer shortcuts.
   Each host keys resolution by its owner, ordered asset ids, and source
   readiness/completeness so an incomplete source cannot be mistaken for an
   authoritative absence. A restored `Found` selection also reconstructs its
-  grid transition identity. Re-resolving an already-open source preserves the
-  pager's settled current asset rather than resetting return identity to the
-  originally tapped asset.
+  grid transition identity. Current-asset hosts re-resolve the settled asset
+  after the viewer has opened, retaining that distinction through temporary
+  `Pending` sources; removing the opening asset does not close a surviving
+  current page. Origin-return hosts still resolve their origin, because
+  Memories' source resolver deliberately accepts only its cover. Return origin
+  and settled media identity remain separate.
 - `StaticPhotoOverlay` pages an already materialized ordered asset list for
   those screens.
 - Timeline uses `TimelinePhotoOverlay` because its pager spans lazy buckets.
@@ -139,7 +142,9 @@ video playback, or desktop viewer shortcuts.
   candidates retain bucket/offset identity while assets materialize; loading
   state and loaded-ID maps must not reset the shuffle cycle.
 - `CoilZoomAsyncImage` owns pinch/pan zoom. Once zoomed, the media zoom gesture
-  takes precedence over drag dismissal.
+  takes precedence over drag dismissal. The still-page parent observes a
+  derived zoomed/unzoomed Boolean, so transform updates that leave that Boolean
+  unchanged stay within the image renderer rather than invalidating the parent.
 - A tap toggles viewer chrome when the detail sheet and slideshow are inactive.
 - The fitted media container owns drag transforms so the touched media point
   remains anchored during dismissal; snap-back restores identity only when the
@@ -157,9 +162,11 @@ video playback, or desktop viewer shortcuts.
   private AVFoundation header options.
 - iOS tries the authenticated original file first, then falls back to Immich's
   authenticated playback/transcode URL when AVPlayer fails or stalls. The
-  bounded fallback observer exists only while that pager page is current;
-  leaving cancels it and returning starts a fresh window while the original is
-  still selected.
+  normal failure observer exists only while that pager page is current.
+  Each source has a bounded readiness window; the original falls back first,
+  then a failed or never-ready playback source exposes Retry. Terminal item
+  failures remain observed after readiness. Leaving cancels observation, and
+  returning starts a fresh readiness window for the retained source.
 - iOS Picture in Picture is disabled. Enabling it requires a separate contract
   for AVAudioSession and host background-media capability.
 - Android uses MediaMP's ExoPlayer backend; desktop uses its mpv backend.
@@ -167,6 +174,15 @@ video playback, or desktop viewer shortcuts.
   authenticated source and slideshow request, closed on disposal. Opening is
   initially paused; current eligibility and user pause intent govern playback
   after opening. Normal end-of-media loops only while current and user-playing.
+- Normal video has page-owned Opening/Ready/Failed state. Opening failures and
+  terminal playback errors expose resource-backed feedback and Retry on the
+  current page even when ordinary chrome is hidden. Retry advances an attempt
+  identity and recreates the platform player (restarting iOS at its original
+  source), while preserving the same pager asset and user pause, mute, volume,
+  speed, and brightness intent. Position/duration reset for the new attempt;
+  stale attempt callbacks cannot complete or fail it. Failed/opening players
+  do not expose ordinary seek/play controls. Slideshow recovery stays with its
+  existing request-bound controller.
 - Desktop startup prepares the host-specific published mpv runtime from the
   classpath before player construction. Extraction/validation or native-load
   failures show the resource-backed recovery message, as do invalid media URLs.
