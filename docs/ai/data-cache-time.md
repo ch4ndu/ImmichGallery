@@ -30,6 +30,22 @@ For Timeline cold sync, warm launch, manual refresh, and no-op bucket refresh de
   unrelated historical orphans remain until session cache reset. Session
   admission plus the shared commit boundary serializes repository writers;
   each later writer upserts metadata before installing its references.
+- Timeline keeps session-only copies of metadata removed from its references so
+  a photo moving between buckets can still be recognized as known-edited after
+  SQL pruning. The session commit boundary serializes bounded preparation reads,
+  retained-copy access, and admitted DB writes; network requests stay outside it.
+  Persisted rows take precedence. Preparation validates both the persisted rows
+  and any retained copies before writing. DB commit and retained-copy publication
+  complete together in a narrowly non-cancellable section, and a failed
+  destination request leaves its copy available for retry. Destination writes
+  consume their copies. Unused copies are retired only by a successful full
+  bucket pass following metadata requested after those copies were retained,
+  with unchanged metadata and removal revisions. A removal watermark captured
+  before the metadata request prevents a late response from certifying a move
+  that occurred while it was in flight. Partial passes and concurrent removals
+  cannot retire pending copies.
+  Session reset clears the copies; app restart intentionally loses them. This
+  accepted memory-only policy changes no Room schema or SQL pruning rules.
 - Timeline Mosaic cache rows are split by purpose: assignments are width-independent, while section geometry, aggregate bucket geometry, and mixed display-record cache rows are width/key/version dependent. `PrepareTimelineMosaicCacheAction` and `TimelineMosaicArtifactBuilder` derive Timeline Mosaic artifacts through `MosaicRenderEngine`; `TimelineMosaicCacheRepository` persists, reads, clears, and validates these rows only. `TimelineRepository` stays bucket/asset-sync focused but may expose a bucket snapshot read of ordered assets plus metadata count for precompute. `ViewConfig.cacheMosaicResults = false` disables sync-time Timeline Mosaic artifact preparation and disk reads for rendering; materialized Timeline buckets compute runtime Mosaic state for the requested config only from render-demand work after active scrolling settles instead of fetching old rows from disk.
 - Album and Person detail Mosaic cache uses owner-scoped assignment, mixed display-record, section-geometry, and aggregate-geometry artifacts. Cache keys must include owner identity, group/section identity when section-scoped, Mosaic column count for every artifact type, normalized Mosaic families, ordered asset fingerprint, rounded geometry keys, and artifact version. Both detail screens must only persist/read owner Mosaic cache after the full asset set is known (`hasMore == false`).
 - Album and Person detail asset sync resolves edited-asset dimensions before its Room writer transaction. That transaction writes final asset rows and owner refs, detects the resulting ordered owner content, and clears all four artifact families for that owner only when it changed. A no-op page must not rewrite rows or invalidate artifacts. Detail edit resolution may reuse an exact resolved aspect only while the API-visible asset fields used by the cache match; otherwise it must resolve `/edits` again before writing. Because Room has no edit-revision or edit-dimensions fingerprint, an edit changed remotely without any of those visible fields remains cached until a later visible asset change or a cache reset.

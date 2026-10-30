@@ -118,6 +118,9 @@ For each bucket:
 3. Filter hidden assets before writing or presenting.
 4. Read incoming IDs from the shared asset table in bounded chunks, including
    Album/Person-only rows. Preserve filenames omitted by the columnar response.
+   If Room no longer has an incoming ID, use its session-only retained removal
+   metadata when available. Snapshot these reads under the session commit
+   boundary so they cannot race pruning and retained-copy publication.
    For previously known-edited assets, fetch full asset info and freshly resolve
    its edit actions. An authoritative `isEdited = false` removes obsolete edit
    metadata and restores the full response's aspect. Any required fetch or edit
@@ -135,10 +138,10 @@ For each bucket:
    - do not replace refs;
    - return `changed = false`.
 7. Otherwise:
-   - verify inside the writer transaction that incoming shared metadata still
-     matches the preparation snapshot; if another writer changed it, fail the
-     bucket without mutation and allow a later retry to reprepare;
-   - capture the bucket's current referenced asset IDs and upsert final assets;
+   - verify inside the writer transaction that incoming persisted metadata and
+     any retained copies still match the preparation snapshot; if another
+     writer changed them, fail the bucket and allow a later retry to reprepare;
+   - capture full metadata for IDs actually leaving this bucket and upsert final assets;
    - replace refs atomically, then prune captured IDs that no longer have any
      Timeline, Album, or Person reference;
    - refresh the bucket fingerprint and invalidate its Mosaic artifacts only
@@ -148,6 +151,27 @@ For each bucket:
 Removed-bucket metadata writes use the same candidate-only pruning inside their
 transaction. Count-changed buckets retain their cached references and metadata
 until successful asset refresh; no global orphan sweep is performed.
+
+After an admitted removal transaction commits, `TimelineRepository` retains its
+removed metadata in memory before releasing the session commit boundary. This
+handoff and the DB commit are narrowly non-cancellable. Persisted rows always
+override retained copies; successful destination writes consume their copies.
+A fallback-based preparation must take the write path to install destination
+rows/refs. Failed or cancelled destination preparation retains its copies for
+retry. Session reset clears them; app restart intentionally loses them under
+the accepted memory-only policy. SQL pruning and Room schema are unchanged.
+
+Unused copies are retired conservatively: metadata sync captures the removal
+watermark before its network request. A full asset pass snapshots only copies
+at or below that watermark, and only if its requested buckets equal the current
+Room metadata set. A late metadata response cannot certify removals that happened
+while it was in flight. After every bucket
+succeeds, it removes only those same copies if the metadata revision is still
+current. Metadata-only refresh, partial/failing bulk passes, and new removals
+cannot evict pending copies. Copies created during metadata sync or an asset
+pass may therefore wait for the next metadata-plus-full refresh if no destination
+consumes them. This also protects moves into a month absent from a cached bucket
+list. Optional cleanup failure does not hide already committed bucket results.
 
 The returned `changed` value is a layout/content invalidation signal, not merely a network success signal.
 

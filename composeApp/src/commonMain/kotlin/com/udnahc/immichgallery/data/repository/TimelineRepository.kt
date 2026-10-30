@@ -27,6 +27,7 @@ import com.udnahc.immichgallery.domain.model.toEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -54,6 +55,12 @@ class TimelineRepository(
     private val log = logging("TimelineRepository")
     // Shared by all bucket syncs on this repository, rather than multiplied per concurrent bucket.
     private val editedAssetRefreshPermits = Semaphore(EDITED_ASSET_REFRESH_PARALLELISM)
+    // Access only inside the session commit/mutation boundary. Room rows take precedence;
+    // these session-only copies bridge the gap between source and destination bucket writes.
+    private val removedAssetMetadata = mutableMapOf<String, RemovedAssetMetadata>()
+    private var removalRevision = 0L
+    private var metadataRevision = 0L
+    private var metadataRemovalWatermark = 0L
 
     private fun baseUrl(): String = serverConfigRepository.getServerUrl().trimEnd('/')
 
@@ -127,6 +134,8 @@ class TimelineRepository(
     suspend fun syncBuckets(): Result<TimelineBucketSyncResult> {
         return sessionStateRepository.withOperation { token -> try {
             log.d { "Timeline bucket metadata repository sync started" }
+            // A late metadata response cannot certify removals that happened while it was in flight.
+            val removalWatermark = sessionStateRepository.withCommit(token) { removalRevision }
             val responses = apiService.getTimelineBuckets()
             log.d { "Timeline bucket metadata fetched responseCount=<redacted>" }
             val entities = responses.mapIndexed { index, response ->
@@ -144,29 +153,36 @@ class TimelineRepository(
                         "previous=<redacted> next=<redacted>"
             }
             sessionStateRepository.withCommit(token) {
-                withContext(Dispatchers.IO) {
+                // Finish an admitted DB commit and its in-memory handoff together, even on cancellation.
+                withContext(NonCancellable + Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
-                        transactor.immediateTransaction {
-                        if (metadataChanges.metadataChanged) {
-                            // Count-changed buckets keep their old refs so cached Timeline
-                            // rows remain visible until that bucket's asset refresh
-                            // succeeds. Removed buckets are the only metadata-sync case
-                            // that can safely clear relationship rows immediately.
-                            removedBucketIds.forEach { timeBucket ->
-                                val removedAssetIds = timelineDao.getTimelineAssetIds(timeBucket)
-                                timelineDao.clearTimelineRefsForBucket(timeBucket)
-                                timelineDao.deleteBucketSnapshot(timeBucket)
-                                assetDao.pruneRemovedAssetCandidates(removedAssetIds)
+                        val removedAssets = transactor.immediateTransaction {
+                            val removedAssets = mutableListOf<AssetEntity>()
+                            if (metadataChanges.metadataChanged) {
+                                // Count-changed buckets keep their old refs so cached Timeline
+                                // rows remain visible until that bucket's asset refresh
+                                // succeeds. Removed buckets can clear relationship rows now;
+                                // retained metadata below still lets assets move to other months.
+                                removedBucketIds.forEach { timeBucket ->
+                                    val removedAssetIds = timelineDao.getTimelineAssetIds(timeBucket)
+                                    removedAssets += readAssetRows(removedAssetIds)
+                                    timelineDao.clearTimelineRefsForBucket(timeBucket)
+                                    timelineDao.deleteBucketSnapshot(timeBucket)
+                                    assetDao.pruneRemovedAssetCandidates(removedAssetIds)
+                                }
+                                timelineDao.replaceBuckets(entities)
                             }
-                            timelineDao.replaceBuckets(entities)
-                        }
-                        syncMetadataDao.upsert(
-                            SyncMetadataEntity(
-                                SYNC_SCOPE_TIMELINE_BUCKETS,
-                                currentEpochMillis()
+                            syncMetadataDao.upsert(
+                                SyncMetadataEntity(
+                                    SYNC_SCOPE_TIMELINE_BUCKETS,
+                                    currentEpochMillis()
+                                )
                             )
-                        )
+                            removedAssets
                         }
+                        retainRemovedAssetMetadata(removedAssets)
+                        metadataRevision++
+                        metadataRemovalWatermark = removalWatermark
                     }
                 }
             }
@@ -206,12 +222,11 @@ class TimelineRepository(
                         "visible=<redacted> hidden=<redacted>"
             }
             // A newly materialized bucket can contain rows already learned through Album/Person.
-            val cachedById = withContext(Dispatchers.IO) {
-                filtered.chunked(ASSET_ID_QUERY_CHUNK_SIZE)
-                    .flatMap { chunk -> assetDao.getAssetsByIds(chunk.map { it.id }) }
-                    .associateBy { it.id }
+            val incomingIds = filtered.map { it.id }
+            val preparation = sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) { readAssetPreparation(incomingIds) }
             }
-            val assetEntities = prepareTimelineAssets(filtered, cachedById)
+            val assetEntities = prepareTimelineAssets(filtered, preparation.knownAssets)
             val crossRefs = filtered.mapIndexed { index, response ->
                 TimelineAssetCrossRef(timeBucket, response.id, index)
             }
@@ -219,7 +234,9 @@ class TimelineRepository(
                 .filter { it.isEdited }
                 .map { it.id }
                 .toSet()
-            if (shouldSkipTimelineBucketAssetWrite(
+            // A retained copy still needs its destination rows/refs installed, even if an
+            // earlier pre-fetch read happened to see identical content before another removal.
+            if (preparation.retained.isEmpty() && shouldSkipTimelineBucketAssetWrite(
                     before = before,
                     candidateAssets = assetEntities,
                     editedAssetIdsWithDimensions = editedAssetIdsWithDimensions
@@ -237,16 +254,17 @@ class TimelineRepository(
             }
             val changed = timelineBucketAssetsChanged(before, assetEntities)
             sessionStateRepository.withCommit(token) {
-                withContext(Dispatchers.IO) {
+                withContext(NonCancellable + Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
-                        transactor.immediateTransaction {
-                            val currentById = filtered.chunked(ASSET_ID_QUERY_CHUNK_SIZE)
-                                .flatMap { chunk -> assetDao.getAssetsByIds(chunk.map { it.id }) }
-                                .associateBy { it.id }
+                        val removedAssets = transactor.immediateTransaction {
+                            val current = readAssetPreparation(incomingIds)
                             // Another owner may have learned richer metadata while these requests
                             // were in flight. Retry from that state instead of overwriting it.
-                            check(currentById == cachedById) { "Shared asset metadata changed during Timeline preparation" }
+                            check(current == preparation) { "Shared asset metadata changed during Timeline preparation" }
+                            val incomingIdSet = incomingIds.toSet()
                             val removedAssetCandidates = timelineDao.getTimelineAssetIds(timeBucket)
+                                .filterNot { it in incomingIdSet }
+                            val removedAssets = readAssetRows(removedAssetCandidates)
                             assetDao.upsertAssetsRefreshingTimelineSnapshots(assetEntities)
                             timelineDao.replaceBucketRefs(timeBucket, crossRefs)
                             assetDao.pruneRemovedAssetCandidates(removedAssetCandidates)
@@ -254,7 +272,10 @@ class TimelineRepository(
                             if (changed) {
                                 clearTimelineMosaicArtifactsForBucket(timeBucket)
                             }
+                            removedAssets
                         }
+                        retainRemovedAssetMetadata(removedAssets)
+                        incomingIds.forEach { removedAssetMetadata.remove(it) }
                     }
                 }
             }
@@ -275,6 +296,42 @@ class TimelineRepository(
             Result.failure(e)
         } }
     }
+
+    // Call under the session commit boundary, on IO, so DB pruning cannot race the fallback read.
+    private suspend fun readAssetPreparation(ids: List<String>): AssetPreparation {
+        val persisted = readAssetRows(ids).associateBy { it.id }
+        val retained = ids.filterNot { it in persisted }.mapNotNull { id ->
+            removedAssetMetadata[id]?.let { id to it }
+        }.toMap()
+        return AssetPreparation(persisted, retained)
+    }
+
+    private suspend fun readAssetRows(ids: List<String>): List<AssetEntity> =
+        ids.chunked(ASSET_ID_QUERY_CHUNK_SIZE).flatMap { assetDao.getAssetsByIds(it) }
+
+    private fun retainRemovedAssetMetadata(assets: List<AssetEntity>) {
+        assets.forEach { asset ->
+            removedAssetMetadata[asset.id] = RemovedAssetMetadata(asset, ++removalRevision)
+        }
+    }
+
+    private data class RemovedAssetMetadata(
+        val asset: AssetEntity,
+        val removalRevision: Long
+    )
+
+    private data class AssetPreparation(
+        val persisted: Map<String, AssetEntity>,
+        val retained: Map<String, RemovedAssetMetadata>
+    ) {
+        val knownAssets: Map<String, AssetEntity> get() = retained.mapValues { it.value.asset } + persisted
+    }
+
+    private data class RemovalCleanupSnapshot(
+        val metadataRevision: Long,
+        val bucketIds: Set<String>,
+        val candidates: Map<String, RemovedAssetMetadata>
+    )
 
     private suspend fun prepareTimelineAssets(
         responses: List<AssetResponse>,
@@ -328,7 +385,21 @@ class TimelineRepository(
     suspend fun syncAllBucketAssets(
         buckets: List<TimelineBucket>
     ): Result<TimelineAssetSyncResult> {
-        return sessionStateRepository.withOperation { try {
+        return sessionStateRepository.withOperation { token -> try {
+            val cleanup = sessionStateRepository.withCommit(token) {
+                withContext(Dispatchers.IO) {
+                    val bucketIds = buckets.map { it.timeBucket }.toSet()
+                    if (metadataRevision == 0L || bucketIds != timelineDao.getBuckets().map { it.timeBucket }.toSet()) {
+                        null
+                    } else {
+                        RemovalCleanupSnapshot(
+                            metadataRevision,
+                            bucketIds,
+                            removedAssetMetadata.filterValues { it.removalRevision <= metadataRemovalWatermark }
+                        )
+                    }
+                }
+            }
             log.d { "Starting timeline asset sync for <redacted> buckets with parallelism=<redacted>" }
             val semaphore = Semaphore(FULL_SYNC_BUCKET_PARALLELISM)
             val progressMutex = Mutex()
@@ -357,6 +428,28 @@ class TimelineRepository(
                 return@withOperation Result.failure(error)
             }
             val assetResult = syncResult.getOrThrow()
+            if (assetResult.failedBucketIds.isEmpty() && cleanup != null) {
+                // Only a metadata-certified full pass can retire unused copies. A partial retry,
+                // changed metadata, or a newer removal must retain them for a later full refresh.
+                try {
+                    sessionStateRepository.withCommit(token) {
+                        withContext(Dispatchers.IO) {
+                            if (metadataRevision == cleanup.metadataRevision &&
+                                cleanup.bucketIds == timelineDao.getBuckets().map { it.timeBucket }.toSet()
+                            ) {
+                                cleanup.candidates.forEach { (id, candidate) ->
+                                    if (removedAssetMetadata[id] == candidate) removedAssetMetadata.remove(id)
+                                }
+                            }
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Cache maintenance must not hide bucket changes that already committed.
+                    log.e { "Timeline removed metadata cleanup deferred" }
+                }
+            }
             log.d { "Finished timeline asset sync: successful=<redacted> failed=<redacted> total=<redacted>" }
             Result.success(assetResult)
         } catch (e: CancellationException) {
@@ -372,13 +465,17 @@ class TimelineRepository(
     }
 
     internal suspend fun clearCacheForSessionMutation() {
-        withContext(Dispatchers.IO) {
+        withContext(NonCancellable + Dispatchers.IO) {
             database.useWriterConnection { transactor ->
                 transactor.immediateTransaction {
                     timelineDao.clearBuckets()
                     timelineDao.clearAllTimelineRefs()
                     timelineDao.clearAllBucketSnapshots()
                 }
+                removedAssetMetadata.clear()
+                removalRevision = 0L
+                metadataRevision = 0L
+                metadataRemovalWatermark = 0L
             }
         }
     }

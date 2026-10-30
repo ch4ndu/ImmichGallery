@@ -127,6 +127,464 @@ class AlbumRepositoryJvmTest {
     }
 
     @Test
+    fun timelineMoveFromRemovedBucketRevalidatesKnownEditInDestination() = runTest {
+        var detailRequests = 0
+        var editRequests = 0
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" -> """[{"timeBucket":"2026-02","count":1}]"""
+                "/api/timeline/bucket" -> {
+                    assertEquals("2026-02", request.url.parameters["timeBucket"])
+                    timelineBucket(listOf("edited"))
+                }
+                "/api/assets/edited" -> {
+                    detailRequests++
+                    assetDetail("edited", isEdited = true)
+                }
+                "/api/assets/edited/edits" -> {
+                    editRequests++
+                    croppedEdits
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            database.timelineDao().replaceBuckets(listOf(TimelineBucketEntity("2026-01", "", 1, 0)))
+
+            val metadata = timelineRepository.syncBuckets().getOrThrow()
+            assertEquals(setOf("2026-01"), metadata.removedBucketIds)
+            assertTrue(database.assetDao().getTimelineAssets("2026-01").isEmpty())
+            assertTrue(timelineRepository.syncBucketAssets("2026-02").getOrThrow().changed)
+
+            val asset = database.assetDao().getTimelineAssets("2026-02").single()
+            assertEquals("edited.jpg", asset.fileName)
+            assertTrue(asset.isEdited)
+            assertTrue(asset.editsResolved)
+            assertEquals(0.5f, asset.aspectRatio)
+            assertEquals(1, detailRequests)
+            assertEquals(1, editRequests)
+        }
+    }
+
+    @Test
+    fun timelineMoveFromRetainedBucketRevalidatesAfterSourceRefreshCommits() = runTest {
+        var detailRequests = 0
+        var editRequests = 0
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" ->
+                    """[{"timeBucket":"2026-02","count":1},{"timeBucket":"2026-01","count":1}]"""
+                "/api/timeline/bucket" -> when (request.url.parameters["timeBucket"]) {
+                    "2026-01" -> timelineBucket(listOf("remaining"))
+                    "2026-02" -> timelineBucket(listOf("edited"))
+                    else -> error("Unexpected bucket ${request.url}")
+                }
+                "/api/assets/edited" -> {
+                    detailRequests++
+                    assetDetail("edited", isEdited = true)
+                }
+                "/api/assets/edited/edits" -> {
+                    editRequests++
+                    croppedEdits
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            database.assetDao().upsertAssets(listOf(assetEntity("remaining")))
+            database.timelineDao().replaceBuckets(listOf(TimelineBucketEntity("2026-01", "", 2, 0)))
+            database.timelineDao().upsertTimelineRefs(listOf(TimelineAssetCrossRef("2026-01", "remaining", 1)))
+
+            val metadata = timelineRepository.syncBuckets().getOrThrow()
+            assertTrue(metadata.removedBucketIds.isEmpty())
+            assertTrue(timelineRepository.syncBucketAssets("2026-01").getOrThrow().changed)
+            assertEquals(listOf("remaining"), database.assetDao().getTimelineAssets("2026-01").map { it.id })
+            assertTrue(timelineRepository.syncBucketAssets("2026-02").getOrThrow().changed)
+
+            val asset = database.assetDao().getTimelineAssets("2026-02").single()
+            assertEquals("edited.jpg", asset.fileName)
+            assertTrue(asset.isEdited)
+            assertTrue(asset.editsResolved)
+            assertEquals(0.5f, asset.aspectRatio)
+            assertEquals(1, detailRequests)
+            assertEquals(1, editRequests)
+        }
+    }
+
+    @Test
+    fun timelineMoveKeepsKnownMetadataAfterDestinationEditFailureForRetry() = runTest {
+        var failEdits = true
+        var detailRequests = 0
+        var editRequests = 0
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" -> """[{"timeBucket":"2026-02","count":1}]"""
+                "/api/timeline/bucket" -> timelineBucket(listOf("edited"))
+                "/api/assets/edited" -> {
+                    detailRequests++
+                    assetDetail("edited", isEdited = true)
+                }
+                "/api/assets/edited/edits" -> {
+                    editRequests++
+                    if (failEdits) error("Unavailable destination edits")
+                    croppedEdits
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            database.timelineDao().replaceBuckets(listOf(TimelineBucketEntity("2026-01", "", 1, 0)))
+
+            timelineRepository.syncBuckets().getOrThrow()
+            assertTrue(timelineRepository.syncBucketAssets("2026-02").isFailure)
+            assertEquals(1, detailRequests)
+            assertEquals(1, editRequests)
+            assertTrue(database.assetDao().getTimelineAssets("2026-02").isEmpty())
+
+            failEdits = false
+            assertTrue(timelineRepository.syncBucketAssets("2026-02").getOrThrow().changed)
+
+            val asset = database.assetDao().getTimelineAssets("2026-02").single()
+            assertEquals("edited.jpg", asset.fileName)
+            assertTrue(asset.isEdited)
+            assertTrue(asset.editsResolved)
+            assertEquals(0.5f, asset.aspectRatio)
+            assertEquals(2, detailRequests)
+            assertEquals(2, editRequests)
+        }
+    }
+
+    @Test
+    fun timelineCachedListPassKeepsMetadataRemovedAfterItsMetadataRefresh() = runTest {
+        var detailRequests = 0
+        var editRequests = 0
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" -> """[{"timeBucket":"2026-01","count":1}]"""
+                "/api/timeline/bucket" -> when (request.url.parameters["timeBucket"]) {
+                    "2026-01" -> timelineBucket(emptyList())
+                    "2026-02" -> timelineBucket(listOf("edited"))
+                    else -> error("Unexpected bucket ${request.url}")
+                }
+                "/api/assets/edited" -> {
+                    detailRequests++
+                    assetDetail("edited", isEdited = true)
+                }
+                "/api/assets/edited/edits" -> {
+                    editRequests++
+                    croppedEdits
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            val metadata = timelineRepository.syncBuckets().getOrThrow()
+            timelineRepository.syncBucketAssets("2026-01").getOrThrow()
+            assertTrue(database.assetDao().getAssetsByIds(listOf("edited")).isEmpty())
+
+            val result = timelineRepository.syncAllBucketAssets(metadata.buckets).getOrThrow()
+            assertTrue(result.failedBucketIds.isEmpty())
+            timelineRepository.syncBucketAssets("2026-02").getOrThrow()
+
+            val asset = database.assetDao().getTimelineAssets("2026-02").single()
+            assertEquals("edited.jpg", asset.fileName)
+            assertTrue(asset.isEdited)
+            assertEquals(0.5f, asset.aspectRatio)
+            assertEquals(1, detailRequests)
+            assertEquals(1, editRequests)
+        }
+    }
+
+    @Test
+    fun timelineMetadataRequestStartedBeforeRemovalCannotRetireItsEditKnowledge() = runTest {
+        val delayedMetadataStarted = CompletableDeferred<Unit>()
+        val releaseDelayedMetadata = CompletableDeferred<Unit>()
+        var metadataRequests = 0
+        var detailRequests = 0
+        var editRequests = 0
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" -> {
+                    metadataRequests++
+                    if (metadataRequests == 2) {
+                        delayedMetadataStarted.complete(Unit)
+                        releaseDelayedMetadata.await()
+                    }
+                    """[{"timeBucket":"2026-01","count":1}]"""
+                }
+                "/api/timeline/bucket" -> when (request.url.parameters["timeBucket"]) {
+                    "2026-01" -> timelineBucket(emptyList())
+                    "2026-02" -> timelineBucket(listOf("edited"))
+                    else -> error("Unexpected bucket ${request.url}")
+                }
+                "/api/assets/edited" -> {
+                    detailRequests++
+                    assetDetail("edited", isEdited = true)
+                }
+                "/api/assets/edited/edits" -> {
+                    editRequests++
+                    croppedEdits
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            timelineRepository.syncBuckets().getOrThrow()
+            val delayedMetadata = async { timelineRepository.syncBuckets().getOrThrow() }
+            delayedMetadataStarted.await()
+
+            timelineRepository.syncBucketAssets("2026-01").getOrThrow()
+            assertTrue(database.assetDao().getAssetsByIds(listOf("edited")).isEmpty())
+            releaseDelayedMetadata.complete(Unit)
+            val staleMetadata = delayedMetadata.await()
+            assertEquals(listOf("2026-01"), staleMetadata.buckets.map { it.timeBucket })
+            val result = timelineRepository.syncAllBucketAssets(staleMetadata.buckets).getOrThrow()
+            assertTrue(result.failedBucketIds.isEmpty())
+            timelineRepository.syncBucketAssets("2026-02").getOrThrow()
+
+            val asset = database.assetDao().getTimelineAssets("2026-02").single()
+            assertEquals("edited.jpg", asset.fileName)
+            assertTrue(asset.isEdited)
+            assertTrue(asset.editsResolved)
+            assertEquals(0.5f, asset.aspectRatio)
+            assertEquals(1, detailRequests)
+            assertEquals(1, editRequests)
+        }
+    }
+
+    @Test
+    fun timelineMetadataRefreshDuringFullPassPreventsStaleMetadataRetirement() = runTest {
+        val fullPassStarted = CompletableDeferred<Unit>()
+        val releaseFullPass = CompletableDeferred<Unit>()
+        var metadataRequests = 0
+        var detailRequests = 0
+        var editRequests = 0
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" -> {
+                    metadataRequests++
+                    if (metadataRequests <= 2) {
+                        """[{"timeBucket":"2026-02","count":1}]"""
+                    } else {
+                        """[{"timeBucket":"2026-03","count":1}]"""
+                    }
+                }
+                "/api/timeline/bucket" -> when (request.url.parameters["timeBucket"]) {
+                    "2026-02" -> {
+                        fullPassStarted.complete(Unit)
+                        releaseFullPass.await()
+                        timelineBucket(emptyList())
+                    }
+                    "2026-03" -> timelineBucket(listOf("edited"))
+                    else -> error("Unexpected bucket ${request.url}")
+                }
+                "/api/assets/edited" -> {
+                    detailRequests++
+                    assetDetail("edited", isEdited = true)
+                }
+                "/api/assets/edited/edits" -> {
+                    editRequests++
+                    croppedEdits
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            database.timelineDao().replaceBuckets(listOf(TimelineBucketEntity("2026-01", "", 1, 0)))
+            timelineRepository.syncBuckets().getOrThrow()
+            // Certify the retained copy before the pass so only the concurrent metadata change saves it.
+            val metadata = timelineRepository.syncBuckets().getOrThrow()
+            val fullPass = async { timelineRepository.syncAllBucketAssets(metadata.buckets).getOrThrow() }
+            fullPassStarted.await()
+
+            val newer = timelineRepository.syncBuckets().getOrThrow()
+            assertEquals(listOf("2026-03"), newer.buckets.map { it.timeBucket })
+            releaseFullPass.complete(Unit)
+            assertTrue(fullPass.await().failedBucketIds.isEmpty())
+            timelineRepository.syncBucketAssets("2026-03").getOrThrow()
+
+            val asset = database.assetDao().getTimelineAssets("2026-03").single()
+            assertEquals("edited.jpg", asset.fileName)
+            assertTrue(asset.isEdited)
+            assertEquals(0.5f, asset.aspectRatio)
+            assertEquals(1, detailRequests)
+            assertEquals(1, editRequests)
+        }
+    }
+
+    @Test
+    fun timelinePersistedAuthoritativeMetadataWinsOverRetainedEdit() = runTest {
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" -> """[{"timeBucket":"2026-02","count":1}]"""
+                "/api/timeline/bucket" -> timelineBucket(listOf("edited"))
+                else -> error("Persisted unedited metadata must not request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            database.timelineDao().replaceBuckets(listOf(TimelineBucketEntity("2026-01", "", 1, 0)))
+            timelineRepository.syncBuckets().getOrThrow()
+            database.assetDao().upsertAssets(listOf(
+                assetEntity("edited").copy(fileName = "authoritative.jpg", aspectRatio = 2f)
+            ))
+            database.albumDao().replaceAlbumRefs("album-1", listOf(AlbumAssetCrossRef("album-1", "edited", 0)))
+
+            timelineRepository.syncBucketAssets("2026-02").getOrThrow()
+
+            val asset = database.assetDao().getTimelineAssets("2026-02").single()
+            assertEquals("authoritative.jpg", asset.fileName)
+            assertEquals(false, asset.isEdited)
+            assertEquals(false, asset.editsResolved)
+            assertEquals(2f, asset.aspectRatio)
+        }
+    }
+
+    @Test
+    fun timelineSessionResetDiscardsRetainedMetadata() = runTest {
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" -> """[{"timeBucket":"2026-02","count":1}]"""
+                "/api/timeline/bucket" -> timelineBucket(listOf("edited"))
+                else -> error("A replacement session must not reuse edit knowledge for ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            database.timelineDao().replaceBuckets(listOf(TimelineBucketEntity("2026-01", "", 1, 0)))
+            timelineRepository.syncBuckets().getOrThrow()
+
+            session.mutate {
+                timelineRepository.clearCacheForSessionMutation()
+                database.assetDao().clearAll()
+            }
+            timelineRepository.syncBucketAssets("2026-02").getOrThrow()
+
+            val asset = database.assetDao().getTimelineAssets("2026-02").single()
+            assertEquals("", asset.fileName)
+            assertEquals(false, asset.isEdited)
+            assertEquals(false, asset.editsResolved)
+            assertEquals(2f, asset.aspectRatio)
+        }
+    }
+
+    @Test
+    fun timelineSuccessfulFullPassAfterNewMetadataRetiresGenuinelyRemovedEdit() = runTest {
+        var metadataRequests = 0
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" -> {
+                    metadataRequests++
+                    if (metadataRequests == 1) {
+                        """[{"timeBucket":"2026-01","count":1}]"""
+                    } else {
+                        """[{"timeBucket":"2026-02","count":1}]"""
+                    }
+                }
+                "/api/timeline/bucket" -> when (request.url.parameters["timeBucket"]) {
+                    "2026-01" -> timelineBucket(emptyList())
+                    "2026-02" -> timelineBucket(listOf("remaining"))
+                    "2026-03" -> timelineBucket(listOf("edited"))
+                    else -> error("Unexpected bucket ${request.url}")
+                }
+                else -> error("Retired edit knowledge must not request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            timelineRepository.syncBuckets().getOrThrow()
+            timelineRepository.syncBucketAssets("2026-01").getOrThrow()
+            val newer = timelineRepository.syncBuckets().getOrThrow()
+
+            val result = timelineRepository.syncAllBucketAssets(newer.buckets).getOrThrow()
+            assertTrue(result.failedBucketIds.isEmpty())
+            assertTrue(database.assetDao().getAssetsByIds(listOf("edited")).isEmpty())
+            timelineRepository.syncBucketAssets("2026-03").getOrThrow()
+
+            val asset = database.assetDao().getTimelineAssets("2026-03").single()
+            assertEquals("", asset.fileName)
+            assertEquals(false, asset.isEdited)
+            assertEquals(2f, asset.aspectRatio)
+        }
+    }
+
+    @Test
+    fun timelinePartialFullPassKeepsRetainedEditForFailedDestinationRetry() = runTest {
+        var failDestination = true
+        var detailRequests = 0
+        var editRequests = 0
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/api/server/version" -> serverVersion
+                "/api/timeline/buckets" ->
+                    """[{"timeBucket":"2026-03","count":1},{"timeBucket":"2026-02","count":1}]"""
+                "/api/timeline/bucket" -> when (request.url.parameters["timeBucket"]) {
+                    "2026-02" -> timelineBucket(listOf("remaining"))
+                    "2026-03" -> {
+                        if (failDestination) error("Unavailable destination bucket")
+                        timelineBucket(listOf("edited"))
+                    }
+                    else -> error("Unexpected bucket ${request.url}")
+                }
+                "/api/assets/edited" -> {
+                    detailRequests++
+                    assetDetail("edited", isEdited = true)
+                }
+                "/api/assets/edited/edits" -> {
+                    editRequests++
+                    croppedEdits
+                }
+                else -> error("Unexpected request ${request.url.encodedPath}")
+            }
+            respond(body, headers = jsonHeaders)
+        }
+        withRepository(engine) {
+            seedTimelineEditedAsset()
+            database.timelineDao().replaceBuckets(listOf(TimelineBucketEntity("2026-01", "", 1, 0)))
+            timelineRepository.syncBuckets().getOrThrow()
+            // Make cleanup eligible; the failed sibling must prevent retirement.
+            val metadata = timelineRepository.syncBuckets().getOrThrow()
+
+            val result = timelineRepository.syncAllBucketAssets(metadata.buckets).getOrThrow()
+            assertEquals(setOf("2026-02"), result.successfulBucketIds)
+            assertEquals(setOf("2026-03"), result.failedBucketIds)
+            failDestination = false
+            timelineRepository.syncBucketAssets("2026-03").getOrThrow()
+
+            val asset = database.assetDao().getTimelineAssets("2026-03").single()
+            assertEquals("edited.jpg", asset.fileName)
+            assertTrue(asset.isEdited)
+            assertEquals(0.5f, asset.aspectRatio)
+            assertEquals(1, detailRequests)
+            assertEquals(1, editRequests)
+        }
+    }
+
+    @Test
     fun timelineConcurrentSharedMetadataChangePreservesNewerCache() = runTest {
         val detailStarted = CompletableDeferred<Unit>()
         val releaseDetail = CompletableDeferred<Unit>()
@@ -526,7 +984,7 @@ class AlbumRepositoryJvmTest {
             database.syncMetadataDao(), config, editsEnricher, session
         )
         try {
-            RepositoryHarness(database, repository, client, tempDir, editsEnricher, timelineRepository).block()
+            RepositoryHarness(database, repository, client, tempDir, editsEnricher, timelineRepository, session).block()
         } finally {
             client.close()
             database.close()
@@ -540,7 +998,8 @@ class AlbumRepositoryJvmTest {
         val client: HttpClient,
         val tempDir: File,
         val editsEnricher: AssetEditsEnricher,
-        val timelineRepository: TimelineRepository
+        val timelineRepository: TimelineRepository,
+        val session: SessionStateRepository
     )
 
     private suspend fun RepositoryHarness.seedTimelineEditedAsset() {

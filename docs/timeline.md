@@ -174,6 +174,14 @@ Timeline uses multiple cache layers, each with a different purpose.
 - Room `timeline_asset_refs`: ordered relationship rows from bucket to asset.
 - Room `assets`: shared asset metadata used by timeline, details, albums, and
   people where applicable.
+- `TimelineRepository` retains removed asset metadata in session memory while
+  a move between months is unresolved. Destination preparation uses it only
+  when Room has no row, then revalidates known edits. Successful destination
+  writes consume it; unused copies wait for a successful full pass after bucket
+  metadata requested after their removal. Failures preserve it for retry.
+  Session reset clears it,
+  and app restart intentionally loses it; Room schema and candidate-only SQL
+  pruning remain unchanged.
 - Room `timeline_mosaic_assignments`: persisted Mosaic assignments for a bucket
   or day section, keyed by group mode, configured column count, asset fingerprint, and
   enabled Mosaic families.
