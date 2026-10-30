@@ -86,7 +86,8 @@ For a new persisted cache entity or schema change:
 - Android API-37 permissions that need an Activity Result launcher must bind from each `MainActivity` instance; do not route them through the process-wide weak activity reference used by unrelated utility helpers. Keep the platform controller behind a domain Action so ViewModels never access Android APIs directly.
 - Local developer login defaults come from gitignored root `local.properties` keys `immichGallery.loginServerUrl` and `immichGallery.loginApiKey`; Gradle generates blank-fallback common constants for builds where those keys are absent.
 - Distribution gates reject a generated nonblank API-key default on Android
-  release, release Apple framework, Xcode archive, and desktop package paths.
+  release, release Apple framework, Xcode archive, and desktop package paths,
+  including regular and release Uber-JAR tasks (which are not `AbstractJPackageTask`).
   `-PimmichGallery.includeLocalLoginDefaults=false` generates blank defaults
   without editing local credentials. The gate reads only a generated presence
   marker and never logs the key; ordinary development builds retain prefill.

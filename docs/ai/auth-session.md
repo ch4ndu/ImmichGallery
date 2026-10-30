@@ -192,7 +192,8 @@ defaults prefill Login only; they do not bypass validation.
 
 Distribution verification rejects generated nonblank API-key defaults before
 Android release packaging, release Apple framework linking, Xcode archives,
-and desktop packaging. Explicitly setting the Gradle property
+and desktop packaging, including both `packageUberJarForCurrentOS` and
+`packageReleaseUberJarForCurrentOS`. Explicitly setting the Gradle property
 `immichGallery.includeLocalLoginDefaults=false` produces blank URL/key defaults
 while leaving local input files untouched. Development prefill remains enabled
 by default. The packaging check consumes a generated presence-only marker;

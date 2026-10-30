@@ -60,6 +60,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -161,7 +162,20 @@ class PhotoGridDetailLayoutCoordinator<S>(
                 if (!foregroundActive.value) return@withLock
                 mosaicWorkScheduler.setActiveForegroundOwner(ownerKey)
                 val snapshot = snapshotOf(getState())
-                if (snapshot.availableWidth > 0f && snapshot.assets.isNotEmpty()) scheduleDisplayItems()
+                if (snapshot.availableWidth > 0f && snapshot.assets.isNotEmpty()) {
+                    scheduleDisplayItems()
+                    // Full layouts preserve failed groups; rearm their cancelled
+                    // backoff against the generation installed above.
+                    val runnableIndexes = visibleBucketWindow()
+                    val retryDelayMs = runtimeGroupStates.entries
+                        .filter { (key, state) ->
+                            key.bucketIndex in runnableIndexes &&
+                                groupDisplayCache[key] == null &&
+                                state is DetailRuntimeMosaicGroupState.RetryableFailure
+                        }
+                        .maxOfOrNull { (_, state) -> detailRetryDelayMs(state.attempts) }
+                    if (retryDelayMs != null) scheduleIncompleteMosaicResumeLocked(delayMs = retryDelayMs)
+                }
             }
         }
     }
@@ -1149,12 +1163,23 @@ class PhotoGridDetailLayoutCoordinator<S>(
 
     private fun scheduleIncompleteMosaicResume(delayMs: Long = 0L) {
         if (!foregroundActive.value) return
+        scope.launch(backgroundDispatcher) {
+            mosaicRuntimeStateMutex.withLock {
+                scheduleIncompleteMosaicResumeLocked(delayMs)
+            }
+        }
+    }
+
+    private fun scheduleIncompleteMosaicResumeLocked(delayMs: Long = 0L) {
+        if (!foregroundActive.value) return
         if (resumeMosaicJob?.isActive == true) {
             resumeRequestedAgain = true
             if (delayMs > requestedResumeDelayMs) requestedResumeDelayMs = delayMs
             return
         }
-        resumeMosaicJob = scope.launch(backgroundDispatcher) {
+        resumeRequestedAgain = false
+        requestedResumeDelayMs = 0L
+        val resumeJob = scope.launch(backgroundDispatcher, start = CoroutineStart.LAZY) {
             try {
                 sessionOperationRunner.runForOwner(ownerSessionEpoch) resumeOperation@{
                     if (delayMs > 0L) delay(delayMs)
@@ -1220,16 +1245,27 @@ class PhotoGridDetailLayoutCoordinator<S>(
                     cacheCurrentDisplayIfComplete(snapshot.displayCacheKey(revision), keyedGroups)
                 }
             } finally {
-                val shouldRunAgain = resumeRequestedAgain
-                val nextDelay = requestedResumeDelayMs
-                resumeRequestedAgain = false
-                requestedResumeDelayMs = 0L
-                resumeMosaicJob = null
-                if (shouldRunAgain) {
-                    scheduleIncompleteMosaicResume(delayMs = nextDelay)
+                val completedJob = currentCoroutineContext()[Job]
+                withContext(NonCancellable) {
+                    mosaicRuntimeStateMutex.withLock {
+                        // Admission and cleanup share the lock so cancelled
+                        // cleanup cannot clear a replacement job or its flags.
+                        if (resumeMosaicJob === completedJob) {
+                            val shouldRunAgain = resumeRequestedAgain
+                            val nextDelay = requestedResumeDelayMs
+                            resumeRequestedAgain = false
+                            requestedResumeDelayMs = 0L
+                            resumeMosaicJob = null
+                            if (shouldRunAgain) {
+                                scheduleIncompleteMosaicResumeLocked(delayMs = nextDelay)
+                            }
+                        }
+                    }
                 }
             }
         }
+        resumeMosaicJob = resumeJob
+        resumeJob.start()
     }
 
     private suspend fun recoverVisiblePlaceholderMosaicWork() {

@@ -591,7 +591,8 @@ the expected transport outside a trusted network.
 
 Distribution tasks reject nonblank generated API-key defaults: Android release,
 release Apple frameworks, Xcode archives (including Debug archives), and desktop
-packages. Builders can explicitly generate blank defaults with
+packages, including regular and release Uber-JAR exports. Builders can explicitly
+generate blank defaults with
 `-PimmichGallery.includeLocalLoginDefaults=false`; ordinary development prefill
 remains available. The verification marker records presence only, never a key.
 

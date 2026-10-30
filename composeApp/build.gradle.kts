@@ -330,6 +330,13 @@ tasks.withType<AbstractJPackageTask>().configureEach {
     }
 }
 
+// Runnable Uber-JAR exports are Jar tasks, outside the native-package task family.
+tasks.matching {
+    it.name == "packageUberJarForCurrentOS" || it.name == "packageReleaseUberJarForCurrentOS"
+}.configureEach {
+    dependsOn(verifyDistributionLoginDefaults)
+}
+
 // Release Apple frameworks can leave this checkout without going through Xcode packaging.
 tasks.matching { it.name.startsWith("linkReleaseFramework") }.configureEach {
     dependsOn(verifyDistributionLoginDefaults)

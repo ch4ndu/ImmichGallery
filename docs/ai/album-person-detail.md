@@ -522,6 +522,10 @@ Retry behavior:
 
 - failure remains placeholder plus retryable runtime state;
 - retry delay is exponential: `250ms`, `500ms`, `1000ms`, `2000ms`, `4000ms`, capped at `5000ms`;
+- reactivation rearms cancelled failure retries in the current visible-plus-neighbor
+  window using the retained attempt count's backoff. The resumed work captures
+  the current layout generation; unchanged assets, width, visibility, and scroll
+  state must not leave a failed group waiting indefinitely;
 - retry has no fixed attempt limit;
 - ready output supersedes retry/partial/in-flight state for the active config.
 
@@ -679,6 +683,8 @@ When changing this area, prefer focused tests for:
 - initial, resumed, and retry work stays within the visible-plus-neighbor window;
 - scroll pause leaves offscreen groups resumable;
 - retryable failures remain placeholders and later retry;
+- deactivation during failure backoff prevents further compute until explicit
+  reactivation, which retries after backoff without requiring changed inputs;
 - partial chunks project real bands plus placeholders, not fallback-thumbnail bands;
 - final ready groups can write assignments, mixed display records, section geometry, and aggregate geometry;
 - overlay dismiss prepares a visible return source before host exit and maps the

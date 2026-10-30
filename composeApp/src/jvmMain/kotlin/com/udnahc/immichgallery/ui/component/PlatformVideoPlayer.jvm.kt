@@ -2,26 +2,26 @@ package com.udnahc.immichgallery.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import com.udnahc.immichgallery.ui.theme.Dimens
+import com.udnahc.immichgallery.ui.util.JvmMpvAvailability
 import com.udnahc.immichgallery.ui.util.JvmMpvBootstrap
-import com.udnahc.immichgallery.ui.util.observeNonConsumingTap
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.video_desktop_unavailable
 import org.jetbrains.compose.resources.stringResource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.openani.mediamp.features.AudioLevelController
 import org.openani.mediamp.mpv.compose.MpvMediampPlayerSurface
 
@@ -45,20 +45,33 @@ internal actual fun PlatformVideoPlayer(
         AuthenticatedMediaUrl.create(playbackUrl, apiKey)
     }
     val normalState = remember(authenticatedUrl) { NormalVideoPlaybackState() }
-    val player = rememberMediaMpPlayer(authenticatedUrl, slideshowRequest, normalState.retryAttempt) {
-        authenticatedUrl?.let { JvmMpvBootstrap.createPlayer() }
+    val attempt = normalState.retryAttempt
+    // Each explicit normal Retry gets one preparation attempt. Recomposition and slideshow
+    // request changes reuse it; displaced effects can only write their old remembered state.
+    var availability by remember(normalState, attempt) { mutableStateOf<JvmMpvAvailability?>(null) }
+    LaunchedEffect(normalState, attempt) {
+        availability = if (authenticatedUrl == null) JvmMpvAvailability.Unavailable else {
+            withContext(Dispatchers.IO) { JvmMpvBootstrap.initialize(retryPreparation = attempt > 0) }
+        }
+    }
+    val preparingRuntime = authenticatedUrl != null && availability == null
+    val player = rememberMediaMpPlayer(authenticatedUrl, slideshowRequest, attempt, availability) {
+        if (availability == JvmMpvAvailability.Ready) JvmMpvBootstrap.createPlayer() else null
     }
     Box(modifier = modifier) {
         if (player == null || authenticatedUrl == null) {
-            LaunchedEffect(slideshowRequest) { slideshowRequest?.let { onSlideshowEvent(it, SlideshowMediaEvent.Failed) } }
+            LaunchedEffect(slideshowRequest, preparingRuntime) {
+                if (!preparingRuntime) slideshowRequest?.let { onSlideshowEvent(it, SlideshowMediaEvent.Failed) }
+            }
             // The slideshow page dispatches its own taps; observing here too would toggle twice.
             DesktopVideoUnavailable(
-                modifier = Modifier.fillMaxSize().then(
-                    if (slideshowRequest == null) Modifier.observeNonConsumingTap(onTap) else Modifier
-                ),
+                modifier = Modifier.fillMaxSize(),
                 normalState = normalState.takeIf { slideshowRequest == null },
                 isCurrentPage = isCurrentPage,
-                onInteraction = onNormalControlsInteraction
+                onTap = onTap,
+                onInteraction = onNormalControlsInteraction,
+                preparingRuntime = preparingRuntime,
+                retryAllowed = authenticatedUrl != null && availability != JvmMpvAvailability.Unavailable,
             )
             return@Box
         }
@@ -134,30 +147,23 @@ internal fun DesktopVideoUnavailable(
     modifier: Modifier,
     normalState: NormalVideoPlaybackState?,
     isCurrentPage: Boolean,
-    onInteraction: () -> Unit
+    onTap: () -> Unit,
+    onInteraction: () -> Unit,
+    preparingRuntime: Boolean = false,
+    retryAllowed: Boolean = true,
 ) {
     val attempt = normalState?.retryAttempt
     // A null construction result belongs to this attempt too. Retrying changes the
     // remembered player key; another null result must become retryable again.
-    LaunchedEffect(normalState, attempt) {
-        if (normalState != null && attempt != null) normalState.failed(attempt)
+    LaunchedEffect(normalState, attempt, preparingRuntime) {
+        if (!preparingRuntime && normalState != null && attempt != null) normalState.failed(attempt)
     }
-    Box(
-        modifier = modifier.fillMaxSize().padding(Dimens.screenPadding),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
-        ) {
-            Text(
-                text = stringResource(Res.string.video_desktop_unavailable),
-                color = Color.White,
-                textAlign = TextAlign.Center,
-            )
-            normalState?.let { state ->
-                NormalVideoRecovery(state, isCurrentPage, onInteraction)
-            }
-        }
-    }
+    VideoUnavailableSurface(
+        normalState = normalState.takeIf { preparingRuntime || retryAllowed },
+        isCurrentPage = isCurrentPage,
+        onTap = onTap.takeIf { normalState != null },
+        onInteraction = onInteraction,
+        modifier = modifier,
+        message = if (preparingRuntime) null else stringResource(Res.string.video_desktop_unavailable),
+    )
 }

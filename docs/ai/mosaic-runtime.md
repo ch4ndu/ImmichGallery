@@ -204,7 +204,13 @@ chunkEndIndex = candidate.sourceStartIndex + candidate.sourceCount
 - Screen deactivation closes foreground admission before cancelling scheduler,
   layout, and resume jobs. Checkpoints are retained and cancellation cannot
   automatically resubmit inactive-owner work; activation explicitly restarts
-  current layout work.
+  current layout work and rearms cancelled failure retries in the current
+  visible-plus-neighbor window. These retries retain their attempt-based
+  backoff and capture the current layout generation when resumed, including
+  when assets, width, visibility, and scroll state are unchanged.
+- Resume admission and cancellation cleanup share the runtime-state transaction;
+  only the installed job may clear retry ownership or request its next attempt.
+  Delayed cleanup from a cancelled job cannot clear a reactivated owner's retry.
 - Detail scroll settle schedules deferred group flush and incomplete Mosaic resume.
 - Resume snapshots runtime state before iterating, filters to current keyed groups without final cache, and runs only the visible-plus-neighbor window with visible targets first.
 - Retryable failures resume only inside that same visible-plus-neighbor window and use exponential backoff capped at `5000ms`.

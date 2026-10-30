@@ -1,6 +1,7 @@
 package com.udnahc.immichgallery.ui.screen.detail
 
 import com.udnahc.immichgallery.data.repository.SessionStateRepository
+import com.udnahc.immichgallery.domain.action.auth.DirectSessionOperationRunner
 import com.udnahc.immichgallery.domain.action.auth.RunSessionOperationAction
 import com.udnahc.immichgallery.domain.action.auth.SessionOperationRunner
 import com.udnahc.immichgallery.domain.model.Asset
@@ -45,6 +46,7 @@ import com.udnahc.immichgallery.ui.util.MosaicWorkCancelledException
 import com.udnahc.immichgallery.ui.util.MosaicWorkScheduler
 import com.udnahc.immichgallery.ui.util.PhotoGridLayoutRunner
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -108,6 +110,106 @@ class PhotoGridDetailLayoutCoordinatorTest {
         assertEquals(2, computer.calls)
         assertEquals(computer.pausedCheckpoint, computer.resumedCheckpoint)
         assertTrue(state.displayItems.any { it is MosaicBandItem || it is RowItem })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun reactivatedOwnerRetriesFailureAfterBackoffWithoutChangedLayoutInputs() = runTest {
+        val computer = FailOnceMosaicSectionComputer()
+        var state = coordinatorState(
+            assets = List(12) { asset("a$it") },
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            this, testScheduler, { state }, { state = it(state) }, mosaicEngine = computer
+        )
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        runCurrent()
+
+        assertEquals(1, computer.computeCalls)
+        assertTrue(state.displayItems.any { it is PlaceholderItem })
+        advanceTimeBy(100)
+        coordinator.deactivateForegroundMosaic()
+        runCurrent()
+        advanceTimeBy(5_000)
+        runCurrent()
+        assertEquals(1, computer.computeCalls)
+        assertTrue(state.displayItems.any { it is PlaceholderItem })
+
+        coordinator.activateForegroundMosaic()
+        coordinator.setAvailableWidth(360f)
+        coordinator.setVisibleBucketIndexes(listOf(0))
+        coordinator.setScrollInProgress(false)
+        coordinator.handleAssetEmission(state.assets)
+        runCurrent()
+        advanceTimeBy(249)
+        runCurrent()
+        assertEquals(1, computer.computeCalls)
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(2, computer.computeCalls)
+        assertFalse(state.displayItems.any { it is PlaceholderItem })
+        assertEquals(state.assets.map { it.id }.toSet(), state.displayIndex.assetDisplayIndexById.keys)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun cancelledRetryCleanupCannotClearReactivatedOwnersPendingBackoff() = runTest {
+        val cancellationObserved = CompletableDeferred<Unit>()
+        val releaseCancellation = CompletableDeferred<Unit>()
+        var holdCancelledOperation = false
+        val sessionOperationRunner = object : SessionOperationRunner by DirectSessionOperationRunner {
+            override suspend fun <T> runForOwner(ownerEpoch: Long, block: suspend () -> T): T {
+                try {
+                    return DirectSessionOperationRunner.runForOwner(ownerEpoch, block)
+                } catch (cancellation: CancellationException) {
+                    if (holdCancelledOperation) {
+                        cancellationObserved.complete(Unit)
+                        withContext(NonCancellable) { releaseCancellation.await() }
+                    }
+                    throw cancellation
+                }
+            }
+        }
+        val computer = FailOnceMosaicSectionComputer()
+        var state = coordinatorState(
+            assets = List(12) { asset("a$it") },
+            viewConfig = ViewConfig(mosaicEnabled = true, cacheMosaicResults = false)
+        )
+        val coordinator = coordinator(
+            this, testScheduler, { state }, { state = it(state) },
+            mosaicEngine = computer,
+            sessionOperationRunner = sessionOperationRunner
+        )
+        coordinator.setAvailableViewportHeight(600f)
+        coordinator.setAvailableWidth(360f)
+        coordinator.handleAssetEmission(state.assets)
+        runCurrent()
+        assertEquals(1, computer.computeCalls)
+
+        holdCancelledOperation = true
+        coordinator.deactivateForegroundMosaic()
+        runCurrent()
+        cancellationObserved.await()
+        coordinator.activateForegroundMosaic()
+        runCurrent()
+        releaseCancellation.complete(Unit)
+        runCurrent()
+
+        coordinator.setScrollInProgress(true)
+        coordinator.setScrollInProgress(false)
+        runCurrent()
+        advanceTimeBy(249)
+        runCurrent()
+        assertEquals(1, computer.computeCalls)
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(2, computer.computeCalls)
+        assertFalse(state.displayItems.any { it is PlaceholderItem })
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

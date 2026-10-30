@@ -182,13 +182,26 @@ video playback, or desktop viewer shortcuts.
   speed, and brightness intent. Position/duration reset for the new attempt;
   stale attempt callbacks cannot complete or fail it. Failed/opening players
   do not expose ordinary seek/play controls. Slideshow recovery stays with its
-  existing request-bound controller.
+  existing request-bound controller. Unavailable desktop/iOS surfaces use a
+  shared sibling tap backdrop beneath recovery actions: clicking Retry records
+  interaction without toggling chrome, while plain background taps still toggle
+  it. Slideshow retains its parent-owned surface tap.
 - Desktop startup prepares the host-specific published mpv runtime from the
   classpath before player construction. Extraction/validation or native-load
   failures show the resource-backed recovery message, as do invalid media URLs.
   There is no system-player fallback. Supported runtime hosts and licenses are
   documented in the README. Native runtime JNA dependencies use the app's JPMS
-  pair to avoid duplicate classes.
+  pair to avoid duplicate classes. Successful preparation remains process-wide
+  and once-only. An explicit normal-video Retry may repeat an IOException from
+  pre-load preparation/extraction on an IO dispatcher, using a fresh owned
+  directory so a partially copied wrapper cannot bypass extraction. Failed
+  pre-load retry directories are removed; loaded runtime files remain until
+  process exit. Recomposition and slideshow request changes cannot initiate
+  preparation retries. Pending preparation shows Opening, not a failure;
+  missing/invalid runtime content, security failures, and native linkage errors
+  remain fail-closed with the existing guidance and no ineffective Retry action.
+  Post-initialization player construction/open failures remain retryable, and
+  native player construction still occurs on the UI thread.
 - Normal video uses app-owned play/pause, seeking, elapsed/duration, mute,
   ten-second backward/forward skip and a 0.125×/0.25×/0.5×/1×/1.5×/2× speed menu across
   Android, iOS and JVM. Seek/time and playback actions occupy separate rows;

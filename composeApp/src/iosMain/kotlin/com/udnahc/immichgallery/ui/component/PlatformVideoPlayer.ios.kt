@@ -20,7 +20,6 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.delay
 import org.lighthousegames.logging.logging
 import com.udnahc.immichgallery.domain.model.SlideshowMediaRequest
-import com.udnahc.immichgallery.ui.util.observeNonConsumingTap
 import platform.AVFoundation.*
 import platform.CoreMedia.CMTimeGetSeconds
 import platform.CoreMedia.CMTimeMakeWithSeconds
@@ -373,9 +372,7 @@ private fun FailedVideoSurface(
     onInteraction: () -> Unit
 ) {
     if (slideshowRequest == null) {
-        Box(modifier.observeNonConsumingTap(onTap)) {
-            NormalVideoRecovery(normalState, isCurrentPage, onInteraction, Modifier.align(Alignment.Center))
-        }
+        VideoUnavailableSurface(normalState, isCurrentPage, onTap, onInteraction, modifier)
     }
 }
 
