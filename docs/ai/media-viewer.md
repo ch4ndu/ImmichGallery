@@ -342,6 +342,16 @@ video playback, or desktop viewer shortcuts.
   the outgoing and target media rather than traversing intermediate shuffled
   pages. Completion messages are generation-checked before advancing the
   controller. Offscreen/covered videos remain paused.
+- While slideshow is active, its binding owns Timeline pager navigation.
+  Timeline's normal projection reconciler must not restore the previous settled
+  anchor when another bucket materializes during a slide. It waits for both
+  pager movement and slideshow transition completion before recording the new
+  settled identity. This keeps the displayed page and request-bound readiness
+  callbacks aligned for manual Previous/Next, keyboard arrows, and auto-advance.
+- Slideshow actions show icons alongside localized labels: Previous/Next,
+  Pause/Resume, Retry, Mute/Unmute, Info, fullscreen where supported, and Exit.
+  Icons are decorative for accessibility; the label names the single button.
+  Controls retain wrapping layout, existing enablement, and action callbacks.
 - Play video starts while awaiting progress, disables looping, and uses a fresh
   player generation for each visit. Pause/resume retains the same visit and
   playback position. MediaMP positive observed position establishes readiness;

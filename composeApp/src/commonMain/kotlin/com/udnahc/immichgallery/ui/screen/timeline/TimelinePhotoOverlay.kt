@@ -78,7 +78,9 @@ private data class TimelinePagerObservation(
     val state: TimelineOverlayState,
     val projectionKey: TimelinePagerProjectionKey,
     val settledPage: Int,
-    val isScrollInProgress: Boolean
+    val isScrollInProgress: Boolean,
+    val slideshowActive: Boolean,
+    val slideshowTransitioning: Boolean
 )
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -198,6 +200,7 @@ fun TimelinePhotoOverlay(
 
     val latestAssetChangedCallback by rememberUpdatedState(onCurrentAssetChanged)
     val latestOnBucketNeeded by rememberUpdatedState(onBucketNeeded)
+    val latestPlayback by rememberUpdatedState(playback)
     // One owner reconciles settled identity with changing Timeline projection.
     // A projection update is handled before the numeric settled page is
     // accepted, preventing insert/remove/materialization changes from silently
@@ -208,15 +211,20 @@ fun TimelinePhotoOverlay(
                 state = latestState,
                 projectionKey = timelinePagerProjectionKey(latestState),
                 settledPage = pagerState.settledPage,
-                isScrollInProgress = pagerState.isScrollInProgress
+                isScrollInProgress = pagerState.isScrollInProgress,
+                slideshowActive = latestPlayback.config != null,
+                slideshowTransitioning = latestPlayback.transitioning
             )
         }
             .distinctUntilChanged()
             .collect { observation ->
-                if (observation.isScrollInProgress) return@collect
+                if (observation.isScrollInProgress || observation.slideshowTransitioning) return@collect
                 val projectionChanged = observation.projectionKey != reconciledProjectionKey
                 val retained = retainedPagerAnchor
-                if (projectionChanged && retained != null) {
+                // Slideshow owns its target across lazy materialization and source
+                // changes. Restoring the previous settled anchor here would undo
+                // the slide just completed by BindSlideshowPager.
+                if (projectionChanged && retained != null && !observation.slideshowActive) {
                     when (val resolution = reconcileTimelinePagerAnchor(
                         anchor = retained,
                         state = observation.state,

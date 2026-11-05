@@ -21,6 +21,8 @@ import immichgallery.composeapp.generated.resources.*
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import org.jetbrains.compose.resources.stringResource
+import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.painterResource
 import kotlin.time.Instant
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -54,15 +56,48 @@ internal fun SlideshowControls(
             }), color = Color.White, modifier = Modifier.padding(Dimens.smallSpacing))
         }
         FlowRow(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-            TextButton(onPrevious, enabled = state.canGoPrevious) { Text(stringResource(Res.string.slideshow_previous)) }
-            TextButton(onPauseResume, enabled = state.failure == null) { Text(stringResource(if (state.paused) Res.string.slideshow_resume else Res.string.slideshow_pause)) }
-            TextButton(onNext) { Text(stringResource(Res.string.slideshow_next)) }
-            if (state.canRetry) TextButton(onRetry) { Text(stringResource(Res.string.slideshow_retry)) }
-            if (state.config?.videoPolicy == SlideshowVideoPolicy.PLAY) TextButton(onMute) { Text(stringResource(if (state.config.muted) Res.string.slideshow_unmute else Res.string.slideshow_mute)) }
-            if (state.asset != null) TextButton(onInfo) { Text(stringResource(Res.string.detail_info)) }
-            if (onToggleFullscreen != null) TextButton(onToggleFullscreen) { Text(stringResource(if (isFullscreen) Res.string.viewer_exit_fullscreen else Res.string.viewer_enter_fullscreen)) }
-            TextButton(onExit) { Text(stringResource(Res.string.slideshow_exit)) }
+            SlideshowActionButton(stringResource(Res.string.slideshow_previous), Res.drawable.ic_previous,
+                onPrevious, enabled = state.canGoPrevious)
+            SlideshowActionButton(
+                stringResource(if (state.paused) Res.string.slideshow_resume else Res.string.slideshow_pause),
+                if (state.paused) Res.drawable.ic_play else Res.drawable.ic_pause,
+                onPauseResume, enabled = state.failure == null)
+            SlideshowActionButton(stringResource(Res.string.slideshow_next), Res.drawable.ic_next, onNext)
+            if (state.canRetry) {
+                SlideshowActionButton(stringResource(Res.string.slideshow_retry), Res.drawable.ic_refresh, onRetry)
+            }
+            if (state.config?.videoPolicy == SlideshowVideoPolicy.PLAY) {
+                SlideshowActionButton(
+                    stringResource(if (state.config.muted) Res.string.slideshow_unmute else Res.string.slideshow_mute),
+                    if (state.config.muted) Res.drawable.ic_volume_on else Res.drawable.ic_volume_off, onMute)
+            }
+            if (state.asset != null) {
+                SlideshowActionButton(stringResource(Res.string.detail_info), Res.drawable.ic_info, onInfo)
+            }
+            if (onToggleFullscreen != null) {
+                SlideshowActionButton(
+                    stringResource(if (isFullscreen) Res.string.viewer_exit_fullscreen else Res.string.viewer_enter_fullscreen),
+                    if (isFullscreen) Res.drawable.ic_fullscreen_exit else Res.drawable.ic_fullscreen, onToggleFullscreen)
+            }
+            SlideshowActionButton(stringResource(Res.string.slideshow_exit), Res.drawable.ic_close, onExit)
         }
+    }
+}
+
+@Composable
+private fun SlideshowActionButton(
+    label: String,
+    icon: DrawableResource,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
+    TextButton(onClick, enabled = enabled, colors = ButtonDefaults.textButtonColors(
+        contentColor = Color.White,
+        disabledContentColor = Color.White.copy(alpha = 0.38f)
+    )) {
+        Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(Dimens.iconSize))
+        Spacer(Modifier.width(Dimens.smallSpacing))
+        Text(label)
     }
 }
 

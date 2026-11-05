@@ -22,6 +22,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.unit.dp
 import com.udnahc.immichgallery.domain.model.Asset
 import com.udnahc.immichgallery.domain.model.AssetStackLookup
@@ -249,6 +253,72 @@ class ViewerTimelinePlaybackUiTest {
             assertEquals(listOf(bucketKey(1)), retryRequests)
         }
         compose.onNodeWithText("Retry slide").assertDoesNotExist()
+    }
+
+    @Test
+    fun nextSlideKeepsDestinationWhenNeighborMaterializesDuringAnimation() {
+        assertSlideSurvivesMaterialization(autoAdvance = false)
+    }
+
+    @Test
+    fun automaticSlideKeepsDestinationWhenNeighborMaterializesDuringAnimation() {
+        assertSlideSurvivesMaterialization(autoAdvance = true)
+    }
+
+    @Test
+    fun previousSlideKeepsDestinationWhenNeighborMaterializesDuringAnimation() {
+        assertSlideSurvivesMaterialization(autoAdvance = false, backward = true)
+    }
+
+    @Test
+    fun keyboardArrowKeepsDestinationWhenNeighborMaterializesDuringAnimation() {
+        assertSlideSurvivesMaterialization(autoAdvance = false, keyboard = true)
+    }
+
+    private fun assertSlideSurvivesMaterialization(
+        autoAdvance: Boolean,
+        backward: Boolean = false,
+        keyboard: Boolean = false
+    ) {
+        configureBuckets(count = 4)
+        materializeBucket(0)
+        materializeBucket(1)
+        show(config = slideshowConfig(seconds = 60).copy(transition = SlideshowTransition.SLIDE))
+        start()
+        waitVisit(assetId(0))
+        ready()
+        if (backward) {
+            compose.onNodeWithText("Next slide").performClick()
+            waitVisit(assetId(1))
+            ready()
+        }
+        val destination = assetId(if (backward) 0 else 1)
+        compose.mainClock.autoAdvance = false
+        if (autoAdvance) {
+            compose.runOnIdle { fixture.advance(60_000) }
+        } else if (keyboard) {
+            compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
+        } else {
+            compose.onNodeWithText(if (backward) "Previous slide" else "Next slide").performClick()
+        }
+        compose.mainClock.advanceTimeBy(64)
+        compose.runOnIdle {
+            assertEquals(destination, fixture.state.asset?.id)
+            assertTrue(fixture.state.transitioning)
+            materializeBucket(2)
+        }
+        compose.mainClock.autoAdvance = true
+        compose.waitUntil { !fixture.state.transitioning }
+        compose.waitForIdle()
+        compose.onNodeWithTag("media:$destination:selected").assertIsDisplayed()
+        ready()
+        advance(15_000)
+        compose.runOnIdle {
+            assertEquals(destination, fixture.settledIds.last())
+            assertEquals(destination, fixture.state.asset?.id)
+            assertTrue(fixture.state.ready)
+            assertNull(fixture.state.failure)
+        }
     }
 
     private fun show(initialIndex: Int = 0, config: SlideshowConfig = slideshowConfig()) {
