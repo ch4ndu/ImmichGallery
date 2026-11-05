@@ -1,0 +1,29 @@
+{
+  "documentation": {
+    "no_change_text": "No docs updated; behavior/rules unchanged."
+  },
+  "guidance": [
+    "AGENTS.md",
+    "docs/ai/feature-implementation.md"
+  ],
+  "observability": {
+    "cmux": "auto"
+  },
+  "project_name": "ImmichGallery",
+  "review": {
+    "final_reviewer": "astra-high",
+    "optional_plan_reviewer": "antigravity-gemini-3.8-flash-high",
+    "plan_reviewer": "astra-high"
+  },
+  "verification": {
+    "focused": [
+      "./gradlew :composeApp:compileKotlinJvm"
+    ],
+    "broad": [
+      "./gradlew :composeApp:compileKotlinJvm :composeApp:compileAndroidMain :composeApp:compileKotlinIosSimulatorArm64"
+    ],
+    "cleanup": [
+      "./gradlew --stop"
+    ]
+  }
+}

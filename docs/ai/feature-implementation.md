@@ -19,6 +19,15 @@ For photo/video viewing, asset information, slideshow, viewer gestures, or viewe
   `trip-test` for focused test work, and `trip-3-release` only after explicit
   release confirmation. `docs/ARCHI.md` is their system-level prerequisite;
   the focused `docs/ai/*` contracts remain authoritative for feature details.
+- When explicitly selected, the global `trip-explorer-workflow` uses
+  `.agents/trip-explorer/config.json` for this project's guidance, verification
+  commands, and reviewer selections. Its bundled runner supplies the role
+  profiles: Sol 6.1/high Explorer, Sol 6.1/medium implementer, and independent
+  Astra/high plan reviewer, code reviewer, and fresh final verifier. This
+  matches JellyScope's role configuration; project paths and Gradle tasks remain
+  ImmichGallery-specific. Keep the existing project-local TRIP suite independent.
+  Verification entries are starting points; the affected feature guides and
+  approved plan determine additional checks.
 - Explore existing code for reusable UseCases, Actions, repositories, composables, utilities, strings, icons, and theme dimensions.
 - Identify whether the change belongs in `commonMain` or requires platform-specific code.
 - Keep the change minimal and aligned with existing architecture.
