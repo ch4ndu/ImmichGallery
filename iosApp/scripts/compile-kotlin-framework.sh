@@ -7,6 +7,14 @@ PROJECT_ROOT=${IMMICH_GALLERY_PROJECT_ROOT:-"$(CDPATH= cd -- "$SCRIPT_DIR/../.."
 GRADLEW=${IMMICH_GALLERY_GRADLEW:-"$PROJECT_ROOT/gradlew"}
 cd "$PROJECT_ROOT"
 
+# DevRelease uses optimized Kotlin binaries with local defaults for local runs.
+# Archives remain subject to distribution verification even with this configuration.
+if [ "${CONFIGURATION:-}" = "DevRelease" ] && [ "${ACTION:-}" != "install" ]; then
+  "$GRADLEW" :composeApp:embedAndSignAppleFrameworkForXcode \
+    -PimmichGallery.includeLocalLoginDefaults=true
+  exit 0
+fi
+
 # Archive can use Debug, and IDE build override must not bypass distribution policy.
 if [ "${ACTION:-}" = "install" ] || [ "${CONFIGURATION:-}" = "Release" ]; then
   "$GRADLEW" :composeApp:verifyDistributionLoginDefaults

@@ -338,8 +338,13 @@ tasks.matching {
 }
 
 // Release Apple frameworks can leave this checkout without going through Xcode packaging.
+// Only the local DevRelease Xcode build opts into credential-bearing release binaries.
+val isXcodeDevRelease = providers.environmentVariable("CONFIGURATION").orNull == "DevRelease" &&
+    providers.environmentVariable("ACTION").orNull != "install"
 tasks.matching { it.name.startsWith("linkReleaseFramework") }.configureEach {
-    dependsOn(verifyDistributionLoginDefaults)
+    if (!isXcodeDevRelease) {
+        dependsOn(verifyDistributionLoginDefaults)
+    }
 }
 
 compose.desktop {

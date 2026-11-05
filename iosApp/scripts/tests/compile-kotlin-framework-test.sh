@@ -33,9 +33,11 @@ new_fixture() {
 
   printf '%s\n' \
     '#!/bin/sh' \
-    '[ "$#" -eq 1 ] || exit 91' \
+    'if [ "$#" -ne 1 ]; then' \
+    '  [ "$#" -eq 2 ] && [ "$1" = ":composeApp:embedAndSignAppleFrameworkForXcode" ] && [ "$2" = "-PimmichGallery.includeLocalLoginDefaults=true" ] || exit 91' \
+    'fi' \
     'case "$1" in :composeApp:embedAndSignAppleFrameworkForXcode|:composeApp:verifyDistributionLoginDefaults) ;; *) exit 91 ;; esac' \
-    'printf "%s\n" "$PWD|$1|${IMMICH_GALLERY_LOGIN_SERVER_URL:-}|${IMMICH_GALLERY_LOGIN_API_KEY:-}" >> "$IMMICH_GALLERY_GRADLE_MARKER"' \
+    'printf "%s\n" "$PWD|$*|${IMMICH_GALLERY_LOGIN_SERVER_URL:-}|${IMMICH_GALLERY_LOGIN_API_KEY:-}" >> "$IMMICH_GALLERY_GRADLE_MARKER"' \
     'if [ "$1" = ":composeApp:verifyDistributionLoginDefaults" ] && [ "${TEST_BLOCK_DISTRIBUTION:-}" = YES ]; then exit 92; fi' \
     > "$TEST_ROOT/gradlew"
   chmod +x "$TEST_ROOT/gradlew"
@@ -111,7 +113,19 @@ if [ -e "$MARKER" ]; then
 fi
 PASSED=$((PASSED + 1))
 
-for configuration in Release Debug; do
+for override in NO YES; do
+  new_fixture "dev_release_$override"
+  CONFIGURATION=DevRelease ACTION=build OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED="$override" \
+    IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
+    "$HELPER" >/dev/null
+  expected="$TEST_ROOT|:composeApp:embedAndSignAppleFrameworkForXcode -PimmichGallery.includeLocalLoginDefaults=true||"
+  [ "$(cat "$MARKER")" = "$expected" ] || {
+    echo "FAIL: DevRelease did not rebuild with local defaults"; exit 1;
+  }
+  PASSED=$((PASSED + 1))
+done
+
+for configuration in Release Debug DevRelease; do
   new_fixture "archive_$configuration"
   CONFIGURATION="$configuration" ACTION=install OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES \
     IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
@@ -135,15 +149,17 @@ expected=$(printf '%s\n' \
 }
 PASSED=$((PASSED + 1))
 
-new_fixture blocked_archive
-if ACTION=install TEST_BLOCK_DISTRIBUTION=YES \
-  IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
-  "$HELPER" >/dev/null; then
-  echo "FAIL: blocked archive succeeded"; exit 1
-fi
-[ "$(cat "$MARKER")" = "$TEST_ROOT|:composeApp:verifyDistributionLoginDefaults||" ] || {
-  echo "FAIL: blocked archive invoked embedding"; exit 1;
-}
-PASSED=$((PASSED + 1))
+for configuration in Release Debug DevRelease; do
+  new_fixture "blocked_archive_$configuration"
+  if CONFIGURATION="$configuration" ACTION=install TEST_BLOCK_DISTRIBUTION=YES \
+    IMMICH_GALLERY_PROJECT_ROOT="$TEST_ROOT" IMMICH_GALLERY_GRADLE_MARKER="$MARKER" \
+    "$HELPER" >/dev/null; then
+    echo "FAIL: blocked archive succeeded"; exit 1
+  fi
+  [ "$(cat "$MARKER")" = "$TEST_ROOT|:composeApp:verifyDistributionLoginDefaults||" ] || {
+    echo "FAIL: blocked archive invoked embedding"; exit 1;
+  }
+  PASSED=$((PASSED + 1))
+done
 
 echo "Passed $PASSED Kotlin framework invocation checks"

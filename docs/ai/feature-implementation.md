@@ -91,6 +91,13 @@ For a new persisted cache entity or schema change:
   `-PimmichGallery.includeLocalLoginDefaults=false` generates blank defaults
   without editing local credentials. The gate reads only a generated presence
   marker and never logs the key; ordinary development builds retain prefill.
+- The shared iOS `iosApp Dev Release` scheme uses a Release-derived
+  `DevRelease` configuration with `KOTLIN_FRAMEWORK_BUILD_TYPE=Release` for
+  Run/Profile. Non-archive DevRelease builds explicitly enable local defaults
+  and exempt only release Apple framework linking from the distribution gate.
+  They always invoke Gradle even with the Kotlin IDE override. Archive uses
+  normal `Release`; `ACTION=install` preserves all credential checks even if
+  a caller manually chooses `DevRelease` for an archive.
 - The iOS Kotlin-framework build phase intentionally invokes
   `:composeApp:embedAndSignAppleFrameworkForXcode` on every Xcode build unless
   the existing Kotlin IDE override is active for a non-distribution build.

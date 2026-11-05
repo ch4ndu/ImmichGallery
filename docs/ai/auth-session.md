@@ -202,6 +202,17 @@ check and rebuild/embed the verified framework, even with Debug archive
 configuration or the IDE framework-build override, so an earlier credential-
 bearing IDE framework cannot be reused after defaults are disabled.
 
+For local iOS testing with release optimization, select the shared
+`iosApp Dev Release` scheme. Run/Profile use `DevRelease`, cloned from Release
+with `KOTLIN_FRAMEWORK_BUILD_TYPE=Release`. Non-archive DevRelease builds
+explicitly include local defaults and skip the release Apple framework
+distribution check; they always rebuild/embed through Gradle even when the IDE
+override is set. This exception is scoped to the Xcode configuration and does
+not disable Android or desktop distribution checks. The scheme's Archive
+action uses regular `Release`; manually archiving `DevRelease` also retains
+both the shell and Gradle distribution checks. Use credential-free defaults
+for archives as described above.
+
 ## Verification Targets
 
 - no saved credentials routes to Login;
