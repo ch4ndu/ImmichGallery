@@ -206,9 +206,14 @@ internal class SlideshowPlaybackController(
 
     fun toggleMute() {
         val config = state.value.config ?: return
-        mutableState.value = state.value.copy(config = config.copy(muted = !config.muted))
+        setMuted(!config.muted)
         interact()
         publish()
+    }
+
+    fun setMuted(muted: Boolean) {
+        val config = state.value.config ?: return
+        mutableState.value = state.value.copy(config = config.copy(muted = muted))
     }
 
     fun setEnvironment(active: Boolean) {

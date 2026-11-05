@@ -95,7 +95,7 @@ internal actual fun PlatformVideoPlayer(
         AuthenticatedMediaUrl.create(playbackUrl, apiKey)
     }
     // Outlives source fallback so manual pause/mute survive the player swap.
-    val normalState = remember(originalUrl, playbackUrl, apiKey) { NormalVideoPlaybackState() }
+    val normalState = rememberNormalVideoPlaybackState(originalUrl, playbackUrl, apiKey)
     val attempt = normalState.retryAttempt
     var currentSource by remember(originalUrl, playbackUrl, apiKey, slideshowRequest, attempt) {
         mutableStateOf(
@@ -185,6 +185,8 @@ internal actual fun PlatformVideoPlayer(
         if (isCurrentPage && (slideshowRequest != null ||
                 (!normalState.userPaused && normalState.loadStatus != NormalVideoLoadStatus.Failed))) {
             log.d { "PlatformVideoPlayer(iOS): playing" }
+            // Apply saved mute before any play/rate command, including fallback and resume.
+            player.muted = if (slideshowRequest != null) muted else normalState.muted
             if (slideshowRequest != null) {
                 player.play()
             } else {

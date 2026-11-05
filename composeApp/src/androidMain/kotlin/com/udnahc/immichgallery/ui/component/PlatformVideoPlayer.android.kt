@@ -43,7 +43,7 @@ internal actual fun PlatformVideoPlayer(
 ) {
     val context = LocalContext.current
     val applicationContext = context.applicationContext
-    val normalState = remember(playbackUrl, apiKey) { NormalVideoPlaybackState() }
+    val normalState = rememberNormalVideoPlaybackState(playbackUrl, apiKey)
     val player = rememberMediaMpPlayer(playbackUrl, apiKey, slideshowRequest, applicationContext, normalState.retryAttempt) {
         ExoPlayerMediampPlayer(applicationContext, EmptyCoroutineContext)
     }

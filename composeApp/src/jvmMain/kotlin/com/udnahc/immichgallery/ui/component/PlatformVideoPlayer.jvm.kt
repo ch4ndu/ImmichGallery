@@ -44,7 +44,7 @@ internal actual fun PlatformVideoPlayer(
     val authenticatedUrl = remember(playbackUrl, apiKey) {
         AuthenticatedMediaUrl.create(playbackUrl, apiKey)
     }
-    val normalState = remember(authenticatedUrl) { NormalVideoPlaybackState() }
+    val normalState = rememberNormalVideoPlaybackState(authenticatedUrl)
     val attempt = normalState.retryAttempt
     // Each explicit normal Retry gets one preparation attempt. Recomposition and slideshow
     // request changes reuse it; displaced effects can only write their old remembered state.

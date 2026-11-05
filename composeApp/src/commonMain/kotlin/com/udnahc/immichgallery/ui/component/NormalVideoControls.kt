@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -67,6 +68,7 @@ import immichgallery.composeapp.generated.resources.video_unmute
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import org.koin.compose.viewmodel.koinViewModel
 
 private const val SLIDER_INACTIVE_TRACK_ALPHA = 0.4f
 private const val DISABLED_CONTROL_ALPHA = 0.4f
@@ -84,11 +86,14 @@ internal enum class NormalVideoSpeed(val rate: Float, val label: StringResource)
 internal enum class NormalVideoLoadStatus { Opening, Ready, Failed }
 
 /**
- * Ephemeral per-page UI state for normal video. [userPaused] is the user's
+ * Per-page UI state with an app-wide mute preference in production. [userPaused] is the user's
  * intent and is never written by lifecycle/offscreen pauses or explicit retry.
  */
 @Stable
-internal class NormalVideoPlaybackState {
+internal class NormalVideoPlaybackState(
+    private val readMuted: (() -> Boolean)? = null,
+    private val onMutedChange: (Boolean) -> Unit = {}
+) {
     var loadStatus by mutableStateOf(NormalVideoLoadStatus.Opening)
         private set
     var retryAttempt by mutableIntStateOf(0)
@@ -118,7 +123,13 @@ internal class NormalVideoPlaybackState {
     }
 
     var userPaused by mutableStateOf(false)
-    var muted by mutableStateOf(false)
+    private var localMuted by mutableStateOf(false)
+    var muted: Boolean
+        get() = readMuted?.invoke() ?: localMuted
+        set(value) {
+            localMuted = value
+            onMutedChange(value)
+        }
     var positionSeconds by mutableFloatStateOf(0f)
     var durationSeconds by mutableFloatStateOf(0f)
     var speed by mutableStateOf(NormalVideoSpeed.Normal)
@@ -128,6 +139,18 @@ internal class NormalVideoPlaybackState {
 
     /** Null until the first brightness gesture, so entering a video follows the screen's current level. */
     var brightness by mutableStateOf<Float?>(null)
+}
+
+/** All native players observe the same saved mute choice, including retained offscreen pages. */
+@Composable
+internal fun rememberNormalVideoPlaybackState(
+    vararg keys: Any?,
+    preferences: ViewerPreferencesViewModel = koinViewModel()
+): NormalVideoPlaybackState {
+    val config = preferences.slideshowConfig.collectAsState()
+    return remember(*keys, preferences) {
+        NormalVideoPlaybackState(readMuted = { config.value.muted }, onMutedChange = preferences::setVideoMuted)
+    }
 }
 
 internal val NormalVideoPlaybackState.effectiveVolume: Float get() = if (muted) 0f else volume

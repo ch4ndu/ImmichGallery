@@ -12,6 +12,11 @@ class ViewerPreferencesViewModel(
 ) : ViewModel() {
     val slideshowConfig: StateFlow<SlideshowConfig> = getSlideshowConfigUseCase.observe()
 
+    // Reuse the persisted slideshow mute key as the app-wide video preference.
+    fun setVideoMuted(muted: Boolean) {
+        setSlideshowConfig(slideshowConfig.value.copy(muted = muted))
+    }
+
     fun setSlideshowConfig(config: SlideshowConfig) {
         if (config.normalized == slideshowConfig.value) return
         setSlideshowConfigAction(config)

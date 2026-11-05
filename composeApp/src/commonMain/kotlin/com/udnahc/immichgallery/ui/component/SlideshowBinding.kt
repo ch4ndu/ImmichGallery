@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlin.time.TimeSource
+import org.koin.compose.viewmodel.koinViewModel
 
 /** One consumer owns decisions; source snapshots conflate and ticks never queue. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -64,11 +65,11 @@ internal class SlideshowBinding(
         if (!commands.trySend(command).isSuccess) scope.launch { commands.send(command) }
     }
     fun toggleMute(preferences: ViewerPreferencesViewModel) {
+        val muted = !preferences.slideshowConfig.value.muted
+        preferences.setVideoMuted(muted)
         send { owner ->
-            owner.toggleMute()
-            owner.state.value.config?.muted?.let { muted ->
-                preferences.setSlideshowConfig(preferences.slideshowConfig.value.copy(muted = muted))
-            }
+            owner.setMuted(muted)
+            owner.interact()
         }
     }
     fun environment(active: Boolean) { environments.trySend(active) }
@@ -83,7 +84,8 @@ internal class SlideshowBinding(
 internal fun rememberSlideshowBinding(
     environmentActive: Boolean,
     onBucketNeeded: (String) -> Unit = {},
-    onRetryBucket: (String) -> Unit = {}
+    onRetryBucket: (String) -> Unit = {},
+    preferences: ViewerPreferencesViewModel = koinViewModel()
 ): SlideshowBinding {
     val latestNeed by rememberUpdatedState(onBucketNeeded)
     val latestRetry by rememberUpdatedState(onRetryBucket)
@@ -95,6 +97,11 @@ internal fun rememberSlideshowBinding(
     val foreground by AppLifecycle.isForeground.collectAsState()
     val state by binding.uiState.collectAsState()
     val wakeLock = environment?.wakeLock ?: rememberScreenWakeLock()
+    LaunchedEffect(binding, preferences) {
+        preferences.slideshowConfig.map { it.muted }.distinctUntilChanged().collect { muted ->
+            binding.send { it.setMuted(muted) }
+        }
+    }
     LaunchedEffect(binding, foreground, environmentActive) {
         binding.environment(foreground && environmentActive)
     }

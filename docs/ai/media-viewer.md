@@ -207,7 +207,15 @@ video playback, or desktop viewer shortcuts.
   Android, iOS and JVM. Seek/time and playback actions occupy separate rows;
   skip clamps to valid duration and is disabled while duration is unknown.
   Speed selection preserves pause intent and survives iOS source fallback.
-  Settings are ephemeral per player, with no persisted playback preference.
+  Pause, speed, volume level, and brightness remain ephemeral per player.
+  Mute is one device-wide persisted preference for normal and slideshow videos,
+  owned by `ViewerPreferencesViewModel` through the existing settings
+  UseCase/Action path. It reuses `SlideshowConfig.muted` and the existing
+  `slideshow_muted` key, preserving saved choices (default muted) and surviving
+  restart/logout. Normal mute controls, volume-gesture unmute, slideshow mute,
+  and confirmed slideshow options all update that same choice. Retained normal
+  pages and active slideshow sessions observe it; native players apply it before
+  play/resume, including source fallback and retry.
   Native route, track/quality and fit menus remain hidden; video remains FIT.
   The video and original URLs remain server-derived edited variants.
 - Vertical drags in the outer left/right 30% of an active normal video adjust

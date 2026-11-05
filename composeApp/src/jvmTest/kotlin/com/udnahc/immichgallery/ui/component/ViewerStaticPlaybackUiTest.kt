@@ -344,6 +344,10 @@ class ViewerStaticPlaybackUiTest {
         compose.runOnIdle { assertTrue(fixture.state.playMedia); assertFalse(fixture.state.ready) }
         compose.onNodeWithContentDescription("Unmute video").performClick()
         compose.waitUntil { fixture.state.config?.muted == false && !fixture.repository.getSlideshowConfig().muted }
+        compose.runOnIdle { fixture.preferences.setVideoMuted(true) }
+        compose.waitUntil { fixture.state.config?.muted == true }
+        compose.onNodeWithContentDescription("Unmute video").performClick()
+        compose.waitUntil { fixture.state.config?.muted == false }
         val visit = fixture.state.request
         compose.onNodeWithContentDescription("Pause slideshow").performClick()
         compose.waitUntil { fixture.state.paused }

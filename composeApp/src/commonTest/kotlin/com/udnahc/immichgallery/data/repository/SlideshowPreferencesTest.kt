@@ -125,4 +125,19 @@ class SlideshowPreferencesTest {
         assertEquals(SlideshowVideoPolicy.SKIP, first.slideshowConfig.value.videoPolicy)
         assertNull(first.slideshowConfig.value.videoLimitSeconds)
     }
+
+    @Test
+    fun appVideoMutePreservesOtherOptionsAndRestoresBothChoicesAfterRestart() {
+        val settings = TestSettings()
+        val repository = ServerConfigRepository(settings).apply { setSlideshowConfig(saved) }
+        val preferences = ViewerPreferencesViewModel(GetSlideshowConfigUseCase(repository), SetSlideshowConfigAction(repository))
+        for (muted in listOf(true, false)) {
+            preferences.setVideoMuted(muted)
+            assertEquals(saved.copy(muted = muted), repository.getSlideshowConfig())
+            val restarted = ServerConfigRepository(settings)
+            assertEquals(muted, restarted.getSlideshowConfig().muted)
+            restarted.clear()
+            assertEquals(muted, ServerConfigRepository(settings).getSlideshowConfig().muted)
+        }
+    }
 }

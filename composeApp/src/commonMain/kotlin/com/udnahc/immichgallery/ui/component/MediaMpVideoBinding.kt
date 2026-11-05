@@ -89,7 +89,10 @@ internal fun MediaMpVideoBinding(
                     mediaMpSlideshowEvent(event)?.let { latestEvent(request, it) }
                 } else when (event) {
                     is PlaybackEvent.ErrorOccurred -> normalState.failed(attempt)
-                    is PlaybackEvent.MediaEnded -> if (latestShouldPlay) player.play()
+                    is PlaybackEvent.MediaEnded -> if (latestShouldPlay) {
+                        latestSetVolume(normalState.effectiveVolume)
+                        player.play()
+                    }
                     else -> Unit
                 }
             }
@@ -142,7 +145,13 @@ internal fun MediaMpVideoBinding(
         when {
             !shouldPlay || (slideshowRequest == null && normalState.loadStatus == NormalVideoLoadStatus.Failed) -> player.pause()
             slideshowRequest != null && player.state.value.mediaStatus == MediaStatus.Ended -> Unit
-            else -> player.play()
+            else -> {
+                // Apply saved mute before starting, including new players and resumed pages.
+                latestSetVolume(if (slideshowRequest != null) {
+                    if (latestMuted) 0f else 1f
+                } else normalState.effectiveVolume)
+                player.play()
+            }
         }
     }
     // Speed only changes the rate; play/pause stays with the effect above.
