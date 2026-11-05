@@ -348,9 +348,10 @@ video playback, or desktop viewer shortcuts.
   pager movement and slideshow transition completion before recording the new
   settled identity. This keeps the displayed page and request-bound readiness
   callbacks aligned for manual Previous/Next, keyboard arrows, and auto-advance.
-- Slideshow actions show icons alongside localized labels: Previous/Next,
+- Slideshow actions use icon-only buttons: Previous/Next,
   Pause/Resume, Retry, Mute/Unmute, Info, fullscreen where supported, and Exit.
-  Icons are decorative for accessibility; the label names the single button.
+  Localized content descriptions name each action for accessibility without
+  rendering visible button text. Failure messages and enabled captions remain text.
   Controls retain wrapping layout, existing enablement, and action callbacks.
 - Play video starts while awaiting progress, disables looping, and uses a fresh
   player generation for each visit. Pause/resume retains the same visit and

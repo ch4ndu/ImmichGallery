@@ -42,20 +42,21 @@ class ViewerStaticPlaybackUiTest {
         compose.waitUntil { fixture.state.ready }
         compose.runOnIdle { fixture.advance(2_000) }
         compose.onNodeWithTag("media:a:selected").performClick() // Reveal controls after the deliberate 10s startup wait.
-        waitText("Pause slideshow")
-        compose.onNodeWithText("Pause slideshow").performClick()
+        compose.waitUntil { compose.onAllNodesWithContentDescription("Pause slideshow").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Pause slideshow").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Pause slideshow").performClick()
         compose.waitUntil { fixture.state.paused }
         compose.runOnIdle { fixture.advance(30_000); assertFalse(fixture.wakeHeld) }
         compose.runOnIdle { assertEquals("a", fixture.state.asset?.id); assertEquals(.4f, fixture.state.motionProgress) }
-        compose.onNodeWithText("Resume slideshow").performClick()
+        compose.onNodeWithContentDescription("Resume slideshow").performClick()
         compose.waitUntil { !fixture.state.paused }
         compose.runOnIdle { fixture.advance(3_000) }
         waitVisit("b")
-        compose.onNodeWithText("Previous slide").performClick()
+        compose.onNodeWithContentDescription("Previous slide").performClick()
         waitVisit("a")
-        compose.onNodeWithText("Next slide").performClick()
+        compose.onNodeWithContentDescription("Next slide").performClick()
         waitVisit("b")
-        compose.onNodeWithText("Exit slideshow").performClick()
+        compose.onNodeWithContentDescription("Exit slideshow").performClick()
         compose.waitUntil { fixture.state.config == null }
         compose.onNodeWithText("Asset 2 of 3").assertIsDisplayed()
         compose.onNodeWithContentDescription("Back").performClick()
@@ -71,7 +72,7 @@ class ViewerStaticPlaybackUiTest {
         compose.onNodeWithText("Random").performScrollTo().performClick()
         compose.onNodeWithText("Start").performClick()
         compose.waitUntil { fixture.state.config?.durationSeconds == 8 }
-        compose.onNodeWithText("Exit slideshow").performClick()
+        compose.onNodeWithContentDescription("Exit slideshow").performClick()
         compose.runOnIdle { generation += 1 }
         compose.waitForIdle()
         openOptions()
@@ -102,7 +103,7 @@ class ViewerStaticPlaybackUiTest {
         press(Key.F)
         start()
         waitVisit("a")
-        compose.onNodeWithText("Pause slideshow").performClick()
+        compose.onNodeWithContentDescription("Pause slideshow").performClick()
         compose.waitUntil { fixture.state.paused }
         compose.runOnIdle {
             fixture.appActive = false
@@ -127,7 +128,7 @@ class ViewerStaticPlaybackUiTest {
         start()
         waitVisit("a")
         compose.runOnIdle { assertEquals(ViewerWindowPlacement.Fullscreen, fixture.placement) }
-        compose.onNodeWithText("Exit slideshow").performClick()
+        compose.onNodeWithContentDescription("Exit slideshow").performClick()
         compose.waitUntil { fixture.state.config == null && fixture.placement == ViewerWindowPlacement.Floating }
         compose.onNodeWithContentDescription("Back").performClick()
         compose.runOnIdle { assertEquals(ViewerWindowPlacement.Floating, fixture.placement) }
@@ -155,7 +156,7 @@ class ViewerStaticPlaybackUiTest {
         }
         compose.waitUntil { fixture.state.paused }
         val failed = fixture.state.request
-        compose.onNodeWithText("Retry slide").performClick()
+        compose.onNodeWithContentDescription("Retry slide").performClick()
         compose.waitUntil { fixture.state.request != failed && fixture.state.failure == null }
         waitVisit("c")
         compose.runOnIdle {
@@ -165,9 +166,9 @@ class ViewerStaticPlaybackUiTest {
         }
         compose.waitUntil { fixture.state.ready }
         compose.runOnIdle { assertNull(fixture.state.failure) }
-        compose.onNodeWithText("Next slide").performClick()
+        compose.onNodeWithContentDescription("Next slide").performClick()
         waitVisit("a")
-        compose.onNodeWithText("Exit slideshow").performClick()
+        compose.onNodeWithContentDescription("Exit slideshow").performClick()
         compose.onNodeWithText("Show thumbnails").assertIsDisplayed()
     }
 
@@ -180,11 +181,11 @@ class ViewerStaticPlaybackUiTest {
         compose.waitUntil { fixture.state.ready }
         val request = fixture.state.request
         compose.onNodeWithTag("media:a:selected").performClick()
-        compose.waitUntil { !fixture.state.controlsVisible && compose.onAllNodesWithText("Pause slideshow").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("Pause slideshow").assertDoesNotExist()
+        compose.waitUntil { !fixture.state.controlsVisible && compose.onAllNodesWithContentDescription("Pause slideshow").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithContentDescription("Pause slideshow").assertDoesNotExist()
         compose.onNodeWithTag("media:a:selected").performClick()
-        waitText("Pause slideshow")
-        compose.onNodeWithText("Pause slideshow").assertIsDisplayed()
+        compose.waitUntil { compose.onAllNodesWithContentDescription("Pause slideshow").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Pause slideshow").assertIsDisplayed()
         press(Key.Spacebar)
         compose.waitUntil { fixture.state.paused }
         compose.runOnIdle { fixture.advance(20_000); assertEquals(request, fixture.state.request) }
@@ -205,14 +206,14 @@ class ViewerStaticPlaybackUiTest {
         val displayedTime = "at ${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}"
         compose.onNodeWithText(displayedTime, substring = true).assertIsDisplayed()
         compose.runOnIdle { fixture.ready(); fixture.advance(2_000) }
-        compose.onNodeWithText("Info").performClick()
+        compose.onNodeWithContentDescription("Info").performClick()
         compose.waitUntil { !fixture.state.playMedia }
         compose.waitUntil { compose.onAllNodesWithText(displayedTime, substring = true).fetchSemanticsNodes().size == 2 }
         compose.onAllNodesWithText(displayedTime, substring = true).assertCountEquals(2)
         compose.runOnIdle { fixture.advance(30_000); assertEquals("a", fixture.state.asset?.id) }
         compose.onNodeWithContentDescription("Close sheet").performMouseInput { click(topLeft + androidx.compose.ui.geometry.Offset(10f, 10f)) }
         compose.waitUntil { fixture.state.playMedia }
-        compose.onNodeWithText("Next slide").performClick()
+        compose.onNodeWithContentDescription("Next slide").performClick()
         waitVisit("b")
         compose.onNodeWithText("a description").assertDoesNotExist()
         compose.runOnIdle { pendingB.complete(Result.success(viewerFixtureDetail("b"))) }
@@ -286,7 +287,7 @@ class ViewerStaticPlaybackUiTest {
         waitVisit("a")
         compose.runOnIdle { fixture.ready(); fixture.settledIds.clear() }
         compose.mainClock.autoAdvance = false
-        compose.onNodeWithText("Next slide").performClick()
+        compose.onNodeWithContentDescription("Next slide").performClick()
         compose.mainClock.advanceTimeByFrame()
         compose.waitUntil { fixture.state.asset?.id == "c" }
         compose.mainClock.advanceTimeUntil(5_000) { !fixture.state.transitioning }
@@ -316,10 +317,10 @@ class ViewerStaticPlaybackUiTest {
         } } }
         start()
         waitVisit("a")
-        compose.onNodeWithText("Next slide").performClick()
+        compose.onNodeWithContentDescription("Next slide").performClick()
         waitVisit("b")
         compose.runOnIdle { assertTrue(fixture.media.keys.none { it.assetId == "video" }) }
-        compose.onNodeWithText("Exit slideshow").performClick()
+        compose.onNodeWithContentDescription("Exit slideshow").performClick()
         compose.runOnIdle {
             fixture.preferences.setSlideshowConfig(fixture.repository.getSlideshowConfig().copy(videoPolicy = SlideshowVideoPolicy.THUMBNAIL))
             generation += 1
@@ -327,7 +328,7 @@ class ViewerStaticPlaybackUiTest {
         compose.waitForIdle()
         start()
         waitVisit("video")
-        compose.onNodeWithText("Unmute video").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Unmute video").assertDoesNotExist()
         compose.runOnIdle { fixture.ready(SlideshowMediaEvent.Progress(10_000)); fixture.advance(5_000) }
         compose.runOnIdle { assertFalse(fixture.state.ready); assertEquals("video", fixture.state.asset?.id) }
         compose.runOnIdle { fixture.ready() }
@@ -341,13 +342,13 @@ class ViewerStaticPlaybackUiTest {
         start()
         waitVisit("video")
         compose.runOnIdle { assertTrue(fixture.state.playMedia); assertFalse(fixture.state.ready) }
-        compose.onNodeWithText("Unmute video").performClick()
+        compose.onNodeWithContentDescription("Unmute video").performClick()
         compose.waitUntil { fixture.state.config?.muted == false && !fixture.repository.getSlideshowConfig().muted }
         val visit = fixture.state.request
-        compose.onNodeWithText("Pause slideshow").performClick()
+        compose.onNodeWithContentDescription("Pause slideshow").performClick()
         compose.waitUntil { fixture.state.paused }
         compose.runOnIdle { fixture.advance(30_000); assertEquals(visit, fixture.state.request); assertFalse(fixture.state.playMedia) }
-        compose.onNodeWithText("Resume slideshow").performClick()
+        compose.onNodeWithContentDescription("Resume slideshow").performClick()
         compose.waitUntil { fixture.state.playMedia }
         compose.runOnIdle { fixture.ready(SlideshowMediaEvent.Progress(1_000)) }
         compose.waitUntil { fixture.state.ready }
@@ -359,7 +360,7 @@ class ViewerStaticPlaybackUiTest {
         }
         waitVisit("a")
         compose.runOnIdle { assertFalse("b" in fixture.settledIds) }
-        compose.onNodeWithText("Exit slideshow").performClick()
+        compose.onNodeWithContentDescription("Exit slideshow").performClick()
         openOptions()
         compose.onNodeWithText("Mute videos").performScrollTo().assertIsOff()
         compose.runOnIdle { assertFalse(fixture.repository.getSlideshowConfig().muted) }
@@ -372,14 +373,14 @@ class ViewerStaticPlaybackUiTest {
         waitVisit("video")
         compose.runOnIdle { fixture.ready(SlideshowMediaEvent.Completed) }
         waitVisit("a")
-        compose.onNodeWithText("Previous slide").performClick()
+        compose.onNodeWithContentDescription("Previous slide").performClick()
         waitVisit("video")
         compose.runOnIdle { fixture.ready(SlideshowMediaEvent.Progress(1_000)) }
         compose.waitUntil { fixture.state.ready }
         compose.runOnIdle { fixture.advance(15_000) }
         compose.waitUntil { fixture.state.failure == SlideshowFailure.TIMEOUT }
         compose.onNodeWithText("This slide stopped responding.").assertIsDisplayed()
-        compose.onNodeWithText("Retry slide").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Retry slide").assertIsDisplayed()
         compose.runOnIdle { fixture.advance(2_000) }
         waitVisit("a")
     }

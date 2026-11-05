@@ -91,13 +91,11 @@ private fun SlideshowActionButton(
     onClick: () -> Unit,
     enabled: Boolean = true
 ) {
-    TextButton(onClick, enabled = enabled, colors = ButtonDefaults.textButtonColors(
+    IconButton(onClick, enabled = enabled, colors = IconButtonDefaults.iconButtonColors(
         contentColor = Color.White,
         disabledContentColor = Color.White.copy(alpha = 0.38f)
     )) {
-        Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(Dimens.iconSize))
-        Spacer(Modifier.width(Dimens.smallSpacing))
-        Text(label)
+        Icon(painterResource(icon), contentDescription = label, modifier = Modifier.size(Dimens.iconSize))
     }
 }
 

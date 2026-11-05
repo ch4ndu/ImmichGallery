@@ -19,7 +19,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.onRoot
@@ -91,8 +91,8 @@ class ViewerTimelinePlaybackUiTest {
         advance(2_000)
         val pausedRequest = fixture.state.request
         compose.onNodeWithTag("media:${assetId(1)}:selected").performClick() // Startup plus dwell reached the control-hide interval.
-        compose.waitUntil { compose.onAllNodesWithText("Pause slideshow").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Pause slideshow").performClick()
+        compose.waitUntil { compose.onAllNodesWithContentDescription("Pause slideshow").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Pause slideshow").performClick()
         compose.waitUntil { fixture.state.paused }
         advance(20_000)
         compose.runOnIdle {
@@ -100,7 +100,7 @@ class ViewerTimelinePlaybackUiTest {
             assertEquals(.4f, fixture.state.motionProgress)
             assertFalse(fixture.wakeHeld)
         }
-        compose.onNodeWithText("Resume slideshow").performClick()
+        compose.onNodeWithContentDescription("Resume slideshow").performClick()
         compose.waitUntil { !fixture.state.paused }
         advance(2_999)
         compose.runOnIdle { assertEquals(pausedRequest, fixture.state.request) }
@@ -113,11 +113,11 @@ class ViewerTimelinePlaybackUiTest {
         }
         waitVisit(assetId(2))
         ready()
-        compose.onNodeWithText("Previous slide").performClick()
+        compose.onNodeWithContentDescription("Previous slide").performClick()
         waitVisit(assetId(1))
-        compose.onNodeWithText("Next slide").performClick()
+        compose.onNodeWithContentDescription("Next slide").performClick()
         waitVisit(assetId(2))
-        compose.onNodeWithText("Exit slideshow").performClick()
+        compose.onNodeWithContentDescription("Exit slideshow").performClick()
         compose.waitUntil { fixture.state.config == null }
         compose.onNodeWithText("Asset 3 of 3").assertIsDisplayed()
         compose.onNodeWithContentDescription("Back").performClick()
@@ -154,7 +154,7 @@ class ViewerTimelinePlaybackUiTest {
                 assertTrue(fixture.state.ready)
             }
             val reservedAsset = requireNotNull(fixture.state.upcomingAsset).id
-            compose.onNodeWithText("Next slide").performClick()
+            compose.onNodeWithContentDescription("Next slide").performClick()
             waitVisit(reservedAsset)
             visited.add(reservedAsset)
             ready()
@@ -165,11 +165,11 @@ class ViewerTimelinePlaybackUiTest {
             assertEquals(bucketCount, visited.distinct().size)
             assertEquals((0 until bucketCount).map(::assetId).toSet(), visited.toSet())
         }
-        compose.onNodeWithText("Previous slide").performClick()
+        compose.onNodeWithContentDescription("Previous slide").performClick()
         waitVisit(visited[visited.lastIndex - 1])
-        compose.onNodeWithText("Next slide").performClick()
+        compose.onNodeWithContentDescription("Next slide").performClick()
         waitVisit(visited.last())
-        compose.onNodeWithText("Next slide").performClick()
+        compose.onNodeWithContentDescription("Next slide").performClick()
         compose.waitUntil { fixture.state.asset?.id != visited.last() && !fixture.state.transitioning }
         compose.runOnIdle { assertNotEquals(visited.last(), fixture.state.asset?.id) }
     }
@@ -235,7 +235,7 @@ class ViewerTimelinePlaybackUiTest {
         compose.onNodeWithText("These photos could not be loaded. Retry or choose another slide.")
             .assertIsDisplayed()
         val failedRequest = fixture.state.request
-        compose.onNodeWithText("Retry slide").performClick()
+        compose.onNodeWithContentDescription("Retry slide").performClick()
         compose.waitUntil { retryRequests.isNotEmpty() }
         compose.runOnIdle {
             assertEquals(listOf(bucketKey(1)), retryRequests)
@@ -252,7 +252,7 @@ class ViewerTimelinePlaybackUiTest {
             assertTrue(fixture.state.ready)
             assertEquals(listOf(bucketKey(1)), retryRequests)
         }
-        compose.onNodeWithText("Retry slide").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Retry slide").assertDoesNotExist()
     }
 
     @Test
@@ -288,7 +288,7 @@ class ViewerTimelinePlaybackUiTest {
         waitVisit(assetId(0))
         ready()
         if (backward) {
-            compose.onNodeWithText("Next slide").performClick()
+            compose.onNodeWithContentDescription("Next slide").performClick()
             waitVisit(assetId(1))
             ready()
         }
@@ -299,7 +299,7 @@ class ViewerTimelinePlaybackUiTest {
         } else if (keyboard) {
             compose.onRoot().performKeyInput { pressKey(Key.DirectionRight) }
         } else {
-            compose.onNodeWithText(if (backward) "Previous slide" else "Next slide").performClick()
+            compose.onNodeWithContentDescription(if (backward) "Previous slide" else "Next slide").performClick()
         }
         compose.mainClock.advanceTimeBy(64)
         compose.runOnIdle {
