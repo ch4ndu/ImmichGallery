@@ -19,6 +19,8 @@ For the shared photo/video viewer, information sheet, slideshow, and return tran
 - Immich API client for a read-only authenticated gallery. Normal API auth uses
   an explicitly attached `x-api-key` header; automatic redirects are disabled.
 - Ktor 3 HTTP client with per-platform engines: OkHttp, Darwin, and Java.
+  The JVM Java engine explicitly uses HTTP/1.1 for compatibility with
+  self-hosted HTTP servers that reject HTTP/2 upgrade requests.
 - Coil 3 authenticated image loading via an OkHttp fetcher on Android and
   `KtorNetworkFetcherFactory` on iOS/JVM.
 - Koin and its singleton Coil controller are process-owned on every platform.

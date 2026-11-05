@@ -60,6 +60,12 @@ cannot forward the custom credential header to another authority. Image clients
 also attach the key only when the final request URL exactly matches the
 configured scheme, host, and port.
 
+JVM Desktop explicitly uses HTTP/1.1 in its Java Ktor engine. Java's default
+HTTP/2 negotiation can cause self-hosted HTTP endpoints to close the connection
+on an h2c upgrade before anonymous ping or API-key validation completes. This
+also applies to the shared client used for desktop image fetching; TLS
+certificate validation and the no-redirect policy remain enabled.
+
 The normalized server URL and key are stored by `multiplatform-settings`; they
 are configuration, not Room rows. JVM Desktop uses the app-specific Java
 Preferences node `com/udnahc/immichgallery`. A one-time migration copies known
