@@ -513,7 +513,7 @@ private fun VideoOrSlideshowAssetPage(
 }
 
 @Composable
-private fun SlideshowAssetPage(
+internal fun SlideshowAssetPage(
     asset: Asset,
     isCurrentPage: Boolean,
     slideshowConfig: SlideshowConfig?,
@@ -524,6 +524,8 @@ private fun SlideshowAssetPage(
     onEvent: (SlideshowMediaRequest, SlideshowMediaEvent) -> Unit
 ) {
     val request = playback?.request?.takeIf { it.assetId == asset.id }
+    val outgoing = playback?.outgoingStill?.takeIf { it.request.assetId == asset.id }
+    val stillRequest = request ?: outgoing?.request
     val imageUrl = if (asset.type == AssetType.VIDEO) asset.thumbnailUrl else asset.originalUrl
     Box(Modifier.fillMaxSize().pointerInput(onTap) { detectTapGestures { onTap() } }) {
         if (request != null && asset.type == AssetType.VIDEO && slideshowConfig?.videoPolicy == SlideshowVideoPolicy.PLAY) {
@@ -533,13 +535,14 @@ private fun SlideshowAssetPage(
                     onTap = onTap, modifier = Modifier.fillMaxSize(),
                     slideshowRequest = request, muted = slideshowConfig.muted, onSlideshowEvent = onEvent)
             }
-        } else if (request != null) {
-            key(request) {
-                KenBurnsImage(url = imageUrl, progress = progress,
+        } else if (stillRequest != null) {
+            key(stillRequest) {
+                KenBurnsImage(url = imageUrl,
+                    progress = { if (request != null) progress() else outgoing?.progress ?: 0f },
                     motionEnabled = slideshowConfig?.motion == SlideshowMotion.PAN_AND_ZOOM,
                     thumbnailCacheKey = asset.thumbnailCacheKey,
-                    onReady = { onEvent(request, SlideshowMediaEvent.ImageReady) },
-                    onError = { onEvent(request, SlideshowMediaEvent.Failed) })
+                    onReady = { request?.let { onEvent(it, SlideshowMediaEvent.ImageReady) } },
+                    onError = { request?.let { onEvent(it, SlideshowMediaEvent.Failed) } })
             }
         } else {
             AsyncImage(model = imageUrl, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())

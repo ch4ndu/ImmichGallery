@@ -65,6 +65,31 @@ class SlideshowPlaybackControllerTest {
         assertEquals("a", f.state.asset?.id)
     }
 
+    @Test fun navigationFreezesOutgoingStillBeforeResettingIncomingMotion() {
+        for (automatic in listOf(false, true)) {
+            val f = Fixture()
+            f.start(items("a", "b"), SlideshowConfig(durationSeconds = 5))
+            f.ready()
+            val outgoingRequest = assertNotNull(f.state.request)
+            f.advance(if (automatic) 5_000 else 2_000)
+            if (!automatic) f.controller.next()
+            assertEquals("b", f.state.asset?.id)
+            assertEquals(SlideshowStillFrame(outgoingRequest, if (automatic) 1f else .4f), f.state.outgoingStill)
+            assertEquals(0f, f.state.motionProgress)
+            f.controller.mediaEvent(outgoingRequest, SlideshowMediaEvent.ImageReady)
+            assertFalse(f.state.ready)
+            f.event(SlideshowMediaEvent.ImageReady)
+            f.advance(500)
+            assertEquals(0f, f.state.motionProgress) // Loaded incoming media waits for the slide.
+            f.finish()
+            f.advance(500)
+            assertEquals(.1f, f.state.motionProgress)
+            assertEquals(if (automatic) 1f else .4f, f.state.outgoingStill?.progress)
+            f.controller.stop()
+            assertNull(f.state.outgoingStill)
+        }
+    }
+
     @Test fun previousSkipsPreviouslyExcludedAndLazyMaterializedVideoBackward() {
         for (known in listOf(false, true)) {
             val f = Fixture()

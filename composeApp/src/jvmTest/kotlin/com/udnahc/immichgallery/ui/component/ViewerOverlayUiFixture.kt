@@ -66,7 +66,8 @@ internal class ViewerOverlayUiFixture(
             val onTap by rememberUpdatedState(presentation.onTap)
             SideEffect {
                 if (presentation.isCurrentPage) presentations[presentation.asset.id] = presentation
-                presentation.playback?.request?.let { media[it] = presentation }
+                presentation.playback?.request?.takeIf { it.assetId == presentation.asset.id }
+                    ?.let { media[it] = presentation }
             }
             Box(Modifier.fillMaxSize().background(Color.DarkGray)
                 .testTag("media:${presentation.asset.id}:${if (presentation.isCurrentPage) "selected" else "adjacent"}")

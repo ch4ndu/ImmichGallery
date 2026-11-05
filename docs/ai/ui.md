@@ -84,7 +84,9 @@ For shared photo/video viewing, information sheets, slideshow, viewer gestures, 
   so later Escape presses remain reachable after stopping a focused control.
 - Slideshow Ken Burns transforms are measurement-based: pan translation is a
   fraction of the measured container width/height and progress is clamped before
-  linear interpolation. Read animation progress and derive the transform inside
+  linear interpolation. Use the graphics layer's measured size directly rather
+  than feeding an initial zero size through composition state. Read animation
+  progress and derive the transform inside
   `graphicsLayer` so frame updates invalidate layer properties rather than the
   composable body. Keep request, preset, and measured structural state outside
   that layer callback.

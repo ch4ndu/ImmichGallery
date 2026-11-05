@@ -27,6 +27,11 @@ sealed interface SlideshowMediaEvent {
     data object Fallback : SlideshowMediaEvent
 }
 
+internal data class SlideshowStillFrame(
+    val request: SlideshowMediaRequest,
+    val progress: Float
+)
+
 internal data class SlideshowPlaybackState(
     val config: SlideshowConfig? = null,
     val request: SlideshowMediaRequest? = null,
@@ -39,6 +44,7 @@ internal data class SlideshowPlaybackState(
     val playMedia: Boolean = false,
     val keepAwake: Boolean = false,
     val motionProgress: Float = 0f,
+    val outgoingStill: SlideshowStillFrame? = null,
     val upcomingAsset: Asset? = null,
     val failure: SlideshowFailure? = null,
     val canRetry: Boolean = false,
@@ -296,6 +302,13 @@ internal class SlideshowPlaybackController(
 
     private fun beginRequest(item: SlideshowSourceItem) {
         val now = nowMillis()
+        val previous = state.value
+        val outgoingStill = previous.request?.takeIf {
+            previous.asset != null &&
+                    (previous.asset.type != AssetType.VIDEO || previous.config?.videoPolicy != SlideshowVideoPolicy.PLAY)
+        }?.let { request ->
+            SlideshowStillFrame(request, previous.config?.let { timing.motionProgress(it, now) } ?: 0f)
+        } ?: previous.outgoingStill
         val isVideo = item.asset?.type == AssetType.VIDEO && state.value.config?.videoPolicy == SlideshowVideoPolicy.PLAY
         val request = timing.beginVisit(item.candidate, mediaKey(item.asset), if (isVideo) SlideshowMediaKind.VIDEO else SlideshowMediaKind.IMAGE, now)
         timing.setEnvironmentActive(environmentActive, now)
@@ -304,7 +317,8 @@ internal class SlideshowPlaybackController(
         navigationId += 1
         mutableState.value = state.value.copy(request = request, asset = item.asset,
             page = source.indexOf(item), navigationId = navigationId, transitioning = true,
-            failure = null, canRetry = false, ready = false, motionProgress = 0f)
+            failure = null, canRetry = false, ready = false, motionProgress = 0f,
+            outgoingStill = outgoingStill)
     }
 
     private fun prepareUpcoming() {

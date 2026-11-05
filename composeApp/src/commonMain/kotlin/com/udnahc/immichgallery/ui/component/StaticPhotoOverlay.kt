@@ -387,7 +387,9 @@ fun StaticPhotoOverlay(
                         isCurrentPage = isSettledPage && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog && LocalAppActive.current,
                         isSlideshow = isSlideshow,
                         slideshowConfig = slideshowConfig,
-                        playback = playback.takeIf { isSettledPage && it.asset?.id == asset.id },
+                        playback = playback.takeIf {
+                            it.asset?.id == asset.id || it.outgoingStill?.request?.assetId == asset.id
+                        },
                         slideshowProgress = { progress.value },
                         onSlideshowEvent = { request, event -> slideshow.mediaEvent(request, event) },
                         onTap = onTap,

@@ -3,15 +3,11 @@ package com.udnahc.immichgallery.ui.component
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
@@ -72,9 +68,6 @@ fun KenBurnsImage(
     onError: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var widthPx by remember { mutableStateOf(0f) }
-    var heightPx by remember { mutableStateOf(0f) }
-
     // Pick a random preset per URL
     val preset = remember(url) { presets[Random.nextInt(presets.size)] }
 
@@ -94,10 +87,6 @@ fun KenBurnsImage(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
-            .onSizeChanged {
-                widthPx = it.width.toFloat()
-                heightPx = it.height.toFloat()
-            }
     ) {
         AsyncImage(
             model = imageRequest,
@@ -110,8 +99,8 @@ fun KenBurnsImage(
                 .graphicsLayer {
                     val transform = interpolateKenBurnsTransform(
                         preset = preset,
-                        widthPx = widthPx,
-                        heightPx = heightPx,
+                        widthPx = size.width,
+                        heightPx = size.height,
                         progress = progress()
                     )
                     scaleX = if (motionEnabled) transform.scale else 1f

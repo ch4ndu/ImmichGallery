@@ -342,6 +342,18 @@ video playback, or desktop viewer shortcuts.
   the outgoing and target media rather than traversing intermediate shuffled
   pages. Completion messages are generation-checked before advancing the
   controller. Offscreen/covered videos remain paused.
+- Incoming slideshow media receives its request before the pager settles, so
+  a Slide destination mounts its pan/zoom renderer at the initial pose before
+  becoming visible. Readiness can arrive during movement; dwell still waits
+  for transition completion. Actual video playback remains settled-page gated.
+- On navigation the controller captures the outgoing still request and motion
+  progress before resetting the incoming visit. The outgoing page retains that
+  request-keyed renderer and frozen transform instead of reverting to a fitted
+  image. Retention is one outgoing still frame, replaced when leaving another
+  still and cleared on stop; it contains no decoded bitmap. Stale outgoing
+  readiness callbacks cannot complete the incoming request.
+- Pan translation uses the graphics layer's current measured size directly,
+  avoiding a first-frame zero-size offset followed by a measurement-state jump.
 - While slideshow is active, its binding owns Timeline pager navigation.
   Timeline's normal projection reconciler must not restore the previous settled
   anchor when another bucket materializes during a slide. It waits for both

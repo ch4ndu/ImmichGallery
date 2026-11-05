@@ -283,7 +283,8 @@ class ViewerTimelinePlaybackUiTest {
         configureBuckets(count = 4)
         materializeBucket(0)
         materializeBucket(1)
-        show(config = slideshowConfig(seconds = 60).copy(transition = SlideshowTransition.SLIDE))
+        show(config = slideshowConfig(seconds = 60).copy(
+            transition = SlideshowTransition.SLIDE, motion = SlideshowMotion.PAN_AND_ZOOM))
         start()
         waitVisit(assetId(0))
         ready()
@@ -305,6 +306,9 @@ class ViewerTimelinePlaybackUiTest {
         compose.runOnIdle {
             assertEquals(destination, fixture.state.asset?.id)
             assertTrue(fixture.state.transitioning)
+            val incoming = requireNotNull(fixture.media[fixture.state.request])
+            assertEquals(destination, incoming.asset.id)
+            assertFalse(incoming.isCurrentPage) // Motion renderer is prepared before settling.
             materializeBucket(2)
         }
         compose.mainClock.autoAdvance = true
