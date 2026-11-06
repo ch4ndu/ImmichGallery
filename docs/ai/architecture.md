@@ -215,6 +215,17 @@ Platform directories are `androidMain/`, `iosMain/`, and `jvmMain/`. Use `expect
   host-specific published mpv runtime, with fail-closed startup preparation and
   no system fallback. See the README for supported hosts and runtime licenses.
 
+## Desktop Window Ownership
+
+`DesktopSlideshowWindows` owns the native-window registry and library reopening.
+`SlideshowWindowViewModel` owns one admitted source lifetime, full static
+preparation or lazy Timeline cache reads, and metadata descendants through domain
+UseCases. It does not reuse a screen ViewModel or construct grid/Mosaic work.
+`SlideshowWindowRequest` is ephemeral; Koin, Coil, Room and shared settings stay
+process-owned. Each window has a separate ViewModel store and fullscreen bridge.
+See `media-viewer.md` for presentation/source rules and `auth-session.md` for
+origin ownership and session cancellation.
+
 ## Pagination And Scrollbar
 
 - Explore retains Search page tracking in `SearchState` and near-end detection from lazy layout state. Query/type edits invalidate active request generations and clear the executed result set; search, load-more, and row-projection results publish only when their query, type, and generation still match. Each generation/page pair is attempted automatically at most once, so a failed page remains explicitly retryable through the Load more button without entering an automatic retry loop. A server `nextPage` remains explicitly actionable even when API filtering yields zero supported assets.

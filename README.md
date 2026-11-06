@@ -88,6 +88,12 @@ on the server.
   device across logout; playback position and history last only for the session.
 - On desktop, toggle window fullscreen from the viewer or have slideshows
   enter it automatically, restoring the previous placement when they finish.
+- On desktop, choose **Start slideshow in new window** in a viewer menu to run
+  multiple independent shows while continuing to browse. Shows keep playing
+  without focus and pause when minimized; mute remains shared. Closing the
+  library leaves shows open; their File menu offers Show library and Quit.
+  Album, Person, Search, and Favorites shows prepare their complete collections;
+  Timeline uses cached buckets, and Memories/Stacks use the selected complete set.
 - For an asset in an Immich stack, open **View stack** from the viewer menu to
   browse its supported photos and videos. Closing the nested stack returns to
   the same asset in the original viewer before returning to the source grid.

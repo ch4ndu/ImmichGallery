@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+import com.udnahc.immichgallery.ui.component.rememberSlideshowWindowLauncher
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -136,6 +139,7 @@ fun TimelineScreen(
     viewModel: TimelineViewModel = koinViewModel(),
     onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
+    val windowLaunch = rememberSlideshowWindowLauncher(viewModel)
     val state by viewModel.state.collectAsState()
     val isBuilding by viewModel.isBuilding.collectAsState()
     val buildError by viewModel.buildError.collectAsState()
@@ -230,6 +234,13 @@ fun TimelineScreen(
         },
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
             TimelinePhotoOverlay(
+                windowLaunch = windowLaunch,
+                slideshowWindowSource = viewModel.overlayState.value.let { overlay ->
+                    overlay.pageIndex.pageToBucketIndex(initialIndex)?.let { bucketIndex ->
+                        SlideshowWindowSource.Timeline(
+                            overlay.buckets.toList(), overlay.buckets[bucketIndex].timeBucket)
+                    }
+                },
                 timelineState = viewModel.overlayState,
                 initialIndex = initialIndex,
                 apiKey = viewModel.apiKey,

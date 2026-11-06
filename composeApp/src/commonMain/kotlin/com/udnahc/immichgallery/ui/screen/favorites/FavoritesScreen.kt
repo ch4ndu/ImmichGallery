@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.favorites
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+import com.udnahc.immichgallery.ui.component.rememberSlideshowWindowLauncher
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -69,6 +72,7 @@ fun FavoritesScreen(
     viewModel: FavoritesViewModel = koinViewModel(),
     onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
+    val windowLaunch = rememberSlideshowWindowLauncher(viewModel)
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     val overlaySource = StaticPhotoOverlaySourceIdentity(
@@ -115,6 +119,8 @@ fun FavoritesScreen(
         },
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
             StaticPhotoOverlay(
+                windowLaunch = windowLaunch,
+                slideshowWindowSource = SlideshowWindowSource.Favorites,
                 assets = state.assets,
                 initialIndex = initialIndex,
                 apiKey = viewModel.apiKey,

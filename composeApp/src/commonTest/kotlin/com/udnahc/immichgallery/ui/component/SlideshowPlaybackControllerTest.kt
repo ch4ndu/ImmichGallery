@@ -187,6 +187,63 @@ class SlideshowPlaybackControllerTest {
         assertEquals("a", f.state.asset?.id)
     }
 
+    @Test fun singletonPlayHoldsCompletedOrCappedVisitUntilExplicitReplay() {
+        for (completed in listOf(false, true)) {
+            val f = Fixture()
+            val config = SlideshowConfig(videoPolicy = SlideshowVideoPolicy.PLAY, videoLimitSeconds = 2)
+            f.controller.updateSource(listOf(video("v")))
+            f.controller.start(config, 0, pauseAtEnd = true)
+            f.finish()
+            assertTrue(f.state.playMedia)
+            val visit = assertNotNull(f.state.request)
+            f.event(SlideshowMediaEvent.Progress(1_000))
+            assertTrue(f.state.keepAwake)
+            if (completed) f.event(SlideshowMediaEvent.Completed)
+            else f.event(SlideshowMediaEvent.Progress(2_000))
+            f.controller.tick()
+            assertEquals(visit, f.state.request)
+            assertEquals(config, f.state.config)
+            assertEquals("v", f.state.asset?.id)
+            assertTrue(f.state.paused)
+            assertFalse(f.state.playMedia)
+            assertFalse(f.state.keepAwake)
+            f.advance(30_000)
+            assertEquals(visit, f.state.request)
+            assertTrue(f.state.paused)
+
+            f.controller.togglePause() // Resume explicitly restarts a finished visit.
+            val replay = assertNotNull(f.state.request)
+            assertNotEquals(visit, replay)
+            assertFalse(f.state.paused)
+            f.finish()
+            f.controller.mediaEvent(visit, SlideshowMediaEvent.Completed)
+            f.controller.tick()
+            assertEquals(replay, f.state.request)
+            assertTrue(f.state.playMedia)
+            f.event(SlideshowMediaEvent.Completed)
+            f.controller.tick()
+            assertTrue(f.state.paused)
+            assertEquals(replay, f.state.request)
+
+            f.controller.next() // Next also explicitly replays the singleton.
+            assertNotEquals(replay, f.state.request)
+            assertFalse(f.state.paused)
+            f.finish()
+            f.controller.tick()
+            assertTrue(f.state.playMedia)
+            assertNull(f.state.failure)
+            val manualReplay = f.state.request
+            f.controller.togglePause()
+            f.event(SlideshowMediaEvent.Completed) // An end queued during pause is also replayed explicitly.
+            f.controller.togglePause()
+            assertNotEquals(manualReplay, f.state.request)
+            assertFalse(f.state.paused)
+            f.finish()
+            f.controller.tick()
+            assertTrue(f.state.playMedia)
+        }
+    }
+
     @Test fun startupAndLaterStallsUseActiveTimeoutAndFailuresPauseAfterThree() {
         val f = Fixture()
         f.start(items("a", "b", "c", "d"))

@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.people
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+import com.udnahc.immichgallery.ui.component.rememberSlideshowWindowLauncher
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -60,6 +63,7 @@ fun PersonDetailScreen(
     viewModel: PersonDetailViewModel = koinViewModel { parametersOf(personId) },
     onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
+    val windowLaunch = rememberSlideshowWindowLauncher(viewModel)
     val state by viewModel.state.collectAsState()
     val unknownLabel = stringResource(Res.string.unknown)
     val listState = rememberLazyListState()
@@ -141,6 +145,8 @@ fun PersonDetailScreen(
             },
             overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
                 StaticPhotoOverlay(
+                    windowLaunch = windowLaunch,
+                    slideshowWindowSource = SlideshowWindowSource.Person(personId),
                     assets = state.assets,
                     initialIndex = initialIndex,
                     apiKey = viewModel.apiKey,

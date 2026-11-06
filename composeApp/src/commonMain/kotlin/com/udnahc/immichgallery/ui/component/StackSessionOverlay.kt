@@ -1,5 +1,7 @@
 package com.udnahc.immichgallery.ui.component
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Arrangement
@@ -297,10 +299,11 @@ internal fun StackSessionOverlay(
     apiKey: String,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
     getAssetStack: suspend (String) -> Result<AssetStackLookup>,
-    onPersonClick: (personId: String, personName: String) -> Unit,
+    onPersonClick: ((personId: String, personName: String) -> Unit)?,
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
-    onShowInTimeline: ((LocalDate) -> Unit)? = null
+    onShowInTimeline: ((LocalDate) -> Unit)? = null,
+    windowLaunch: SlideshowWindowLaunch? = null
 ) {
     when (session) {
         is StackSession.Loading -> StackSessionStatus(
@@ -318,6 +321,8 @@ internal fun StackSessionOverlay(
 
         is StackSession.Ready -> StaticPhotoOverlay(
             assets = session.stack.assets,
+            slideshowWindowSource = SlideshowWindowSource.Snapshot(session.stack.assets.toList()),
+            windowLaunch = windowLaunch,
             initialIndex = session.stack.initialIndex(session.originAssetId),
             apiKey = apiKey,
             getAssetDetail = getAssetDetail,

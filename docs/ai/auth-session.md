@@ -148,6 +148,16 @@ configuration-last:
    is active or completed, using the latest ViewModel state rather than a
    potentially stale composition snapshot.
 
+Detached slideshow launch capabilities retain their source owner's epoch before
+options/deferred callbacks are created. Confirmation combines that retained epoch
+with the current generation; `runForStamp` must admit it before registry insertion
+or source/media work. An old callback cannot acquire a replacement account's
+identity. Viewer disposal invalidates its deferred launch callbacks.
+`SlideshowWindowViewModel` keeps the admitted registration alive through playback;
+loading, retry, buckets and metadata are structured descendants preserving its
+stamp. Mutation-start cancellation makes the window terminal and closes playback;
+cleanup must never wait cyclically for Compose disposal while mutation joins work.
+
 Only the explicit slideshow-configuration setting keys survive configuration
 cleanup. These device-wide preferences contain no server, asset, or playback
 identity. Viewer history, position, captions, and requests are never persisted

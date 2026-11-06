@@ -9,6 +9,12 @@ For standard justified row packing, also read `docs/ai/row-packing.md`.
 For cold sync, warm launch, manual refresh, and no-op bucket refresh rules, also
 read `docs/ai/timeline-sync.md`.
 
+Desktop **Start slideshow in new window** uses a separate window-owned loader
+and the existing Timeline overlay. It captures cached bucket membership, resolves
+the selected asset, then materializes subsequent cached buckets on demand without
+keeping this grid or its ViewModel alive. See `docs/ai/media-viewer.md` for window
+behavior and `docs/ai/timeline-sync.md` for its unchanged refresh boundary.
+
 ## Main Actors
 
 - `TimelineScreen` owns Compose UI state that is local to the screen: lazy-list

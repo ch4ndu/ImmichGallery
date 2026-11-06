@@ -246,6 +246,13 @@ Album/Person detail is documented separately in
   asset or away from a surviving owner. A nested stack closes to the unchanged
   memory pager before the base viewer exits to that cover.
 
+Desktop detached slideshow requests capture Search's submitted endpoint/criteria,
+not editable draft filters, and independently finish pagination. Favorites reuses
+the current-owner and sparse-page loader. A Memories request snapshots the selected
+memory's complete assets, not all memories for the date. These requests do not
+retain the collection screen; window lifecycle and full preparation are specified
+in `media-viewer.md`.
+
 ## Verification Targets
 
 - Album and People cached content remains visible when refresh fails;

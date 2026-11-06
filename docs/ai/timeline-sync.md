@@ -55,6 +55,13 @@ else:
 - Manual refresh is the explicit top-bar refresh path after warm cache exists and bypasses this mode function by building a `TimelineManualSyncRequest`.
 - `TimelineViewModel` can run a cache-only warm policy through `DISABLE_TIMELINE_NON_MANUAL_SERVER_SYNC`. When enabled, completed-cold-cache launch and bucket visibility changes do not hit the server; cold sync and manual refresh remain the only Timeline server refresh paths.
 
+Detached desktop slideshows preserve this policy. Their window-owned loader
+reads captured bucket membership from Room through `GetBucketAssetsUseCase`,
+without retaining the Timeline screen or invoking refresh Actions. Missing or
+partial expected rows stay cache-unavailable and require manual refresh; a retry
+may reread the cache but cannot silently fetch from the server. Presentation and
+window ownership are documented in `media-viewer.md`.
+
 ## Cold Sync
 
 Cold sync is the only blocking Timeline sync path. It runs when there is no warm Timeline cache or the previous cold sync did not mark completion.

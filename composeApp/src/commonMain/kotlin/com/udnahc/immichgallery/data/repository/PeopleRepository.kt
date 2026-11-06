@@ -348,6 +348,7 @@ class PeopleRepository(
             val fetchedRefs = detailRawAssetRefs(allItems)
             val crossRefs = personRawCrossRefs(personId, allItems)
             var changed = false
+            var completeAssets: List<Asset> = emptyList()
             sessionStateRepository.withCommit(token) {
                 withContext(Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
@@ -367,6 +368,9 @@ class PeopleRepository(
                         }
                         val after = if (skipAssetWrite) before else personDao.getPersonAssets(personId)
                         changed = !skipAssetWrite && orderedAssetsChanged(before, after)
+                        // Capture the complete prepared source under the same commit as its cache write.
+                        // Never reread shared refs after publication: another page refresh may truncate them.
+                        completeAssets = assetEntities.mapNotNull { it.toDomainOrNull(baseUrl()) }.toList()
                         if (changed) {
                             detailMosaicCacheDao.clearOwnerCache(
                                 DetailMosaicCacheOwnerType.PERSON.name,
@@ -385,7 +389,8 @@ class PeopleRepository(
             }
             PersonAssetsSyncResult(
                 changed = changed,
-                nextPage = null
+                nextPage = null,
+                completeAssets = completeAssets
             )
         } }
     }

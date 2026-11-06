@@ -1,5 +1,12 @@
 package com.udnahc.immichgallery.ui.screen.timeline
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+import com.udnahc.immichgallery.domain.model.SlideshowConfig
+import com.udnahc.immichgallery.domain.model.SlideshowVideoPolicy
+import com.udnahc.immichgallery.ui.component.rememberSlideshowWindowLaunchScope
+import com.udnahc.immichgallery.ui.component.SlideshowWindowLaunch
+import com.udnahc.immichgallery.ui.component.ViewerPreferencesViewModel
+
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -12,10 +19,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.padding
+import immichgallery.composeapp.generated.resources.Res
+import immichgallery.composeapp.generated.resources.slideshow_window_cache_unavailable
+import immichgallery.composeapp.generated.resources.retry
+import org.jetbrains.compose.resources.stringResource
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import com.udnahc.immichgallery.LocalAppActive
+import com.udnahc.immichgallery.ui.theme.Dimens
 import kotlinx.coroutines.flow.map
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -95,13 +111,16 @@ fun TimelinePhotoOverlay(
     assetProvider: (String) -> List<Asset>?,
     onBucketNeeded: (timeBucket: String) -> Unit,
     onRetryBucket: (timeBucket: String) -> Unit,
-    onPersonClick: (personId: String, personName: String) -> Unit,
+    onPersonClick: ((personId: String, personName: String) -> Unit)?,
     onDismiss: (currentAssetId: String?, currentBucket: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
     onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    onShowInTimeline: ((date: LocalDate, currentAssetId: String?, currentBucket: String?) -> Unit)? = null
+    onShowInTimeline: ((date: LocalDate, currentAssetId: String?, currentBucket: String?) -> Unit)? = null,
+    slideshowWindowSource: SlideshowWindowSource? = null,
+    windowLaunch: SlideshowWindowLaunch? = null,
+    autoStart: SlideshowConfig? = null
 ) {
     // Forward the STL's actual animation-active state to the screen so the
     // screen can flip `overlayAnimActive` false only when the bounds animation
@@ -118,11 +137,16 @@ fun TimelinePhotoOverlay(
     val state by timelineState.collectAsState()
     val latestState by rememberUpdatedState(state)
     val latestAssetProvider by rememberUpdatedState(assetProvider)
+    val launchInWindow = rememberSlideshowWindowLaunchScope(windowLaunch)
     val fullscreen = LocalViewerFullscreen.current
     val fullscreenSession = rememberViewerFullscreenSession()
     var filmstripExpanded by remember { mutableStateOf(false) }
     val chrome = rememberViewerChromeState()
     var showSlideshowDialog by remember { mutableStateOf(false) }
+    var pendingWindowLaunch by remember {
+        mutableStateOf<Pair<SlideshowWindowSource, String>?>(null)
+    }
+    val preferences: ViewerPreferencesViewModel = org.koin.compose.viewmodel.koinViewModel()
     var showDetailSheet by remember { mutableStateOf(false) }
     val stackController = rememberStackSessionController(getAssetStack)
     val stackSession = stackController.state.session
@@ -145,6 +169,11 @@ fun TimelinePhotoOverlay(
     val fileNameCache = remember { mutableStateMapOf<String, String>() }
 
     val isSlideshow = slideshowConfig != null
+    val singletonPlay = autoStart?.videoPolicy == SlideshowVideoPolicy.PLAY &&
+            state.pageIndex.totalPages == 1 && resolvePageAsset(0, state, assetProvider)?.type == AssetType.VIDEO
+    // Keep normal playback ineligible until the queued start publishes its config.
+    var autoStartPending by remember { mutableStateOf(autoStart != null && (state.pageIndex.totalPages > 1 || singletonPlay)) }
+    LaunchedEffect(isSlideshow) { if (isSlideshow) autoStartPending = false }
     DisposableEffect(fullscreenSession, isSlideshow, slideshowConfig?.fullscreen) {
         val lease = if (slideshowConfig?.fullscreen == true) fullscreenSession.enterSlideshow() else null
         onDispose { lease?.release() }
@@ -291,6 +320,8 @@ fun TimelinePhotoOverlay(
     val currentAsset = resolvePageAsset(
         pagerState.settledPage, state, assetProvider
     )
+    // Before start and after Exit, do not fall through to normal looping playback.
+    val singletonThumbnail = autoStart != null && totalPages == 1 && currentAsset?.type == AssetType.VIDEO && !isSlideshow
     val showDateInTimeline: ((LocalDate) -> Unit)? = onShowInTimeline?.let { showDate ->
         { date ->
             showDetailSheet = false
@@ -322,6 +353,16 @@ fun TimelinePhotoOverlay(
     val latestCurrentBucketKey by rememberUpdatedState(currentBucketKey)
 
     val slideshowTransition = BindSlideshowPager(slideshow, playback, pagerState, currentAsset)
+    LaunchedEffect(Unit) {
+        val config = autoStart
+        if (config != null && (totalPages > 1 || singletonPlay)) {
+            slideshow.start(config, clampedInitial, preferences, pauseAtEnd = singletonPlay)
+            chrome.hide()
+        } else if (config?.fullscreen == true && !fullscreen.isFullscreen) {
+            fullscreenSession.toggle()
+        }
+    }
+
 
     PlatformBackHandler(enabled = !isCoveredByStack, onBack = {
         if (isSlideshow) slideshow.send { it.stop() }
@@ -332,10 +373,13 @@ fun TimelinePhotoOverlay(
         SlideshowOptionsDialog(
             onConfirm = { config ->
                 showSlideshowDialog = false
-                slideshow.send { it.start(config, pagerState.settledPage) }
+                val pending = pendingWindowLaunch
+                pendingWindowLaunch = null
+                if (pending != null) launchInWindow?.invoke(pending.first, pending.second, config)
+                else slideshow.start(config, pagerState.settledPage, preferences)
                 chrome.hide()
             },
-            onDismiss = { showSlideshowDialog = false }
+            onDismiss = { showSlideshowDialog = false; pendingWindowLaunch = null }
         )
     }
 
@@ -387,12 +431,12 @@ fun TimelinePhotoOverlay(
     var isCurrentPageZoomed by remember { mutableStateOf(false) }
     LaunchedEffect(currentAsset?.id) { isCurrentPageZoomed = false }
 
-    val gestureEnabled = !showDetailSheet && !isSlideshow && !isCoveredByStack
+    val gestureEnabled = !showDetailSheet && !isSlideshow && !autoStartPending && !singletonThumbnail && !isCoveredByStack
     LaunchedEffect(gestureEnabled) {
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
     }
 
-    val isNormalVideo = !isSlideshow && currentAsset?.type == AssetType.VIDEO
+    val isNormalVideo = !isSlideshow && !autoStartPending && !singletonThumbnail && currentAsset?.type == AssetType.VIDEO
     // Fullscreen changes are interactions: normal video reveals chrome with a fresh interval.
     val toggleFullscreen: () -> Unit = {
         fullscreenSession.toggle()
@@ -498,9 +542,9 @@ fun TimelinePhotoOverlay(
                     AssetPage(
                         asset = asset,
                         apiKey = apiKey,
-                        isCurrentPage = isSettledPage && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog && LocalAppActive.current,
-                        isSlideshow = isSlideshow,
-                        slideshowConfig = slideshowConfig,
+                        isCurrentPage = isSettledPage && !autoStartPending && !singletonThumbnail && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog && LocalAppActive.current,
+                        isSlideshow = isSlideshow || autoStartPending || singletonThumbnail,
+                        slideshowConfig = slideshowConfig ?: autoStart.takeIf { autoStartPending || singletonThumbnail },
                         playback = playback.takeIf {
                             it.asset?.id == asset.id || it.outgoingStill?.request?.assetId == asset.id
                         },
@@ -518,7 +562,18 @@ fun TimelinePhotoOverlay(
                         onNormalVideoHoldChange = chrome::setHold,
                     )
                 } else {
-                    CircularProgressIndicator(color = Color.White)
+                    val bucket = resolvePageBucket(page, state)
+                    val status = state.bucketStatuses[bucket]
+                    if (autoStart != null && bucket != null && status in listOf(
+                            com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus.CACHE_UNAVAILABLE,
+                            com.udnahc.immichgallery.ui.component.SlideshowCandidateStatus.FAILED)) {
+                        Column(Modifier.padding(Dimens.largeSpacing),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
+                            Text(stringResource(Res.string.slideshow_window_cache_unavailable), color = Color.White)
+                            Button(onClick = { onRetryBucket(bucket) }) { Text(stringResource(Res.string.retry)) }
+                        }
+                    } else CircularProgressIndicator(color = Color.White)
                 }
             }
         }
@@ -537,6 +592,14 @@ fun TimelinePhotoOverlay(
             isFullscreen = fullscreen.isFullscreen,
             onSlideshow = if (totalPages > 1) {
                 { showSlideshowDialog = true }
+            } else null,
+            onSlideshowInNewWindow = if (launchInWindow != null && slideshowWindowSource != null && currentAsset != null) {
+                {
+                    pendingWindowLaunch = (if (slideshowWindowSource is SlideshowWindowSource.Timeline)
+                        slideshowWindowSource.copy(openingBucket = currentBucketKey ?: slideshowWindowSource.openingBucket)
+                        else slideshowWindowSource) to currentAsset.id
+                    showSlideshowDialog = true
+                }
             } else null,
             stackCount = currentAsset?.stackCount ?: 0,
             stackAvailability = currentAsset?.id
@@ -593,11 +656,11 @@ fun TimelinePhotoOverlay(
             AssetDetailSheet(
                 assetId = currentAsset.id,
                 getAssetDetail = getAssetDetail,
-                onPersonClick = { personId, personName ->
+                onPersonClick = onPersonClick?.let { navigate -> { personId, personName ->
                     showDetailSheet = false
                     dismissBase(null, null)
-                    onPersonClick(personId, personName)
-                },
+                    navigate(personId, personName)
+                } },
                 captureDateTime = currentAsset.createdAt,
                 onShowInTimeline = showDateInTimeline,
                 onDismiss = { showDetailSheet = false }
@@ -611,13 +674,14 @@ fun TimelinePhotoOverlay(
                     apiKey = apiKey,
                     getAssetDetail = getAssetDetail,
                     getAssetStack = getAssetStack,
-                    onPersonClick = { personId, personName ->
+                    onPersonClick = onPersonClick?.let { navigate -> { personId, personName ->
                         stackController.dismissSession()
                         dismissBase(null, null)
-                        onPersonClick(personId, personName)
-                    },
+                        navigate(personId, personName)
+                    } },
                     onDismiss = stackController::dismissSession,
                     onRetry = stackController::retrySession,
+                    windowLaunch = launchInWindow,
                     onShowInTimeline = showDateInTimeline
                 )
             }

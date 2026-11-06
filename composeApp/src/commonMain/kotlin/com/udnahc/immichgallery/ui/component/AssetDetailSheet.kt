@@ -95,7 +95,7 @@ private const val THUMBNAIL_DECODE_SIZE = 256
 fun AssetDetailSheet(
     assetId: String,
     getAssetDetail: suspend (String) -> Result<AssetDetail>,
-    onPersonClick: (personId: String, personName: String) -> Unit,
+    onPersonClick: ((personId: String, personName: String) -> Unit)?,
     onDismiss: () -> Unit,
     captureDateTime: String? = null,
     onShowInTimeline: ((LocalDate) -> Unit)? = null
@@ -201,7 +201,7 @@ fun AssetDetailSheet(
 @Composable
 internal fun AssetDetailContent(
     detail: AssetDetail,
-    onPersonClick: (personId: String, personName: String) -> Unit,
+    onPersonClick: ((personId: String, personName: String) -> Unit)?,
     onOpenMaps: (String) -> Unit,
     onCopyCoordinates: (String) -> Unit,
     captureDateTime: String? = null,
@@ -255,7 +255,7 @@ internal fun AssetDetailContent(
         }
 
         // People
-        if (detail.people.isNotEmpty()) {
+        if (detail.people.isNotEmpty() && onPersonClick != null) {
             Spacer(Modifier.height(Dimens.largeSpacing))
             HorizontalDivider()
             Spacer(Modifier.height(Dimens.largeSpacing))
