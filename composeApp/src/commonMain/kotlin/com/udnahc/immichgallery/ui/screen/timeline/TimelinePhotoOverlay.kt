@@ -468,6 +468,7 @@ fun TimelinePhotoOverlay(
             .desktopDetailShortcuts(
                 enabled = !showDetailSheet && !showSlideshowDialog && !isCoveredByStack,
                 slideshowActive = isSlideshow,
+                onSlideshowInteraction = { slideshow.send { it.interact() } },
                 onPrev = {
                     if (isSlideshow) slideshow.send { it.previous() }
                     else if (!pagerState.isScrollInProgress) scope.launch { pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0)) }

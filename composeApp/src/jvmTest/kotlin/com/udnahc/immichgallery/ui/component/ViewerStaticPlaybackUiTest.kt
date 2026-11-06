@@ -33,6 +33,36 @@ class ViewerStaticPlaybackUiTest {
 
     @After fun cleanup() { if (::fixture.isInitialized) fixture.dispose() }
 
+    @Test fun automaticAdvanceStaysHiddenAndMouseInteractionRestartsAutoHide() {
+        show()
+        start()
+        waitVisit("a")
+        compose.onNodeWithTag("media:a:selected").performMouseInput { moveTo(center) }
+        compose.runOnIdle { fixture.ready() }
+        compose.waitUntil { fixture.state.ready }
+        compose.runOnIdle { fixture.advance(3_000) }
+        compose.waitUntil { !fixture.state.controlsVisible }
+        compose.onNodeWithContentDescription("Pause slideshow").assertDoesNotExist()
+        compose.runOnIdle { fixture.advance(2_000) }
+        waitVisit("b")
+        compose.onNodeWithContentDescription("Pause slideshow").assertDoesNotExist()
+        compose.runOnIdle { fixture.ready() }
+        compose.waitUntil { fixture.state.ready }
+        // A stationary mouse must not reveal chrome after replacing the media underneath it.
+        compose.onNodeWithTag("media:b:selected").performMouseInput { moveTo(center) }
+        compose.runOnIdle { assertFalse(fixture.state.controlsVisible) }
+        compose.onNodeWithTag("media:b:selected").performMouseInput { moveTo(center + androidx.compose.ui.geometry.Offset(10f, 0f)) }
+        compose.waitUntil { fixture.state.controlsVisible }
+        compose.onNodeWithContentDescription("Pause slideshow").assertIsDisplayed()
+        compose.runOnIdle { fixture.advance(2_999) }
+        compose.runOnIdle { assertTrue(fixture.state.controlsVisible) }
+        compose.runOnIdle { fixture.advance(1) }
+        compose.waitUntil { !fixture.state.controlsVisible }
+        press(Key.DirectionRight)
+        waitVisit("c")
+        compose.onNodeWithContentDescription("Pause slideshow").assertIsDisplayed()
+    }
+
     @Test fun actualControlsDrivePagerHistoryAndRemainingReadyDwell() {
         show()
         start()
@@ -41,7 +71,11 @@ class ViewerStaticPlaybackUiTest {
         compose.runOnIdle { assertFalse(fixture.state.ready); assertEquals("a", fixture.state.asset?.id); fixture.ready() }
         compose.waitUntil { fixture.state.ready }
         compose.runOnIdle { fixture.advance(2_000) }
-        compose.onNodeWithTag("media:a:selected").performClick() // Reveal controls after the deliberate 10s startup wait.
+        // Reveal controls with desktop pointer activity after the deliberate startup wait.
+        compose.onNodeWithTag("media:a:selected").performMouseInput {
+            moveTo(center)
+            moveTo(center + androidx.compose.ui.geometry.Offset(10f, 0f))
+        }
         compose.waitUntil { compose.onAllNodesWithContentDescription("Pause slideshow").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Pause slideshow").assertDoesNotExist()
         compose.onNodeWithContentDescription("Pause slideshow").performClick()

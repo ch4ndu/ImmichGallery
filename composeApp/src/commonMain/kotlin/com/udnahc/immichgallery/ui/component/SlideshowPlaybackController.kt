@@ -163,12 +163,18 @@ internal class SlideshowPlaybackController(
     fun close() { stop(); closed = true; pendingSourceSupplier = null; source = emptyList() }
 
     fun next() {
+        if (session == null) return
+        interact()
+        advance()
+    }
+
+    // Timer and media completion are playback events, not user interaction.
+    private fun advance() {
         val order = session ?: return
         if (currentVisitEnded) {
             timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.RUNNING, nowMillis())
         }
         pendingBackward = false
-        interact()
         if (state.value.failure != null) pendingSlot?.let(order::exclude)
         pendingTarget = order.upcoming()
         pendingSlot = pendingTarget?.slot
@@ -273,14 +279,14 @@ internal class SlideshowPlaybackController(
             if (state.value.failure != null) {
                 if (failureClock.elapsedMillis(now) >= FAILURE_VISIBLE_MILLIS) {
                     if (pauseAtEnd) timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.PAUSED, now)
-                    else next()
+                    else advance()
                 }
             } else if (timing.hasTimedOut(now)) fail(SlideshowFailure.TIMEOUT)
             else if (timing.shouldAdvance(config, now)) {
                 if (pauseAtEnd) {
                     heldAtEnd = true
                     timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.PAUSED, now)
-                } else next()
+                } else advance()
             }
         }
         if (environmentActive && !pausedState && !state.value.transitioning && timing.ready && state.value.failure == null && !focused && now - lastInteraction >= CONTROLS_VISIBLE_MILLIS) {

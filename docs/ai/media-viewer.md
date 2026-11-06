@@ -432,6 +432,13 @@ video playback, or desktop viewer shortcuts.
 - Previous/Pause-or-Resume/Next/Exit controls remain usable while paused or
   failed; playing controls can hide after inactivity. Tap toggles controls rather
   than stopping the show. Exit restores normal viewer chrome.
+- Automatic image/video advancement and failure skipping are not interactions:
+  they neither reveal controls nor restart their three-second inactivity timer.
+  Manual navigation still reveals controls. Desktop mouse movement, scrolling,
+  and keyboard input reveal controls and restart that timer in both static and
+  Timeline viewers, including detached windows. Stationary-pointer events caused
+  by media replacement do not count as interaction; paused/failed/focused-control
+  visibility rules remain in effect.
 - `ScreenWakeLock` stays acquired only while actively presenting playback and
   releases on pause/background/exit/disposal. JVM uses one balanced process-wide owner: Windows performs
   acquire/reset on the same dedicated JNA thread, macOS owns a `caffeinate`

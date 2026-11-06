@@ -387,6 +387,59 @@ class SlideshowPlaybackControllerTest {
         assertTrue(f.state.controlsVisible)
     }
 
+    @Test fun automaticSlideChangesKeepControlsHiddenUntilInteraction() {
+        for (transition in SlideshowTransition.entries) {
+            val f = Fixture()
+            f.start(items("a", "b"), SlideshowConfig(durationSeconds = 5, transition = transition))
+            f.ready()
+            f.advance(CONTROLS_VISIBLE_MILLIS)
+            assertFalse(f.state.controlsVisible)
+            f.advance(2_000)
+            assertEquals("b", f.state.asset?.id)
+            assertFalse(f.state.controlsVisible)
+            f.ready()
+            f.advance(5_000)
+            assertEquals("a", f.state.asset?.id)
+            assertFalse(f.state.controlsVisible)
+            f.ready()
+            f.controller.interact()
+            assertTrue(f.state.controlsVisible)
+            f.advance(CONTROLS_VISIBLE_MILLIS - 1)
+            assertTrue(f.state.controlsVisible)
+            f.advance(1)
+            assertFalse(f.state.controlsVisible)
+            f.controller.next()
+            assertEquals("b", f.state.asset?.id)
+            assertTrue(f.state.controlsVisible)
+        }
+    }
+
+    @Test fun automaticAdvanceDoesNotRestartAnExistingControlsDeadline() {
+        val f = Fixture()
+        f.start(items("a", "b"), SlideshowConfig(durationSeconds = 2))
+        f.ready()
+        f.advance(2_000)
+        assertEquals("b", f.state.asset?.id)
+        f.ready()
+        f.advance(999)
+        assertTrue(f.state.controlsVisible)
+        f.advance(1)
+        assertFalse(f.state.controlsVisible)
+    }
+
+    @Test fun automaticVideoCompletionKeepsControlsHidden() {
+        val f = Fixture()
+        f.start(listOf(video("v"), image("a")), SlideshowConfig(videoPolicy = SlideshowVideoPolicy.PLAY))
+        f.finish()
+        f.event(SlideshowMediaEvent.Progress(1_000))
+        f.advance(CONTROLS_VISIBLE_MILLIS)
+        assertFalse(f.state.controlsVisible)
+        f.event(SlideshowMediaEvent.Completed)
+        f.controller.tick()
+        assertEquals("a", f.state.asset?.id)
+        assertFalse(f.state.controlsVisible)
+    }
+
     @Test fun backwardLazySkipWithOnlyOneEligibleImageReturnsToThatImage() {
         val f = Fixture()
         val slot = SlideshowSlot.BucketOffset("video", 0)
