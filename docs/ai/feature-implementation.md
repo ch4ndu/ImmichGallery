@@ -133,6 +133,21 @@ For a new persisted cache entity or schema change:
   thread pointers. Keep the aggregate runtime ledger for usage accounting.
 
 - Run `./gradlew :composeApp:compileKotlinJvm` for normal shared code changes.
+- macOS packages use the display name `ImmichGallery` and preserve the
+  bundle identifier `com.udnahc.immichgallery`. Include `java.net.http` in the
+  linked runtime for Ktor's Java client; Gradle-run success does not prove the
+  packaged runtime has its modules. Launch the packaged app when validating
+  desktop packaging changes. DMG tasks add an Applications shortcut directly
+  after jpackage because its optional Finder script can fail without failing
+  packaging. Validate the mounted image's app name and shortcut as well as its checksum.
+- Desktop release ProGuard uses `composeApp/compose-desktop.pro` to retain
+  ServiceLoader providers and reflection/JNI entry points for Ktor, Coil, Room,
+  SQLite, and MediaMP. Check packaged service descriptors against their provider
+  classes after dependency changes; compile success cannot detect stripped providers.
+  Preserve Okio's custom-named Kotlin multifile implementations from return-type
+  specialization: the generic Compose `**Kt__*` workaround does not match them.
+  Verify actual thumbnail/original fetch and decode with optimized JARs; a normal
+  main window does not prove the release image pipeline works.
 - Desktop runtime uses the matching `kotlinx-datetime` compatibility artifact
   while KmLogging 2.0.3 references the old `kotlinx.datetime.Clock`/`Instant` ABI.
   Keep its base version aligned with the common dependency. Release ProGuard

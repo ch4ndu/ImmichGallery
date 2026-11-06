@@ -214,6 +214,8 @@ login defaults from `local.properties`, create a DMG with:
 ```
 
 The DMG is written to `composeApp/build/compose/binaries/main-release/dmg/`.
+It contains **ImmichGallery.app** and an **Applications** shortcut for drag-and-drop
+installation. The Java runtime includes the HTTP client module used by the app.
 Open that folder in Finder with:
 
 ```shell
