@@ -284,6 +284,8 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
+            // KmLogging 2.0.3 still references the pre-kotlin.time Clock/Instant ABI.
+            runtimeOnly(libs.kotlinx.datetime.compat)
             implementation(libs.jna.jpms)
             implementation(libs.jna.platform.jpms)
             // MediaMP's native loader satisfies JNA with the app's JPMS pair above; excluding its

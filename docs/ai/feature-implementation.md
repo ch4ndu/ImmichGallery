@@ -133,6 +133,10 @@ For a new persisted cache entity or schema change:
   thread pointers. Keep the aggregate runtime ledger for usage accounting.
 
 - Run `./gradlew :composeApp:compileKotlinJvm` for normal shared code changes.
+- Desktop runtime uses the matching `kotlinx-datetime` compatibility artifact
+  while KmLogging 2.0.3 references the old `kotlinx.datetime.Clock`/`Instant` ABI.
+  Keep its base version aligned with the common dependency. Release ProGuard
+  validates these references; do not suppress missing-class warnings to package.
 - Build the installable Android application with `./gradlew :androidApp:assembleDebug`; `composeApp` is the KMP library and must not apply `com.android.application`. It uses `com.android.kotlin.multiplatform.library`, so use `:composeApp:compileAndroidMain`, `:composeApp:testAndroidHostTest`, and `:composeApp:connectedAndroidDeviceTest` rather than legacy variant task names.
 - Android release-sensitive changes must also run `./gradlew :androidApp:assembleRelease`; the release build enables R8, so debug assembly does not validate shrinking, obfuscation, or release-only missing-class rules.
 - For platform-sensitive changes, also run the relevant Android or iOS compile task.

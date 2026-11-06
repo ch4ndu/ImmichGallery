@@ -204,6 +204,38 @@ Create a self-contained application image on the current host:
 ./gradlew :composeApp:createDistributable
 ```
 
+For a **release-optimized macOS build for local use**, retaining development
+login defaults from `local.properties`, create a DMG with:
+
+```shell
+./gradlew :composeApp:packageReleaseDmg --no-daemon \
+  -PimmichGallery.includeLocalLoginDefaults=true \
+  -x :composeApp:verifyDistributionLoginDefaults
+```
+
+The DMG is written to `composeApp/build/compose/binaries/main-release/dmg/`.
+Open that folder in Finder with:
+
+```shell
+open composeApp/build/compose/binaries/main-release/dmg
+```
+
+For just the release-optimized `.app`, without a DMG installer:
+
+```shell
+./gradlew :composeApp:createReleaseDistributable --no-daemon \
+  -PimmichGallery.includeLocalLoginDefaults=true \
+  -x :composeApp:verifyDistributionLoginDefaults
+```
+
+The `.app` is written to `composeApp/build/compose/binaries/main-release/app/`.
+These local builds include the Java runtime and require no app-store publishing.
+`--no-daemon` makes Gradle stop its single-use daemon when the build finishes.
+The `-x` option skips the development-credential distribution check for that
+invocation only. A package containing a development API key must stay local.
+For a package to share, omit `-x` and use
+`-PimmichGallery.includeLocalLoginDefaults=false` instead.
+
 The runtime loader extracts and validates the native libraries on startup.
 If preparation or player construction fails, the viewer displays an unavailable
 message. The application JAR includes dependency information and the publication's
