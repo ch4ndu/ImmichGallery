@@ -284,6 +284,8 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
+            // KmLogging 2.0.3 still references the pre-kotlin.time Clock/Instant ABI.
+            runtimeOnly(libs.kotlinx.datetime.compat)
             implementation(libs.jna.jpms)
             implementation(libs.jna.platform.jpms)
             // MediaMP's native loader satisfies JNA with the app's JPMS pair above; excluding its
@@ -328,6 +330,17 @@ tasks.withType<AbstractJPackageTask>().configureEach {
             )
         }
     }
+    if (targetFormat == TargetFormat.Dmg) {
+        val shortcutScript = layout.projectDirectory.file("packaging/macos/add-applications-link.sh").asFile
+        inputs.file(shortcutScript)
+        doLast {
+            val image = destinationDir.get().asFile.resolve("${packageName.get()}-${packageVersion.get()}.dmg")
+            val process = ProcessBuilder(
+                "/bin/bash", shortcutScript.absolutePath, image.absolutePath, temporaryDir.absolutePath
+            ).inheritIO().start()
+            check(process.waitFor() == 0) { "Could not add the Applications shortcut to $image" }
+        }
+    }
 }
 
 // Runnable Uber-JAR exports are Jar tasks, outside the native-package task family.
@@ -351,10 +364,21 @@ compose.desktop {
     application {
         mainClass = "com.udnahc.immichgallery.MainKt"
 
+        buildTypes.release.proguard {
+            configurationFiles.from(project.file("compose-desktop.pro"))
+        }
+
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "com.udnahc.immichgallery"
+            packageName = "ImmichGallery"
             packageVersion = "1.2.0"
+            modules("java.net.http")
+            macOS {
+                bundleID = "com.udnahc.immichgallery"
+            }
+            linux {
+                packageName = "com.udnahc.immichgallery"
+            }
         }
     }
 }

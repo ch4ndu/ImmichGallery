@@ -76,6 +76,8 @@ internal class SlideshowPlaybackController(
     private var navigationId = 0L
     private var fallbackUsed = false
     private var closed = false
+    private var pauseAtEnd = false
+    private var heldAtEnd = false
 
     fun updateSource(supplier: () -> List<SlideshowSourceItem>) {
         if (closed) return
@@ -127,8 +129,10 @@ internal class SlideshowPlaybackController(
         }
     }
 
-    fun start(config: SlideshowConfig, page: Int) {
+    fun start(config: SlideshowConfig, page: Int, pauseAtEnd: Boolean = false) {
         if (closed || !config.isValid) return
+        this.pauseAtEnd = pauseAtEnd
+        heldAtEnd = false
         pendingSourceSupplier?.let { source = it() }
         val initial = source.getOrNull(page) ?: source.firstOrNull()
         session = SlideshowSession(source.map { it.candidate }, initial?.slot, config.order, random, recordInitial = false)
@@ -146,6 +150,8 @@ internal class SlideshowPlaybackController(
     fun stop() {
         timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.STOPPED, nowMillis())
         session = null
+        pauseAtEnd = false
+        heldAtEnd = false
         source = emptyList()
         pendingSlot = null
         pendingTarget = null
@@ -157,9 +163,18 @@ internal class SlideshowPlaybackController(
     fun close() { stop(); closed = true; pendingSourceSupplier = null; source = emptyList() }
 
     fun next() {
-        val order = session ?: return
-        pendingBackward = false
+        if (session == null) return
         interact()
+        advance()
+    }
+
+    // Timer and media completion are playback events, not user interaction.
+    private fun advance() {
+        val order = session ?: return
+        if (currentVisitEnded) {
+            timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.RUNNING, nowMillis())
+        }
+        pendingBackward = false
         if (state.value.failure != null) pendingSlot?.let(order::exclude)
         pendingTarget = order.upcoming()
         pendingSlot = pendingTarget?.slot
@@ -198,6 +213,10 @@ internal class SlideshowPlaybackController(
         interact()
         val paused = timing.state == com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.PAUSED
         if (paused && state.value.failure != null) return
+        if (paused && currentVisitEnded) {
+            next()
+            return
+        }
         timing.setState(if (paused) com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.RUNNING
         else com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.PAUSED, nowMillis())
         failureClock.setRunning(environmentActive && !pausedState, nowMillis())
@@ -258,9 +277,17 @@ internal class SlideshowPlaybackController(
         val now = nowMillis()
         if (environmentActive && !pausedState) {
             if (state.value.failure != null) {
-                if (failureClock.elapsedMillis(now) >= FAILURE_VISIBLE_MILLIS) next()
+                if (failureClock.elapsedMillis(now) >= FAILURE_VISIBLE_MILLIS) {
+                    if (pauseAtEnd) timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.PAUSED, now)
+                    else advance()
+                }
             } else if (timing.hasTimedOut(now)) fail(SlideshowFailure.TIMEOUT)
-            else if (timing.shouldAdvance(config, now)) next()
+            else if (timing.shouldAdvance(config, now)) {
+                if (pauseAtEnd) {
+                    heldAtEnd = true
+                    timing.setState(com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.PAUSED, now)
+                } else advance()
+            }
         }
         if (environmentActive && !pausedState && !state.value.transitioning && timing.ready && state.value.failure == null && !focused && now - lastInteraction >= CONTROLS_VISIBLE_MILLIS) {
             mutableState.value = state.value.copy(controlsVisible = false)
@@ -306,6 +333,7 @@ internal class SlideshowPlaybackController(
     }
 
     private fun beginRequest(item: SlideshowSourceItem) {
+        heldAtEnd = false
         val now = nowMillis()
         val previous = state.value
         val outgoingStill = previous.request?.takeIf {
@@ -363,6 +391,8 @@ internal class SlideshowPlaybackController(
         publish()
     }
 
+    private val currentVisitEnded get() = pauseAtEnd && (heldAtEnd || timing.completed ||
+            state.value.config?.normalized?.videoLimitSeconds?.let { timing.positionMillis >= it * 1_000L } == true)
     private val pausedState get() = timing.state != com.udnahc.immichgallery.domain.model.SlideshowPlaybackState.RUNNING
     private fun noCandidateFailure(): SlideshowFailure = when {
         source.isEmpty() -> SlideshowFailure.EMPTY

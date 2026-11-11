@@ -144,6 +144,8 @@ val sharedModule = module {
     single { TimelineMosaicArtifactBuilder() }
     single { TimelineBucketSnapshotReader(get()) }
 
+    factory { com.udnahc.immichgallery.domain.usecase.slideshow.GetSlideshowCollectionUseCase(get(), get(), get(), get(), get()) }
+
     // UseCases
     factory { ValidateServerUseCase(get()) }
     factory { GetLoginStatusUseCase(get()) }
@@ -236,6 +238,8 @@ val sharedModule = module {
     factory { UpsertDetailMosaicArtifactsAction(get(), get()) }
     factory { UpsertDetailMosaicCacheAction(get(), get()) }
     factory { ClearDetailMosaicCacheAction(get()) }
+
+    viewModel { com.udnahc.immichgallery.ui.screen.slideshow.SlideshowWindowViewModel(get(), get(), get(), get(), get(), get(), get()) }
 
     // ViewModels
     viewModel { ViewerPreferencesViewModel(get(), get()) }

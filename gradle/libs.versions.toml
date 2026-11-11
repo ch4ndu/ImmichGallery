@@ -22,6 +22,7 @@ koin = "4.2.2"
 kotlin = "2.4.10"
 kotlinx-coroutines = "1.11.0"
 kotlinx-datetime = "0.8.0"
+kotlinx-datetime-compat = "0.8.0-0.6.x-compat"
 kotlinx-serialization = "1.11.0"
 ktor = "3.5.1"
 material3 = "1.12.0-alpha03"
@@ -99,6 +100,7 @@ navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-co
 
 # DateTime
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
+kotlinx-datetime-compat = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime-compat" }
 
 # Logging
 kmlogging = { module = "org.lighthousegames:logging", version.ref = "kmlogging" }

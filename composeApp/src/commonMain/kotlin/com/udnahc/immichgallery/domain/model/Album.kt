@@ -23,7 +23,8 @@ data class AlbumDetailSyncResult(
     val albumName: String,
     val changed: Boolean,
     val nextPage: Int? = null,
-    val order: String = "desc"
+    val order: String = "desc",
+    val completeAssets: List<Asset>? = null
 ) {
     val hasMore: Boolean get() = nextPage != null
 }

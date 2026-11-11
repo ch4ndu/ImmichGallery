@@ -1,27 +1,18 @@
 package com.udnahc.immichgallery
 
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.udnahc.immichgallery.di.platformModule
 import com.udnahc.immichgallery.di.sharedModule
+import com.udnahc.immichgallery.ui.component.LocalSlideshowWindowHost
 import com.udnahc.immichgallery.ui.util.JvmMpvBootstrap
-import com.udnahc.immichgallery.ui.util.LocalViewerFullscreen
-import com.udnahc.immichgallery.ui.util.ViewerFullscreenController
-import com.udnahc.immichgallery.ui.util.ViewerWindowPlacement
 import com.udnahc.immichgallery.ui.util.installJvmWakeInhibitionShutdownHook
 import com.udnahc.immichgallery.ui.util.shutdownJvmWakeInhibition
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.app_title
-import java.awt.event.ComponentAdapter
-import java.awt.event.ComponentEvent
 import java.awt.event.WindowEvent
 import java.awt.event.WindowFocusListener
 import org.jetbrains.compose.resources.stringResource
@@ -33,76 +24,52 @@ fun main() {
     JvmMpvBootstrap.initialize()
     installJvmWakeInhibitionShutdownHook()
     if (KoinPlatform.getKoinOrNull() == null) {
-        startKoin {
-            modules(sharedModule, platformModule())
-        }
+        startKoin { modules(sharedModule, platformModule()) }
     }
     try {
         application {
-            val windowState = rememberWindowState()
-            Window(
-                onCloseRequest = {
+            val scope = rememberCoroutineScope()
+            val host = remember(scope) {
+                DesktopSlideshowWindows(scope, KoinPlatform.getKoin()) {
                     shutdownJvmWakeInhibition()
                     exitApplication()
-                },
-                title = stringResource(Res.string.app_title),
-                state = windowState,
-            ) {
-                var windowVisible by remember(window) { mutableStateOf(window.isVisible) }
-                val fullscreen = remember(window, windowState) {
-                    ViewerFullscreenController(
-                        readPlacement = {
-                            when (windowState.placement) {
-                                WindowPlacement.Floating -> ViewerWindowPlacement.Floating
-                                WindowPlacement.Maximized -> ViewerWindowPlacement.Maximized
-                                WindowPlacement.Fullscreen -> ViewerWindowPlacement.Fullscreen
-                            }
-                        },
-                        writePlacement = { placement ->
-                            windowState.placement = when (placement) {
-                                ViewerWindowPlacement.Floating -> WindowPlacement.Floating
-                                ViewerWindowPlacement.Maximized -> WindowPlacement.Maximized
-                                ViewerWindowPlacement.Fullscreen -> WindowPlacement.Fullscreen
-                            }
-                        },
-                        readWindowVisibility = { windowVisible && !windowState.isMinimized },
-                    )
-                }
-                DisposableEffect(window, fullscreen) {
-                    val listener = object : ComponentAdapter() {
-                        override fun componentShown(event: ComponentEvent?) {
-                            windowVisible = true
-                        }
-
-                        override fun componentHidden(event: ComponentEvent?) {
-                            windowVisible = false
-                        }
-                    }
-                    window.addComponentListener(listener)
-                    windowVisible = window.isVisible
-                    onDispose {
-                        window.removeComponentListener(listener)
-                        fullscreen.close()
-                    }
-                }
-                DisposableEffect(window) {
-                    val listener = object : WindowFocusListener {
-                        override fun windowGainedFocus(event: WindowEvent?) {
-                            AppLifecycle.setForeground(true)
-                        }
-
-                        override fun windowLostFocus(event: WindowEvent?) {
-                            AppLifecycle.setForeground(false)
-                        }
-                    }
-                    window.addWindowFocusListener(listener)
-                    AppLifecycle.setForeground(window.isFocused)
-                    onDispose { window.removeWindowFocusListener(listener) }
-                }
-                CompositionLocalProvider(LocalViewerFullscreen provides fullscreen) {
-                    App()
                 }
             }
+            if (host.libraryVisible) {
+                val windowState = rememberWindowState()
+                val owner = remember { DesktopWindowOwner() }
+                DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
+                Window(
+                    onCloseRequest = host::closeLibrary,
+                    title = stringResource(Res.string.app_title),
+                    state = windowState
+                ) {
+                    DesktopLibraryMenu(host)
+                    LaunchedEffect(host.libraryActivation) {
+                        if (host.libraryActivation > 0) {
+                            windowState.isMinimized = false
+                            window.toFront()
+                            window.requestFocus()
+                        }
+                    }
+                    DisposableEffect(window) {
+                        val listener = object : WindowFocusListener {
+                            override fun windowGainedFocus(event: WindowEvent?) { AppLifecycle.setForeground(true) }
+                            override fun windowLostFocus(event: WindowEvent?) { AppLifecycle.setForeground(false) }
+                        }
+                        window.addWindowFocusListener(listener)
+                        AppLifecycle.setForeground(window.isFocused)
+                        onDispose { window.removeWindowFocusListener(listener) }
+                    }
+                    DesktopWindowEnvironment(window, windowState) {
+                        CompositionLocalProvider(
+                            LocalViewModelStoreOwner provides owner,
+                            LocalSlideshowWindowHost provides host::launch
+                        ) { App() }
+                    }
+                }
+            }
+            DesktopSlideshowWindowHosts(host)
         }
     } finally {
         shutdownJvmWakeInhibition()

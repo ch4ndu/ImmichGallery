@@ -88,6 +88,12 @@ on the server.
   device across logout; playback position and history last only for the session.
 - On desktop, toggle window fullscreen from the viewer or have slideshows
   enter it automatically, restoring the previous placement when they finish.
+- On desktop, choose **Start slideshow in new window** in a viewer menu to run
+  multiple independent shows while continuing to browse. Shows keep playing
+  without focus and pause when minimized; mute remains shared. Closing the
+  library leaves shows open; their File menu offers Show library and Quit.
+  Album, Person, Search, and Favorites shows prepare their complete collections;
+  Timeline uses cached buckets, and Memories/Stacks use the selected complete set.
 - For an asset in an Immich stack, open **View stack** from the viewer menu to
   browse its supported photos and videos. Closing the nested stack returns to
   the same asset in the original viewer before returning to the source grid.
@@ -197,6 +203,40 @@ Create a self-contained application image on the current host:
 ```shell
 ./gradlew :composeApp:createDistributable
 ```
+
+For a **release-optimized macOS build for local use**, retaining development
+login defaults from `local.properties`, create a DMG with:
+
+```shell
+./gradlew :composeApp:packageReleaseDmg --no-daemon \
+  -PimmichGallery.includeLocalLoginDefaults=true \
+  -x :composeApp:verifyDistributionLoginDefaults
+```
+
+The DMG is written to `composeApp/build/compose/binaries/main-release/dmg/`.
+It contains **ImmichGallery.app** and an **Applications** shortcut for drag-and-drop
+installation. The Java runtime includes the HTTP client module used by the app.
+Open that folder in Finder with:
+
+```shell
+open composeApp/build/compose/binaries/main-release/dmg
+```
+
+For just the release-optimized `.app`, without a DMG installer:
+
+```shell
+./gradlew :composeApp:createReleaseDistributable --no-daemon \
+  -PimmichGallery.includeLocalLoginDefaults=true \
+  -x :composeApp:verifyDistributionLoginDefaults
+```
+
+The `.app` is written to `composeApp/build/compose/binaries/main-release/app/`.
+These local builds include the Java runtime and require no app-store publishing.
+`--no-daemon` makes Gradle stop its single-use daemon when the build finishes.
+The `-x` option skips the development-credential distribution check for that
+invocation only. A package containing a development API key must stay local.
+For a package to share, omit `-x` and use
+`-PimmichGallery.includeLocalLoginDefaults=false` instead.
 
 The runtime loader extracts and validates the native libraries on startup.
 If preparation or player construction fails, the viewer displays an unavailable

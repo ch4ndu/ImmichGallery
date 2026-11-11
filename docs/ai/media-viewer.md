@@ -313,14 +313,54 @@ video playback, or desktop viewer shortcuts.
   restoration targets. Closing a parent invalidates its entire subtree; stale,
   duplicate, forgotten, and abandoned cleanup is safe.
 - Window visibility/non-minimization is distinct from application foreground
-  state. The bridge must not replace the playback application's background gate
-  with visibility alone or alter server-status focus monitoring.
+  state. The bridge does not alter server-status focus monitoring or the default
+  playback foreground gate. Detached slideshow windows explicitly opt into their
+  per-window eligibility policy described below.
 - Fullscreen controls and F are available only where the host supports them.
   The remembered automatic-fullscreen option acquires a show lease that survives
   pause/coverage/transient focus loss. Focus loss can freeze presentation time;
   it must not stop the show, discard history, or release/recreate the lease.
   Escape stops slideshow first, then exits fullscreen, then dismisses the viewer
   on subsequent presses. Modal and covered-viewer shortcut gates still apply.
+
+## Detached Desktop Slideshow Windows
+
+- The viewer overflow action **Start slideshow in new window** is available only
+  when a desktop launch host and source are supplied. It reuses slideshow options
+  and captures the settled asset; normal in-window playback remains available.
+  Timeline, Album, Person, executed Search, Favorites, selected Memory, and Stack
+  viewers supply independent source descriptors, never screen callbacks or VMs.
+- Each native window owns its store, `SlideshowWindowViewModel`, overlay,
+  fullscreen controller, playback binding, media players, and wake lease.
+  Process Koin/Coil and cached repositories remain shared. Closing the library
+  leaves admitted shows running; File -> Show library reopens/raises it, Quit
+  closes everything, and closing the last window exits. Closing one show releases
+  only its resources. Escape retains stop -> leave fullscreen -> close ordering.
+- Album/Person full sync supplies a complete retained metadata snapshot. Search
+  uses the executed endpoint/criteria and exhausts validated continuation; Favorites
+  preserves owner filtering and sparse-page traversal. Preparation is cancellable,
+  can delay playback, and never preloads all media. Failures expose Retry/Close;
+  missing opening identity never falls back to page zero. Selected Memory and Stack
+  lists are already complete. Static membership remains fixed after preparation.
+- Timeline captures full cached bucket membership and independently materializes
+  needed buckets through cache-only reads. Missing/partial expected rows expose
+  manual-refresh guidance; no detached action triggers server Timeline sync.
+- Detached eligibility is visible, not minimized, and not terminal. Focus loss
+  or another foreground application does not pause it. This explicit binding
+  policy also controls its normal-video eligibility; other viewers and server
+  monitoring retain their existing lifecycle policy. Info/covered-stack/pause
+  gates still apply. Empty sources show unavailable feedback. A singleton photo
+  stays still. A singleton video honors its option: Skip shows no-playable feedback,
+  Thumbnail stays still, and Play pauses at completion or the video limit, retaining
+  the current frame and releasing its wake lease. Resume or Next explicitly replays
+  it; it never loops automatically. Skip with one remaining photo shows that photo.
+- Auto-start happens once after the opening source resolves. Every manual or
+  delayed start samples shared mute inside the binding's serialized command;
+  queued mute updates also sample the current value when consumed. Presentation
+  options are per-show, while mute remains device-wide without restarting shows.
+- Detached Info does not expose person/date navigation without a routing owner.
+  Nested stacks keep their source authority. Account admission and termination
+  are owned by the contract in `auth-session.md`.
 
 ## Slideshow
 
@@ -392,6 +432,13 @@ video playback, or desktop viewer shortcuts.
 - Previous/Pause-or-Resume/Next/Exit controls remain usable while paused or
   failed; playing controls can hide after inactivity. Tap toggles controls rather
   than stopping the show. Exit restores normal viewer chrome.
+- Automatic image/video advancement and failure skipping are not interactions:
+  they neither reveal controls nor restart their three-second inactivity timer.
+  Manual navigation still reveals controls. Desktop mouse movement, scrolling,
+  and keyboard input reveal controls and restart that timer in both static and
+  Timeline viewers, including detached windows. Stationary-pointer events caused
+  by media replacement do not count as interaction; paused/failed/focused-control
+  visibility rules remain in effect.
 - `ScreenWakeLock` stays acquired only while actively presenting playback and
   releases on pause/background/exit/disposal. JVM uses one balanced process-wide owner: Windows performs
   acquire/reset on the same dedicated JNA thread, macOS owns a `caffeinate`

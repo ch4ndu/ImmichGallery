@@ -133,6 +133,25 @@ For a new persisted cache entity or schema change:
   thread pointers. Keep the aggregate runtime ledger for usage accounting.
 
 - Run `./gradlew :composeApp:compileKotlinJvm` for normal shared code changes.
+- macOS packages use the display name `ImmichGallery` and preserve the
+  bundle identifier `com.udnahc.immichgallery`. Include `java.net.http` in the
+  linked runtime for Ktor's Java client; Gradle-run success does not prove the
+  packaged runtime has its modules. Launch the packaged app when validating
+  desktop packaging changes. DMG tasks add an Applications shortcut directly
+  after jpackage because its optional Finder script can fail without failing
+  packaging. Validate the mounted image's app name and shortcut as well as its checksum.
+- Desktop release ProGuard uses `composeApp/compose-desktop.pro` to retain
+  ServiceLoader providers and reflection/JNI entry points for Ktor, Coil, Room,
+  SQLite, and MediaMP. Check packaged service descriptors against their provider
+  classes after dependency changes; compile success cannot detect stripped providers.
+  Preserve Okio's custom-named Kotlin multifile implementations from return-type
+  specialization: the generic Compose `**Kt__*` workaround does not match them.
+  Verify actual thumbnail/original fetch and decode with optimized JARs; a normal
+  main window does not prove the release image pipeline works.
+- Desktop runtime uses the matching `kotlinx-datetime` compatibility artifact
+  while KmLogging 2.0.3 references the old `kotlinx.datetime.Clock`/`Instant` ABI.
+  Keep its base version aligned with the common dependency. Release ProGuard
+  validates these references; do not suppress missing-class warnings to package.
 - Build the installable Android application with `./gradlew :androidApp:assembleDebug`; `composeApp` is the KMP library and must not apply `com.android.application`. It uses `com.android.kotlin.multiplatform.library`, so use `:composeApp:compileAndroidMain`, `:composeApp:testAndroidHostTest`, and `:composeApp:connectedAndroidDeviceTest` rather than legacy variant task names.
 - Android release-sensitive changes must also run `./gradlew :androidApp:assembleRelease`; the release build enables R8, so debug assembly does not validate shrinking, obfuscation, or release-only missing-class rules.
 - For platform-sensitive changes, also run the relevant Android or iOS compile task.

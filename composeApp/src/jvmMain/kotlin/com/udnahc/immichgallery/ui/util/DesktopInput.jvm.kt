@@ -3,6 +3,8 @@ package com.udnahc.immichgallery.ui.util
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.foundation.focusable
@@ -13,6 +15,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.pointerInput
@@ -28,8 +32,10 @@ actual fun Modifier.desktopDetailShortcuts(
     onInfo: () -> Unit,
     onToggleFullscreen: (() -> Unit)?,
     slideshowActive: Boolean,
+    onSlideshowInteraction: () -> Unit,
 ): Modifier {
     val focusRequester = remember { FocusRequester() }
+    val latestInteraction by rememberUpdatedState(onSlideshowInteraction)
     // Exiting a show removes its focused controls; keep subsequent viewer keys reachable.
     LaunchedEffect(enabled, slideshowActive) {
         if (enabled) {
@@ -39,8 +45,28 @@ actual fun Modifier.desktopDetailShortcuts(
     return this
         .focusRequester(focusRequester)
         .focusable()
+        .pointerInput(enabled, slideshowActive) {
+            if (!enabled || !slideshowActive) return@pointerInput
+            var lastMousePosition: Offset? = null
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val mouse = event.changes.firstOrNull { it.type == PointerType.Mouse }
+                    // Hover changes can report identical current/previous positions. Keep our own
+                    // window-level position so media replacement under a stationary mouse is ignored.
+                    val moved = event.type == PointerEventType.Move && mouse != null &&
+                            lastMousePosition?.let { it != mouse.position } == true
+                    if (mouse != null) lastMousePosition = mouse.position
+                    val scrolled = event.type == PointerEventType.Scroll && event.changes.any {
+                        it.scrollDelta != Offset.Zero
+                    }
+                    if (moved || scrolled) latestInteraction()
+                }
+            }
+        }
         .onKeyEvent { event ->
             if (!enabled || event.type != KeyEventType.KeyDown) return@onKeyEvent false
+            if (slideshowActive) latestInteraction()
             when (event.key) {
                 Key.DirectionLeft -> { onPrev(); true }
                 Key.DirectionRight -> { onNext(); true }

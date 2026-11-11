@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.memories
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+import com.udnahc.immichgallery.ui.component.rememberSlideshowWindowLauncher
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -105,6 +108,7 @@ fun MemoriesScreen(
     viewModel: MemoriesViewModel = koinViewModel(),
     onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
+    val windowLaunch = rememberSlideshowWindowLauncher(viewModel)
     val state by viewModel.state.collectAsState()
     var restoredMemoryId by rememberSaveable { mutableStateOf<String?>(null) }
     val preferredMemoryId = state.selectedMemoryId ?: restoredMemoryId
@@ -160,6 +164,8 @@ fun MemoriesScreen(
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
             val memory = selectedMemory ?: return@PhotoOverlayHost
             StaticPhotoOverlay(
+                windowLaunch = windowLaunch,
+                slideshowWindowSource = SlideshowWindowSource.Snapshot(memory.assets.toList()),
                 assets = memory.assets,
                 initialIndex = initialIndex,
                 apiKey = viewModel.apiKey,

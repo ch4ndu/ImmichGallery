@@ -12,7 +12,8 @@ data class Person(
 @Immutable
 data class PersonAssetsSyncResult(
     val changed: Boolean,
-    val nextPage: Int? = null
+    val nextPage: Int? = null,
+    val completeAssets: List<Asset>? = null
 ) {
     val hasMore: Boolean get() = nextPage != null
 }

@@ -93,6 +93,7 @@ import com.udnahc.immichgallery.ui.theme.Dimens
 import com.udnahc.immichgallery.ui.util.LocalPhotoBoundsTween
 import com.udnahc.immichgallery.ui.util.rememberPhotoBoundsTransform
 import com.udnahc.immichgallery.ui.util.restoreEdgeToEdge
+import immichgallery.composeapp.generated.resources.slideshow_new_window
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.back
 import immichgallery.composeapp.generated.resources.checking_stack
@@ -788,6 +789,7 @@ internal fun DetailTopBarOverlay(
     onBack: () -> Unit,
     onInfo: () -> Unit,
     onSlideshow: (() -> Unit)? = null,
+    onSlideshowInNewWindow: (() -> Unit)? = null,
     stackCount: Int = 0,
     stackAvailability: StackAvailability = StackAvailability.Unknown,
     onStackMenuOpened: (() -> Unit)? = null,
@@ -924,6 +926,14 @@ internal fun DetailTopBarOverlay(
                             }
 
                             StackMenuPresentation.Hidden -> Unit
+                        }
+                        if (onSlideshowInNewWindow != null) {
+                            DropdownMenuItem(
+                                modifier = Modifier.padding(horizontal = Dimens.smallSpacing),
+                                text = { Text(stringResource(Res.string.slideshow_new_window)) },
+                                onClick = { menuExpanded = false; onSlideshowInNewWindow() },
+                                leadingIcon = { Icon(painterResource(Res.drawable.ic_play), contentDescription = null) }
+                            )
                         }
                         if (onSlideshow != null) {
                             DropdownMenuItem(

@@ -64,11 +64,14 @@ internal class SlideshowBinding(
     fun send(command: (SlideshowPlaybackController) -> Unit) {
         if (!commands.trySend(command).isSuccess) scope.launch { commands.send(command) }
     }
+    fun start(config: SlideshowConfig, page: Int, preferences: ViewerPreferencesViewModel, pauseAtEnd: Boolean = false) {
+        send { it.start(config.copy(muted = preferences.slideshowConfig.value.muted), page, pauseAtEnd) }
+    }
     fun toggleMute(preferences: ViewerPreferencesViewModel) {
         val muted = !preferences.slideshowConfig.value.muted
         preferences.setVideoMuted(muted)
         send { owner ->
-            owner.setMuted(muted)
+            owner.setMuted(preferences.slideshowConfig.value.muted)
             owner.interact()
         }
     }
@@ -94,12 +97,13 @@ internal fun rememberSlideshowBinding(
         val need: (String, Boolean) -> Unit = { bucket, retry -> if (retry) latestRetry(bucket) else latestNeed(bucket) }
         environment?.createBinding?.invoke(need) ?: SlideshowBinding(need)
     }
-    val foreground by AppLifecycle.isForeground.collectAsState()
+    val appForeground by AppLifecycle.isForeground.collectAsState()
+    val foreground = !LocalSlideshowUsesAppForeground.current || appForeground
     val state by binding.uiState.collectAsState()
     val wakeLock = environment?.wakeLock ?: rememberScreenWakeLock()
     LaunchedEffect(binding, preferences) {
-        preferences.slideshowConfig.map { it.muted }.distinctUntilChanged().collect { muted ->
-            binding.send { it.setMuted(muted) }
+        preferences.slideshowConfig.map { it.muted }.distinctUntilChanged().collect {
+            binding.send { it.setMuted(preferences.slideshowConfig.value.muted) }
         }
     }
     LaunchedEffect(binding, foreground, environmentActive) {

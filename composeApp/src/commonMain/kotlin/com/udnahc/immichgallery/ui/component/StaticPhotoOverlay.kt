@@ -1,5 +1,9 @@
 package com.udnahc.immichgallery.ui.component
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+import com.udnahc.immichgallery.domain.model.SlideshowConfig
+import com.udnahc.immichgallery.domain.model.SlideshowVideoPolicy
+
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -134,13 +138,16 @@ fun StaticPhotoOverlay(
     sharedElementAssetId: String? = null,
     stackBrowsingEnabled: Boolean = true,
     showPageIndicator: Boolean = false,
-    onPersonClick: (personId: String, personName: String) -> Unit,
+    onPersonClick: ((personId: String, personName: String) -> Unit)?,
     onDismiss: (currentAssetId: String?) -> Unit,
     onCurrentAssetChanged: (String) -> Unit = {},
     onStlTransitionActiveChanged: (Boolean) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    onShowInTimeline: ((date: LocalDate, currentAssetId: String?) -> Unit)? = null
+    onShowInTimeline: ((date: LocalDate, currentAssetId: String?) -> Unit)? = null,
+    slideshowWindowSource: SlideshowWindowSource? = null,
+    windowLaunch: SlideshowWindowLaunch? = null,
+    autoStart: SlideshowConfig? = null
 ) {
     // Forward the STL's actual animation-active state to the screen so the
     // screen can flip `overlayAnimActive` false only when the bounds animation
@@ -154,11 +161,16 @@ fun StaticPhotoOverlay(
             .collect { latestStlCallback(it) }
     }
 
+    val launchInWindow = rememberSlideshowWindowLaunchScope(windowLaunch)
     val fullscreen = LocalViewerFullscreen.current
     val fullscreenSession = rememberViewerFullscreenSession()
     var filmstripExpanded by remember { mutableStateOf(false) }
     val chrome = rememberViewerChromeState()
     var showSlideshowDialog by remember { mutableStateOf(false) }
+    var pendingWindowLaunch by remember {
+        mutableStateOf<Pair<SlideshowWindowSource, String>?>(null)
+    }
+    val preferences: ViewerPreferencesViewModel = org.koin.compose.viewmodel.koinViewModel()
     var showDetailSheet by remember { mutableStateOf(false) }
     val stackController = rememberStackSessionController(getAssetStack)
     val stackSession = stackController.state.session
@@ -179,6 +191,13 @@ fun StaticPhotoOverlay(
     }
 
     val isSlideshow = slideshowConfig != null
+    val singletonPlay = autoStart?.videoPolicy == SlideshowVideoPolicy.PLAY &&
+            assets.size == 1 && assets.firstOrNull()?.type == AssetType.VIDEO
+    // Keep normal playback ineligible until the queued start publishes its config.
+    var autoStartPending by remember { mutableStateOf(autoStart != null && (assets.size > 1 || singletonPlay)) }
+    // Before start and after Exit, do not fall through to normal looping playback.
+    val singletonThumbnail = autoStart != null && assets.size == 1 && assets.firstOrNull()?.type == AssetType.VIDEO && !isSlideshow
+    LaunchedEffect(isSlideshow) { if (isSlideshow) autoStartPending = false }
     DisposableEffect(fullscreenSession, isSlideshow, slideshowConfig?.fullscreen) {
         val lease = if (slideshowConfig?.fullscreen == true) fullscreenSession.enterSlideshow() else null
         onDispose { lease?.release() }
@@ -248,6 +267,16 @@ fun StaticPhotoOverlay(
     ViewerImagePrefetch(assets = assets, settledPage = pagerState.settledPage, upcoming = playback.upcomingAsset)
 
     val slideshowTransition = BindSlideshowPager(slideshow, playback, pagerState, currentAsset)
+    LaunchedEffect(Unit) {
+        val config = autoStart
+        if (config != null && (assets.size > 1 || singletonPlay)) {
+            slideshow.start(config, clampedInitial, preferences, pauseAtEnd = singletonPlay)
+            chrome.hide()
+        } else if (config?.fullscreen == true && !fullscreen.isFullscreen) {
+            fullscreenSession.toggle()
+        }
+    }
+
 
     PlatformBackHandler(enabled = !isCoveredByStack, onBack = {
         if (isSlideshow) slideshow.send { it.stop() }
@@ -259,10 +288,13 @@ fun StaticPhotoOverlay(
         SlideshowOptionsDialog(
             onConfirm = { config ->
                 showSlideshowDialog = false
-                slideshow.send { it.start(config, pagerState.settledPage) }
+                val pending = pendingWindowLaunch
+                pendingWindowLaunch = null
+                if (pending != null) launchInWindow?.invoke(pending.first, pending.second, config)
+                else slideshow.start(config, pagerState.settledPage, preferences)
                 chrome.hide()
             },
-            onDismiss = { showSlideshowDialog = false }
+            onDismiss = { showSlideshowDialog = false; pendingWindowLaunch = null }
         )
     }
 
@@ -286,12 +318,12 @@ fun StaticPhotoOverlay(
     var isCurrentPageZoomed by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.settledPage) { isCurrentPageZoomed = false }
 
-    val gestureEnabled = !showDetailSheet && !isSlideshow && !isCoveredByStack
+    val gestureEnabled = !showDetailSheet && !isSlideshow && !autoStartPending && !singletonThumbnail && !isCoveredByStack
     LaunchedEffect(gestureEnabled) {
         if (!gestureEnabled && dragState.isActive) dragState.cancel()
     }
 
-    val isNormalVideo = !isSlideshow && currentAsset?.type == AssetType.VIDEO
+    val isNormalVideo = !isSlideshow && !autoStartPending && !singletonThumbnail && currentAsset?.type == AssetType.VIDEO
     // Fullscreen changes are interactions: normal video reveals chrome with a fresh interval.
     val toggleFullscreen: () -> Unit = {
         fullscreenSession.toggle()
@@ -323,6 +355,7 @@ fun StaticPhotoOverlay(
             .desktopDetailShortcuts(
                 enabled = !showDetailSheet && !showSlideshowDialog && !isCoveredByStack,
                 slideshowActive = isSlideshow,
+                onSlideshowInteraction = { slideshow.send { it.interact() } },
                 onPrev = {
                     if (isSlideshow) slideshow.send { it.previous() }
                     else if (!pagerState.isScrollInProgress) scope.launch { pagerState.animateScrollToPage((pagerState.currentPage - 1).coerceAtLeast(0)) }
@@ -384,9 +417,9 @@ fun StaticPhotoOverlay(
                         asset = asset,
                         sharedElementAssetId = sharedElementAssetId ?: asset.id,
                         apiKey = apiKey,
-                        isCurrentPage = isSettledPage && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog && LocalAppActive.current,
-                        isSlideshow = isSlideshow,
-                        slideshowConfig = slideshowConfig,
+                        isCurrentPage = isSettledPage && !autoStartPending && !singletonThumbnail && !isCoveredByStack && !showDetailSheet && !showSlideshowDialog && LocalAppActive.current,
+                        isSlideshow = isSlideshow || autoStartPending || singletonThumbnail,
+                        slideshowConfig = slideshowConfig ?: autoStart.takeIf { autoStartPending || singletonThumbnail },
                         playback = playback.takeIf {
                             it.asset?.id == asset.id || it.outgoingStill?.request?.assetId == asset.id
                         },
@@ -421,6 +454,12 @@ fun StaticPhotoOverlay(
             isFullscreen = fullscreen.isFullscreen,
             onSlideshow = if (assets.size > 1) {
                 { showSlideshowDialog = true }
+            } else null,
+            onSlideshowInNewWindow = if (launchInWindow != null && slideshowWindowSource != null && currentAsset != null) {
+                {
+                    pendingWindowLaunch = slideshowWindowSource to currentAsset.id
+                    showSlideshowDialog = true
+                }
             } else null,
             stackCount = currentAsset?.stackCount ?: 0,
             stackAvailability = currentAsset?.id
@@ -483,11 +522,11 @@ fun StaticPhotoOverlay(
             AssetDetailSheet(
                 assetId = currentAsset.id,
                 getAssetDetail = getAssetDetail,
-                onPersonClick = { personId, personName ->
+                onPersonClick = onPersonClick?.let { navigate -> { personId, personName ->
                     showDetailSheet = false
                     dismissBase(currentAsset.id)
-                    onPersonClick(personId, personName)
-                },
+                    navigate(personId, personName)
+                } },
                 captureDateTime = currentAsset.createdAt,
                 onShowInTimeline = showDateInTimeline,
                 onDismiss = { showDetailSheet = false }
@@ -501,13 +540,14 @@ fun StaticPhotoOverlay(
                     apiKey = apiKey,
                     getAssetDetail = getAssetDetail,
                     getAssetStack = getAssetStack,
-                    onPersonClick = { personId, personName ->
+                    onPersonClick = onPersonClick?.let { navigate -> { personId, personName ->
                         stackController.dismissSession()
                         dismissBase(currentAsset?.id)
-                        onPersonClick(personId, personName)
-                    },
+                        navigate(personId, personName)
+                    } },
                     onDismiss = stackController::dismissSession,
                     onRetry = stackController::retrySession,
+                    windowLaunch = launchInWindow,
                     onShowInTimeline = showDateInTimeline
                 )
             }

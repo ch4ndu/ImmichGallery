@@ -329,6 +329,7 @@ class AlbumRepository(
                 updatedAt = cachedAlbum?.updatedAt ?: ""
             )
             var changed = false
+            var completeAssets: List<Asset> = emptyList()
             sessionStateRepository.withCommit(token) {
                 withContext(Dispatchers.IO) {
                     database.useWriterConnection { transactor ->
@@ -349,6 +350,9 @@ class AlbumRepository(
                         }
                         val after = if (skipAssetWrite) before else albumDao.getAlbumAssets(albumId)
                         changed = !skipAssetWrite && orderedAssetsChanged(before, after)
+                        // Capture the complete prepared source under the same commit as its cache write.
+                        // Never reread shared refs after publication: another page refresh may truncate them.
+                        completeAssets = assetEntities.mapNotNull { it.toDomainOrNull(baseUrl()) }.toList()
                         if (changed) {
                             detailMosaicCacheDao.clearOwnerCache(
                                 DetailMosaicCacheOwnerType.ALBUM.name,
@@ -369,7 +373,8 @@ class AlbumRepository(
                 albumName = detail.albumName,
                 changed = changed,
                 nextPage = null,
-                order = order
+                order = order,
+                completeAssets = completeAssets
             )
         } }
     }

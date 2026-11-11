@@ -272,4 +272,14 @@
     <string name="timeline_back_to_today">Back to today</string>
     <string name="timeline_date_navigation_hint">Jump to the closest photo in the selected month, or the nearest available month.</string>
     <string name="timeline_date_navigation_failed">Could not find a cached date to jump to. Refresh the Timeline and try again.</string>
+    <string name="slideshow_new_window">Start slideshow in new window</string>
+    <string name="slideshow_window_loading">Loading slideshow…</string>
+    <string name="slideshow_window_failed">Unable to load the complete slideshow collection.</string>
+    <string name="slideshow_window_empty">This collection has no supported photos or videos.</string>
+    <string name="slideshow_window_missing_asset">The opening photo or video is no longer in this collection.</string>
+    <string name="slideshow_window_cache_unavailable">Cached photos are unavailable. Refresh the Timeline in the library, then retry.</string>
+    <string name="slideshow_window_close">Close</string>
+    <string name="desktop_file">File</string>
+    <string name="desktop_show_library">Show library</string>
+    <string name="desktop_quit">Quit</string>
 </resources>

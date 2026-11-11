@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.album
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+import com.udnahc.immichgallery.ui.component.rememberSlideshowWindowLauncher
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -50,6 +53,7 @@ fun AlbumDetailScreen(
     viewModel: AlbumDetailViewModel = koinViewModel { parametersOf(albumId) },
     onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
+    val windowLaunch = rememberSlideshowWindowLauncher(viewModel)
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     var entryResetApplied by remember { mutableStateOf(false) }
@@ -121,6 +125,8 @@ fun AlbumDetailScreen(
         },
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
             StaticPhotoOverlay(
+                windowLaunch = windowLaunch,
+                slideshowWindowSource = SlideshowWindowSource.Album(albumId),
                 assets = state.assets,
                 initialIndex = initialIndex,
                 apiKey = viewModel.apiKey,

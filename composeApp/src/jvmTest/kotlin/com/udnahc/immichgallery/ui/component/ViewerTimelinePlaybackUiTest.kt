@@ -21,6 +21,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
@@ -73,6 +74,31 @@ class ViewerTimelinePlaybackUiTest {
     }
 
     @Test
+    fun automaticTimelineAdvanceKeepsControlsHiddenUntilMouseMovement() {
+        configureBuckets(count = 3)
+        repeat(3) { materializeBucket(it) }
+        show(config = slideshowConfig().copy(transition = SlideshowTransition.SLIDE))
+        start()
+        waitVisit(assetId(0))
+        ready()
+        advance(3_000)
+        compose.waitUntil { !fixture.state.controlsVisible }
+        advance(2_000)
+        waitVisit(assetId(1))
+        compose.onNodeWithContentDescription("Pause slideshow").assertDoesNotExist()
+        ready()
+        compose.onNodeWithTag("media:${assetId(1)}:selected").performMouseInput {
+            moveTo(center)
+            moveTo(center + androidx.compose.ui.geometry.Offset(10f, 0f))
+        }
+        compose.waitUntil { fixture.state.controlsVisible }
+        compose.onNodeWithContentDescription("Pause slideshow").assertIsDisplayed()
+        advance(3_000)
+        compose.waitUntil { !fixture.state.controlsVisible }
+        compose.onNodeWithContentDescription("Pause slideshow").assertDoesNotExist()
+    }
+
+    @Test
     fun lazyCurrentAndNextBucketsUseReadyDwellAndPausePreservesRemainingTimeAndHistory() {
         configureBuckets(count = 3)
         show(initialIndex = 1)
@@ -90,7 +116,11 @@ class ViewerTimelinePlaybackUiTest {
         ready()
         advance(2_000)
         val pausedRequest = fixture.state.request
-        compose.onNodeWithTag("media:${assetId(1)}:selected").performClick() // Startup plus dwell reached the control-hide interval.
+        // Startup plus dwell reached the control-hide interval; pointer activity reveals controls.
+        compose.onNodeWithTag("media:${assetId(1)}:selected").performMouseInput {
+            moveTo(center)
+            moveTo(center + androidx.compose.ui.geometry.Offset(10f, 0f))
+        }
         compose.waitUntil { compose.onAllNodesWithContentDescription("Pause slideshow").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Pause slideshow").performClick()
         compose.waitUntil { fixture.state.paused }

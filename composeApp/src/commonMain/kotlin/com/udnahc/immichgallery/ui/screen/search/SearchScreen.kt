@@ -1,5 +1,8 @@
 package com.udnahc.immichgallery.ui.screen.search
 
+import com.udnahc.immichgallery.domain.model.SlideshowWindowSource
+import com.udnahc.immichgallery.ui.component.rememberSlideshowWindowLauncher
+
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -98,6 +101,7 @@ fun SearchScreen(
     viewModel: SearchViewModel = koinViewModel(),
     onShowInTimeline: ((LocalDate) -> Unit)? = null
 ) {
+    val windowLaunch = rememberSlideshowWindowLauncher(viewModel)
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     val overlaySource = StaticPhotoOverlaySourceIdentity(
@@ -159,6 +163,8 @@ fun SearchScreen(
         },
         overlay = { initialIndex, onDismissHost, onCurrentAssetChanged, onStlTransitionActiveChanged, sharedTransitionScope ->
             StaticPhotoOverlay(
+                windowLaunch = windowLaunch,
+                slideshowWindowSource = state.submittedSession?.let { SlideshowWindowSource.Search(it.endpoint, it.criteria) },
                 assets = state.results,
                 initialIndex = initialIndex,
                 apiKey = viewModel.apiKey,

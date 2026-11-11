@@ -90,6 +90,14 @@ Zoom behavior is shared:
 - Mosaic mode disables zoom when `disableZoomWhenMosaicEnabled` is true or when `cacheMosaicResults` is true;
 - measured width and viewport height flow back to the coordinator so row bounds and Mosaic cell size are derived from actual layout.
 
+Full Album/Person sync results may carry `completeAssets`, an independently
+retained snapshot of the complete prepared supported assets captured inside the
+same session commit/transaction as the full cache update. Page results leave it
+absent. Detached slideshow preparation consumes this snapshot: rereading shared
+refs after sync could race a browsing-window page refresh and truncate its source.
+The normal screen observation, pagination, and cache invalidation paths remain
+unchanged.
+
 ## ViewModel Responsibilities
 
 Album and Person ViewModels are owner-specific adapters around the shared coordinator. Opened-owner syncs are wrapped in `SyncActivityTracker` so Android can mirror active sync work with the shared foreground sync notification. The Android service does not execute Album or Person sync logic. Each ViewModel uses one owner-local `DetailSyncGate` to serialize page-1 refresh, near-end paging, and Mosaic-triggered full sync; work must re-read `hasMore` and `nextPage` only after acquiring that gate.
