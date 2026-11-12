@@ -1,28 +1,36 @@
 package com.udnahc.immichgallery.ui.screen.search
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,7 +38,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -50,7 +63,10 @@ import com.udnahc.immichgallery.ui.util.systemBarFadeIn
 import com.udnahc.immichgallery.ui.util.systemBarFadeOut
 import immichgallery.composeapp.generated.resources.Res
 import immichgallery.composeapp.generated.resources.clear_search
+import immichgallery.composeapp.generated.resources.ic_arrow_forward
 import immichgallery.composeapp.generated.resources.ic_close
+import immichgallery.composeapp.generated.resources.ic_next
+import immichgallery.composeapp.generated.resources.ic_search
 import immichgallery.composeapp.generated.resources.ic_tune
 import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.search_albums
@@ -77,10 +93,16 @@ import immichgallery.composeapp.generated.resources.search_remove_filter
 import immichgallery.composeapp.generated.resources.search_selection_more
 import immichgallery.composeapp.generated.resources.search_tags
 import immichgallery.composeapp.generated.resources.search_tune_description
+import immichgallery.composeapp.generated.resources.search_by_mode
+import immichgallery.composeapp.generated.resources.search_submit
 import immichgallery.composeapp.generated.resources.search_type_context
+import immichgallery.composeapp.generated.resources.search_type_context_explanation
 import immichgallery.composeapp.generated.resources.search_type_description
+import immichgallery.composeapp.generated.resources.search_type_description_explanation
 import immichgallery.composeapp.generated.resources.search_type_filename
+import immichgallery.composeapp.generated.resources.search_type_filename_explanation
 import immichgallery.composeapp.generated.resources.search_type_ocr
+import immichgallery.composeapp.generated.resources.search_type_ocr_explanation
 import immichgallery.composeapp.generated.resources.search_untagged
 import immichgallery.composeapp.generated.resources.search_unknown
 import immichgallery.composeapp.generated.resources.search_unrated
@@ -145,17 +167,18 @@ internal fun visibleSearchFilterTargets(
 ): List<SearchFilterTarget> = buildList {
     add(SearchFilterTarget.PEOPLE)
     add(SearchFilterTarget.ALBUMS)
+    if (preferences?.tagsEnabled == true) add(SearchFilterTarget.TAGS)
     add(SearchFilterTarget.DATE)
     add(SearchFilterTarget.MEDIA)
     add(SearchFilterTarget.CAMERA)
     add(SearchFilterTarget.LOCATION)
-    if (preferences?.tagsEnabled == true) add(SearchFilterTarget.TAGS)
     if (preferences?.ratingsEnabled == true) add(SearchFilterTarget.RATING)
     add(SearchFilterTarget.DISPLAY)
 }
 
 @Composable
 internal fun SearchControls(
+    modifier: Modifier = Modifier,
     visible: Boolean,
     state: SearchState,
     onQueryChange: (String) -> Unit,
@@ -165,49 +188,83 @@ internal fun SearchControls(
     onApplyCriteria: (SearchCriteria) -> Unit,
     onRetryCapabilities: () -> Unit
 ) {
+    var modeChoicesVisible by remember { mutableStateOf(false) }
     AnimatedVisibility(
+        modifier = modifier,
         visible = visible,
         enter = systemBarFadeIn,
         exit = systemBarFadeOut
     ) {
-        Column {
-            Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = onQueryChange,
-                placeholder = { Text(stringResource(Res.string.search_placeholder)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                trailingIcon = {
-                    if (state.query.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) {
-                            Icon(
-                                painterResource(Res.drawable.ic_close),
-                                contentDescription = stringResource(Res.string.clear_search)
-                            )
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
             Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                SearchModeMenu(
-                    mode = state.textMode,
-                    capabilities = state.serverCapabilities,
-                    onModeChange = onTextModeChange,
-                    onRetryCapabilities = onRetryCapabilities
+                TextField(
+                    value = state.query,
+                    onValueChange = onQueryChange,
+                    placeholder = { Text(stringResource(Res.string.search_placeholder)) },
+                    leadingIcon = {
+                        Icon(painterResource(Res.drawable.ic_search), contentDescription = null)
+                    },
+                    shape = MaterialTheme.shapes.large,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                    trailingIcon = {
+                        if (state.query.isNotEmpty()) {
+                            IconButton(onClick = { onQueryChange("") }) {
+                                Icon(
+                                    painterResource(Res.drawable.ic_close),
+                                    contentDescription = stringResource(Res.string.clear_search)
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
                 )
+                FilledIconButton(
+                    onClick = onSearch,
+                    modifier = Modifier.size(Dimens.searchBarHeight)
+                ) {
+                    Icon(
+                        painterResource(Res.drawable.ic_arrow_forward),
+                        contentDescription = stringResource(Res.string.search_submit)
+                    )
+                }
+            }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)
+            ) {
+                TextButton(onClick = { modeChoicesVisible = !modeChoicesVisible }) {
+                    Text(
+                        stringResource(
+                            Res.string.search_by_mode,
+                            state.textMode.label()
+                        )
+                    )
+                    Icon(
+                        painterResource(Res.drawable.ic_next),
+                        contentDescription = null,
+                        modifier = Modifier.rotate(if (modeChoicesVisible) -90f else 90f)
+                    )
+                }
                 val filterCount = activeSearchFilterCount(state.appliedCriteria)
                 val tuneDescription = stringResource(
                     Res.string.search_tune_description,
                     filterCount
                 )
-                IconButton(
+                OutlinedButton(
                     onClick = { onOpenFilters(SearchFilterTarget.ALL) },
                     modifier = Modifier.semantics {
                         contentDescription = tuneDescription
@@ -222,68 +279,126 @@ internal fun SearchControls(
                     ) {
                         Icon(painterResource(Res.drawable.ic_tune), contentDescription = null)
                     }
+                    Text(stringResource(Res.string.search_filters))
                 }
+            }
+            AnimatedVisibility(
+                visible = modeChoicesVisible,
+                modifier = Modifier.weight(1f, fill = false)
+            ) {
+                SearchModeChoiceSurface(
+                    mode = state.textMode,
+                    capabilities = state.serverCapabilities,
+                    onModeChange = {
+                        modeChoicesVisible = false
+                        onTextModeChange(it)
+                    },
+                    onRetryCapabilities = onRetryCapabilities
+                )
             }
             SearchModeAvailability(
                 mode = state.textMode,
                 capabilities = state.serverCapabilities,
                 onRetry = onRetryCapabilities
             )
-            SearchCategoryRow(
-                state = state,
-                onOpenFilters = onOpenFilters
-            )
             SearchAppliedFilterRow(
                 state = state,
                 onApplyCriteria = onApplyCriteria
             )
-            Spacer(modifier = Modifier.height(Dimens.mediumSpacing))
         }
     }
 }
 
 @Composable
-private fun SearchModeMenu(
+private fun SearchModeChoiceSurface(
     mode: SearchTextMode,
     capabilities: SearchLoadState<SearchCapabilities>,
     onModeChange: (SearchTextMode) -> Unit,
     onRetryCapabilities: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }) {
-            Text(mode.label())
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            SearchTextMode.entries.forEach { candidate ->
-                val enabled = candidate.isEnabled(capabilities.valueOrNull())
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(candidate.label())
-                            if (!enabled) {
-                                Text(
-                                    candidate.unavailableExplanation(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        BoxWithConstraints {
+            val columnCount = if (maxWidth >= Dimens.searchFilterHostBreakpoint) 2 else 1
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(Dimens.mediumSpacing),
+                verticalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)
+            ) {
+                SearchTextMode.entries.chunked(columnCount).forEach { modes ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)
+                    ) {
+                        modes.forEach { candidate ->
+                            SearchModeChoice(
+                                candidate = candidate,
+                                selected = candidate == mode,
+                                enabled = candidate.isEnabled(capabilities.valueOrNull()),
+                                onClick = { onModeChange(candidate) }
+                            )
                         }
-                    },
-                    enabled = enabled,
-                    onClick = {
-                        expanded = false
-                        onModeChange(candidate)
                     }
-                )
+                }
+                if (capabilities is SearchLoadState.Error) {
+                    TextButton(onClick = onRetryCapabilities) {
+                        Text(stringResource(Res.string.retry))
+                    }
+                }
             }
-            if (capabilities is SearchLoadState.Error) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.retry)) },
-                    onClick = {
-                        expanded = false
-                        onRetryCapabilities()
-                    }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.SearchModeChoice(
+    candidate: SearchTextMode,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val contentColor = if (enabled) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    }
+    Row(
+        modifier = Modifier
+            .weight(1f)
+            .selectable(
+                selected = selected,
+                enabled = enabled,
+                role = Role.RadioButton,
+                onClick = onClick
+            )
+            .semantics(mergeDescendants = true) {}
+            .padding(Dimens.mediumSpacing),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            enabled = enabled,
+            modifier = Modifier.clearAndSetSemantics {}
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(candidate.label(), color = contentColor)
+            Text(
+                candidate.explanation(),
+                style = MaterialTheme.typography.bodySmall,
+                color = contentColor
+            )
+            if (!enabled) {
+                Text(
+                    candidate.unavailableExplanation(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
                 )
             }
         }
@@ -305,24 +420,6 @@ private fun SearchModeAvailability(
             style = MaterialTheme.typography.bodySmall
         )
         TextButton(onClick = onRetry) { Text(stringResource(Res.string.retry)) }
-    }
-}
-
-@Composable
-private fun SearchCategoryRow(
-    state: SearchState,
-    onOpenFilters: (SearchFilterTarget) -> Unit
-) {
-    val targets = visibleSearchFilterTargets(state.preferenceCapabilities.valueOrNull())
-    val categories = targets.map { it to categorySummary(it, state) }
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
-        items(categories, key = { it.first.name }) { (target, summary) ->
-            FilterChip(
-                selected = summary != null,
-                onClick = { onOpenFilters(target) },
-                label = { Text(summary ?: target.label()) }
-            )
-        }
     }
 }
 
@@ -503,6 +600,14 @@ private fun SearchTextMode.unavailableExplanation(): String = when (this) {
     SearchTextMode.OCR -> stringResource(Res.string.search_ocr_unavailable)
     SearchTextMode.FILENAME,
     SearchTextMode.DESCRIPTION -> ""
+}
+
+@Composable
+private fun SearchTextMode.explanation(): String = when (this) {
+    SearchTextMode.CONTEXT -> stringResource(Res.string.search_type_context_explanation)
+    SearchTextMode.FILENAME -> stringResource(Res.string.search_type_filename_explanation)
+    SearchTextMode.DESCRIPTION -> stringResource(Res.string.search_type_description_explanation)
+    SearchTextMode.OCR -> stringResource(Res.string.search_type_ocr_explanation)
 }
 
 private fun SearchTextMode.isEnabled(capabilities: SearchCapabilities?): Boolean = when (this) {

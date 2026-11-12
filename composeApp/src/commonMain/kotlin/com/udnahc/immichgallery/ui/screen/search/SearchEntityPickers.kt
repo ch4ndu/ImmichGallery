@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -146,26 +147,30 @@ internal fun SearchPeoplePicker(
     query: String,
     onQueryChange: (String) -> Unit,
     onSelectionChange: (List<String>) -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val options by projectedOptions(state.valueOrNull().orEmpty(), selectedIds, query, ::projectPeopleOptions)
-    SearchPickerHeader(
-        query = query,
-        placeholder = stringResource(Res.string.search_people_placeholder),
-        onQueryChange = onQueryChange,
-        explanation = stringResource(Res.string.search_all_people_explanation)
-    )
-    SearchOptionLoadContent(
-        state = state,
-        errorText = stringResource(Res.string.search_people_options_failed),
-        onRetry = onRetry
-    ) {
-        items(options, key = Person::id) { person ->
-            PersonOptionRow(
-                person = person,
-                selected = person.id in selectedIds,
-                onClick = { onSelectionChange(selectedIds.toggled(person.id)) }
-            )
+    Column(modifier = modifier.fillMaxWidth()) {
+        SearchPickerHeader(
+            query = query,
+            placeholder = stringResource(Res.string.search_people_placeholder),
+            onQueryChange = onQueryChange,
+            explanation = stringResource(Res.string.search_all_people_explanation)
+        )
+        SearchOptionLoadContent(
+            state = state,
+            errorText = stringResource(Res.string.search_people_options_failed),
+            onRetry = onRetry,
+            modifier = Modifier.weight(1f)
+        ) {
+            items(options, key = Person::id) { person ->
+                PersonOptionRow(
+                    person = person,
+                    selected = person.id in selectedIds,
+                    onClick = { onSelectionChange(selectedIds.toggled(person.id)) }
+                )
+            }
         }
     }
 }
@@ -177,26 +182,30 @@ internal fun SearchAlbumPicker(
     query: String,
     onQueryChange: (String) -> Unit,
     onSelectionChange: (List<String>) -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val options by projectedOptions(state.valueOrNull().orEmpty(), selectedIds, query, ::projectAlbumOptions)
-    SearchPickerHeader(
-        query = query,
-        placeholder = stringResource(Res.string.search_albums_placeholder),
-        onQueryChange = onQueryChange,
-        explanation = stringResource(Res.string.search_all_albums_explanation)
-    )
-    SearchOptionLoadContent(
-        state = state,
-        errorText = stringResource(Res.string.search_album_options_failed),
-        onRetry = onRetry
-    ) {
-        items(options, key = Album::id) { album ->
-            AlbumOptionRow(
-                album = album,
-                selected = album.id in selectedIds,
-                onClick = { onSelectionChange(selectedIds.toggled(album.id)) }
-            )
+    Column(modifier = modifier.fillMaxWidth()) {
+        SearchPickerHeader(
+            query = query,
+            placeholder = stringResource(Res.string.search_albums_placeholder),
+            onQueryChange = onQueryChange,
+            explanation = stringResource(Res.string.search_all_albums_explanation)
+        )
+        SearchOptionLoadContent(
+            state = state,
+            errorText = stringResource(Res.string.search_album_options_failed),
+            onRetry = onRetry,
+            modifier = Modifier.weight(1f)
+        ) {
+            items(options, key = Album::id) { album ->
+                AlbumOptionRow(
+                    album = album,
+                    selected = album.id in selectedIds,
+                    onClick = { onSelectionChange(selectedIds.toggled(album.id)) }
+                )
+            }
         }
     }
 }
@@ -208,53 +217,57 @@ internal fun SearchTagPicker(
     query: String,
     onQueryChange: (String) -> Unit,
     onConstraintChange: (TagConstraint) -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val selectedIds = (constraint as? TagConstraint.Selected)?.ids.orEmpty()
     val options by projectedOptions(state.valueOrNull().orEmpty(), selectedIds, query, ::projectTagOptions)
-    SearchPickerHeader(
-        query = query,
-        placeholder = stringResource(Res.string.search_tags_placeholder),
-        onQueryChange = onQueryChange,
-        explanation = stringResource(Res.string.search_all_tags_explanation)
-    )
-    SearchOptionRow(
-        label = stringResource(Res.string.search_untagged),
-        selected = constraint == TagConstraint.Untagged,
-        onClick = {
-            onConstraintChange(
-                if (constraint == TagConstraint.Untagged) TagConstraint.Any else TagConstraint.Untagged
-            )
-        }
-    )
-    SearchOptionLoadContent(
-        state = state,
-        errorText = stringResource(Res.string.search_tag_options_failed),
-        onRetry = onRetry
-    ) {
-        items(options, key = SearchTag::id) { tag ->
-            SearchOptionRow(
-                label = tag.value,
-                selected = tag.id in selectedIds,
-                leading = {
-                    val color = tag.color?.let(::parseSearchTagColor)
-                        ?: MaterialTheme.colorScheme.outline
-                    Box(
-                        Modifier
-                            .size(Dimens.iconSize)
-                            .clip(CircleShape)
-                            .background(color)
-                    )
-                },
-                onClick = {
-                    val ids = selectedIds.toggled(tag.id)
-                    onConstraintChange(
-                        ids.takeIf(List<String>::isNotEmpty)
-                            ?.let(TagConstraint::Selected)
-                            ?: TagConstraint.Any
-                    )
-                }
-            )
+    Column(modifier = modifier.fillMaxWidth()) {
+        SearchPickerHeader(
+            query = query,
+            placeholder = stringResource(Res.string.search_tags_placeholder),
+            onQueryChange = onQueryChange,
+            explanation = stringResource(Res.string.search_all_tags_explanation)
+        )
+        SearchOptionRow(
+            label = stringResource(Res.string.search_untagged),
+            selected = constraint == TagConstraint.Untagged,
+            onClick = {
+                onConstraintChange(
+                    if (constraint == TagConstraint.Untagged) TagConstraint.Any else TagConstraint.Untagged
+                )
+            }
+        )
+        SearchOptionLoadContent(
+            state = state,
+            errorText = stringResource(Res.string.search_tag_options_failed),
+            onRetry = onRetry,
+            modifier = Modifier.weight(1f)
+        ) {
+            items(options, key = SearchTag::id) { tag ->
+                SearchOptionRow(
+                    label = tag.value,
+                    selected = tag.id in selectedIds,
+                    leading = {
+                        val color = tag.color?.let(::parseSearchTagColor)
+                            ?: MaterialTheme.colorScheme.outline
+                        Box(
+                            Modifier
+                                .size(Dimens.iconSize)
+                                .clip(CircleShape)
+                                .background(color)
+                        )
+                    },
+                    onClick = {
+                        val ids = selectedIds.toggled(tag.id)
+                        onConstraintChange(
+                            ids.takeIf(List<String>::isNotEmpty)
+                                ?.let(TagConstraint::Selected)
+                                ?: TagConstraint.Any
+                        )
+                    }
+                )
+            }
         }
     }
 }
@@ -296,21 +309,28 @@ private fun <T> SearchOptionLoadContent(
     state: SearchLoadState<List<T>>,
     errorText: String,
     onRetry: () -> Unit,
+    modifier: Modifier,
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit
 ) {
     val hasContent = !state.valueOrNull().isNullOrEmpty()
     when {
         state is SearchLoadState.Loading && !hasContent -> {
-            Box(Modifier.fillMaxWidth().heightIn(min = Dimens.searchOptionRowMinHeight), Alignment.Center) {
+            Box(modifier.fillMaxSize(), Alignment.Center) {
                 CircularProgressIndicator(modifier = Modifier.size(Dimens.iconSize))
             }
         }
 
-        state is SearchLoadState.Error && !hasContent -> SearchPickerError(errorText, onRetry)
+        state is SearchLoadState.Error && !hasContent -> {
+            Box(modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                SearchPickerError(errorText, onRetry)
+            }
+        }
         else -> {
-            if (state is SearchLoadState.Error) SearchPickerError(errorText, onRetry)
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = Dimens.albumCoverHeight)) {
-                content()
+            Column(modifier = modifier.fillMaxSize()) {
+                if (state is SearchLoadState.Error) SearchPickerError(errorText, onRetry)
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    content()
+                }
             }
         }
     }

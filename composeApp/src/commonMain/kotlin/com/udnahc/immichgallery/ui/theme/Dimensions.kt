@@ -13,13 +13,13 @@ object Dimens {
     val albumCoverHeight = 180.dp
     val personAvatarSize = 100.dp
     val searchBarHeight = 56.dp
+    val searchResultReservedHeight = 96.dp
     val searchPickerThumbnailSize = 60.dp
     val searchFilterDialogWidth = 720.dp
     val searchFilterDialogHeight = 720.dp
     val searchFilterHostBreakpoint = 600.dp
+    val searchFilterCategoryWidth = 168.dp
     val searchOptionRowMinHeight = 64.dp
-    val exploreCardHeight = 112.dp
-    val exploreCardIconSize = 40.dp
     val memoryCardHeight = 260.dp
     val topBarHeight = 56.dp
     val bottomBarHeight = 56.dp

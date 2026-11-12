@@ -200,6 +200,38 @@ class SearchFilterPresentationTest {
         )
         assertTrue(SearchFilterTarget.TAGS in enabled)
         assertTrue(SearchFilterTarget.RATING in enabled)
+        assertEquals(
+            listOf(
+                SearchFilterTarget.PEOPLE,
+                SearchFilterTarget.ALBUMS,
+                SearchFilterTarget.TAGS,
+                SearchFilterTarget.DATE,
+                SearchFilterTarget.MEDIA,
+                SearchFilterTarget.CAMERA,
+                SearchFilterTarget.LOCATION,
+                SearchFilterTarget.RATING,
+                SearchFilterTarget.DISPLAY
+            ),
+            enabled
+        )
+    }
+
+    @Test
+    fun filterEditorStartsOnRequestedVisibleCategoryAndFallsBackToPeople() {
+        val baseline = visibleSearchFilterTargets(null)
+
+        assertEquals(
+            SearchFilterTarget.PEOPLE,
+            initialSearchFilterTarget(SearchFilterTarget.ALL, baseline)
+        )
+        assertEquals(
+            SearchFilterTarget.DATE,
+            initialSearchFilterTarget(SearchFilterTarget.DATE, baseline)
+        )
+        assertEquals(
+            SearchFilterTarget.PEOPLE,
+            initialSearchFilterTarget(SearchFilterTarget.TAGS, baseline)
+        )
     }
 
     @Test

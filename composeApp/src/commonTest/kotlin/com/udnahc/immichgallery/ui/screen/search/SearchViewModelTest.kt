@@ -13,6 +13,7 @@ import com.udnahc.immichgallery.domain.model.SearchEndpoint
 import com.udnahc.immichgallery.domain.model.SearchLoadState
 import com.udnahc.immichgallery.domain.model.SearchPreferenceCapabilities
 import com.udnahc.immichgallery.domain.model.SearchResult
+import com.udnahc.immichgallery.domain.model.SearchSession
 import com.udnahc.immichgallery.domain.model.SearchSuggestion
 import com.udnahc.immichgallery.domain.model.SearchSuggestionRequest
 import com.udnahc.immichgallery.domain.model.SearchSuggestionType
@@ -219,6 +220,95 @@ class SearchViewModelTest {
         assertEquals(listOf(frozen, frozen, frozen), submitted.map { it.first })
         assertEquals(listOf("first", "second"), viewModel.state.value.results.map(Asset::id))
         assertEquals(null, viewModel.state.value.loadMoreError)
+    }
+
+    @Test
+    fun loadMoreClaimSurvivesUnrelatedRowProjectionAndAllowsOneRequest() {
+        val criteria = SearchCriteria(query = "beach")
+        val session = SearchSession(
+            criteria = criteria,
+            endpoint = SearchEndpoint.SMART,
+            generation = 1,
+            nextPage = 2,
+            consumedPages = setOf(1)
+        )
+        val firstAsset = asset("first")
+        val projectedRows = packIntoRows(
+            assets = listOf(firstAsset),
+            availableWidth = 320f,
+            targetRowHeight = DEFAULT_TARGET_ROW_HEIGHT,
+            spacing = GRID_SPACING_DP
+        )
+        var current = SearchState(
+            query = criteria.query,
+            submittedSession = session,
+            results = listOf(firstAsset),
+            resultIds = listOf(firstAsset.id)
+        )
+        var claimAttempts = 0
+        var requestStarts = 0
+
+        fun claim() = claimSearchLoadMore(
+            currentState = { current },
+            compareAndSet = { expected, updated ->
+                claimAttempts++
+                if (claimAttempts == 1) {
+                    current = current.copy(rows = projectedRows)
+                    false
+                } else if (current == expected) {
+                    current = updated
+                    true
+                } else {
+                    false
+                }
+            }
+        )
+
+        claim()?.let { requestStarts++ }
+        claim()?.let { requestStarts++ }
+
+        assertEquals(2, claimAttempts)
+        assertEquals(projectedRows, current.rows)
+        assertTrue(current.isLoadingMore)
+        assertEquals(1, requestStarts)
+    }
+
+    @Test
+    fun invalidLoadMoreTokenTerminationSurvivesUnrelatedStateUpdate() {
+        val criteria = SearchCriteria(query = "beach")
+        var current = SearchState(
+            query = criteria.query,
+            submittedSession = SearchSession(
+                criteria = criteria,
+                endpoint = SearchEndpoint.SMART,
+                generation = 1,
+                currentPage = 2,
+                nextPage = 2,
+                consumedPages = setOf(1, 2)
+            )
+        )
+        var claimAttempts = 0
+
+        val claim = claimSearchLoadMore(
+            currentState = { current },
+            compareAndSet = { expected, updated ->
+                claimAttempts++
+                if (claimAttempts == 1) {
+                    current = current.copy(availableWidth = 320f)
+                    false
+                } else if (current == expected) {
+                    current = updated
+                    true
+                } else {
+                    false
+                }
+            }
+        )
+
+        assertEquals(null, claim)
+        assertEquals(2, claimAttempts)
+        assertEquals(null, current.nextPage)
+        assertFalse(current.isLoadingMore)
     }
 
     @Test

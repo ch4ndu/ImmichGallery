@@ -140,15 +140,21 @@
     <string name="people_search_placeholder">Search people…</string>
 
     <!-- Search -->
-    <string name="search_placeholder">Search photos…</string>
+    <string name="search_placeholder">Search</string>
+    <string name="search_submit">Run search</string>
+    <string name="search_by_mode">Search by %1$s</string>
     <string name="search_type_smart">Smart</string>
-    <string name="search_type_context">Context</string>
+    <string name="search_type_context">Meaning</string>
     <string name="search_type_filename">Filename</string>
     <string name="search_type_description">Description</string>
-    <string name="search_type_ocr">OCR</string>
+    <string name="search_type_ocr">Text in photos</string>
+    <string name="search_type_context_explanation">Find scenes, objects, or ideas</string>
+    <string name="search_type_filename_explanation">Match the name of a file</string>
+    <string name="search_type_description_explanation">Search photo descriptions</string>
+    <string name="search_type_ocr_explanation">Find words visible in an image</string>
     <string name="search_no_results">No results found</string>
-    <string name="search_hint">Search your photos using natural language or filename</string>
     <string name="search_filters">Filters</string>
+    <string name="search_apply_filters">Apply filters</string>
     <string name="search_tune_description">Open search filters. %1$d applied.</string>
     <string name="search_clear">Clear</string>
     <string name="search_people">People</string>
@@ -166,7 +172,6 @@
     <string name="search_all_people_explanation">Results must contain every selected person.</string>
     <string name="search_all_albums_explanation">Results must belong to every selected album.</string>
     <string name="search_all_tags_explanation">Results must contain every selected tag. Parent tags include descendant matches.</string>
-    <string name="search_apply_people">Apply %1$d people</string>
     <string name="search_selection_more">%1$s +%2$d</string>
     <string name="search_remove_filter">Remove %1$s filter</string>
     <string name="search_unavailable_selection">Unavailable selection</string>
@@ -205,8 +210,6 @@
     <string name="explore">Explore</string>
     <string name="favorites">Favorites</string>
     <string name="memories">Memories</string>
-    <string name="explore_favorites_description">Browse your favorite photos and videos</string>
-    <string name="explore_memories_description">Browse memories from this day</string>
     <string name="memories_empty">No memories found for this day</string>
     <string name="memories_load_failed">Could not load memories</string>
     <string name="memories_permission_denied">This API key cannot read memories</string>

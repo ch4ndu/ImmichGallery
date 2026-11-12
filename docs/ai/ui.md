@@ -24,6 +24,17 @@ For shared photo/video viewing, information sheets, slideshow, viewer gestures, 
 - Search result content already owns the top inset above its scrollable results,
   so its `ScrollbarOverlay` top padding is `0.dp`; do not add the scaffold top
   padding again there.
+- Search keeps its compact input, mode/filter actions, and removable applied
+  chips above the result surface, but permanent category navigation belongs
+  only inside the atomic filter editor. That editor uses a bottom sheet with
+  horizontal categories below 600dp and a bounded dialog with side navigation
+  at wider widths; its option body scrolls independently so the entity search
+  field and Apply/Cancel footer remain reachable on short or enlarged-text
+  layouts.
+- Search's inline descriptive mode choices keep their responsive one-column or
+  two-column layout. Only the expanded choice body scrolls inside a height cap
+  derived from the available viewport; compact actions, applied chips, and
+  usable result or discovery space stay outside that scroll.
 - Photo grids should use justified rows or the established Mosaic layout, not unrelated fixed-grid or staggered-grid layouts.
 - Text must fit its container on mobile and desktop.
 - Do not add nested cards or unrelated decorative surfaces.

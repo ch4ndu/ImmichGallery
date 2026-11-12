@@ -58,9 +58,12 @@ Album/Person detail is documented separately in
 - `ExploreRoute` replaces the old nested Search route and label while retaining
   `SearchScreen`, `SearchViewModel`, Search density, modes, pagination, saved
   navigation state, and viewer behavior.
-- The blank idle Explore state shows static Favorites and Memories entry cards.
-  A typed query keeps the existing Search hint; executed Search states keep the
-  existing loading/error/empty/results behavior. Clearing restores the cards.
+- The blank idle Explore state starts below the compact Search controls with
+  People, Albums, conditional Tags, and Date filter shortcuts plus compact
+  Favorites and Memories entries. The entries have no descriptive prose and
+  reflow from a row to a stack when width or text size requires it. A typed but
+  unsubmitted query leaves the result area empty; executed Search states keep
+  the loading/error/empty/results behavior. Clearing restores idle discovery.
 - Explore cards perform no collection request. The corresponding ViewModel is
   created only after navigating to root `FavoritesRoute` or `MemoriesRoute`.
 
@@ -114,18 +117,36 @@ Album/Person detail is documented separately in
 
 ## Advanced Search Controls And Editors
 
-- Query, compact mode selector, Tune, category chips, and applied summaries
-  remain visible above Explore/results and are hidden only while the media
-  overlay is active. Context and OCR are disabled until positively supported;
-  capability failure remains retryable without changing the selected text.
-- The category row prioritizes People, Albums, Date, Media, and Camera, then
-  exposes Location, conditional Tags/Rating, and Display. Applied People are
-  individually removable; larger selections use the first resolved value plus
-  a count. Missing option rows retain an unavailable label and remain removable.
-- Tune and category actions open the same draft editor. Widths below 600dp use
-  a `ModalBottomSheet`; wider layouts use a bounded scrollable dialog. Apply
-  submits one normalized snapshot. Cancel, Back, Escape, outside click, and
-  sheet swipe discard the draft without changing results.
+- Search starts with one compact text field, an explicit arrow submit action,
+  IME submission, and a clear action. Its second row contains a descriptive
+  **Search by** choice surface and a labeled **Filters** action with the active
+  category count. Meaning maps to the existing Context request mode; Filename,
+  Description, and Text in photos map to the existing metadata modes. Context
+  and OCR remain disabled until positively supported, and capability failure
+  remains retryable without changing selected text.
+- The expanded choice surface remains inline and uses one column below 600dp
+  and two columns at wider widths. Its choice body alone scrolls within a
+  viewport-derived height cap; the compact controls, applied chips, and a
+  usable result or discovery region remain outside that scroll on short or
+  enlarged-text layouts.
+- Executed results do not retain a permanent category strip or sidebar.
+  Applied People remain individually removable; larger selections use the
+  first resolved value plus a count. Missing option rows retain an unavailable
+  label and remain removable.
+- Filters and idle discovery shortcuts open one atomic draft editor. Widths
+  below 600dp use a `ModalBottomSheet` with horizontal category navigation;
+  wider layouts use a bounded dialog with side navigation. Categories are
+  People, Albums, conditional Tags, Date, Media, Camera, Location, conditional
+  Rating, and Display. Switching categories preserves the complete draft and
+  each entity search query. Apply submits one normalized snapshot. Cancel,
+  Back, Escape, outside click, and sheet swipe discard the draft without
+  changing results. A reversed date range disables Apply even after navigating
+  away from Date.
+- People/Album syncs, Tag reads, and Camera/Location suggestion reads start
+  only when their category is first visited. Preference failure remains visible
+  and retryable from the editor even though Tags and Rating require a positive
+  preference; immediately observed cached People/Album options and existing
+  per-source retry behavior remain intact.
 - People, Albums, and Tags support local case-insensitive search, stable
   selected-first ordering while the query is blank, stable-id multi-selection,
   Clear, and selected-state visibility. People use circular authenticated face
@@ -158,9 +179,15 @@ Album/Person detail is documented separately in
 - Near-end detection can automatically attempt one request per
   request-generation/page pair. It will not repeatedly auto-retry a failed
   page.
-- Whenever `nextPage` remains non-null, the explicit **Load more** footer remains
-  available, including when an API page contains no supported assets after
-  filtering.
+- `loadMore()` atomically claims the submitted session and exact next-page
+  token. An unrelated state publication retries that claim without a fixed
+  attempt limit; every retry rechecks the same session/page eligibility,
+  duplicate guard, and invalid-token termination before starting one request.
+- Ordinary pagination is automatic and has no **Load more** control. A failed
+  continuation keeps the current results and exposes an explicit Retry. A
+  terminal marker remains measurable even when a page contributes no supported
+  assets, so sparse or unsupported-only pages continue through the same
+  generation/page guard and server `nextPage` tokens without an auto-retry loop.
 - Search has no main-shell refresh action because executing the query is its
   refresh boundary.
 
@@ -261,8 +288,8 @@ in `media-viewer.md`.
 - a People list sync follows all pages and does not publish a partial replace;
 - removed Album/Person owners clear owner-scoped detail data transactionally;
 - query/mode changes reject stale network and row-layout results;
-- load-more is duplicate-guarded, follows the server token, and retries only by
-  a new explicit/eligible attempt;
+- load-more is duplicate-guarded, follows the server token, advances across
+  sparse pages automatically, and retries a failed page only by explicit Retry;
 - Search remains RowPacking-only, does not page-zero fallback on open, and
   restores the currently viewed asset row on overlay dismissal.
 - Search option tests cover independent feature/preference failure, positive

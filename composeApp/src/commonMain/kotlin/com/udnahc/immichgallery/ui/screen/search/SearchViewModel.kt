@@ -426,26 +426,18 @@ class SearchViewModel internal constructor(
     }
 
     fun loadMore() {
-        val previous = _state.value
-        val session = previous.submittedSession ?: return
-        val page = session.nextPage ?: return
-        if (previous.isLoadingMore) return
-        if (page <= session.currentPage || page in session.consumedPages) {
-            _state.compareAndSet(
-                previous,
-                previous.copy(submittedSession = session.copy(nextPage = null))
-            )
-            return
-        }
-        if (!_state.compareAndSet(previous, previous.copy(isLoadingMore = true, loadMoreError = null))) return
+        val claim = claimSearchLoadMore(
+            currentState = { _state.value },
+            compareAndSet = _state::compareAndSet
+        ) ?: return
 
         loadMoreJob = viewModelScope.launch(searchDispatcher) {
             log.d { "Search load more endpoint=<redacted> page=<redacted>" }
-            searchAssets(session.endpoint, session.criteria, page).fold(
-                onSuccess = { result -> publishNextPage(session, page, result) },
+            searchAssets(claim.session.endpoint, claim.session.criteria, claim.page).fold(
+                onSuccess = { result -> publishNextPage(claim.session, claim.page, result) },
                 onFailure = { error ->
                     log.e { "Search load more failed endpoint=<redacted> page=<redacted>" }
-                    updateForSession(session) {
+                    updateForSession(claim.session) {
                         it.copy(isLoadingMore = false, loadMoreError = SearchUiMessage.SearchFailed)
                     }
                 }
@@ -771,6 +763,34 @@ private fun SearchSession.identity(): SubmittedSearchIdentity = SubmittedSearchI
     endpoint = endpoint,
     generation = generation
 )
+
+internal data class SearchLoadMoreClaim(
+    val session: SearchSession,
+    val page: Int
+)
+
+internal fun claimSearchLoadMore(
+    currentState: () -> SearchState,
+    compareAndSet: (SearchState, SearchState) -> Boolean
+): SearchLoadMoreClaim? {
+    val initialSession = currentState().submittedSession ?: return null
+    val page = initialSession.nextPage ?: return null
+    val identity = initialSession.identity()
+    while (true) {
+        val current = currentState()
+        val session = current.submittedSession ?: return null
+        if (!identity.matches(current) || session.nextPage != page || current.isLoadingMore) return null
+        val validPage = page > session.currentPage && page !in session.consumedPages
+        val claimed = if (validPage) {
+            current.copy(isLoadingMore = true, loadMoreError = null)
+        } else {
+            current.copy(submittedSession = session.copy(nextPage = null))
+        }
+        if (compareAndSet(current, claimed)) {
+            return if (validPage) SearchLoadMoreClaim(session, page) else null
+        }
+    }
+}
 
 private val DEFAULT_SEARCH_CAPABILITIES = SearchCapabilities(
     searchEnabled = true,

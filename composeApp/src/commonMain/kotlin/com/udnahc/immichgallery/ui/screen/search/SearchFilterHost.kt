@@ -4,20 +4,31 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,16 +39,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Dialog
 import com.udnahc.immichgallery.domain.model.SearchCriteria
+import com.udnahc.immichgallery.domain.model.SearchLoadState
 import com.udnahc.immichgallery.domain.model.SearchSuggestionRequest
 import com.udnahc.immichgallery.domain.model.SearchSuggestionType
 import com.udnahc.immichgallery.domain.model.TagConstraint
 import com.udnahc.immichgallery.domain.model.valueOrNull
 import com.udnahc.immichgallery.ui.theme.Dimens
 import immichgallery.composeapp.generated.resources.Res
-import immichgallery.composeapp.generated.resources.apply
 import immichgallery.composeapp.generated.resources.cancel
+import immichgallery.composeapp.generated.resources.retry
 import immichgallery.composeapp.generated.resources.search_albums
-import immichgallery.composeapp.generated.resources.search_apply_people
+import immichgallery.composeapp.generated.resources.search_apply_filters
 import immichgallery.composeapp.generated.resources.search_camera
 import immichgallery.composeapp.generated.resources.search_clear
 import immichgallery.composeapp.generated.resources.search_date
@@ -46,6 +58,7 @@ import immichgallery.composeapp.generated.resources.search_filters
 import immichgallery.composeapp.generated.resources.search_location
 import immichgallery.composeapp.generated.resources.search_media
 import immichgallery.composeapp.generated.resources.search_people
+import immichgallery.composeapp.generated.resources.search_preferences_unavailable
 import immichgallery.composeapp.generated.resources.search_rating
 import immichgallery.composeapp.generated.resources.search_tags
 import org.jetbrains.compose.resources.stringResource
@@ -55,12 +68,12 @@ internal enum class SearchFilterTarget {
     PEOPLE,
     ALBUMS,
     TAGS,
-    CAMERA,
-    LOCATION,
     DATE,
     MEDIA,
-    DISPLAY,
-    RATING
+    CAMERA,
+    LOCATION,
+    RATING,
+    DISPLAY
 }
 
 internal data class SearchFilterDraftState(
@@ -79,6 +92,14 @@ internal data class SearchFilterDraftState(
         ?.metadataOnly()
         ?.normalized()
 }
+
+internal fun initialSearchFilterTarget(
+    requested: SearchFilterTarget,
+    visibleTargets: List<SearchFilterTarget>
+): SearchFilterTarget = requested
+    .takeIf { it != SearchFilterTarget.ALL && it in visibleTargets }
+    ?: visibleTargets.firstOrNull()
+    ?: SearchFilterTarget.PEOPLE
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,48 +121,70 @@ internal fun SearchFilterHost(
     var draftState by remember(target, state.appliedCriteria) {
         mutableStateOf(SearchFilterDraftState(state.appliedCriteria))
     }
+    val visibleTargets = visibleSearchFilterTargets(state.preferenceCapabilities.valueOrNull())
+    var selectedTarget by remember(target) {
+        mutableStateOf(initialSearchFilterTarget(target, visibleTargets))
+    }
     var peopleQuery by remember(target) { mutableStateOf("") }
     var albumQuery by remember(target) { mutableStateOf("") }
     var tagQuery by remember(target) { mutableStateOf("") }
 
-    LaunchedEffect(target) {
-        if (target == SearchFilterTarget.ALL || target == SearchFilterTarget.PEOPLE) onOpenPeople()
-        if (target == SearchFilterTarget.ALL || target == SearchFilterTarget.ALBUMS) onOpenAlbums()
-        if (target == SearchFilterTarget.ALL || target == SearchFilterTarget.TAGS) onOpenTags()
+    LaunchedEffect(visibleTargets) {
+        if (selectedTarget !in visibleTargets) {
+            selectedTarget = initialSearchFilterTarget(target, visibleTargets)
+        }
     }
-
-    val content: @Composable ColumnScope.() -> Unit = {
-        SearchFilterEditorContent(
-            target = target,
-            state = state,
-            draft = draftState.draftCriteria,
-            peopleQuery = peopleQuery,
-            albumQuery = albumQuery,
-            tagQuery = tagQuery,
-            onPeopleQueryChange = { peopleQuery = it },
-            onAlbumQueryChange = { albumQuery = it },
-            onTagQueryChange = { tagQuery = it },
-            onDraftChange = { draftState = draftState.edit(it) },
-            onRetryPeople = onRetryPeople,
-            onRetryAlbums = onRetryAlbums,
-            onRetryTags = onRetryTags,
-            onLoadSuggestions = onLoadSuggestions,
-            onRetrySuggestions = onRetrySuggestions,
-            onRetryPreferences = onRetryPreferences,
-            onClear = { draftState = draftState.edit(draftState.draftCriteria.clearedFor(target)) },
-            onCancel = onDismiss,
-            applyEnabled = draftState.canApply,
-            onApply = {
-                draftState.apply()?.let { criteria ->
-                    onApply(criteria)
-                    onDismiss()
-                }
-            }
-        )
+    LaunchedEffect(selectedTarget) {
+        when (selectedTarget) {
+            SearchFilterTarget.PEOPLE -> onOpenPeople()
+            SearchFilterTarget.ALBUMS -> onOpenAlbums()
+            SearchFilterTarget.TAGS -> onOpenTags()
+            else -> Unit
+        }
     }
 
     BoxWithConstraints {
-        if (maxWidth < Dimens.searchFilterHostBreakpoint) {
+        val compact = maxWidth < Dimens.searchFilterHostBreakpoint
+        val availableHeight = (maxHeight - Dimens.extraLargeSpacing)
+            .coerceAtLeast(Dimens.searchBarHeight)
+            .coerceAtMost(Dimens.searchFilterDialogHeight)
+        val content: @Composable ColumnScope.() -> Unit = {
+            SearchFilterEditorContent(
+                compact = compact,
+                targets = visibleTargets,
+                selectedTarget = selectedTarget,
+                onTargetChange = { selectedTarget = it },
+                state = state,
+                draft = draftState.draftCriteria,
+                peopleQuery = peopleQuery,
+                albumQuery = albumQuery,
+                tagQuery = tagQuery,
+                onPeopleQueryChange = { peopleQuery = it },
+                onAlbumQueryChange = { albumQuery = it },
+                onTagQueryChange = { tagQuery = it },
+                onDraftChange = { draftState = draftState.edit(it) },
+                onRetryPeople = onRetryPeople,
+                onRetryAlbums = onRetryAlbums,
+                onRetryTags = onRetryTags,
+                onLoadSuggestions = onLoadSuggestions,
+                onRetrySuggestions = onRetrySuggestions,
+                onRetryPreferences = onRetryPreferences,
+                onClear = {
+                    draftState = draftState.edit(
+                        draftState.draftCriteria.clearedFor(selectedTarget)
+                    )
+                },
+                onCancel = onDismiss,
+                applyEnabled = draftState.canApply,
+                onApply = {
+                    draftState.apply()?.let { criteria ->
+                        onApply(criteria)
+                        onDismiss()
+                    }
+                }
+            )
+        }
+        if (compact) {
             ModalBottomSheet(
                 onDismissRequest = onDismiss,
                 sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -149,7 +192,7 @@ internal fun SearchFilterHost(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = Dimens.searchFilterDialogHeight)
+                        .height(availableHeight)
                         .padding(horizontal = Dimens.screenPadding)
                 ) {
                     content()
@@ -158,10 +201,10 @@ internal fun SearchFilterHost(
         } else {
             Dialog(onDismissRequest = onDismiss) {
                 Surface(
-                    modifier = Modifier.sizeIn(
-                        maxWidth = Dimens.searchFilterDialogWidth,
-                        maxHeight = Dimens.searchFilterDialogHeight
-                    ),
+                    modifier = Modifier
+                        .sizeIn(maxWidth = Dimens.searchFilterDialogWidth)
+                        .fillMaxWidth()
+                        .height(availableHeight),
                     shape = AlertDialogDefaults.shape,
                     color = AlertDialogDefaults.containerColor,
                     tonalElevation = AlertDialogDefaults.TonalElevation
@@ -177,7 +220,10 @@ internal fun SearchFilterHost(
 
 @Composable
 private fun ColumnScope.SearchFilterEditorContent(
-    target: SearchFilterTarget,
+    compact: Boolean,
+    targets: List<SearchFilterTarget>,
+    selectedTarget: SearchFilterTarget,
+    onTargetChange: (SearchFilterTarget) -> Unit,
     state: SearchState,
     draft: SearchCriteria,
     peopleQuery: String,
@@ -198,78 +244,203 @@ private fun ColumnScope.SearchFilterEditorContent(
     applyEnabled: Boolean,
     onApply: () -> Unit
 ) {
-    Text(target.title(), style = MaterialTheme.typography.headlineSmall)
-    Column(
-        modifier = Modifier
-            .weight(1f)
-            .verticalScroll(rememberScrollState())
-    ) {
-        if (target == SearchFilterTarget.ALL || target == SearchFilterTarget.PEOPLE) {
-            if (target == SearchFilterTarget.ALL) SearchSectionTitle(stringResource(Res.string.search_people))
-            SearchPeoplePicker(
-                state = state.peopleOptions,
-                selectedIds = draft.personIds,
-                query = peopleQuery,
-                onQueryChange = onPeopleQueryChange,
-                onSelectionChange = { onDraftChange(draft.copy(personIds = it)) },
-                onRetry = onRetryPeople
-            )
-        }
-        if (target == SearchFilterTarget.ALL || target == SearchFilterTarget.ALBUMS) {
-            if (target == SearchFilterTarget.ALL) SearchSectionTitle(stringResource(Res.string.search_albums))
-            SearchAlbumPicker(
-                state = state.albumOptions,
-                selectedIds = draft.albumIds,
-                query = albumQuery,
-                onQueryChange = onAlbumQueryChange,
-                onSelectionChange = {
-                    onDraftChange(draft.copy(albumIds = it, isNotInAlbum = false))
-                },
-                onRetry = onRetryAlbums
-            )
-        }
-        if (
-            (target == SearchFilterTarget.ALL || target == SearchFilterTarget.TAGS) &&
-            state.preferenceCapabilities.valueOrNull()?.tagsEnabled == true
-        ) {
-            if (target == SearchFilterTarget.ALL) SearchSectionTitle(stringResource(Res.string.search_tags))
-            SearchTagPicker(
-                state = state.tagOptions,
-                constraint = draft.tags,
-                query = tagQuery,
-                onQueryChange = onTagQueryChange,
-                onConstraintChange = { onDraftChange(draft.copy(tags = it)) },
-                onRetry = onRetryTags
-            )
-        }
-        SearchMetadataFilterSections(
-            target = target,
-            criteria = draft,
-            preferenceCapabilities = state.preferenceCapabilities,
-            suggestionOptions = state.suggestionOptions,
-            onCriteriaChange = onDraftChange,
-            onLoadSuggestions = onLoadSuggestions,
-            onRetrySuggestions = onRetrySuggestions,
-            onRetryPreferences = onRetryPreferences
-        )
+    Text(
+        stringResource(Res.string.search_filters),
+        style = MaterialTheme.typography.headlineSmall,
+        modifier = Modifier.padding(bottom = Dimens.mediumSpacing)
+    )
+    if (state.preferenceCapabilities is SearchLoadState.Error) {
+        SearchPreferenceFailure(onRetryPreferences)
     }
-    Row(
+    if (compact) {
+        Column(modifier = Modifier.weight(1f)) {
+            SearchFilterCategoryRow(
+                targets = targets,
+                selectedTarget = selectedTarget,
+                onTargetChange = onTargetChange
+            )
+            HorizontalDivider()
+            SearchFilterCategoryContent(
+                modifier = Modifier.weight(1f),
+                target = selectedTarget,
+                state = state,
+                draft = draft,
+                peopleQuery = peopleQuery,
+                albumQuery = albumQuery,
+                tagQuery = tagQuery,
+                onPeopleQueryChange = onPeopleQueryChange,
+                onAlbumQueryChange = onAlbumQueryChange,
+                onTagQueryChange = onTagQueryChange,
+                onDraftChange = onDraftChange,
+                onRetryPeople = onRetryPeople,
+                onRetryAlbums = onRetryAlbums,
+                onRetryTags = onRetryTags,
+                onLoadSuggestions = onLoadSuggestions,
+                onRetrySuggestions = onRetrySuggestions,
+                onRetryPreferences = onRetryPreferences
+            )
+        }
+    } else {
+        Row(modifier = Modifier.weight(1f)) {
+            SearchFilterCategoryRail(
+                targets = targets,
+                selectedTarget = selectedTarget,
+                onTargetChange = onTargetChange
+            )
+            VerticalDivider(modifier = Modifier.fillMaxHeight())
+            SearchFilterCategoryContent(
+                modifier = Modifier.weight(1f).padding(start = Dimens.largeSpacing),
+                target = selectedTarget,
+                state = state,
+                draft = draft,
+                peopleQuery = peopleQuery,
+                albumQuery = albumQuery,
+                tagQuery = tagQuery,
+                onPeopleQueryChange = onPeopleQueryChange,
+                onAlbumQueryChange = onAlbumQueryChange,
+                onTagQueryChange = onTagQueryChange,
+                onDraftChange = onDraftChange,
+                onRetryPeople = onRetryPeople,
+                onRetryAlbums = onRetryAlbums,
+                onRetryTags = onRetryTags,
+                onLoadSuggestions = onLoadSuggestions,
+                onRetrySuggestions = onRetrySuggestions,
+                onRetryPreferences = onRetryPreferences
+            )
+        }
+    }
+    FlowRow(
         modifier = Modifier.fillMaxWidth().padding(vertical = Dimens.mediumSpacing),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.End,
+        verticalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)
     ) {
         TextButton(onClick = onClear) { Text(stringResource(Res.string.search_clear)) }
-        Row {
-            TextButton(onClick = onCancel) { Text(stringResource(Res.string.cancel)) }
-            TextButton(onClick = onApply, enabled = applyEnabled) {
-                Text(
-                    if (target == SearchFilterTarget.PEOPLE) {
-                        stringResource(Res.string.search_apply_people, draft.personIds.size)
-                    } else {
-                        stringResource(Res.string.apply)
-                    }
-                )
-            }
+        TextButton(onClick = onCancel) { Text(stringResource(Res.string.cancel)) }
+        Button(onClick = onApply, enabled = applyEnabled) {
+            Text(stringResource(Res.string.search_apply_filters))
         }
+    }
+}
+
+@Composable
+private fun SearchFilterCategoryRow(
+    targets: List<SearchFilterTarget>,
+    selectedTarget: SearchFilterTarget,
+    onTargetChange: (SearchFilterTarget) -> Unit
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)
+    ) {
+        items(targets, key = SearchFilterTarget::name) { target ->
+            FilterChip(
+                selected = target == selectedTarget,
+                onClick = { onTargetChange(target) },
+                label = { Text(target.title()) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchFilterCategoryRail(
+    targets: List<SearchFilterTarget>,
+    selectedTarget: SearchFilterTarget,
+    onTargetChange: (SearchFilterTarget) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .width(Dimens.searchFilterCategoryWidth)
+            .fillMaxHeight(),
+        verticalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)
+    ) {
+        items(targets, key = SearchFilterTarget::name) { target ->
+            NavigationDrawerItem(
+                label = { Text(target.title()) },
+                selected = target == selectedTarget,
+                onClick = { onTargetChange(target) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchFilterCategoryContent(
+    modifier: Modifier,
+    target: SearchFilterTarget,
+    state: SearchState,
+    draft: SearchCriteria,
+    peopleQuery: String,
+    albumQuery: String,
+    tagQuery: String,
+    onPeopleQueryChange: (String) -> Unit,
+    onAlbumQueryChange: (String) -> Unit,
+    onTagQueryChange: (String) -> Unit,
+    onDraftChange: (SearchCriteria) -> Unit,
+    onRetryPeople: () -> Unit,
+    onRetryAlbums: () -> Unit,
+    onRetryTags: () -> Unit,
+    onLoadSuggestions: (SearchSuggestionRequest) -> Unit,
+    onRetrySuggestions: (SearchSuggestionType) -> Unit,
+    onRetryPreferences: () -> Unit
+) {
+    when (target) {
+        SearchFilterTarget.PEOPLE -> SearchPeoplePicker(
+            state = state.peopleOptions,
+            selectedIds = draft.personIds,
+            query = peopleQuery,
+            onQueryChange = onPeopleQueryChange,
+            onSelectionChange = { onDraftChange(draft.copy(personIds = it)) },
+            onRetry = onRetryPeople,
+            modifier = modifier
+        )
+        SearchFilterTarget.ALBUMS -> SearchAlbumPicker(
+            state = state.albumOptions,
+            selectedIds = draft.albumIds,
+            query = albumQuery,
+            onQueryChange = onAlbumQueryChange,
+            onSelectionChange = {
+                onDraftChange(draft.copy(albumIds = it, isNotInAlbum = false))
+            },
+            onRetry = onRetryAlbums,
+            modifier = modifier
+        )
+        SearchFilterTarget.TAGS -> SearchTagPicker(
+            state = state.tagOptions,
+            constraint = draft.tags,
+            query = tagQuery,
+            onQueryChange = onTagQueryChange,
+            onConstraintChange = { onDraftChange(draft.copy(tags = it)) },
+            onRetry = onRetryTags,
+            modifier = modifier
+        )
+        else -> Column(modifier = modifier.verticalScroll(rememberScrollState())) {
+            SearchMetadataFilterSections(
+                target = target,
+                criteria = draft,
+                preferenceCapabilities = state.preferenceCapabilities,
+                suggestionOptions = state.suggestionOptions,
+                onCriteriaChange = onDraftChange,
+                onLoadSuggestions = onLoadSuggestions,
+                onRetrySuggestions = onRetrySuggestions,
+                onRetryPreferences = onRetryPreferences
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchPreferenceFailure(onRetry: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(bottom = Dimens.mediumSpacing),
+        horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
+    ) {
+        Text(
+            stringResource(Res.string.search_preferences_unavailable),
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        TextButton(onClick = onRetry) { Text(stringResource(Res.string.retry)) }
     }
 }
 

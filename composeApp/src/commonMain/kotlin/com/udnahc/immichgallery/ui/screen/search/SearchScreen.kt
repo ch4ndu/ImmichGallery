@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,9 +30,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +64,7 @@ import com.udnahc.immichgallery.domain.model.SearchSuggestionRequest
 import com.udnahc.immichgallery.domain.model.SearchSuggestionType
 import com.udnahc.immichgallery.domain.model.SearchTextMode
 import com.udnahc.immichgallery.domain.model.packIntoRows
+import com.udnahc.immichgallery.domain.model.valueOrNull
 import com.udnahc.immichgallery.ui.component.JustifiedPhotoRow
 import com.udnahc.immichgallery.ui.component.PhotoOverlayHost
 import com.udnahc.immichgallery.ui.component.ScrollbarOverlay
@@ -73,17 +77,20 @@ import com.udnahc.immichgallery.ui.util.desktopGridZoom
 import com.udnahc.immichgallery.ui.util.ensureReturnSourceVisible
 import com.udnahc.immichgallery.ui.util.pinchToZoomRowHeight
 import immichgallery.composeapp.generated.resources.Res
-import immichgallery.composeapp.generated.resources.explore_favorites_description
-import immichgallery.composeapp.generated.resources.explore_memories_description
 import immichgallery.composeapp.generated.resources.favorites
+import immichgallery.composeapp.generated.resources.ic_albums
+import immichgallery.composeapp.generated.resources.ic_arrow_forward
 import immichgallery.composeapp.generated.resources.ic_favorite
 import immichgallery.composeapp.generated.resources.ic_memories
-import immichgallery.composeapp.generated.resources.load_more
+import immichgallery.composeapp.generated.resources.ic_people
 import immichgallery.composeapp.generated.resources.memories
 import immichgallery.composeapp.generated.resources.retry
+import immichgallery.composeapp.generated.resources.search_albums
+import immichgallery.composeapp.generated.resources.search_date
 import immichgallery.composeapp.generated.resources.search_load_more_failed
-import immichgallery.composeapp.generated.resources.search_hint
 import immichgallery.composeapp.generated.resources.search_no_results
+import immichgallery.composeapp.generated.resources.search_people
+import immichgallery.composeapp.generated.resources.search_tags
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.datetime.LocalDate
@@ -220,39 +227,48 @@ fun SearchContent(
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val focusManager = LocalFocusManager.current
     var filterTarget by remember { mutableStateOf<SearchFilterTarget?>(null) }
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
             .padding(horizontal = Dimens.screenPadding)
             .padding(top = statusBarPadding + Dimens.topBarHeight)
     ) {
-        SearchControls(
-            visible = !showOverlay,
-            state = state,
-            onQueryChange = onQueryChange,
-            onTextModeChange = onTextModeChange,
-            onSearch = onSearch,
-            onOpenFilters = { filterTarget = it },
-            onApplyCriteria = onApplyCriteria,
-            onRetryCapabilities = onRetryCapabilities
+        val resultReserve = minOf(
+            Dimens.searchResultReservedHeight,
+            maxHeight * 0.25f
         )
-
-        Box(modifier = Modifier.weight(1f)) {
-            SearchResultContent(
+        val controlsMaxHeight = (maxHeight - resultReserve).coerceAtLeast(0.dp)
+        Column(modifier = Modifier.fillMaxSize()) {
+            SearchControls(
+                modifier = Modifier.heightIn(max = controlsMaxHeight),
+                visible = !showOverlay,
                 state = state,
-                listState = listState,
-                transitionAssetId = transitionAssetId,
-                hiddenAssetId = hiddenAssetId,
-                onPhotoClick = onPhotoClick,
-                onSetAvailableWidth = onSetAvailableWidth,
-                onSetAvailableViewportHeight = onSetAvailableViewportHeight,
-                onSetTargetRowHeight = onSetTargetRowHeight,
-                onLoadMore = onLoadMore,
-                onFavoritesClick = onFavoritesClick,
-                onMemoriesClick = onMemoriesClick,
-                sharedTransitionScope = sharedTransitionScope
+                onQueryChange = onQueryChange,
+                onTextModeChange = onTextModeChange,
+                onSearch = onSearch,
+                onOpenFilters = { filterTarget = it },
+                onApplyCriteria = onApplyCriteria,
+                onRetryCapabilities = onRetryCapabilities
             )
+
+            Box(modifier = Modifier.weight(1f)) {
+                SearchResultContent(
+                    state = state,
+                    listState = listState,
+                    transitionAssetId = transitionAssetId,
+                    hiddenAssetId = hiddenAssetId,
+                    onPhotoClick = onPhotoClick,
+                    onSetAvailableWidth = onSetAvailableWidth,
+                    onSetAvailableViewportHeight = onSetAvailableViewportHeight,
+                    onSetTargetRowHeight = onSetTargetRowHeight,
+                    onLoadMore = onLoadMore,
+                    onFavoritesClick = onFavoritesClick,
+                    onMemoriesClick = onMemoriesClick,
+                    onOpenFilters = { filterTarget = it },
+                    sharedTransitionScope = sharedTransitionScope
+                )
+            }
         }
     }
     filterTarget?.let { target ->
@@ -288,6 +304,7 @@ private fun SearchResultContent(
     onLoadMore: () -> Unit,
     onFavoritesClick: () -> Unit,
     onMemoriesClick: () -> Unit,
+    onOpenFilters: (SearchFilterTarget) -> Unit,
     sharedTransitionScope: SharedTransitionScope?
 ) {
     when {
@@ -312,10 +329,12 @@ private fun SearchResultContent(
             sharedTransitionScope = sharedTransitionScope
         )
         shouldShowExploreLanding(state) -> ExploreLanding(
+            tagsEnabled = state.preferenceCapabilities.valueOrNull()?.tagsEnabled == true,
+            onOpenFilters = onOpenFilters,
             onFavoritesClick = onFavoritesClick,
             onMemoriesClick = onMemoriesClick
         )
-        else -> SearchMessageState(text = stringResource(Res.string.search_hint))
+        else -> Box(Modifier.fillMaxSize())
     }
 }
 
@@ -324,65 +343,124 @@ internal fun shouldShowExploreLanding(state: SearchState): Boolean =
 
 @Composable
 private fun ExploreLanding(
+    tagsEnabled: Boolean,
+    onOpenFilters: (SearchFilterTarget) -> Unit,
     onFavoritesClick: () -> Unit,
     onMemoriesClick: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = Dimens.largeSpacing),
-        verticalArrangement = Arrangement.spacedBy(Dimens.largeSpacing)
+    val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = Dimens.largeSpacing,
+            bottom = Dimens.bottomBarHeight + navBarPadding
+        ),
+        verticalArrangement = Arrangement.spacedBy(Dimens.extraLargeSpacing)
     ) {
-        ExploreCollectionCard(
-            title = stringResource(Res.string.favorites),
-            description = stringResource(Res.string.explore_favorites_description),
-            icon = Res.drawable.ic_favorite,
-            onClick = onFavoritesClick
-        )
-        ExploreCollectionCard(
-            title = stringResource(Res.string.memories),
-            description = stringResource(Res.string.explore_memories_description),
-            icon = Res.drawable.ic_memories,
-            onClick = onMemoriesClick
-        )
+        item(key = "search_discovery_shortcuts") {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing),
+                verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
+            ) {
+                SearchDiscoveryShortcut(
+                    label = stringResource(Res.string.search_people),
+                    icon = Res.drawable.ic_people,
+                    onClick = { onOpenFilters(SearchFilterTarget.PEOPLE) }
+                )
+                SearchDiscoveryShortcut(
+                    label = stringResource(Res.string.search_albums),
+                    icon = Res.drawable.ic_albums,
+                    onClick = { onOpenFilters(SearchFilterTarget.ALBUMS) }
+                )
+                if (tagsEnabled) {
+                    SearchDiscoveryShortcut(
+                        label = stringResource(Res.string.search_tags),
+                        onClick = { onOpenFilters(SearchFilterTarget.TAGS) }
+                    )
+                }
+                SearchDiscoveryShortcut(
+                    label = stringResource(Res.string.search_date),
+                    onClick = { onOpenFilters(SearchFilterTarget.DATE) }
+                )
+            }
+        }
+        item(key = "search_discovery_collections") {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                if (maxWidth >= Dimens.searchFilterHostBreakpoint) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
+                    ) {
+                        ExploreCollectionEntry(
+                            title = stringResource(Res.string.favorites),
+                            icon = Res.drawable.ic_favorite,
+                            onClick = onFavoritesClick,
+                            modifier = Modifier.weight(1f)
+                        )
+                        ExploreCollectionEntry(
+                            title = stringResource(Res.string.memories),
+                            icon = Res.drawable.ic_memories,
+                            onClick = onMemoriesClick,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)) {
+                        ExploreCollectionEntry(
+                            title = stringResource(Res.string.favorites),
+                            icon = Res.drawable.ic_favorite,
+                            onClick = onFavoritesClick
+                        )
+                        ExploreCollectionEntry(
+                            title = stringResource(Res.string.memories),
+                            icon = Res.drawable.ic_memories,
+                            onClick = onMemoriesClick
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun ExploreCollectionCard(
-    title: String,
-    description: String,
-    icon: org.jetbrains.compose.resources.DrawableResource,
+private fun SearchDiscoveryShortcut(
+    label: String,
+    icon: org.jetbrains.compose.resources.DrawableResource? = null,
     onClick: () -> Unit
 ) {
-    Card(
+    OutlinedButton(onClick = onClick) {
+        icon?.let {
+            Icon(painter = painterResource(it), contentDescription = null)
+        }
+        Text(label)
+    }
+}
+
+@Composable
+private fun ExploreCollectionEntry(
+    title: String,
+    icon: org.jetbrains.compose.resources.DrawableResource,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedButton(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(Dimens.exploreCardHeight)
+            .heightIn(min = Dimens.searchBarHeight)
             .semantics { contentDescription = title }
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(Dimens.largeSpacing),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Dimens.largeSpacing)
-        ) {
-            Icon(
-                painter = painterResource(icon),
-                contentDescription = null,
-                modifier = Modifier.size(Dimens.exploreCardIconSize)
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(Dimens.smallSpacing)) {
-                Text(title, style = MaterialTheme.typography.titleLarge)
-                Text(
-                    description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null
+        )
+        Text(title, modifier = Modifier.weight(1f))
+        Icon(
+            painter = painterResource(Res.drawable.ic_arrow_forward),
+            contentDescription = null
+        )
     }
 }
 
@@ -572,8 +650,8 @@ private fun SearchResultsList(
                     )
                 }
             }
-        } else if (state.nextPage != null) {
-            item(key = "load_more") {
+        } else if (state.nextPage != null && state.loadMoreError != null) {
+            item(key = "load_more_retry") {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -581,16 +659,18 @@ private fun SearchResultsList(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(Dimens.mediumSpacing)
                 ) {
-                    if (state.loadMoreError != null) {
-                        Text(
-                            text = stringResource(Res.string.search_load_more_failed),
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
+                    Text(
+                        text = stringResource(Res.string.search_load_more_failed),
+                        color = MaterialTheme.colorScheme.error
+                    )
                     Button(onClick = onLoadMore) {
-                        Text(stringResource(if (state.loadMoreError != null) Res.string.retry else Res.string.load_more))
+                        Text(stringResource(Res.string.retry))
                     }
                 }
+            }
+        } else if (state.nextPage != null) {
+            item(key = "automatic_load_more_marker") {
+                Spacer(modifier = Modifier.fillMaxWidth().height(1.dp))
             }
         }
     }

@@ -406,13 +406,14 @@ camera/location suggestions cache successful values by normalized dependency
 tuple while canceling stale requests for the same option type. None of this
 option data adds a Search Room table.
 
-Search keeps persistent query, mode, Tune, category-summary, and applied-value
-controls above the existing justified result surface. Editing happens in one
-atomic draft hosted as a Material bottom sheet below 600dp and a bounded dialog
-at wider sizes; dismissal cancels the draft, while Apply or removal of an
-already-applied chip submits the current visible query/mode with the complete
-normalized filter snapshot. Entity picker filtering is local, selected-first,
-and uses the existing authenticated Person/Album image URLs.
+Search keeps a compact query, descriptive mode choice, labeled Filters action,
+and removable applied values above the existing justified result surface; it
+does not reserve result space for permanent category navigation. Editing happens
+in one atomic category-based draft hosted as a Material bottom sheet below 600dp
+and a bounded dialog at wider sizes; dismissal cancels the draft, while Apply or
+removal of an already-applied chip submits the current visible query/mode with
+the complete normalized filter snapshot. Entity picker filtering is local,
+selected-first, and uses the existing authenticated Person/Album image URLs.
 
 Explore replaces the Search shell route without replacing `SearchViewModel`,
 its density setting, or its pagination/viewer behavior. Its blank idle state
